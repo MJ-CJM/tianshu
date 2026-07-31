@@ -1,4 +1,4 @@
-"""通知三级制 + 免打扰(迭代 5,D2)——urgent 穿透/normal 攒/low 入 digest。"""
+"""通知三级制 + 免打扰——urgent/low 立即外发，normal 在免打扰后补推。"""
 
 from __future__ import annotations
 
@@ -87,11 +87,11 @@ class TestThreeTierDispatch:
         await self._dispatch(n, e, m, hour=14)  # 非免打扰
         assert len(ch.sent) == 1
 
-    async def test_low_never_immediate(self, setup, storage):
+    async def test_low_is_delivered_when_no_digest_pipeline_exists(self, setup, storage):
         n, ch = setup
         e, m = _seed_edict(storage, "low")
         await self._dispatch(n, e, m, hour=14)
-        assert len(ch.sent) == 0  # low 入 digest,不即时
+        assert len(ch.sent) == 1
         assert len(storage.list_pending_notifications()) == 0
 
     async def test_flush_on_next_daytime_notification(self, setup, storage):

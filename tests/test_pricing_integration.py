@@ -223,5 +223,4 @@ async def test_cost_manager_tracker_uses_provider_name(storage):
     assert rec["provider_name"] == "my-deepseek", (
         f"expected 'my-deepseek', got {rec['provider_name']}"
     )
-    # 注：cache_read_tokens 当前不入 cost_ledger 表（schema 未加列）。
-    # 跨 edict 聚合不需要这一维度；单 edict 内的 cache 数据看 outer_loop_iterations 表。
+    assert rec["cache_read_tokens"] == 600

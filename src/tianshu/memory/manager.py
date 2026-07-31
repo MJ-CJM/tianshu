@@ -148,9 +148,11 @@ class MemoryManager:
                 entry.content,
                 category=md_category,
                 timestamp=entry.created_at,
+                entry_id=entry.id,
             )
         except Exception:
             logger.exception("Markdown write failed for %s", entry.id)
+            raise
 
         logger.debug(
             "[MEM] store: persona=%s, category=%s, content_len=%d",
@@ -276,11 +278,15 @@ class MemoryManager:
             ).fetchone()
 
         if row:
-            self._md_backend.delete_line(
+            markdown_deleted = self._md_backend.delete_line(
                 row["persona_id"],
                 row["content"],
                 created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+                entry_id=entry_id,
             )
+            if not markdown_deleted:
+                logger.error("Refusing to delete index-only memory %s", entry_id)
+                return False
 
         return self._backend.delete(entry_id)
 
@@ -293,18 +299,24 @@ class MemoryManager:
         placeholders = ",".join("?" for _ in entry_ids)
         with self._storage._lock:
             rows = self._storage._conn.execute(
-                f"SELECT persona_id, content, created_at FROM memory_entries WHERE id IN ({placeholders})",
+                f"SELECT id, persona_id, content, created_at FROM memory_entries WHERE id IN ({placeholders})",
                 entry_ids,
             ).fetchall()
 
+        deletable_ids: list[str] = []
         for row in rows:
-            self._md_backend.delete_line(
+            entry_id = row["id"]
+            if self._md_backend.delete_line(
                 row["persona_id"],
                 row["content"],
                 created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
-            )
+                entry_id=entry_id,
+            ):
+                deletable_ids.append(entry_id)
+            else:
+                logger.error("Refusing to batch-delete index-only memory %s", entry_id)
 
-        return self._backend.delete_batch(entry_ids)
+        return self._backend.delete_batch(deletable_ids)
 
     # ------------------------------------------------------------------
     # Index sync — rebuild SQLite from Markdown

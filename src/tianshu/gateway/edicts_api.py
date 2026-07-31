@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
@@ -15,6 +15,7 @@ from tianshu.application.edicts import (
     SubmitEdictCommand,
     validate_idempotency_key,
 )
+from tianshu.authz import can_access_submitter, scoped_submitter
 from tianshu.executor.capabilities import (
     MandatoryCapabilityMismatch,
     get_executor_manifest,
@@ -29,6 +30,7 @@ from tianshu.gateway.decisions_api import (
     raise_decision_service_error,
     require_owned_decision,
 )
+from tianshu.gateway.ownership import require_owned_edict
 from tianshu.governance.decision_service import DecisionServiceError
 from tianshu.models import (
     ApiResponse,
@@ -42,14 +44,21 @@ from tianshu.models import (
 )
 from tianshu.models.api import ParseEdictRequest
 from tianshu.models.decision import DecisionKind, ResolveDecisionCommand
-from tianshu.models.edict import EdictRuntime, PolicyProfilePayload, title_from_goal
+from tianshu.models.edict import (
+    EdictRuntime,
+    EdictSchedule,
+    LongRunningScheduleError,
+    PolicyProfilePayload,
+    title_from_goal,
+    validate_long_running_schedule,
+)
 from tianshu.models.governance_contract import (
     AcceptancePolicyV1,
     LegacyEdictGovernanceMapper,
     RequestedGovernanceContractV1,
     acceptance_policy_to_legacy,
 )
-from tianshu.storage import Storage
+from tianshu.storage import EdictArchiveConflict, Storage
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +78,45 @@ def _validate_network_runtime(runtime: object) -> None:
             400,
             f"api_request_write_hosts must be ⊆ api_request_hosts; extra: {sorted(extra)}",
         )
+
+
+def _validate_user_schedule(schedule: EdictSchedule) -> None:
+    """Reject incomplete or surprising user schedules before persistence."""
+    if schedule.type == "immediate":
+        return
+    if schedule.type == "once":
+        if schedule.at is None:
+            raise HTTPException(422, {"code": "schedule_time_required"})
+        if schedule.at.astimezone(UTC) <= datetime.now(UTC):
+            raise HTTPException(422, {"code": "schedule_time_must_be_future"})
+        return
+    if schedule.type == "cron":
+        if not schedule.cron:
+            raise HTTPException(422, {"code": "cron_expression_required"})
+        return
+    if not schedule.interval_seconds or schedule.interval_seconds < 1:
+        raise HTTPException(422, {"code": "interval_seconds_required"})
+
+
+def _validate_long_running_request(body: EdictCreateRequest) -> None:
+    contract = body.governance_contract
+    outer_loop = body.acceptance is not None or (
+        contract is not None and contract.acceptance != AcceptancePolicyV1()
+    )
+    try:
+        validate_long_running_schedule(
+            body.schedule,
+            outer_loop=outer_loop,
+            execution_profile=body.execution_profile,
+        )
+    except LongRunningScheduleError as exc:
+        raise HTTPException(
+            422,
+            {
+                "code": exc.code,
+                "detail": str(exc),
+            },
+        ) from exc
 
 
 def _workspace_source_id(request: Request) -> str:
@@ -172,6 +220,21 @@ def _runtime_from_request(body: EdictCreateRequest, request: Request) -> EdictRu
                 if value is not None
             }
         )
+    outer_loop_requested = body.acceptance is not None or (
+        body.governance_contract is not None
+        and body.governance_contract.acceptance != AcceptancePolicyV1()
+    )
+    if outer_loop_requested:
+        if body.governance_contract is not None and body.governance_contract.budget.retry_limit < 1:
+            raise HTTPException(
+                422,
+                {
+                    "code": "outer_loop_recovery_required",
+                    "detail": "深度任务至少需要一次租约恢复机会",
+                },
+            )
+        # 长程任务默认必须能从一次租约丢失或进程重启中恢复。普通任务仍沿用全局配置。
+        rt_data["retry_limit"] = max(1, int(rt_data.get("retry_limit") or 0))
     runtime = EdictRuntime(**rt_data)
     _validate_network_runtime(runtime)
     return runtime
@@ -307,6 +370,10 @@ async def create_edict(body: EdictCreateRequest, request: Request, response: Res
     auth = get_auth_context(request)
     submitter = auth.principal.id
     idempotency_key = _idempotency_key_from_request(body, request)
+    # 已接受请求的重放必须仍能返回原结果，即使一次性执行时间此刻已过去。
+    if storage.find_edict_by_idempotency_key(submitter, idempotency_key) is None:
+        _validate_user_schedule(body.schedule)
+        _validate_long_running_request(body)
 
     runtime = _runtime_from_request(body, request)
     requested_contract = _requested_contract_from_body(body, request, runtime)
@@ -343,6 +410,7 @@ async def create_edict(body: EdictCreateRequest, request: Request, response: Res
         "constraints": list(requested_contract.objective.constraints),
         "output_format": requested_contract.objective.output_format,
         "review_policy": requested_contract.permissions.review_policy,
+        "schedule": body.schedule,
         "runtime": runtime,
         "governance_contract": requested_contract,
         "idempotency_key": idempotency_key,
@@ -375,7 +443,10 @@ async def create_edict(body: EdictCreateRequest, request: Request, response: Res
         edict_kwargs["acceptance"] = body.acceptance
     elif requested_contract.acceptance != AcceptancePolicyV1():
         edict_kwargs["acceptance"] = acceptance_policy_to_legacy(requested_contract.acceptance)
-    if body.execution_profile != "foreground":
+    if body.acceptance is not None or requested_contract.acceptance != AcceptancePolicyV1():
+        # API 继续接受三个历史 profile，但新建深度任务统一落为可检查点模式。
+        edict_kwargs["execution_profile"] = "checkpointed"
+    elif body.execution_profile != "foreground":
         edict_kwargs["execution_profile"] = body.execution_profile
     edict = Edict(**edict_kwargs)
     logger.debug(
@@ -452,6 +523,8 @@ async def parse_edict_nl(body: ParseEdictRequest, request: Request):
 
 @edicts_router.post("/governance/preview", response_model=ApiResponse)
 def preview_governance_contract(body: EdictCreateRequest, request: Request):
+    _validate_user_schedule(body.schedule)
+    _validate_long_running_request(body)
     runtime = _runtime_from_request(body, request)
     contract = _requested_contract_from_body(body, request, runtime)
     execution_mode = _execution_mode_from_body(body, contract)
@@ -470,11 +543,13 @@ def list_edicts(
     offset: int = Query(default=0, ge=0),
 ):
     storage: Storage = request.app.state.storage
+    auth = get_auth_context(request)
     edicts, total = storage.list_edicts(
         status=status.value if status else None,
         search=search or None,
         limit=limit,
         offset=offset,
+        submitter=scoped_submitter(auth),
     )
     return ApiResponse(
         success=True,
@@ -485,27 +560,28 @@ def list_edicts(
 
 @edicts_router.get("/{edict_id}")
 def get_edict(edict_id: str, request: Request):
-    storage: Storage = request.app.state.storage
-    edict = storage.get_edict(edict_id)
-    if not edict:
-        raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
+    edict = require_owned_edict(request, edict_id)
     return ApiResponse(success=True, data=edict.model_dump(mode="json"))
 
 
 @edicts_router.get("/{edict_id}/detail")
 def get_edict_detail(edict_id: str, request: Request) -> dict[str, object]:
     auth = get_auth_context(request)
+    not_found_detail = {
+        "code": "edict_detail_not_found",
+        "message": "edict detail not found",
+        "correlation_id": auth.correlation_id,
+    }
+    require_owned_edict(
+        request,
+        edict_id,
+        context=auth,
+        not_found_detail=not_found_detail,
+    )
     try:
         snapshot = request.app.state.edict_detail_service.get_snapshot(auth, edict_id)
     except EdictDetailNotFound:
-        raise HTTPException(
-            404,
-            {
-                "code": "edict_detail_not_found",
-                "message": "edict detail not found",
-                "correlation_id": auth.correlation_id,
-            },
-        ) from None
+        raise HTTPException(404, not_found_detail) from None
     except EdictDetailUnavailable:
         raise HTTPException(
             503,
@@ -524,11 +600,9 @@ def get_edict_detail(edict_id: str, request: Request) -> dict[str, object]:
 @edicts_router.patch("/{edict_id}", response_model=ApiResponse)
 def update_edict(edict_id: str, body: EdictUpdateRequest, request: Request):
     storage: Storage = request.app.state.storage
-    edict = storage.get_edict(edict_id)
-    if not edict:
-        raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
+    edict = require_owned_edict(request, edict_id)
     if edict.status != EdictStatus.OPEN:
-        raise HTTPException(status_code=400, detail="只有进行中的敕令可以编辑")
+        raise HTTPException(status_code=400, detail="只有未结案的敕令可以编辑")
     contract = edict.governance_contract
     if contract is not None:
         objective_changed = (body.goal is not None and body.goal != contract.objective.goal) or (
@@ -558,36 +632,40 @@ def update_edict(edict_id: str, body: EdictUpdateRequest, request: Request):
 
 
 @edicts_router.delete("/{edict_id}", response_model=ApiResponse)
-def delete_edict(edict_id: str, request: Request):
+async def delete_edict(edict_id: str, request: Request):
     storage: Storage = request.app.state.storage
-    edict = storage.get_edict(edict_id)
-    if not edict:
-        raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
-    # Only allow deletion of completed/cancelled edicts, or those with no active memorials
-    if edict.status == EdictStatus.OPEN and storage.has_active_memorials(edict_id):
+    require_owned_edict(request, edict_id)
+    # DELETE is a user-facing tombstone operation.  Edict identity,
+    # idempotency records, execution events and governance evidence remain
+    # addressable; only normal list views hide the archived record.
+    try:
+        cancelled_job_ids = storage.tombstone_edict(edict_id)
+    except EdictArchiveConflict:
         raise HTTPException(
             status_code=409,
-            detail="无法删除正在执行中的敕令，请先取消执行",
-        )
-    try:
-        storage.delete_edict(edict_id)
-    except sqlite3.IntegrityError:
-        # 含不可变治理证据（closed evidence bundle / 真实验分流记录）的敕令
-        # 不能物理删除——证据链是治理承诺。降级为归档：列表隐藏、证据保留。
-        storage.archive_edict(edict_id)
-        storage.append_event(edict_id, None, "edict.archived", {"reason": "governed_evidence"})
-        logger.info("[API] Edict %s: 含治理证据，物理删除降级为归档", edict_id)
-        return ApiResponse(success=True, data={"id": edict_id, "archived": True})
-    return ApiResponse(success=True, data={"id": edict_id})
+            detail="无法删除尚有未结束执行的敕令，请先取消执行",
+        ) from None
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found") from None
+    scheduler = getattr(request.app.state, "scheduler", None)
+    if scheduler is not None and cancelled_job_ids:
+        await scheduler.discard_cancelled_jobs(cancelled_job_ids)
+    logger.info("[API] Edict %s: archived with governance history retained", edict_id)
+    return ApiResponse(success=True, data={"id": edict_id, "archived": True})
 
 
 @edicts_router.post("/{edict_id}/pause", response_model=ApiResponse)
 def pause_edict(edict_id: str, request: Request):
-    """暂停一个 active 状态的 edict。complete/winding_down 状态返回 409。幂等：已 paused 直接返回 200。"""
+    """请求深度任务在当前轮结束后暂停。"""
     storage: Storage = request.app.state.storage
-    edict = storage.get_edict(edict_id)
-    if not edict:
-        raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
+    edict = require_owned_edict(request, edict_id)
+    if edict.acceptance is None:
+        raise HTTPException(
+            status_code=409,
+            detail="普通任务不支持暂停；可取消任务，或创建深度任务以使用轮次边界暂停",
+        )
+    if edict.status is not EdictStatus.OPEN or not storage.has_unfinished_memorials(edict_id):
+        raise HTTPException(status_code=409, detail="只有尚未结束的开放任务可以暂停")
     phase = edict.runtime.lifecycle_phase
     if phase == "complete":
         raise HTTPException(status_code=409, detail="cannot pause a completed edict")
@@ -597,7 +675,14 @@ def pause_edict(edict_id: str, request: Request):
             detail="cannot pause a winding_down edict; let it finish or wait for completion",
         )
     if phase == "paused":
-        return ApiResponse(success=True, data={"id": edict_id, "lifecycle_phase": "paused"})
+        return ApiResponse(
+            success=True,
+            data={
+                "id": edict_id,
+                "lifecycle_phase": "paused",
+                "effective_after": "current_round",
+            },
+        )
     storage.update_edict_lifecycle_phase(edict_id, "paused")
     storage.append_event(
         edict_id,
@@ -606,10 +691,17 @@ def pause_edict(edict_id: str, request: Request):
         {
             "from_phase": phase,
             "to_phase": "paused",
-            "reason": "user_request",
+            "reason": "user_request_after_current_round",
         },
     )
-    return ApiResponse(success=True, data={"id": edict_id, "lifecycle_phase": "paused"})
+    return ApiResponse(
+        success=True,
+        data={
+            "id": edict_id,
+            "lifecycle_phase": "paused",
+            "effective_after": "current_round",
+        },
+    )
 
 
 class SteerRequest(BaseModel):
@@ -624,9 +716,11 @@ async def steer_edict(edict_id: str, body: SteerRequest, request: Request):
     from ulid import ULID
 
     storage: Storage = request.app.state.storage
-    edict = storage.get_edict(edict_id)
-    if not edict:
-        raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
+    edict = require_owned_edict(request, edict_id)
+    if edict.status != EdictStatus.OPEN or edict.acceptance is None:
+        raise HTTPException(status_code=409, detail="只有运行中的深度任务可以补充要求")
+    if edict.runtime.lifecycle_phase != "active" or not storage.has_active_memorials(edict_id):
+        raise HTTPException(status_code=409, detail="深度任务当前未运行，无法补充下一轮要求")
     storage.save_steer(str(ULID()), edict_id, body.note.strip(), datetime.now(UTC).isoformat())
     bus = getattr(request.app.state, "event_bus", None)
     if bus is not None:
@@ -647,9 +741,11 @@ async def steer_edict(edict_id: str, body: SteerRequest, request: Request):
 def resume_edict(edict_id: str, request: Request):
     """恢复一个 paused 状态的 edict 为 active。complete/winding_down 状态返回 409。幂等：已 active 直接返回 200。"""
     storage: Storage = request.app.state.storage
-    edict = storage.get_edict(edict_id)
-    if not edict:
-        raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
+    edict = require_owned_edict(request, edict_id)
+    if edict.acceptance is None:
+        raise HTTPException(status_code=409, detail="普通任务不支持暂停或恢复")
+    if edict.status is not EdictStatus.OPEN or not storage.has_unfinished_memorials(edict_id):
+        raise HTTPException(status_code=409, detail="只有尚未结束的开放任务可以恢复")
     phase = edict.runtime.lifecycle_phase
     if phase == "complete":
         raise HTTPException(status_code=409, detail="cannot resume a completed edict")
@@ -677,8 +773,7 @@ def resume_edict(edict_id: str, request: Request):
 @edicts_router.get("/{edict_id}/memorial")
 def get_memorial_by_edict(edict_id: str, request: Request):
     storage: Storage = request.app.state.storage
-    if not storage.get_edict(edict_id):
-        raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
+    require_owned_edict(request, edict_id)
     memorial = storage.get_memorial_by_edict(edict_id)
     return ApiResponse(
         success=True,
@@ -689,6 +784,7 @@ def get_memorial_by_edict(edict_id: str, request: Request):
 @edicts_router.get("/{edict_id}/memorials")
 def list_edict_memorials(edict_id: str, request: Request):
     storage: Storage = request.app.state.storage
+    require_owned_edict(request, edict_id)
     memorials = storage.list_memorials_by_edict(edict_id)
     return ApiResponse(success=True, data=[m.model_dump(mode="json") for m in memorials])
 
@@ -711,6 +807,7 @@ def get_latest_memorials_batch(body: LatestMemorialsRequest, request: Request):
     storage: Storage = request.app.state.storage
     data: dict[str, dict | None] = {}
     for edict_id in body.edict_ids:
+        require_owned_edict(request, edict_id)
         memorial = storage.get_memorial_by_edict(edict_id)
         data[edict_id] = memorial.model_dump(mode="json") if memorial else None
     return ApiResponse(success=True, data=data)
@@ -738,6 +835,7 @@ def _resolve_plan_review(
     action: Literal["approve", "reject"],
 ) -> ApiResponse:
     context = get_auth_context(request)
+    require_owned_edict(request, edict_id, context=context)
     existing = require_owned_decision(request, context, body.decision_request_id)
     if existing.request.edict_id != edict_id:
         raise_decision_error(context, 422, "decision_identity_conflict")
@@ -784,7 +882,7 @@ def reject_plan(edict_id: str, body: PlanReviewDecisionRequest, request: Request
 
 @edicts_router.post("/{edict_id}/follow-up", response_model=ApiResponse, status_code=202)
 async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request):
-    storage: Storage = request.app.state.storage
+    edict = require_owned_edict(request, edict_id)
     idempotency_key = request.headers.get("Idempotency-Key")
     if idempotency_key is None:
         raise HTTPException(422, {"code": "idempotency_key_required"})
@@ -793,9 +891,6 @@ async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request
     except ValueError as exc:
         raise HTTPException(422, {"code": "invalid_idempotency_key"}) from exc
 
-    edict = storage.get_edict(edict_id)
-    if not edict:
-        raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
     if edict.status != EdictStatus.OPEN:
         raise HTTPException(status_code=400, detail="敕令已结案，无法继续")
 
@@ -839,9 +934,7 @@ async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request
 @edicts_router.patch("/{edict_id}/status", response_model=ApiResponse)
 def update_edict_status(edict_id: str, body: EdictStatusUpdateRequest, request: Request):
     storage: Storage = request.app.state.storage
-    edict = storage.get_edict(edict_id)
-    if not edict:
-        raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
+    edict = require_owned_edict(request, edict_id)
     storage.update_edict_status(edict_id, body.status.value)
     if body.status.value == "cancelled":
         for memorial in storage.list_memorials_by_edict(edict_id):
@@ -863,6 +956,7 @@ def update_edict_status(edict_id: str, body: EdictStatusUpdateRequest, request: 
 @edicts_router.get("/{edict_id}/events")
 def get_events(edict_id: str, request: Request):
     storage: Storage = request.app.state.storage
+    require_owned_edict(request, edict_id)
     events = storage.get_events(edict_id)
     return ApiResponse(success=True, data=events)
 
@@ -871,6 +965,7 @@ def get_events(edict_id: str, request: Request):
 def get_outer_loop_iterations(edict_id: str, request: Request):
     """长任务 outer loop 的迭代记录（仅 acceptance != None 的 edict 有数据）。"""
     storage: Storage = request.app.state.storage
+    require_owned_edict(request, edict_id)
     rows = storage.get_outer_loop_iterations(edict_id)
     return ApiResponse(success=True, data=rows)
 
@@ -885,7 +980,16 @@ class OuterLoopDecisionRequest(BaseModel):
 async def list_outer_loop_pending(request: Request):
     """所有 L3 待审批的长任务列表（含 best_output / critic_feedback / 轮数等）。"""
     am = request.app.state.approval_manager
-    items = am.list_pending_outer_loop()
+    context = get_auth_context(request)
+    storage: Storage = request.app.state.storage
+    items = [
+        item
+        for item in am.list_pending_outer_loop()
+        if (
+            (edict := storage.get_edict(str(item["edict_id"]))) is not None
+            and can_access_submitter(context, edict.submitter)
+        )
+    ]
     return ApiResponse(success=True, data=items)
 
 
@@ -899,6 +1003,8 @@ async def submit_outer_loop_decision_api(
     from tianshu.executor.orchestrator.human_decision import HumanDecision
     from tianshu.models.acceptance import AcceptanceCriteria
 
+    context = get_auth_context(request)
+    require_owned_edict(request, edict_id, context=context)
     am = request.app.state.approval_manager
     new_acceptance = (
         AcceptanceCriteria.model_validate(body.new_acceptance) if body.new_acceptance else None
@@ -912,7 +1018,7 @@ async def submit_outer_loop_decision_api(
         triggered = am.submit_outer_loop_decision(
             edict_id,
             decision,
-            auth=get_auth_context(request),
+            auth=context,
         )
     except DecisionServiceError as exc:
         raise HTTPException(409, "Outer-loop decision is no longer active") from exc
@@ -928,6 +1034,7 @@ async def submit_outer_loop_decision_api(
 def get_supervision_reports(edict_id: str, request: Request):
     """长任务终态后由所有 critic persona 生成的监督报告列表（4 章节 × N 监督官）。"""
     storage: Storage = request.app.state.storage
+    require_owned_edict(request, edict_id)
     rows = storage.get_supervision_reports(edict_id)
     if not rows:
         return ApiResponse(success=True, data=[])
@@ -941,6 +1048,7 @@ def get_supervision_reports(edict_id: str, request: Request):
 def get_supervision_report_legacy(edict_id: str, request: Request):
     """兼容旧 endpoint —— 返第一个监督报告（已废弃，建议用 /supervision-reports）。"""
     storage: Storage = request.app.state.storage
+    require_owned_edict(request, edict_id)
     row = storage.get_supervision_report(edict_id)
     if not row:
         raise HTTPException(status_code=404, detail="supervision report not found")
@@ -954,6 +1062,7 @@ def get_supervision_report_legacy(edict_id: str, request: Request):
 def list_policy_events(edict_id: str, request: Request):
     """Return policy.* + hook.* + tool.approval_required + decree.* events for an edict."""
     storage: Storage = request.app.state.storage
+    require_owned_edict(request, edict_id)
     rows = storage.get_events(edict_id)
     data = []
     for row in rows:

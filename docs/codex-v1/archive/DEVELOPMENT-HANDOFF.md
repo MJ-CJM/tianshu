@@ -1,5 +1,8 @@
 # Coding Agent 开发交接指南
 
+> **历史交接快照（2026-07-12）：** 本文已归档，旧分支、暂停点和恢复步骤不适用于
+> 当前工作树。当前入口见 [当前实现与支持边界](../../CURRENT-STATE.md)。
+
 ## 第一原则
 
 当前工作区包含用户批准、尚未提交的 G1.4b3 安全实现和暂停前的局部 TDD 修复。
@@ -44,7 +47,7 @@ S0 A/B 收口后达到真实 `git status` clean。
 - `src/tianshu/executor/workspace_service.py`
 - `src/tianshu/executor/git_backend.py`
 
-对应测试由 [active S0 core brief](./evidence/active-s0-core-brief.md) 精确定义。
+对应测试由 [active S0 core brief](../evidence/active-s0-core-brief.md) 精确定义。
 
 ### Commit B：公共 REST/Auth/CLI/capability 表面
 

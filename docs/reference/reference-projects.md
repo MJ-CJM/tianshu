@@ -1,6 +1,8 @@
 # 天枢参考项目借鉴分析
 
 > 本文记录**实际影响了当前代码**的参考项目。其他项目作为附录一行提及。
+> 阶段名和“下一步”保留其形成时的历史语境；当前完成度与支持边界以
+> [当前状态](../CURRENT-STATE.md)为准。
 
 ---
 
@@ -79,7 +81,9 @@ feat_phase3 + feat_phase5 参考。
 3. **Subagent 隔离** —— 子代理独立工具集防止递归失控。天枢的 DAG 节点也采用此思路，每个子节点独立 persona + memorial。
    落点：`src/tianshu/executor/dag_scheduler.py`
 
-4. **三模式调度（at / every / cron）** —— 天枢的 `Scheduler` 支持 `immediate` / `at` / `cron` 三种 schedule_type。
+4. **调度模式（at / every / cron）** —— 当前 `Scheduler` 支持 `immediate` /
+   `once` / `cron` / `interval` 四种 schedule type；普通任务可使用全部四种，长程任务
+   只允许 `immediate` / `once`。
    落点：`src/tianshu/scheduler/scheduler.py`
 
 ### 1.4 DeepAgents — 多代理与 Subagent 上下文隔离
@@ -126,7 +130,7 @@ feat_phase3 参考。
 | ToolResult 截断 | Hermes | `executor/agent.py` |
 | 双层记忆（MEMORY.md + daily log） | NanoBot | `memory/markdown_backend.py` |
 | 分层 Context（8 层） | NanoBot（4 层扩展） | `persona/prompt_builder.py` |
-| 三模式调度 | NanoBot | `scheduler/scheduler.py` |
+| immediate / once / cron / interval 调度 | NanoBot | `scheduler/scheduler.py` |
 | Subagent 隔离 | NanoBot + DeepAgents | `executor/dag_scheduler.py` |
 | Auto compact 摘要中段 | DeepAgents | `executor/compaction/auto.py` |
 | Planner / Plan 独立阶段 | DeepAgents | `planner/planner.py` |
@@ -146,4 +150,8 @@ feat_phase3 参考。
 
 以下能力是天枢在参考项目基础上的原创扩展，未直接对应某个外部项目。完整原创设计专篇（含真原创 / 原创封装 / 借鉴边界的诚实分级、机制类名、代码落点、设计文档）见 [original-designs.md](./original-designs.md)。
 
-精简指针：六部官制组织、诏令→题本→批红 领域模型、长任务 Outer Loop + 验收标准、平行位面演化（Universe）、代码变体位面——以上为天枢原创，逐条展开见 [original-designs.md](./original-designs.md)。位面演化与代码变体是当前阶段（feat_phase8）的重点，设计见 [../design/universe/](../design/universe/)。
+精简指针：六部官制组织、诏令→题本→批红 领域模型、长任务 Outer Loop + 验收标准、
+平行位面演化（Universe）、代码变体位面——以上为天枢原创，逐条展开见
+[original-designs.md](./original-designs.md)。文中 `feat_phase8` 是这些能力形成时的历史
+阶段名，不代表当前发布成熟度；当前状态见 [CURRENT-STATE](../CURRENT-STATE.md)，设计见
+[../design/universe/](../design/universe/)。

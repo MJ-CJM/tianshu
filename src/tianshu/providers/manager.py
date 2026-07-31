@@ -259,7 +259,13 @@ class ProviderManager:
             source = "custom"
         else:
             source = "mixed"
-        return {"miss": miss, "hit": hit, "out": out, "source": source, "billing": self._billing(name)}
+        return {
+            "miss": miss,
+            "hit": hit,
+            "out": out,
+            "source": source,
+            "billing": self._billing(name),
+        }
 
     def _billing(self, name: str) -> str:
         """配置关联 provider 的计费方式（profile.billing）；未关联按按量。"""

@@ -176,6 +176,15 @@ def wire_cost_manager(app: FastAPI, settings: TianshuSettings) -> None:
     # --- CostManager（提前创建：FeishuBot /budget 卡片需要）---
     cost_manager = CostManager(storage=storage, event_bus=event_bus)
     app.state.cost_manager = cost_manager
+    event_bus.on(
+        "execution.cancelled",
+        cost_manager.handle_execution_cancelled,
+        consumer_name="cost.execution_cancelled.v1",
+        priority=150,
+    )
+    from tianshu.llm import set_usage_observer
+
+    set_usage_observer(cost_manager.observe_llm_usage)
 
     # --- 出厂预算护栏(迭代 3,放手四保险第④条)---
     # 首次启动若无 global 预算,落出厂默认每日上限;已有则尊重用户设置不覆盖。

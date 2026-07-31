@@ -26,7 +26,9 @@
   _dept/{dept}/MEMORY.md# 部门共享
 ```
 
-**首次启动**：`ensure_dirs()` 扫描 `personas/{id}/MEMORY.md`（git 跟踪模板）拷贝到运行时目录；court 必含。
+**首次启动**：`ensure_dirs()` 通过 `packaged_defaults()` 读取
+`src/tianshu/resources/personas/{id}/MEMORY.md` 的只读打包默认值并写入运行时目录；
+`court` 必含。
 
 ### 写入契约
 

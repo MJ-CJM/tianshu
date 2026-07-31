@@ -58,6 +58,8 @@ class CostTracker:
         self._cost_cny: float = 0.0
         self._last_provider_name: str | None = None
         self._last_model: str | None = None
+        self._provider_names: set[str] = set()
+        self._models: set[str] = set()
 
     @property
     def prompt_tokens(self) -> int:
@@ -86,6 +88,20 @@ class CostTracker:
     @property
     def last_model(self) -> str | None:
         return self._last_model
+
+    @property
+    def provider_label(self) -> str | None:
+        """Return truthful aggregate attribution for a multi-call execution."""
+        if len(self._provider_names) > 1:
+            return "multiple"
+        return next(iter(self._provider_names), None)
+
+    @property
+    def model_label(self) -> str | None:
+        """Return truthful aggregate attribution for a multi-call execution."""
+        if len(self._models) > 1:
+            return "multiple"
+        return next(iter(self._models), None)
 
     def accumulate(
         self,
@@ -120,8 +136,10 @@ class CostTracker:
         self._cost_cny += cost
         if provider_name:
             self._last_provider_name = provider_name
+            self._provider_names.add(provider_name)
         if model:
             self._last_model = model
+            self._models.add(model)
         return cost
 
     def reset(self) -> None:
@@ -131,6 +149,9 @@ class CostTracker:
         self._total_tokens = 0
         self._cost_cny = 0.0
         self._last_provider_name = None
+        self._last_model = None
+        self._provider_names.clear()
+        self._models.clear()
 
 
 def _normalize_pricing(
@@ -143,7 +164,7 @@ def _normalize_pricing(
     if len(pricing) == 2:
         miss, out = pricing
         return (miss, miss, out)
-    return pricing  # type: ignore[return-value]
+    return pricing
 
 
 def estimate_cost(

@@ -214,6 +214,7 @@ def wire_skill_curator(app: FastAPI, settings: TianshuSettings) -> None:
         config_manager=config_manager,
         runtime_dir=Path("~/.tianshu/runtime").expanduser(),
         effect_evaluator=SkillEffectEvaluator(app, config_manager, skills),
+        governed_writes_available=False,
     )
     skill_curator.attach_event_bus(event_bus)
     app.state.skill_curator = skill_curator

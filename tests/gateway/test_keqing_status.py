@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from tianshu.gateway.keqing_api import (
     _detect_installed_version,
@@ -59,12 +60,18 @@ class TestStatusEndpoint:
         assert codex["capabilities"] is None
         assert codex["pinned_version"] is None
 
-    def test_gateway_mode_reports_credential_as_gateway(self):
-        # 开网关 = 天枢托管 scoped token(唯一天枢碰凭证的场景)
+    def test_stale_gateway_config_does_not_claim_unwired_capability(self):
         data = _app(gateway_enabled=True).get("/keqing/status").json()["data"]
-        assert data["gateway_enabled"] is True
+        assert data["gateway_enabled"] is False
         for b in data["backends"]:
-            assert b["credential_status"] == "gateway"
+            assert b["credential_status"] == "self-managed"
+
+    def test_production_app_does_not_mount_experimental_llm_proxy(self):
+        from tianshu.app import create_app
+
+        paths = {route.path for route in create_app().routes}
+        assert "/api/keqing/llm/{provider}/v1/messages" not in paths
+        assert "/api/keqing/llm/{provider}/v1/chat/completions" not in paths
 
     def test_default_mode_credential_is_self_managed(self, monkeypatch):
         # 客卿=外臣,自管凭证(自己 login/本地配置);天枢不管 → 默认「客卿自管」,
@@ -101,5 +108,5 @@ class TestAgentConfigKeqingFields:
     def test_update_request_rejects_negative_budget(self):
         from tianshu.models.api import AgentConfigUpdateRequest
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             AgentConfigUpdateRequest(keqing_per_run_budget_cny=-1)

@@ -15,6 +15,10 @@ import { useQuery } from "@tanstack/react-query";
 import type { ColumnsType } from "antd/es/table";
 import { getEvalRun, listEvalRuns, listEvalSets } from "../api/evals";
 import type { EvalGoalResult, EvalRunBrief, EvalSet } from "../api/types";
+import {
+  CapabilityBoundary,
+  MaturityBadge,
+} from "../components/capabilities/CapabilityMaturity";
 import PageContainer from "../components/common/PageContainer";
 import MonoText from "../components/common/MonoText";
 import { formatTime } from "../utils/format";
@@ -221,7 +225,15 @@ export default function EvalsPage() {
       void setsQuery.refetch();
     };
     return (
-      <PageContainer title={t("evals.title")}>
+      <PageContainer
+        title={t("evals.title")}
+        titleBadge={<MaturityBadge maturity="beta" />}
+      >
+        <CapabilityBoundary
+          maturity="beta"
+          canDo={t("evals.capabilityCanDo")}
+          boundary={t("evals.capabilityBoundary")}
+        />
         <PageDataState
           status={problemPageStatus(problem)}
           data={null}
@@ -270,7 +282,15 @@ export default function EvalsPage() {
   ];
 
   return (
-    <PageContainer title={t("evals.title")}>
+    <PageContainer
+      title={t("evals.title")}
+      titleBadge={<MaturityBadge maturity="beta" />}
+    >
+      <CapabilityBoundary
+        maturity="beta"
+        canDo={t("evals.capabilityCanDo")}
+        boundary={t("evals.capabilityBoundary")}
+      />
       <Typography.Paragraph type="secondary" style={{ marginTop: -12, marginBottom: 16 }}>
         {t("evals.subtitle")}
       </Typography.Paragraph>

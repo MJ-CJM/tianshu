@@ -48,9 +48,7 @@ class TestIsCanonicalArgv:
         assert not a.is_canonical_argv(
             ["pi", "--mode", "json", "--no-session", "p", "--model"]
         )  # 缺 model 值
-        assert not a.is_canonical_argv(
-            ["evil", "--mode", "json", "--no-session", "p"]
-        )  # 非 pi
+        assert not a.is_canonical_argv(["evil", "--mode", "json", "--no-session", "p"])  # 非 pi
 
 
 class TestParseStream:
@@ -60,7 +58,12 @@ class TestParseStream:
             {"type": "agent_start"},
             {"type": "turn_start"},
             {"type": "tool_execution_start", "toolCallId": "c1", "toolName": "bash", "args": {}},
-            {"type": "tool_execution_end", "toolCallId": "c1", "toolName": "bash", "isError": False},
+            {
+                "type": "tool_execution_end",
+                "toolCallId": "c1",
+                "toolName": "bash",
+                "isError": False,
+            },
             {
                 "type": "message_end",
                 "message": {

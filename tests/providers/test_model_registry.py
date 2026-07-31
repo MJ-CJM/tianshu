@@ -71,7 +71,7 @@ def test_migration_backfills_provider_and_encrypts_keys(master_key_env):
             ("relay", "my-model", "sk-relay", "https://llm.example.com/v1"),
         ]
     )
-    assert apply_migrations(conn, MIGRATIONS) == (19, 20, 21, 22)
+    assert apply_migrations(conn, MIGRATIONS) == (19, 20, 21, 22, 23, 24)
 
     cols = [r[1] for r in conn.execute("PRAGMA table_info(llm_configs)")]
     assert "api_key" not in cols and "provider_id" in cols
@@ -111,7 +111,7 @@ def test_migration_without_keys_needs_no_vault(monkeypatch):
     monkeypatch.delenv("TIANSHU_SECRET_MASTER_KEY", raising=False)
     reset_vault()
     conn = _v18_conn_with_legacy_configs([("empty", "gpt-4o-mini", "", "")])
-    assert apply_migrations(conn, MIGRATIONS) == (19, 20, 21, 22)
+    assert apply_migrations(conn, MIGRATIONS) == (19, 20, 21, 22, 23, 24)
     conn.close()
     reset_vault()
 
@@ -236,8 +236,9 @@ def test_provider_manager_injects_effective_base_and_prefix(storage, master_key_
     )
     # 模拟 web「选供应商后 api_base 留空」的新建路径
     cm.add_config(
-        LLMConfigState(name="glm-bare", model="glm-4.7", api_key="", api_base="",
-                       provider_id="zhipu")
+        LLMConfigState(
+            name="glm-bare", model="glm-4.7", api_key="", api_base="", provider_id="zhipu"
+        )
     )
     pm = ProviderManager(storage=storage, config_manager=cm, model_registry=registry)
     client = pm.get_client(config_name_override="glm-bare")

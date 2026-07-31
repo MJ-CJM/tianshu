@@ -256,7 +256,7 @@ class ConfigMixin:
                     plugin["name"],
                     plugin.get("version", "0.0.0"),
                     json.dumps(plugin.get("manifest", {})),
-                    plugin.get("status", "active"),
+                    plugin.get("status", "manifest_only"),
                     plugin.get("sha256"),
                     plugin.get("installed_at", now),
                     now,

@@ -19,6 +19,7 @@ from tianshu.storage.attempt_ledger import (
     AttemptFenceLost,
     AttemptLeaseRepository,
 )
+from tianshu.storage.orchestrator_repo import finalize_outer_loop_terminal
 from tianshu.storage.outbox_repo import OutboxRepository
 from tianshu.storage.run_state_repo import RunStateRepository
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
@@ -136,6 +137,8 @@ class FencedRunCompletion:
                 ):
                     self._observe_boundary("after_run_state")
 
+                finalize_outer_loop_terminal(connection, str(memorial["edict_id"]))
+                self._observe_boundary("after_terminal_cleanup")
                 self._outbox_repository.add(
                     connection,
                     EventEnvelope(
@@ -241,6 +244,8 @@ class FencedRunCompletion:
                     updated_at=now,
                 ):
                     self._observe_boundary("after_run_state")
+                finalize_outer_loop_terminal(connection, str(memorial["edict_id"]))
+                self._observe_boundary("after_terminal_cleanup")
                 self._outbox_repository.add(
                     connection,
                     EventEnvelope(
@@ -332,6 +337,8 @@ class FencedRunCompletion:
                     phase=RunPhase.FAILED,
                     updated_at=completed_at,
                 )
+                finalize_outer_loop_terminal(connection, str(memorial["edict_id"]))
+                self._observe_boundary("after_terminal_cleanup")
                 self._outbox_repository.add(
                     connection,
                     EventEnvelope(

@@ -31,8 +31,39 @@ test("fresh onboarding creates the first governed Edict on the real demo stack",
   await page.getByRole("button", { name: "Confirm contract and dispatch" }).click();
 
   await expect(page).toHaveURL(/\/edicts\/[^/]+$/);
-  await expect(page.getByRole("heading", { name: "Governance Contract" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Task Detail" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Governance & audit/ })).toBeVisible();
   await expect(page.getByText("Write the deterministic S4 browser-gate artifact").first()).toBeVisible();
+});
+
+test("root entry accepts a returning user with a custom persona", async ({
+  isolatedStack,
+  page,
+}) => {
+  const persona = await page.request.post(`${isolatedStack.baseURL}/api/personas`, {
+    data: {
+      id: "custom-reviewer",
+      name: "Custom Reviewer",
+      department: "ducha",
+      tool_tier_max: 1,
+    },
+  });
+  expect(persona.ok()).toBe(true);
+
+  const edict = await page.request.post(`${isolatedStack.baseURL}/api/edicts`, {
+    headers: { "Idempotency-Key": crypto.randomUUID() },
+    data: {
+      title: "Returning user task",
+      goal: "Verify that extensions never block the established workspace",
+      review_policy: "never",
+    },
+  });
+  expect(edict.ok()).toBe(true);
+
+  await page.goto(`${isolatedStack.baseURL}/`);
+
+  await expect(page).toHaveURL(`${isolatedStack.baseURL}/control`);
+  await expect(page.getByRole("heading", { name: "Control Center" })).toBeVisible();
 });
 
 test("product source does not import mockData", async () => {

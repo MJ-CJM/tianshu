@@ -78,6 +78,7 @@ class MarkdownMemoryBackend:
         content: str,
         category: str = "W",
         timestamp: datetime | None = None,
+        entry_id: str | None = None,
     ) -> Path:
         """Append an entry to the daily log file.
 
@@ -91,7 +92,13 @@ class MarkdownMemoryBackend:
         persona_dir.mkdir(parents=True, exist_ok=True)
 
         log_path = persona_dir / f"{date_str}.md"
-        line = f"- [{time_str}] [{category}] {content}\n"
+        identity = f" [id:{entry_id}]" if entry_id else ""
+        content_lines = content.split("\n")
+        line = f"- [{time_str}] [{category}]{identity} {content_lines[0]}\n"
+        if len(content_lines) > 1:
+            # Markdown-indented continuation lines keep one logical memory entry
+            # readable while making a later index rebuild lossless.
+            line += "".join(f"    {continuation}\n" for continuation in content_lines[1:])
 
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(line)
@@ -108,6 +115,23 @@ class MarkdownMemoryBackend:
         if not path.exists():
             return ""
         return path.read_text(encoding="utf-8")
+
+    def read_section_body(self, persona_id: str, section: str) -> str:
+        """Read one H2 section body without leaking content from peer sections."""
+
+        lines = self.read_core_memory(persona_id).splitlines(keepends=True)
+        start = -1
+        end = len(lines)
+        for index, line in enumerate(lines):
+            if start < 0 and line.rstrip("\n") == section:
+                start = index
+                continue
+            if start >= 0 and line.startswith("## "):
+                end = index
+                break
+        if start < 0:
+            return ""
+        return "".join(lines[start + 1 : end]).strip()
 
     def write_core_memory(self, persona_id: str, content: str) -> Path:
         """Write/overwrite the core MEMORY.md for a persona."""
@@ -450,12 +474,16 @@ class MarkdownMemoryBackend:
     # ------------------------------------------------------------------
 
     def delete_line(
-        self, persona_id: str, content: str, created_at: datetime | None = None
+        self,
+        persona_id: str,
+        content: str,
+        created_at: datetime | None = None,
+        entry_id: str | None = None,
     ) -> bool:
         """Delete a matching line from the daily log file.
 
-        Matches by content substring. If created_at is provided, narrows to
-        the specific date file and time prefix.
+        New entries match their stable ``entry_id`` marker. Legacy entries
+        fall back to exact first-line content, narrowed by date when available.
         Returns True if a line was removed.
         """
         persona_dir = self._memory_dir / persona_id
@@ -478,26 +506,36 @@ class MarkdownMemoryBackend:
                 continue
 
             lines = text.splitlines(keepends=True)
-            # Find the first line matching the content
+            # Find the exact stable identity. Legacy logs have no id marker,
+            # so match their complete first content line rather than a substring.
             found_idx = -1
+            marker = f"[id:{entry_id}]" if entry_id else None
+            first_content_line = content.splitlines()[0] if content else ""
+            legacy_re = re.compile(r"^- \[\d{2}:\d{2}\] \[[WBOS]\] (.*?)(?:\r?\n)?$")
             for i, line in enumerate(lines):
-                if content in line:
+                if marker is not None and marker in line:
                     found_idx = i
                     break
+                if marker is None:
+                    match = legacy_re.match(line)
+                    if match and match.group(1) == first_content_line:
+                        found_idx = i
+                        break
+            if marker is not None and found_idx < 0:
+                legacy_matches = [
+                    i
+                    for i, line in enumerate(lines)
+                    if (match := legacy_re.match(line)) and match.group(1) == first_content_line
+                ]
+                if len(legacy_matches) == 1:
+                    found_idx = legacy_matches[0]
 
             if found_idx < 0:
                 continue
 
-            # Remove the matched line and any continuation lines
-            # (continuation = lines not starting with "- [")
+            # Remove the matched line and any continuation lines.
             end_idx = found_idx + 1
-            while end_idx < len(lines):
-                stripped = lines[end_idx].strip()
-                if stripped.startswith("- [") or stripped == "":
-                    break
-                end_idx += 1
-            # Also skip trailing blank line
-            if end_idx < len(lines) and lines[end_idx].strip() == "":
+            while end_idx < len(lines) and not lines[end_idx].startswith("- ["):
                 end_idx += 1
 
             new_lines = lines[:found_idx] + lines[end_idx:]
@@ -527,9 +565,11 @@ class MarkdownMemoryBackend:
         if not persona_dir.exists():
             return 0
 
-        # Parse category from log line: - [HH:MM] [X] content
+        # Parse category from log line:
+        # - [HH:MM] [X] [id:<stable-id>] content
+        # The id marker is optional for backward compatibility.
         _LOG_RE = re.compile(
-            r"^- \[(\d{2}:\d{2})\] \[([WBOS])\] (.+)$",
+            r"^- \[(\d{2}:\d{2})\] \[([WBOS])\](?: \[id:([^\]]+)\])? (.+)$",
         )
         category_map: dict[str, Literal["observation", "insight", "entity", "summary"]] = {
             "W": "observation",
@@ -549,11 +589,27 @@ class MarkdownMemoryBackend:
             except Exception:
                 continue
 
+            parsed_entries: list[tuple[str, str, str | None, str]] = []
+            current: tuple[str, str, str | None, list[str]] | None = None
             for line in text.splitlines():
-                m = _LOG_RE.match(line.strip())
-                if not m:
+                m = _LOG_RE.match(line)
+                if m:
+                    if current is not None:
+                        time_str, cat_code, entry_id, content_lines = current
+                        parsed_entries.append(
+                            (time_str, cat_code, entry_id, "\n".join(content_lines))
+                        )
+                    time_str, cat_code, entry_id, first_line = m.groups()
+                    current = (time_str, cat_code, entry_id, [first_line])
                     continue
-                time_str, cat_code, content = m.groups()
+                if current is not None:
+                    continuation = line[4:] if line.startswith("    ") else line
+                    current[3].append(continuation)
+            if current is not None:
+                time_str, cat_code, entry_id, content_lines = current
+                parsed_entries.append((time_str, cat_code, entry_id, "\n".join(content_lines)))
+
+            for time_str, cat_code, entry_id, content in parsed_entries:
                 try:
                     ts = datetime.strptime(
                         f"{date_str} {time_str}",
@@ -562,13 +618,23 @@ class MarkdownMemoryBackend:
                 except ValueError:
                     ts = datetime.now(UTC)
 
-                entry = MemoryEntry(
-                    persona_id=persona_id,
-                    category=category_map.get(cat_code, "observation"),
-                    content=content,
-                    source="agent",
-                    created_at=ts,
-                )
+                if entry_id:
+                    entry = MemoryEntry(
+                        id=entry_id,
+                        persona_id=persona_id,
+                        category=category_map.get(cat_code, "observation"),
+                        content=content,
+                        source="agent",
+                        created_at=ts,
+                    )
+                else:
+                    entry = MemoryEntry(
+                        persona_id=persona_id,
+                        category=category_map.get(cat_code, "observation"),
+                        content=content,
+                        source="agent",
+                        created_at=ts,
+                    )
                 storage.save_memory_entry(entry)
                 synced += 1
 

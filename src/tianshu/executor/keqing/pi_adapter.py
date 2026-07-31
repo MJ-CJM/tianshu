@@ -98,9 +98,7 @@ class PiAdapter:
                         VERIFIED_SESSION_VERSION,
                     )
             elif etype == EVT_TOOL_EXEC_START:
-                r.tool_events.append(
-                    {"type": "tool.called", "tool": evt.get("toolName", "?")}
-                )
+                r.tool_events.append({"type": "tool.called", "tool": evt.get("toolName", "?")})
             elif etype == EVT_MESSAGE_END:
                 # 流式逐消息终态:usage 累加的唯一来源(避免与 turn_end/agent_end 重复计)
                 saw_message_end = True
@@ -271,14 +269,15 @@ class PiSessionAdapter:
             msg = frame.get("message") or {}
             text = None
             if isinstance(msg, dict) and msg.get("role") == "assistant":
-                text = "".join(
-                    b.get("text", "")
-                    for b in msg.get("content") or []
-                    if isinstance(b, dict) and b.get("type") == "text"
-                ).strip() or None
-            return CanonicalAgentEvent(
-                KIND_MESSAGE, self.dialect, raw_type=etype, text=text
-            )
+                text = (
+                    "".join(
+                        b.get("text", "")
+                        for b in msg.get("content") or []
+                        if isinstance(b, dict) and b.get("type") == "text"
+                    ).strip()
+                    or None
+                )
+            return CanonicalAgentEvent(KIND_MESSAGE, self.dialect, raw_type=etype, text=text)
         if etype == "extension_ui_request":
             return CanonicalAgentEvent(KIND_UI_REQUEST, self.dialect, raw_type=etype)
         return CanonicalAgentEvent(KIND_UNKNOWN, self.dialect, raw_type=etype)

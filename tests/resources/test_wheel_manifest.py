@@ -111,6 +111,8 @@ def test_wheel_contains_license_py_typed_and_metadata(
     dist_info = {name for name in wheel_names if ".dist-info/" in name}
     assert any(name.endswith("/METADATA") for name in dist_info)
     assert any(name.endswith("licenses/LICENSE") for name in dist_info)
+    assert any(name.endswith("licenses/NOTICE") for name in dist_info)
+    assert any(name.endswith("licenses/THIRD_PARTY_NOTICES.md") for name in dist_info)
     version = wheel_path.name.split("-")[1]
     from tianshu import __version__
 
@@ -221,6 +223,7 @@ def test_sdist_ships_the_in_tree_build_backend(tmp_path: Path) -> None:
     assert "build_backend/tianshu_build.py" in names, (
         "sdist 缺少 in-tree 构建后端——从 sdist 构建/安装会直接失败"
     )
+    assert {"LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"} <= names
 
 
 def test_wheel_built_from_sdist_matches_direct_build(tmp_path: Path) -> None:

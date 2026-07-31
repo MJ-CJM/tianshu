@@ -7,23 +7,41 @@
 本地验证环境 `Darwin/arm64/Python 3.12.12` 完成，因此不能把该批次当作 Ubuntu 外部
 复验证据。产品面为 **desktop Web only**；mobile 产品为 `deferred`。
 
-`publication_status`: `not_authorized`。本指南不授权公开仓库、push、tag、release、
+> 当前 final source 已完成本地 Python/Web 测试、Wheel/sdist 构建、依赖审计和 legacy
+> Docker 实建；本轮**没有执行** Ubuntu 全新 HOME exact-Wheel 核心黄金路径。下文第
+> 3–6 节是待执行的复验程序，不是当前 Candidate 已通过的声明。当前没有被接受的
+> Candidate。
+
+当前最终六入口方案已获用户批准并完成本地实现，状态必须分开读取：
+
+- `design_status=approved`
+- `implementation_status=verified_local`
+- `visual_status=user_approval_pending`
+- `publication_status=not_authorized`
+
+其中本地实现通过不等于视觉终审通过，也不授权公开仓库、push、tag、release、
 PyPI/GHCR、官方容器或对外宣发。
 
 ## 1. 支持与信任边界
 
 - 运行模型：single-host、single-node SQLite；host administrator 可访问数据库、主密钥、
   进程内明文、工作区和本地产物，不在当前防护对象内。
+- 身份边界：HTTP、WebSocket、MCP 共用认证上下文；`secure-remote` 普通主体只访问自己
+  的任务资源，管理员 scope 才可读取全局审计、成本、Worker 与平台配置。正式支持范围
+  仍是 trusted-local。
 - `implemented`：SystemAudit、MCP persisted secret ciphertext、durable governance、
-  Evidence Bundle v1、三张核心 desktop Web 页面自动化、Lean Core evolution 黄金路径。
+  Evidence Bundle v1，以及历史 retained 的三张核心 desktop Web 自动化和 Lean Core
+  evolution 黄金路径；当前六入口 Web 另有非视觉自动化，视觉仍待审批。
 - remote MCP：`disabled`；open stdio MCP：`disabled`。两者的 Candidate 正式开放面关闭。
-- `experimental`：Keqing 与尚未冻结完整支持契约的 Lean evolution 扩展面。
-- `deferred`：official container、PyPI、GHCR、签名、完整 provenance、mobile 与十四部门
-  全部深度产品化。
+- `experimental`：Evolution（自进化）、Universes（平行位面）、Keqing（客卿）以及
+  Skill 候选学习扩展面；Evals（评测）为 `Beta`，古典中文导航显示“试行”，插件
+  manifest 目录为 Preview。
+- `deferred`：official container、PyPI、GHCR、签名、完整 provenance 与 mobile。
 - `external_pending`：Ubuntu 外部复验、VoiceOver、OpenHands、executor compatibility、
   ROI、cost calibration 和 full G4。
 - `deferred`：full G5；它不进入当前 Candidate 的外部复验队列。
-- `user_approval_pending`：desktop Web 视觉与交互终审。
+- `visual_status=user_approval_pending`：48 张保留基线覆盖前一版 6 路由；最新源码定义
+  7 路由、预期 56 张，重新生成和哈希更新等待明确浏览器自动化授权。
 
 逐项证据见[能力事实矩阵](../launch/capability-matrix.md)，安全细节见
 [SECURITY.md](../../SECURITY.md)，恢复条件见
@@ -35,7 +53,7 @@ PyPI/GHCR、官方容器或对外宣发。
 
 ```bash
 python3.12 -m venv .source-venv
-.source-venv/bin/python -m pip install -e ".[cli]"
+.source-venv/bin/python -m pip install -e .
 cd web
 npm ci
 npm run build
@@ -44,7 +62,8 @@ TIANSHU_STARTUP_PROFILE=demo .source-venv/bin/python -m uvicorn \
   tianshu.app:create_app --factory --host 127.0.0.1 --port 7998
 ```
 
-该路径用于本地开发。正式 Candidate 证据使用下面的 exact Wheel fresh-install 路径。
+该路径用于本地开发。新的 Candidate 若要成立，仍须使用下面的 exact Wheel
+fresh-install 路径；本轮没有执行该 Gate。
 
 ## 3. 构建并安装 exact Wheel
 
@@ -66,7 +85,7 @@ SOURCE_COMMIT="$(git rev-parse HEAD)"
 WHEEL_SHA256="$(shasum -a 256 "$WHEEL" | awk '{print $1}')"
 python3.12 -m venv .preview-venv
 .preview-venv/bin/python -m pip install --only-binary=:all: \
-  "tianshu[cli] @ file://$WHEEL"
+  "tianshu @ file://$WHEEL"
 ```
 
 不要把同名 registry package、legacy Dockerfile 或另一个 commit 的 Wheel 混入此验证。
@@ -123,7 +142,7 @@ until curl --fail --silent http://127.0.0.1:7998/health/ready >/dev/null; do sle
 
 完整的 descendant-process 禁网、外部安装路径、清洁 SIGTERM、SQLite quick-check 与资源
 digest 证明由
-[`test_lean_preview_fresh_wheel.py`](../../tests/launch/test_lean_preview_fresh_wheel.py)
+[`test_fresh_wheel_demo.py`](../../tests/packaging/test_fresh_wheel_demo.py)
 执行；手工命令不能替代该 retained Gate。
 
 ## 5. 单一黄金 Demo 命令
@@ -159,12 +178,12 @@ overlay、rollback receipt、source commit 和 Wheel SHA 全部一致。任何�
 
 ## 7. 历史已验证保留批次
 
-- Batch：`20260718T072917Z-b27f525fe4ef`
-- Source：`b27f525fe4eff52a24f0c7769125bc158097e7de`
+- Batch：`20260719T083725Z-01da3844dde7`
+- Source：`01da3844dde77b5a9e56f346bed9b2605f7bc832`
 - Wheel SHA-256：
-  `81ec17b9818e67ac6046fb0e1ab62d13606fcaa5af14141ae4d311179bc10fef`
+  `bb1c0ca64cc125713863dfe4a927b5f8bc35ec0ff06a7d25b73ad3e121521f76`
 - Report：
-  [`demo-report.json`](../cc-fable-v1/evidence/lean-preview/20260718T072917Z-b27f525fe4ef/demo-report.json)
+  [`demo-report.json`](../cc-fable-v1/evidence/lean-preview/20260719T083725Z-01da3844dde7/demo-report.json)
 - Closure report：
   [`closure-task-3-report.md`](../../.superpowers/sdd/closure-task-3-report.md)
 
@@ -180,5 +199,20 @@ Candidate；新 Candidate 必须绑定新的 final-source Gate、build provenanc
 生产 desktop Web 使用 [`web/public/brand.png`](../../web/public/brand.png)，SHA-256 为
 `3f2bb6cfdcac70092fce3a9b8b534c4a0627f444cb9db38a9651087688ace799`；格言为
 “成功只有一个——按照自己的方式，去度过人生。”；右上五项为
-“彩蛋 / 通用 / English / 实时 / 通政”。四组十四部门导航、深浅主题和收起控制保留；
-Candidate 的深度产品承诺只覆盖中枢总览、敕令详情和演化中心。
+“彩蛋 / 通用 / English / 实时 / 通政”。默认侧栏为“中枢 / 御书房 / 朝堂 / 百司 /
+天工院〔实验〕 / 内府”六个一级入口：御书房包含全部敕令、颁发敕令、钦天监、都察院；朝堂
+包含吏部、廷议、内阁；百司包含翰林院、鸿胪寺、通政司；天工院包含演化司〔实验〕、
+诸界台〔实验〕、考功司〔试行〕、客卿馆〔实验〕；内府保留藏兵阁、权印司、户部账房。
+御书房统一承载当前主体可见且未归档的全部任务、真实进度和待人工介入事项。任务类型
+标签允许叠加，定时、长程和实验性的客卿任务仍可发现；旧 `/edicts` 地址兼容跳转到
+御书房。深浅主题和收起控制保留。
+
+“中枢总览”现展示四张独特能力卡：长程治理、自进化、平行位面、客卿。自进化卡使用
+后端真实 `evolution_status` 投影（`not_enabled / enabled / degraded`），不再永久显示
+固定状态。当前非视觉 Web 自动化已覆盖首次引导、首个任务直达详情、六入口导航、天工院
+四页可达性、真实错误/404、键盘与 200% 缩放。
+
+保留的 48 张视觉基线和哈希覆盖前一版 6 路由产品壳，包含 Universes、Evals、Keqing
+的双视口、双主题和侧栏展开/收起组合。最新源码已将御书房加入矩阵，定义 7 路由、
+预期 56 张图片；重新生成和哈希更新尚未执行，等待明确浏览器自动化授权。因此
+`visual_status=user_approval_pending`，不得写成当前运行时 E2E 或视觉终审已通过。

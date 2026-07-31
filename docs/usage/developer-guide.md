@@ -18,7 +18,7 @@
 
 ## 扩展人格（Persona）
 
-- 落点：Git 模板 `personas/{id}/`（`SOUL.md` 性格 / `ROLE.md` 职责 / `MEMORY.md` 记忆）；运行时覆盖在 `~/.tianshu/personas/{id}/`。
+- 落点：通过人格管理页或 API 从内建模板 / 自定义内容创建；SOUL/ROLE 写入 `~/.tianshu/personas/{id}/`，元数据写入 SQLite。内建默认位于打包资源中，由 `packaged_defaults()` 只读解析，不要直接修改打包目录。
 - 路由：`OfficialSelector` 按部门关键词把诏令分派给官员；默认执行官 `bingbu`。
 - 详见 [../design/persona/officials.md](../design/persona/officials.md)、[../impl/persona/](../impl/persona/)。
 
@@ -31,12 +31,18 @@
 
 - 落点：`notifier/channels/`，继承 `base.py` 的 `NotificationChannel`，在 `channel_registry.py` 注册。
 - 已有 `FeishuChannel` / `DingTalkChannel` / `EmailChannel` 可参照。
+- durable delivery 会逐渠道记录已接受集合；部分成功后的重试只发送尚未成功的渠道。
+  新渠道必须使用稳定且唯一的 `name`，否则无法正确去重。
 - 详见 [../design/interfaces/channels.md](../design/interfaces/channels.md)、[../impl/interfaces/](../impl/interfaces/)。
 
-## 写插件（Plugin）
+## 登记插件清单（实验）
 
-- 落点：`plugins/`（`PluginLoader` 扫描插件目录下的 `manifest.json` → `PluginManifest`），经 `PluginApi` 统一注册 Tool / Hook / Channel / Provider / Skill。
-- 端到端示例见 [extension-guide.md](extension-guide.md)；机制见 [../design/plugins/README.md](../design/plugins/README.md)、[../impl/plugins/README.md](../impl/plugins/README.md)。
+- 落点：`settings.plugins_dir/<name>/manifest.json`；`PluginLoader` 只解析并登记元数据。
+- 当前不会安装、import 或执行 `entry_point`，也不会验证声明的依赖/SHA-256；API 和 Web
+  明确标为 `manifest_only`。源码级内建扩展可显式调用 `PluginApi.register_*`。
+- 示例见 [extension-guide.md](extension-guide.md)；边界见
+  [../design/plugins/README.md](../design/plugins/README.md) 和
+  [../impl/plugins/README.md](../impl/plugins/README.md)。
 
 ## 加 LLM Provider
 
@@ -45,7 +51,7 @@
 
 ## 前端加页面
 
-- 落点：`web/src/pages/` 新增组件 + `web/src/App.tsx` 注册路由。
+- 落点：`web/src/pages/` 新增组件 + `web/src/router/AppRoutes.tsx` 注册路由。
 - 详见 [../design/interfaces/web.md](../design/interfaces/web.md)、[frontend-dev.md](frontend-dev.md)。
 
 ## 加 Agent 生命周期 Hook

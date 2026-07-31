@@ -13,6 +13,7 @@ import { getOnboardingState, ONBOARDING_QUERY_KEY } from "../api/onboarding";
 
 const ControlCenterPage = lazy(() => import("../pages/ControlCenterPage"));
 const RoyalStudyPage = lazy(() => import("../pages/RoyalStudyPage"));
+const TaskListPage = lazy(() => import("../pages/TaskListPage"));
 const EdictCreatePage = lazy(() => import("../pages/EdictCreatePage"));
 const EdictDetailPage = lazy(() => import("../pages/EdictDetailPage"));
 const SchedulerPage = lazy(() => import("../pages/SchedulerPage"));
@@ -33,6 +34,7 @@ const DagBattleMapPage = lazy(() => import("../pages/DagBattleMapPage"));
 const OnboardingPage = lazy(() => import("../pages/OnboardingPage"));
 const EvolutionCenterPage = lazy(() => import("../pages/EvolutionCenterPage"));
 const KeqingManagementPage = lazy(() => import("../pages/KeqingManagementPage"));
+const NotFoundPage = lazy(() => import("../pages/NotFoundPage"));
 
 function OnboardingEntryRoute() {
   const query = useQuery({
@@ -163,6 +165,7 @@ export default function AppRoutes() {
             <Route path="/onboarding" element={<OnboardingPage />} />
             <Route path="/control" element={<ControlCenterPage />} />
             <Route path="/evolution" element={<EvolutionCenterPage />} />
+            <Route path="/edicts" element={<TaskListPage />} />
             <Route path="/edicts/create" element={<EdictCreatePage />} />
             <Route path="/edicts/:edictId" element={<EdictDetailPage />} />
             <Route path="/approvals" element={<RoyalStudyPage />} />
@@ -182,6 +185,7 @@ export default function AppRoutes() {
             <Route path="/universes" element={<UniversePage />} />
             <Route path="/evals" element={<EvalsPage />} />
             <Route path="/dag/:dagId" element={<DagBattleMapPage />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>
       </Suspense>

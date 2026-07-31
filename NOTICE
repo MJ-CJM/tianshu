@@ -1,0 +1,18 @@
+Tianshu
+Copyright (c) 2026 mj-cjm
+
+This product includes or adapts material from the following MIT-licensed
+projects:
+
+- Hermes Agent, Copyright (c) 2025 Nous Research
+  https://github.com/NousResearch/hermes-agent
+- agency-agents, Copyright (c) 2025 AgentLand Contributors
+  https://github.com/msitarzewski/agency-agents
+- agency-agents-zh, Copyright (c) 2025 Michael Sitarzewski (original English
+  version) and Copyright (c) 2026 jnMetaCode (Chinese translation and
+  localization)
+  https://github.com/jnMetaCode/agency-agents-zh
+
+The complete third-party notices and license terms are in
+THIRD_PARTY_NOTICES.md. Persona-template source revisions are recorded in
+src/tianshu/resources/persona_templates/SOURCES.md.

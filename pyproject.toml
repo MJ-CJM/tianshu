@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=75.0"]
+requires = ["setuptools>=77.0"]
 # in-tree 后端：构建前清空 setuptools 暂存树（否则陈旧产物会混进 wheel，
 # 同源码构建出不同结果），且 wheel 缺 Web 载荷时 fail-closed。见 build_backend/。
 build-backend = "tianshu_build"
@@ -9,14 +9,28 @@ backend-path = ["build_backend"]
 name = "tianshu"
 version = "0.4.2"
 description = "Tianshu - Async AI Execution Platform"
+readme = { file = "README.md", content-type = "text/markdown" }
+license = "MIT"
+license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"]
+authors = [
+    { name = "MJ-CJM" },
+]
 requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "pydantic>=2.0",
-    "pydantic-settings>=2.0",
+    "pydantic-settings>=2.14.2",
     "python-ulid>=2.0",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
-    "litellm>=1.50",
+    "litellm>=1.84.0",
     "tenacity>=8.0",
     "pyyaml>=6.0",
     "python-frontmatter>=1.0",
@@ -25,15 +39,24 @@ dependencies = [
     "watchdog>=4.0",
     "croniter>=2.0",
     "cachetools>=5.3",
-    "cryptography>=42",
-]
-
-[project.optional-dependencies]
-cli = [
+    "cryptography>=48.0.1",
+    # ``tianshu`` console script is always installed, so its imports must be
+    # present in the base distribution rather than hidden behind an extra.
     "typer>=0.12",
     "rich>=13.0",
     "websockets>=12.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/MJ-CJM/tianshu"
+Repository = "https://github.com/MJ-CJM/tianshu"
+Issues = "https://github.com/MJ-CJM/tianshu/issues"
+Documentation = "https://github.com/MJ-CJM/tianshu/blob/main/docs/README.md"
+
+[project.optional-dependencies]
+# Kept as an empty compatibility alias for existing ``tianshu[cli]`` install
+# commands. CLI dependencies are now part of the base package.
+cli = []
 notify = [
     "aiosmtplib>=2.0",
 ]
@@ -46,6 +69,8 @@ dev = [
     "mypy>=1.10",
     "import-linter>=2.0",
     "pre-commit>=3.7",
+    "build>=1.2",
+    "pip-audit==2.9.0",
 ]
 scrapling = ["scrapling[fetchers]>=0.3"]
 feishu = ["lark-oapi>=1.4.0"]

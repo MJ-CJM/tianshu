@@ -2,6 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
@@ -223,14 +224,19 @@ function LocaleControls() {
 }
 
 function renderPage(showLocaleControls = false) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   return render(
-    <MemoryRouter initialEntries={["/edicts/edict-1"]}>
-      <LocationProbe />
-      {showLocaleControls ? <LocaleControls /> : null}
-      <Routes>
-        <Route path="/edicts/:edictId" element={<EdictDetailPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={["/edicts/edict-1"]}>
+        <LocationProbe />
+        {showLocaleControls ? <LocaleControls /> : null}
+        <Routes>
+          <Route path="/edicts/:edictId" element={<EdictDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -395,6 +401,53 @@ describe("Edict detail durable governance workspace", () => {
     expect(screen.getByText("尚无持久裁决实录。")).toBeInTheDocument();
     expect(screen.getByText("尚无可验凭据包。")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/可信度|置信度|88%/);
+  });
+
+  it("makes planner fallback visible with localized reasons", async () => {
+    const state = {
+      ...hookState("success-data", SNAPSHOT),
+      events: [
+        {
+          id: "event-plan-fallback",
+          event_type: "plan.completed",
+          created_at: "2026-07-17T08:11:00Z",
+          edict_id: "edict-1",
+          memorial_id: "memorial-1",
+          payload: {
+            plan: {
+              planning_mode: "fallback",
+              fallback_reason: "llm_error",
+              tasks: [
+                {
+                  task_id: "fallback-task",
+                  description: "按单任务继续",
+                  assigned_official: "executor",
+                  depends_on: [],
+                  tools_required: [],
+                },
+              ],
+            },
+          },
+        },
+      ],
+    };
+    detailHook.useEdictDetail.mockReturnValue(state);
+    const user = userEvent.setup();
+    renderPage(true);
+
+    await user.click(screen.getByRole("button", { name: "modern-locale" }));
+    expect(screen.getByText("智能规划未生效，当前按单任务执行")).toBeInTheDocument();
+    expect(screen.getByText("规划模型调用失败。")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "english-locale" }));
+    expect(
+      screen.getByText("Smart planning was unavailable; this is running as one task"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("The planning model request failed.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "classic-locale" }));
+    expect(screen.getByText("智能筹划未成，现按单项差事施行")).toBeInTheDocument();
+    expect(screen.getByText("筹划模型调用未成。")).toBeInTheDocument();
   });
 
   it("provides precise durable empty states in all three locales", async () => {

@@ -8,14 +8,14 @@
 |---|---|
 | 解决什么 | 把异步执行平台包装成多种可用入口，且各入口共享同一真相源（SQLite）与事件链 |
 | 不做什么 | 不承载业务编排（排期/规划/执行/审计在 scheduler/planner/executor/auditor）；接口层只做「翻译 + 透传 + 实时推送」 |
-| 与运维边界 | 运维侧（部署/凭证/进程）见 `docs/ops/` 与 `docs/design/v2_codex/06-interfaces-ops.md`；本目录聚焦「接口面」本身 |
+| 与运维边界 | 运维侧（部署、凭证和进程）见 [`../../ops/`](../../ops/)；本目录聚焦「接口面」本身 |
 
 ## 2. 核心设计判断
 
 | 判断 | 取舍 |
 |---|---|
 | 单 FastAPI 进程 | 所有 HTTP/WS、IM bot、静态 Web 同进程托管；`gateway_router` 挂 `/api` 前缀 |
-| 异步而非同步 | `POST /api/edicts` 落库后 `EventBus.fire` 立即返回 202，不等执行完；进展靠 WebSocket / 轮询拿 |
+| 异步而非同步 | HTTP 首次提交 Edict/Memorial/outbox 后返回 202，幂等重放返回 200；进展靠 WebSocket/API 获取 |
 | 统一响应封套 | 写操作多用 `ApiResponse{success, data, error}`；列表带 `metadata` 分页 |
 | IM 平台无关核心 | 飞书/Telegram 复用 `EdictBridge` / `PersonaRenderer` / 审批解析等平台无关件，只重写平台连接层 |
 | CLI 是薄客户端 | CLI 不直连 DB，全部走 HTTP API（`TIANSHU_API_URL`），与 Web 同源 |
@@ -25,7 +25,7 @@
 
 | 形态 | 入口 | 主要文档 |
 |---|---|---|
-| HTTP / WebSocket | `gateway/api.py` 兜底 + 15 个域 `*_api.py`（`/api` 前缀，`/api/ws` 实时流） | [gateway.md](./gateway.md) |
+| HTTP / WebSocket | `gateway/api.py` 兜底 + 领域 `*_api.py`（`/api` 前缀，`/api/ws` 实时流） | [gateway.md](./gateway.md) |
 | IM 渠道 | `notifier/`（出站通道）+ `gateway/feishu/`、`gateway/telegram/`（双向 bot） | [channels.md](./channels.md) |
 | Web 前端 | `web/`（React + Ant Design + react-router） | [web.md](./web.md) |
 | CLI | `cli/`（typer，HTTP 薄客户端） | [cli.md](./cli.md) |
@@ -34,10 +34,10 @@
 
 | 相邻子系统 | 关系 |
 |---|---|
-| executor / scheduler / planner | 接口层写 Edict/Memorial + `fire` 事件，下游链路异步消费 |
+| executor / scheduler / planner | 接口层事务性提交业务对象与 durable ingress，下游 reconciler/dispatcher 异步消费 |
 | notifier | 既是「出站渠道注册表」（webhook/邮件/IM channel），又是 WebSocket 广播中枢；接 `audit.completed`/`execution.failed`/`outer_loop.*` 事件 |
 | approvals / policy | 审批队列、工具审批、plan 审批的 HTTP 端点与 IM 卡片按钮共享 `ApprovalManager` |
-| storage | 所有接口的真相源；CLI/Web 都不旁路直连，统一经 API |
+| storage | 所有接口共享 SQLite 真相源；CLI/Web 走 API，IM bridge 直调同一应用服务与 durable ingress |
 
 ## 5. 本目录子文档索引
 

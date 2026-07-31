@@ -53,9 +53,11 @@ BEFORE_TOOL_CALL → PolicyHook.on_before_tool_call (priority=5)
   → require_approval: session_rule_store.find_match 命中→allow
   → emit policy.decision / policy.session_rule_matched
   → deny: HookResult(block) | require_approval: _request_approval
-      → emit tool.approval_required (EventBus.fire + WS broadcast)
-      → ApprovalManager.wait_for_approval (asyncio.Event, 300s)
-      → Decree approve→放行 / reject/timeout→block
+      → ApprovalManager.request_tool_decision
+        （事务持久化 Decision + Agent continuation）
+      → tool.approval_required 通知 + WS broadcast
+      → wait_for_tool_decision（轮询持久化权威，默认 300s）
+      → approve→放行 / guide/reject/timeout→反馈或 block
 ```
 
 ### 网络调用
@@ -72,7 +74,21 @@ handler 内 `_resolve_edict_context`（ambient edict + `resolve_network_for_edic
 | `mcp_server_overrides` | MCP 配置 override |
 | `events` | policy.decision / tool.approval_required / decree.* 审计 |
 
-## 5. 扩展点
+## 5. MCP 当前准入边界
+
+`MCPManager.admit()` 在连接前执行：
+
+- disabled server 跳过；
+- `secure-remote` 的 `streamable_http` 返回
+  `trusted_egress_unavailable`；
+- stdio 没有显式非空 `tools.include` 返回 `approved_tools_required`；
+- 通过后只注册 include 中且未被 exclude 的工具，拒绝事件写 SystemAudit。
+
+这只证明“未批准路径会被拒绝”和“已注册工具继续走 Policy”。当前没有持久绑定
+executable realpath/digest、argv、env、cwd、批准人/原因/到期或工具发现漂移；trusted-local
+stdio 也不是 OS 沙箱。secure-remote 无受验证 sandbox/egress 时 fail closed。
+
+## 6. 扩展点
 
 - **新策略规则**：实现 `PolicyRule` Protocol，加入 `build_default_rules`（注意 priority）
 - **新 fingerprint 算法**：`policy_store._FINGERPRINT_FUNCS` 增映射
@@ -82,7 +98,7 @@ handler 内 `_resolve_edict_context`（ambient edict + `resolve_network_for_edic
 - **新 MCP server**：写 YAML 或 DB override，`MCPManager.start` 自动发现
 - **新内建工具**：`register_*` 函数 + `register_builtins` 挂接
 
-## 6. 注意点（与旧 impl 文档纠偏）
+## 7. 注意点（与旧 impl 文档纠偏）
 
 - `PolicyHook` priority 是 **5**（不是 0/50）；ApprovalManager 旧 `on_before_tool_call` 已退化为 no-op，实时审批由 PolicyHook 在 require_approval 分支直接调
 - session rule scope 为 `edict`(InMemory) / `always`(Sqlite)，allow-once 体现为不升级 session rule

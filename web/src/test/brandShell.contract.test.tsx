@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import type { ApiProblem, PageDataStatus } from "../contracts/api";
 import { ThemeContext } from "../hooks/useTheme";
@@ -52,12 +52,19 @@ function HeaderLocaleHarness() {
 
 const API_CONTRACT_PATH = resolve(process.cwd(), "src/contracts/api.ts");
 const HEADER_STATUS_LABELS = ["彩蛋", "通用", "English", "实时", "通政"];
-const DEPARTMENT_STRUCTURE = [
-  { group: "敕令", departments: ["御书房", "文书房"] },
-  { group: "政要", departments: ["内阁", "廷议", "都察院", "权印司"] },
-  { group: "百官", departments: ["百官阁", "文渊阁", "位面", "考成"] },
-  { group: "内府", departments: ["客卿", "藏兵阁", "鸿胪寺", "通政司", "户部账房"] },
-];
+const PRIMARY_NAVIGATION = ["中枢", "御书房", "朝堂", "百司", "天工院实验", "内府"];
+
+function SidebarRouteHarness() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <AppSidebar />
+      <button type="button" onClick={() => navigate("/memory")}>
+        go-to-memory
+      </button>
+    </>
+  );
+}
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -75,20 +82,6 @@ function memoryStorage(): Storage {
       values.set(key, String(value));
     },
   };
-}
-
-function renderedDepartmentStructure(container: HTMLElement) {
-  const menu = container.querySelector(".ant-menu-root");
-  const groups = Array.from(menu?.children ?? []).filter((node) =>
-    node.classList.contains("ant-menu-item-group"),
-  );
-
-  return groups.map((group) => ({
-    group: group.querySelector(".ant-menu-item-group-title")?.textContent?.trim() ?? "",
-    departments: Array.from(group.querySelectorAll(".ant-menu-title-content")).map(
-      (item) => item.textContent?.trim() ?? "",
-    ),
-  }));
 }
 
 beforeEach(() => vi.stubGlobal("localStorage", memoryStorage()));
@@ -173,25 +166,61 @@ describe("S4 desktop brand shell contract", () => {
     expect(frozenInEnglish).toBe(true);
   });
 
-  it("freezes the exact ordered groups and departments outside the Control item", async () => {
+  it("keeps six primary destinations in a two-level accordion", async () => {
     const user = userEvent.setup();
     const toggleTheme = vi.fn();
     const { container } = render(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={["/approvals"]}>
         <ThemeContext.Provider value={{ mode: "dark", toggleTheme }}>
-          <AppSidebar />
+          <SidebarRouteHarness />
         </ThemeContext.Provider>
       </MemoryRouter>,
     );
 
-    const renderedStructure = renderedDepartmentStructure(container);
-    const rootItems = Array.from(container.querySelector(".ant-menu-root")?.children ?? []).filter(
-      (node) => node.classList.contains("ant-menu-item"),
-    );
-    expect(rootItems.map((item) => item.textContent?.trim())).toEqual(["中枢总览", "演化中心"]);
-    expect(renderedStructure).toEqual(DEPARTMENT_STRUCTURE);
-    expect(renderedStructure).toHaveLength(4);
-    expect(renderedStructure.flatMap(({ departments }) => departments)).toHaveLength(15);
+    const rootItems = Array.from(container.querySelector(".ant-menu-root")?.children ?? []);
+    expect(rootItems.map((item) => {
+      const ownTitle = item.matches(".ant-menu-submenu")
+        ? item.querySelector(":scope > .ant-menu-submenu-title")
+        : item;
+      return ownTitle?.textContent?.trim() ?? "";
+    })).toEqual(PRIMARY_NAVIGATION);
+    expect(rootItems[1]).toHaveClass("ant-menu-submenu-open");
+    expect(rootItems[2]).not.toHaveClass("ant-menu-submenu-open");
+    expect(rootItems[3]).not.toHaveClass("ant-menu-submenu-open");
+    expect(rootItems[4]).not.toHaveClass("ant-menu-submenu-open");
+    expect(rootItems[5]).not.toHaveClass("ant-menu-submenu-open");
+    expect(screen.getByRole("menuitem", { name: "全部敕令" })).toBeInTheDocument();
+    expect(screen.queryByText("正式能力")).not.toBeInTheDocument();
+    expect(screen.queryByText("实验室")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("menuitem", { name: "朝堂" }));
+    expect(rootItems[1]).not.toHaveClass("ant-menu-submenu-open");
+    expect(rootItems[2]).toHaveClass("ant-menu-submenu-open");
+    expect(screen.getByRole("menuitem", { name: "吏部" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "廷议" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "内阁" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "go-to-memory" }));
+    expect(rootItems[2]).not.toHaveClass("ant-menu-submenu-open");
+    expect(rootItems[3]).toHaveClass("ant-menu-submenu-open");
+    expect(screen.getByRole("menuitem", { name: "翰林院" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "鸿胪寺" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "通政司" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("menuitem", { name: /天工院.*实验/ }));
+    expect(rootItems[3]).not.toHaveClass("ant-menu-submenu-open");
+    expect(rootItems[4]).toHaveClass("ant-menu-submenu-open");
+    expect(screen.getByRole("menuitem", { name: /演化司.*实验/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /诸界台.*实验/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /考功司.*试行/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /客卿馆.*实验/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("menuitem", { name: "内府" }));
+    expect(rootItems[4]).not.toHaveClass("ant-menu-submenu-open");
+    expect(rootItems[5]).toHaveClass("ant-menu-submenu-open");
+    expect(screen.getByRole("menuitem", { name: "藏兵阁" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "权印司" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "户部账房" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "切换浅色" }));
     expect(toggleTheme).toHaveBeenCalledOnce();
@@ -202,15 +231,20 @@ describe("S4 desktop brand shell contract", () => {
     expect(sider).toHaveClass("ant-layout-sider-collapsed");
     expect(screen.getByRole("button", { name: "切换浅色" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "展开" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "中枢总览" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "演化中心" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "中枢" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "御书房" })).toBeInTheDocument();
+    expect(container.querySelectorAll(".ant-menu-submenu-open")).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: "展开" }));
+    expect(sider).not.toHaveClass("ant-layout-sider-collapsed");
+    expect(rootItems[3]).toHaveClass("ant-menu-submenu-open");
   });
 
   it("restores the persisted collapsed sidebar without losing controls", async () => {
     const user = userEvent.setup();
     const renderSidebar = () =>
       render(
-        <MemoryRouter>
+        <MemoryRouter initialEntries={["/personas"]}>
           <ThemeContext.Provider value={{ mode: "light", toggleTheme: vi.fn() }}>
             <AppSidebar />
           </ThemeContext.Provider>
@@ -226,6 +260,7 @@ describe("S4 desktop brand shell contract", () => {
       "ant-layout-sider-collapsed",
     );
     expect(screen.getByRole("button", { name: "切换深色" })).toBeInTheDocument();
+    expect(second.container.querySelectorAll(".ant-menu-submenu-open")).toHaveLength(0);
   });
 
   it("uses 裁决 for Chinese governance and rejects historical alternatives", () => {

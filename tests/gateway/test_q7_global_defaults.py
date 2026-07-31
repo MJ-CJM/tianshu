@@ -70,3 +70,17 @@ class TestGlobalDefaults:
     async def test_update_rejects_out_of_range(self, client):
         resp = await client.put("/api/agent-config", json={"agent_max_concurrency": 99})
         assert resp.status_code == 422  # ge=1 le=8
+
+    async def test_update_rejects_unwired_keqing_gateway(self, client):
+        resp = await client.put("/api/agent-config", json={"keqing_gateway_enabled": True})
+        assert resp.status_code == 409
+        assert "unavailable" in resp.json()["detail"]
+
+    async def test_update_rejects_unwired_automatic_skill_review(self, client):
+        current = await client.get("/api/agent-config")
+        assert current.json()["data"]["skill_review_enabled"] is False
+
+        resp = await client.put("/api/agent-config", json={"skill_review_enabled": True})
+
+        assert resp.status_code == 409
+        assert "unavailable" in resp.json()["detail"]

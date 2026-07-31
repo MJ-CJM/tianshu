@@ -1,79 +1,46 @@
-# 插件系统实现现状
+# 插件清单实现现状
 
-插件层把第三方扩展接入内核各注册表。本篇讲「代码在哪 / 怎么跑 / 怎么扩展」，设计意图见 design 篇。
+> 代码位于 `src/tianshu/plugins/`。当前实现是 metadata-only catalog，不是运行时插件
+> loader。产品边界见 [设计说明](../../design/plugins/README.md)。
 
-**相关设计**：[../../design/plugins/README.md](../../design/plugins/README.md)
+## 模块
 
-> 代码位于 `src/tianshu/plugins/`。
-
-## 1. 模块清单（`src/tianshu/plugins/`）
-
-| 文件 | 关键类 / 函数 | 职责 |
-|---|---|---|
-| `manifest.py` | `PluginManifest`(Pydantic BaseModel) | 插件身份契约：`name` / `version` / `type` / `entry_point` / `dependencies` / `permissions` / `sha256` / `auto_install` |
-| `loader.py` | `PluginLoader` | `discover()` 扫目录下每个 `manifest.json` → `PluginManifest`；`load_manifest(name)` 取单个 |
-| `api.py` | `PluginApi` | 统一注册门面：`register_plugin` + `register_tool/hook/channel/provider/skill/command` + `list_plugins/get_plugin/list_commands` |
-| `installer.py` | `PluginInstaller` | `install_pip(packages)`（subprocess pip）+ `verify_sha256(filepath, expected)` |
-| `__init__.py` | 导出 `PluginApi` | 包入口 |
-
-## 2. PluginApi 的委托矩阵
-
-`PluginApi.__init__` 注入五个注册表（均 `Optional`，缺省 `None` → 对应 `register_*` 静默跳过）：
-
-| 注入参数 | 委托方法 → 目标 |
+| 文件 | 当前职责 |
 |---|---|
-| `tool_registry: ToolRegistry` | `register_tool(name, handler, schema)` → `ToolRegistry.register` |
-| `hook_registry: HookRegistry` | `register_hook(hook_type, handler, priority=100)` → `HookRegistry.register` |
-| `channel_registry: ChannelRegistry` | `register_channel(channel)` → `ChannelRegistry.register` |
-| `provider_manager: ProviderManager` | `register_provider(info)` → `ProviderManager.register` |
-| `skills_loader: SkillsLoader` | `register_skill(name, content)` → `SkillsLoader.register_skill`（`hasattr` 守卫） |
-| —（自持） | `register_command(name, handler)` → 懒建 `self._commands` dict |
+| `manifest.py` | `PluginManifest` 数据模型；`entry_point`、依赖、权限和 SHA-256 均为声明字段 |
+| `loader.py` | `discover()` / `load_manifest()` 只读取并解析 JSON |
+| `api.py` | 登记 manifest 元数据；为受信任源码装配提供显式 `register_*` 门面 |
 
-`register_plugin(manifest)` 两处写元数据：进程内 `self._registered_plugins[name] = manifest`，并调 `storage.save_plugin({name, version, manifest=model_dump(), sha256})` 落库。查询走 `list_plugins()` / `get_plugin(name)`（读内存）。
+仓库不存在 `PluginInstaller`，也没有通用的 import、pip 安装、SHA-256 校验、卸载或隔离
+执行链。
 
-> 注意：`register_tool` 的第三参在门面里命名为 `schema: dict`，但底层 `ToolRegistry.register(name, func, definition)` 期望的是 `ToolDefinition`。注册内建/插件工具时直接传 `ToolDefinition`（见 builtins 写法），治理字段（`tier` / `side_effect` / `max_result_chars`）才会生效。
-
-## 3. PluginLoader.discover 流程
+## 启动装配
 
 ```text
-plugins_dir 非目录 → 返回 []
-for entry in sorted(plugins_dir.iterdir()):
-    entry 非目录 → continue
-    entry/manifest.json 不存在 → continue
-    try: PluginManifest(**json.loads(read_text)) → append
-    except: logger.warning(跳过该插件)
-返回成功项列表
+各内建注册表就绪
+  -> 创建 PluginApi
+  -> PluginLoader(settings.plugins_dir).discover()
+  -> 对每个合法 manifest 调 register_plugin()
+  -> SQLite 记录 status=manifest_only
+  -> 结束；不解析或执行 entry_point
 ```
 
-`sorted` 保证注册顺序确定；任何单清单异常被 `try/except` 兜住，不中断遍历。
+`plugins_dir` 来自 `TianshuSettings.plugins_dir`，支持 `~` 展开。单个损坏清单被跳过并写
+WARNING；发现顺序使用 `sorted` 保持确定。
 
-## 4. 装配（`app.py` lifespan）
+## API 与 Web
 
-```text
-各注册表就绪（tools / hook_registry / channel_registry / provider_manager / skills）
-  → PluginApi(storage, tool_registry, hook_registry,
-              channel_registry, provider_manager, skills_loader)
-  → app.state.plugin_api = plugin_api
-  → plugins_dir = <repo_root>/plugins
-  → for manifest in PluginLoader(plugins_dir).discover():
-        plugin_api.register_plugin(manifest)   # 登记落库
-```
-
-`plugins_dir` 解析为仓库根下的 `plugins/`（`Path(__file__).parent.parent.parent / "plugins"`）。当前发现循环只做 `register_plugin` 登记；把清单里的 Tool/Hook/Channel 真正注入注册表，由插件入口（`entry_point`）在自身加载逻辑里调对应 `register_*`，或由二次开发在装配处补一段分派。
-
-## 5. 持久化
-
-`storage.save_plugin(row)` 写插件元数据行（`name` / `version` / `manifest` JSON / `sha256`）。这让重启后可枚举曾注册的插件清单与版本，是 UI/审计的数据源。
-
-## 6. 扩展点
-
-| 想做 | 怎么扩 |
+| 路由 | 行为 |
 |---|---|
-| 让发现循环按 `type` 自动注入能力 | 在 `app.py` 发现循环内，依 `manifest.type` 解析 `entry_point` 取回 handler/channel/info，调对应 `plugin_api.register_*` |
-| 安装期校验/装依赖 | 调 `PluginInstaller.verify_sha256(file, manifest.sha256)` 与 `install_pip(manifest.dependencies)`（`auto_install` 为 True 时） |
-| 新增可声明的扩展类型 | 扩 `PluginManifest.type` 的 `Literal` 集合，并在 `PluginApi` 加对应 `register_*` 委托到该注册表 |
-| 暴露 CLI 插件命令 | 插件调 `register_command(name, handler)`，CLI 层从 `list_commands()` 读回挂载 |
+| `GET /api/plugins` | 返回清单目录，强制 `status=manifest_only`、`loaded=false` |
+| `GET /api/plugins/{name}` | 返回单条清单目录记录 |
+| `POST /api/plugins/install` | `501 plugin_install_not_supported` |
+| `PUT /api/plugins/{name}/status` | `501 plugin_activation_not_supported` |
 
-## 7. 端到端写法
+Web 只展示“仅清单”和发现时间，不再把数据库中的历史 `active` 值解释成代码已加载。
 
-写第三方扩展（Tool / MCP / Provider / Plugin / Channel）的最小示例与落点路径见 [../../usage/extension-guide.md](../../usage/extension-guide.md)。
+## 受信任源码接入
+
+`PluginApi.register_tool/hook/channel/provider/skill/command` 可以把已经由内建代码实例化的
+对象交给相应注册表。这是程序化扩展点，不是 manifest 自动加载路径。若二次开发显式使用，
+其测试必须覆盖相应 Policy、Decision、凭据、失败和关闭语义。

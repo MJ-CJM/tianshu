@@ -1,10 +1,15 @@
 """Tests for Auditor and RulesEngine."""
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from tianshu.auditor.auditor import Auditor
 from tianshu.auditor.rules import RulesEngine
+from tianshu.auditor.rules_config import AuditRulesConfig
 from tianshu.bus.event_bus import EventBus
+from tianshu.llm import LLMUsageContext
 from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.models.edict import EdictRuntime
 
@@ -52,6 +57,29 @@ class TestRulesEngine:
         assert result.verdict == "flag"
         assert any("no result" in r.lower() for r in result.reasons)
 
+    def test_config_disables_rules_and_enables_risk_keyword_scan(self):
+        rules = RulesEngine(
+            AuditRulesConfig(
+                check_token_budget=False,
+                check_execution_error=False,
+                check_empty_result=False,
+                risk_keywords=("credential leak",),
+            )
+        )
+        edict = Edict(goal="test", runtime=EdictRuntime(token_budget=1))
+        memorial = Memorial(
+            edict_id=edict.id,
+            result="Potential credential leak in the generated output",
+            error="ignored by disabled rule",
+            usage=UsageSummary(total_tokens=100),
+        )
+
+        result = rules.check(edict, memorial)
+
+        assert result.verdict == "flag"
+        assert result.rules_checked == 1
+        assert result.reasons == ["Risk keyword detected: credential leak"]
+
 
 class TestAuditor:
     @pytest.fixture
@@ -81,6 +109,40 @@ class TestAuditor:
         memorial = Memorial(edict_id=edict.id)
         result = await auditor.audit(edict, memorial)
         assert result.verdict in ("pass", "flag")
+
+    async def test_reviewer_uses_configured_generation_limits(
+        self,
+        event_bus,
+        storage,
+        config_manager,
+    ):
+        rules_config = AuditRulesConfig(
+            review_temperature=0.35,
+            review_max_tokens=321,
+            risk_keywords=("risk",),
+        )
+        auditor = Auditor(
+            event_bus=event_bus,
+            storage=storage,
+            config_manager=config_manager,
+            rules_config=rules_config,
+        )
+        llm = AsyncMock()
+        llm.chat.return_value = SimpleNamespace(content='{"verdict":"pass","reasons":[]}')
+        edict = Edict(goal="test", review_policy="on_flag")
+        memorial = Memorial(edict_id=edict.id, result="risk")
+
+        with patch("tianshu.auditor.reviewer.LLMClient", return_value=llm) as llm_type:
+            result = await auditor.audit(edict, memorial)
+
+        assert result.verdict == "pass"
+        assert llm_type.call_args.kwargs["temperature"] == 0.35
+        assert llm_type.call_args.kwargs["max_tokens"] == 321
+        assert llm.chat.await_args.kwargs["usage_context"] == LLMUsageContext(
+            edict_id=edict.id,
+            memorial_id=memorial.id,
+            operation="audit_review",
+        )
 
     async def test_conversational_executor_keeps_edict_open(self, auditor, storage):
         # 对话式客卿(pi RPC 会话档)审计通过后须保持 OPEN,供连续 follow_up;

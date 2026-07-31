@@ -13,6 +13,7 @@ from tianshu.consultation.models import (
     PersonaOpinion,
 )
 from tianshu.consultation.synthesizer import Synthesizer
+from tianshu.llm import LLMUsageContext
 from tianshu.persona.loader import PersonaLoader
 from tianshu.providers.manager import ProviderManager
 
@@ -39,7 +40,12 @@ class ConsultationSession:
     def get(self, consultation_id: str) -> ConsultationResponse | None:
         return self._sessions.get(consultation_id)
 
-    async def start(self, request: ConsultationRequest) -> ConsultationResponse:
+    async def start(
+        self,
+        request: ConsultationRequest,
+        *,
+        usage_context: LLMUsageContext | None = None,
+    ) -> ConsultationResponse:
         """Start a consultation session."""
         response = ConsultationResponse(
             request=request,
@@ -61,7 +67,14 @@ class ConsultationSession:
                 if not persona:
                     continue
                 is_censor = idx == 0 and len(persona_ids) > 1
-                tasks.append(self._get_opinion(persona, request, is_censor=is_censor))
+                tasks.append(
+                    self._get_opinion(
+                        persona,
+                        request,
+                        is_censor=is_censor,
+                        usage_context=usage_context,
+                    )
+                )
 
             opinions = await asyncio.gather(*tasks, return_exceptions=True)
             response.opinions = [o for o in opinions if isinstance(o, PersonaOpinion)]
@@ -71,6 +84,7 @@ class ConsultationSession:
                 synthesis_result = await self._synthesizer.synthesize(
                     request,
                     response.opinions,
+                    usage_context=usage_context,
                 )
                 response.synthesis = synthesis_result.get("synthesis", "")
                 response.decision = synthesis_result.get("decision", "")
@@ -117,6 +131,7 @@ class ConsultationSession:
         persona,
         request: ConsultationRequest,
         is_censor: bool = False,
+        usage_context: LLMUsageContext | None = None,
     ) -> PersonaOpinion:
         """Get a single persona's opinion via LLM call."""
         from tianshu.llm import LLMClient
@@ -158,7 +173,10 @@ class ConsultationSession:
             {"role": "user", "content": prompt},
         ]
 
-        response = await llm.chat(messages)
+        if usage_context is None:
+            response = await llm.chat(messages)
+        else:
+            response = await llm.chat(messages, usage_context=usage_context)
         stance, conditions, opinion_text = self._parse_opinion(response.content or "")
         return PersonaOpinion(
             persona_id=persona.id,

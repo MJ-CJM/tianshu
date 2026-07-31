@@ -2,54 +2,80 @@
 
 > 天枢是一个可治理、可验证、持续成长的自进化 Agent OS。
 
-本表描述阶段能力与历史保留证据的已验证边界。旧 Candidate 聚合产物已 fail-closed
-撤销，当前没有被接受的 Candidate；新 final-source Gate、build provenance 与 demo 尚待执行。
-`publication_status`: `not_authorized`。运行模型是 single-host、single-node SQLite；
+本表描述阶段能力、当前 final-source 本地验证与历史保留证据的边界。旧 Candidate
+聚合产物已 fail-closed 撤销，当前没有被接受的 Candidate。当前代码已通过本地整库、
+Web、制品、安全审计和 legacy Docker 门禁；Ubuntu 全新 HOME exact-Wheel 黄金路径未
+执行。最终六入口方案已获批准并完成本地实现验证。保留的 48 张视觉基线和哈希覆盖前一版
+6 路由产品壳；最新源码定义 7 路由、预期 56 张，尚未重新生成或更新哈希，且仍待用户
+审批，因此不能建立新 Candidate。
+
+- `design_status`: `approved`
+- `implementation_status`: `verified_local`
+- `visual_status`: `user_approval_pending`
+- `publication_status`: `not_authorized`
+
+运行模型是 single-host、single-node SQLite；
+既有 Git 历史还包含一个已删除本地第三方包的 publishable key，公开前须采用清洁
+快照，或完成轮换/撤销、历史重写和复扫。
 Ubuntu + Python 3.12 是首个正式目标，历史保留批次实际在
 `Darwin/arm64/Python 3.12.12` 本地验证。宿主
 信任模型为 trusted local / 可信本地；host administrator 不在当前防护对象内。
 
-成熟度定义：Stable (limited) 表示命名边界有自动化；Experimental 表示可试用但契约或
-支持承诺未冻结；Planned 表示路线图目标，不是当前能力。状态标签另行区分
+成熟度定义：Stable (limited) 表示命名边界有自动化；Beta 表示主路径或只读预览可用，
+但交互、契约仍可能调整；Experimental 表示可试用但契约或支持承诺未冻结；
+Planned 表示路线图目标，不是当前能力。状态标签另行区分
 `implemented`、`disabled`、`deferred`、`experimental`、`external_pending` 和
 `user_approval_pending`。
 
 | Capability | Maturity | Default | Supported scope | Verified guarantee | Explicit non-guarantees | Evidence | Target gate |
 |---|---|---|---|---|---|---|---|
 | Native 本地主链与时间线 | Stable (limited) / 稳定（有限边界） | On | 受管 Native；单机、single-node SQLite | 统一 ingress、durable outbox、Decision、RunState、attempt lease/fencing 与受支持 continuation 形成 durable governance | 不承诺多副本、PostgreSQL/K8s 或未跟踪外部副作用的单次执行语义 | [`application`](../../src/tianshu/application/)；[`integration flow`](../../tests/test_integration_flow.py)；[`S3 Gate`](../cc-fable-v1/reports/s3-core-governance-report.md) | G2 Lean Core |
+| 身份、所有权与管理员边界 | Stable (limited) / 稳定（有限边界） | trusted-local local principal；secure-remote 要求登录 | HTTP、WS、MCP；任务、奏折、DAG、规划、裁决、证据、定时记录 | PAT/session 主体稳定传播；普通主体只访问自己的任务资源，跨主体返回 404；admin scope 可做全局读取与平台配置；失败和拒绝进入 SystemAudit | trusted-local 不抵抗本机用户；host administrator 不在防护对象；不是公网 SaaS、多租户组织模型或正式生产部署承诺 | [`ownership tests`](../../tests/gateway/test_task_ownership.py)；[`global read tests`](../../tests/gateway/test_global_read_authorization.py)；[`WS auth`](../../tests/gateway/test_ws_auth.py) | G1/G2 |
+| 长程任务与定时任务 | Stable (limited) / 稳定（有限边界） | On | 单机；立即、单次定时、周期普通任务，以及立即/单次定时长程任务 | checkpoint 恢复、暂停/继续、运行中指引、终态收口；定时任务支持创建、编辑、停用、恢复、立即运行、历史、时区与 misfire 状态 | 不支持周期长程任务或多节点 exactly-once；周期长程组合由前后端明确拒绝 | [`scheduler tests`](../../tests/test_scheduler.py)；[`recovery tests`](../../tests/test_outer_loop_resume.py)；[`control API tests`](../../tests/gateway/test_scheduler_control_api.py) | G2 Lean Core |
 | Native 工具策略与事前裁决 | Stable (limited) / 稳定（有限边界） | On | 已注册 Native 工具与受管 RunState | tier、策略和持久裁决在工具执行前生效 | 不穿透 opaque 外部 CLI；legacy 未受管路径不获得额外恢复保证 | [`policy hook`](../../src/tianshu/executor/policy_hook.py)；[`restart tests`](../../tests/integration/test_tool_decision_restart_projection.py) | G2 Lean Core |
 | SQLite 迁移账本、升级备份与离线恢复 | Stable (limited) / 稳定（有限边界） | On | 支持的 v0.4.2 历史结构；单 SQLite 文件 | append-only migration ledger、升级前备份、未知结构 fail closed、离线校验后恢复 | 不是持续备份/PITR；不支持任意 pre-ledger 结构或多节点 | [`migration ledger`](../../tests/storage/test_migration_ledger.py)；[`backup/restore`](../../tests/storage/test_backup_restore.py)；[`instance migration`](../../tests/test_storage_instance_migration.py) | G0 |
-| Web 与 IM 裁决入口 | Experimental / 实验 | Desktop Web on; IM optional | Candidate 正式产品路径仅 desktop Web；既有 IM adapter 不属于黄金路径 | desktop Web 读取统一持久 Decision 权威 | 不承诺移动端产品、外部消息最终送达或把 IM 证据替代桌面 Gate | [`Decision API`](../../src/tianshu/gateway/decisions_api.py)；[`Telegram legacy adapter tests`](../../tests/gateway/telegram/test_callback.py)；[`S4 Gate`](../cc-fable-v1/reports/s4-core-web-report.md) | G2/G3 Lean Core |
+| Web 任务工作台与 IM 裁决入口 | Experimental / 实验 | Desktop Web on; IM optional | 正式产品路径仅 desktop Web；御书房默认展示当前主体可见且未归档的全部任务；既有 IM adapter 不属于黄金路径 | desktop Web 读取统一持久 Decision 权威；中枢、御书房、朝堂、百司、天工院〔实验〕、内府六入口导航、叠加任务类型标签、基于最新执行事实的进度、首次引导、真实错误/404、键盘与 200% 缩放均有实现；`/edicts` 兼容跳转到御书房 | 48 张保留基线仅覆盖前一版 6 路由；最新 7 路由源码的预期 56 张图片尚未生成或更新哈希，等待明确浏览器自动化授权；`visual_status=user_approval_pending`；不承诺移动端产品或把 IM 证据替代桌面 Gate | [`Decision API`](../../src/tianshu/gateway/decisions_api.py)；[`E2E tests`](../../web/e2e/)；[`visual hashes`](../../web/e2e/__screenshots__/SHA256SUMS) | G2/G3 Lean Core |
 | SystemAudit tamper-evident chain | Stable (limited) / 稳定（有限边界） | On | single-node SQLite | canonical hash、previous-hash、append-only trigger、全链校验与 scoped admin export 已 `implemented` | 不是外部 WORM；不抵抗 host administrator 替换 DB 与 trust root | [`storage tests`](../../tests/storage/test_system_audit.py)；[`API tests`](../../tests/gateway/test_system_audit_api.py)；[`S2 Gate`](../cc-fable-v1/reports/s2-lean-security-report.md) | S2 Lean |
 | MCP persisted secret mappings | Stable (limited) / 稳定（有限边界） | On for persisted mappings | env/header mapping at rest | 密文迁移、round-trip 验证、错误 key/ciphertext fail closed 已 `implemented` | 不覆盖进程内明文、宿主机管理员或开放 remote/stdio 安全 | [`ciphertext tests`](../../tests/secrets/test_mcp_secret_migration.py)；[`rotation tests`](../../tests/cli/test_secrets_rotate.py) | S2 Lean |
 | ArtifactStore and Evidence Bundle v1 | Stable (limited) / 稳定（有限边界） | On for managed final runs | 本地内容寻址 artifact；受管 Native | closed bundle 严格 schema/hash，绑定敕令、奏折、裁决、检查与 artifact | 不承诺外部不可变存储、完整 OTel 或所有外部通知送达 | [`Evidence tests`](../../tests/evidence/)；[`schema`](../reference/evidence-bundle-v1.schema.json)；[`S3 Gate`](../cc-fable-v1/reports/s3-core-governance-report.md) | G2 Lean Core |
-| 三张核心 desktop Web 页面 | Experimental / 实验 | On | 中枢总览、敕令详情、演化中心 | 权威 API、七类真实状态、无 production mockData；自动化、axe、键盘、缩放和视觉矩阵通过 | 视觉/交互为 `user_approval_pending`；VoiceOver 为 `external_pending`；十四部门深度未完成 | [`S4 Gate`](../cc-fable-v1/reports/s4-core-web-report.md)；[`E2E tests`](../../web/e2e/) | G3 Lean Core |
-| Lean Core evolution | Experimental / 实验 | No active candidate | 单节点技能候选；受控 canary | candidate/evidence-bound Gate、PromotionService、真实 assignment/effective overlay 与回滚已 `implemented` | OpenHands、compatibility、ROI、cost calibration、full G4 为 `external_pending`；代码候选不自动晋升 | [`S5 Gate`](../cc-fable-v1/reports/s5-lean-evolution-report.md)；[`evolution tests`](../../tests/evolution/)；[`historical retained demo`](../cc-fable-v1/evidence/lean-preview/20260718T072917Z-b27f525fe4ef/demo-report.json) | G4 Lean Core only |
-| Keqing 外部 Claude Code/Codex CLI | Experimental / 实验，contained + experimental | Off | 可选本地 adapter | 独立工作目录、clean-env、外围 timeout、事后结果归一 | `action_interception=false`; `hard_cost_cap=false`; `pre_run_restore_point=false`; 不属于 Candidate 黄金路径 | [`adapter`](../../tests/executor/keqing/test_executor.py)；[`clean-env`](../../tests/security/test_clean_env.py) | deferred G4 work |
+| 多渠道通知 | Stable (limited) / 稳定（有限边界） | 按配置启用 | durable outbox 中已注册渠道 | 每个渠道成功后持久化 accepted 集合；部分成功重试跳过已成功渠道；单渠道异常不阻断其他渠道 | 不承诺第三方渠道最终展示、第三方幂等或永久可用 | [`remediation tests`](../../tests/notifier/test_delivery_remediation.py)；[`notifier tests`](../../tests/test_notifier.py) | G2 |
+| 成本与用量账本 | Stable (limited) / 稳定（有限边界） | On | 受支持 provider/model 上报的 prompt、completion、cache-read token 与取消前用量 | mixed provider/model 分项持久化；取消不丢弃已发生用量；缓存读取 token 单独统计 | best-effort 门禁不是 provider 侧预付额度，可能在阈值后停止；未上报用量无法补算 | [`cost tests`](../../tests/test_cost_manager_run_scope.py)；[`usage tests`](../../tests/test_liuke.py) | G2 |
+| Markdown 记忆与可重建索引 | Stable (limited) / 稳定（有限边界） | On | persona/court Markdown 真相源；SQLite/FTS 派生索引 | 新记录使用稳定 entry ID；删除精确命中；sync 保留 ID；索引写失败可从 Markdown 重建 | 不是跨主机同步、向量数据库或对 host administrator 加密 | [`fulltext tests`](../../tests/memory/test_fulltext_recall.py)；[`memory API`](../../src/tianshu/gateway/memory_api.py) | G2 |
+| Skills 读取目录 | Stable (limited) / 稳定（有限边界） | On | 统一 Web 目录、只读 Agent 工具 | list/view/Pin 可用；人工与 Agent 来源使用字段区分 | Web/Persona import 不直接修改 live；delete/archive 与旧式直接导入当前 409 | [`skill availability tests`](../../tests/skills/test_reviewer_availability.py)；[`Web contract`](../../web/src/components/system/SkillsTabs.test.tsx) | G2 |
+| Skill 候选与学习 | Experimental / 实验 | HTTP candidate On；自动 reviewer/curator Off | Skill candidate、Gate、canary、Promotion adapter | POST/PUT 只产生 candidate；Skill candidate 可经 gate/canary/promote/rollback；自动后台在 LLM 前 fail fast | 不承诺自动学习已接通；不得绕过候选直接写 live | [`candidate API tests`](../../tests/gateway/test_skills_candidate_api.py)；[`Persona bypass test`](../../tests/gateway/test_personas_api.py) | G4 Lean Core |
+| 插件 manifest 目录 | Beta (read-only preview) / Beta（只读预览） | 只读 | 本地 manifest discovery 与 API/Web 展示 | 所有记录统一标 `manifest_only`、`loaded=false`；安装/激活返回 501 | 不安装、不 import、不执行、不卸载插件代码 | [`plugin API tests`](../../tests/gateway/test_plugin_manifest_api.py)；[`implementation`](../../src/tianshu/plugins/) | deferred |
+| Desktop Web 产品壳 | Experimental / 实验 | On | 六个一级入口：中枢；御书房（全部敕令、颁发敕令、钦天监、都察院）；朝堂（吏部、廷议、内阁）；百司（翰林院、鸿胪寺、通政司）；天工院〔实验〕（演化司〔实验〕、诸界台〔实验〕、考功司〔试行〕、客卿馆〔实验〕）；内府（藏兵阁、权印司、户部账房） | 最终六入口方案已本地实现验证；御书房统一呈现全部可见未归档任务、叠加类型标签、真实进度和待人工介入状态；中枢把“当前执行中 / 未归档敕令 / 待裁决总数 / 累计证据束（含归档）”分开统计，未归档敕令显示待后续指令与已撤回分项；普通主体整个快照按本人过滤，`admin` scope 整个快照读取全局；前台 5 秒兜底轮询与相关 WebSocket 事件失效重拉共同保持时效；中枢另有长程治理、自进化、平行位面、客卿四张独特能力卡，自进化卡真实投影 `evolution_status`；天工院集中展示实验与试行能力 | 48 张保留基线属于前一版 6 路由；最新源码定义 7 路由、预期 56 张，重新生成与哈希更新等待明确浏览器自动化授权；`visual_status=user_approval_pending`；VoiceOver 为 `external_pending` | [`navigation`](../../web/src/navigation/departments.tsx)；[`control API`](../../src/tianshu/gateway/control_center_api.py)；[`control query`](../../src/tianshu/application/control_center.py)；[`control API tests`](../../tests/gateway/test_control_center.py)；[`control query tests`](../../tests/application/test_control_center.py)；[`control page tests`](../../web/src/pages/ControlCenterPage.test.tsx)；[`refresh tests`](../../web/src/hooks/useControlCenter.test.ts)；[`E2E tests`](../../web/e2e/) | G3 Lean Core |
+| Lean Core evolution | Experimental / 实验 | No active candidate | 单节点 Skill candidate；受控 canary | candidate/evidence-bound Gate、Skill Promotion adapter、真实 assignment/effective overlay 与回滚已 `implemented` | 行为 Universe 与 Code variant 仅到 evaluated/recommended；无生产 activation adapter；OpenHands、ROI、cost calibration、full G4 为 `external_pending` | [`S5 Gate`](../cc-fable-v1/reports/s5-lean-evolution-report.md)；[`evolution tests`](../../tests/evolution/)；[`historical retained demo`](../cc-fable-v1/evidence/lean-preview/20260719T083725Z-01da3844dde7/demo-report.json) | G4 Lean Core only |
+| 评测 | Beta / 试行 | 只读 Web；跑批 CLI | 真实评测集、运行、分数、失败分布与历史差异 | “天工院 → 考功司”可发现并标记“试行”；Web 读取持久评测结果，离线跑批入口保持 CLI | Web 不启动会消耗模型资源的跑批；没有评测数据时不伪造分数 | [`API`](../../src/tianshu/gateway/evals_api.py)；[`Web page`](../../web/src/pages/EvalsPage.tsx)；[`page tests`](../../web/src/pages/EvalsPage.test.tsx) | G3/G4 |
+| Keqing 外部 Claude Code/Codex CLI | Experimental / 实验，contained + experimental | Off；在“天工院 → 客卿馆”可发现 | 可选本地 adapter；CLI 凭据 self-managed | 独立工作目录、clean-env、外围 timeout、事后结果归一；可信 Git 可用且治理工作区准备成功时，运行前恢复点为 `enforced`；生产状态接口不会声称 credential gateway 已启用 | credential gateway 写入会返回 409；可靠事前动作拦截与 Provider 侧硬成本上限未实现；不属于 Candidate 黄金路径 | [`workspace lifecycle`](../../tests/executor/test_executor_workspace_lifecycle.py)；[`status tests`](../../tests/gateway/test_keqing_status.py)；[`clean-env`](../../tests/security/test_clean_env.py) | deferred G4 work |
 | remote MCP | Planned / 规划 | `disabled` | 无 Candidate 正式开放面 | secure-remote 下拒绝 | 完整 SSRF/DNS/redirect/proxy 安全尚未证明 | [`admission tests`](../../tests/security/test_mcp_lean_admission.py)；[`P2-A1`](../cc-fable-v1/06-deferred-work-backlog.md#p2-a1-remote-mcp-公开安全s24) | deferred |
 | open stdio MCP | Planned / 规划 | `disabled` | 内部窄 allowlist，不是开放能力 | enabled 窄路径要求显式非空 `tools.include` | persistent exact grant、executable/argv/env/workdir drift binding 未完成 | [`admission tests`](../../tests/security/test_mcp_lean_admission.py)；[`P2-A2`](../cc-fable-v1/06-deferred-work-backlog.md#p2-a2-stdio-mcp-准入与漂移绑定s25) | deferred |
-| official container / PyPI / GHCR / signing | Planned / 规划 | `deferred` | 当前正式路径仅 source 与 exact Wheel | — | 尚未发布官方容器、registry artifact、签名或正式 provenance | [`threat model`](../security/lean-preview-threat-model.md)；[`P2-A3/A4`](../cc-fable-v1/06-deferred-work-backlog.md#p2-a3-官方-exact-wheel-容器s26s67-部分) | deferred full G5 |
+| local legacy Docker / official distribution | Experimental local / Planned official | legacy local only；official `deferred` | 当前正式安装路径为 source 与本地 Wheel；Dockerfile 仅开发验证 | 当前分支本地镜像实建，非 root `10001:10001`，health/API/Web smoke 通过；Wheel/sdist 构建与清单检查通过 | 未执行当前 Ubuntu fresh-HOME exact-Wheel 黄金路径；尚未发布 official container、registry artifact、PyPI、签名或正式 provenance | [`Dockerfile`](../../Dockerfile)；[`packaging tests`](../../tests/packaging/test_release_hardening.py)；[`P2-A3/A4`](../cc-fable-v1/06-deferred-work-backlog.md#p2-a3-官方-exact-wheel-容器s26s67-部分) | deferred full G5 |
 
 ## S2 Lean security status / 安全边界
 
 | Boundary | Status | Default / current limit | Evidence |
 |---|---|---|---|
+| Auth + task ownership | **Implemented / 已实现** | trusted-local local principal；secure-remote 普通主体 owner-scoped，admin 才有全局权限 | [`ownership tests`](../../tests/gateway/test_task_ownership.py) |
 | SystemAudit tamper-evident chain | **Implemented / 已实现** | single-node SQLite；不是外部 WORM | [`S2 report`](../cc-fable-v1/reports/s2-lean-security-report.md) |
 | MCP persisted secret mappings | **Implemented / 已实现** | env/header mapping 密文；错误 key/ciphertext fail closed | [`ciphertext tests`](../../tests/secrets/test_mcp_secret_migration.py) |
 | remote MCP | **Disabled / Deferred** | Candidate 开放面保持 `disabled` | [`P2-A1`](../cc-fable-v1/06-deferred-work-backlog.md#p2-a1-remote-mcp-公开安全s24) |
 | stdio exact grant / executable binding | **Deferred / 延期** | open stdio MCP 保持 `disabled` | [`P2-A2`](../cc-fable-v1/06-deferred-work-backlog.md#p2-a2-stdio-mcp-准入与漂移绑定s25) |
-| container / PyPI / GHCR / signing | **Deferred / 延期** | 当前正式路径仅 source 与 exact Wheel | [`P2-A3/A4`](../cc-fable-v1/06-deferred-work-backlog.md#p2-a3-官方-exact-wheel-容器s26s67-部分) |
+| local legacy Docker | **Locally verified / 本地已验证** | 仅开发 smoke，不是官方发行物 | [`Dockerfile`](../../Dockerfile) |
+| official container / PyPI / GHCR / signing | **Deferred / 延期** | 当前正式路径仅 source 与本地 Wheel | [`P2-A3/A4`](../cc-fable-v1/06-deferred-work-backlog.md#p2-a3-官方-exact-wheel-容器s26s67-部分) |
 
 ## Candidate 状态摘要
 
 | Boundary | Truth state | Current limit | Evidence |
 |---|---|---|---|
-| Candidate aggregate | `not accepted` | old composite/unbound output withdrawn; new final-source evidence pending | [local checklist](checklist.md) |
-| S1/G1.5 source/exact Wheel | `implemented` | 本地 Darwin/arm64/Python 3.12.12；Ubuntu 外部复验未执行 | [G1.5 report](../cc-fable-v1/reports/g1.5-report.md) |
+| Candidate aggregate | `not accepted` | current local engineering gates passed; fresh-HOME/visual/provenance remain open | [local checklist](checklist.md) |
+| S1/G1.5 source/exact Wheel | historical retained `implemented` | 当前 Wheel/sdist 已构建；本轮未执行 Ubuntu 全新 HOME exact-Wheel 黄金路径 | [G1.5 report](../cc-fable-v1/reports/g1.5-report.md) |
 | S2 SystemAudit + MCP ciphertext | `implemented` | single-node/host-admin boundary | [S2 report](../cc-fable-v1/reports/s2-lean-security-report.md) |
 | S3 durable governance + Evidence | `implemented` | managed Native and declared effects | [S3 report](../cc-fable-v1/reports/s3-core-governance-report.md) |
-| S4 three pages | `implemented` automation | `user_approval_pending`; VoiceOver `external_pending` | [S4 report](../cc-fable-v1/reports/s4-core-web-report.md) |
+| Current Web shell | `verified_local` implementation | 最终六入口方案已实现；48 张保留基线覆盖前一版 6 路由，最新 7 路由源码预期 56 张且尚未重新生成或更新哈希；`visual_status=user_approval_pending`；VoiceOver `external_pending` | [local checklist](checklist.md) |
+| Historical S4 three pages | retained automation evidence | 不替代当前视觉审批 | [S4 report](../cc-fable-v1/reports/s4-core-web-report.md) |
 | S5 Lean Core evolution | `experimental` with implemented path | full G4 `external_pending` | [S5 report](../cc-fable-v1/reports/s5-lean-evolution-report.md) |
 | remote/open stdio MCP | `disabled` | reopening requires P2-A1/A2 | [deferred roadmap](../cc-fable-v1/06-deferred-work-backlog.md) |
+| local legacy Docker | `locally verified` | 非 root smoke；not official artifact | [local checklist](checklist.md) |
 | official container/PyPI/GHCR/full G5 | `deferred` | not in Candidate | [deferred roadmap](../cc-fable-v1/06-deferred-work-backlog.md) |
 | OpenHands/ROI/cost calibration/full G4 | `external_pending` | not in Candidate | [deferred roadmap](../cc-fable-v1/06-deferred-work-backlog.md) |

@@ -11,7 +11,7 @@ from tianshu.application.control_center import (
     ControlCenterUnavailable,
 )
 from tianshu.evidence.models import EvidenceBundleV1
-from tianshu.models import Edict, Memorial, TaskStatus
+from tianshu.models import Edict, EdictStatus, Memorial, TaskStatus
 from tianshu.models.canonical import canonical_sha256
 from tianshu.models.control_center import ControlCenterSnapshotV1
 from tianshu.models.decision import (
@@ -48,6 +48,20 @@ def _auth(principal_id: str = "user:owner") -> AuthContext:
         source=AuthenticationSource.BEARER,
         client_kind=ClientKind.WEB,
         correlation_id="corr-control",
+    )
+
+
+def _admin_auth() -> AuthContext:
+    return AuthContext(
+        principal=Principal(
+            id="user:admin",
+            kind=PrincipalKind.HUMAN,
+            display_name="user:admin",
+            scopes=frozenset({"api", "admin"}),
+        ),
+        source=AuthenticationSource.BEARER,
+        client_kind=ClientKind.WEB,
+        correlation_id="corr-control-admin",
     )
 
 
@@ -332,6 +346,163 @@ def test_snapshot_totals_exceed_bounded_lists_and_remain_principal_scoped(
     assert all("other" not in item.edict_id for item in snapshot.recent_evidence)
 
 
+def test_snapshot_reports_workspace_counts_for_principal_and_admin_scope(
+    storage,
+    tmp_path,
+) -> None:
+    owner_idle_edict = Edict(
+        id="edict-owner-idle",
+        title="等待后续指令",
+        goal="等待后续指令",
+        submitter="user:owner",
+    )
+    owner_idle_memorial = Memorial(
+        id="memorial-owner-idle",
+        edict_id=owner_idle_edict.id,
+        instruction="等待后续指令",
+        status=TaskStatus.COMPLETED,
+        completed_at=NOW,
+    )
+    storage.save_edict(owner_idle_edict)
+    storage.save_memorial(owner_idle_memorial)
+    with storage.unit_of_work() as unit_of_work:
+        storage.run_state_repo.create(
+            unit_of_work.connection,
+            _run_state(owner_idle_memorial, phase=RunPhase.COMPLETED, updated_at=NOW),
+        )
+        unit_of_work.commit()
+
+    storage.save_edict(
+        Edict(
+            id="edict-owner-cancelled",
+            title="已撤回",
+            goal="已撤回",
+            submitter="user:owner",
+            status=EdictStatus.CANCELLED,
+        )
+    )
+    other_memorial = _seed_run(
+        storage,
+        edict_id="edict-other-active",
+        memorial_id="memorial-other-active",
+        submitter="user:other",
+        title="其他用户运行",
+        phase=RunPhase.EXECUTING,
+        updated_at=NOW,
+    )
+    _seed_decision(
+        storage,
+        decision_id="decision-other-active",
+        edict_id=other_memorial.edict_id,
+        memorial_id=other_memorial.id,
+        expires_at=NOW + timedelta(minutes=10),
+    )
+    storage.save_edict(
+        Edict(
+            id="edict-legacy",
+            title="历史无归属敕令",
+            goal="历史无归属敕令",
+            submitter=None,
+        )
+    )
+
+    archived_edict = Edict(
+        id="edict-archived-ghost",
+        title="归档残留",
+        goal="归档残留",
+        submitter="user:other",
+    )
+    archived_memorial = Memorial(
+        id="memorial-archived-ghost",
+        edict_id=archived_edict.id,
+        instruction="归档残留",
+        status=TaskStatus.COMPLETED,
+        completed_at=NOW,
+    )
+    storage.save_edict(archived_edict)
+    storage.save_memorial(archived_memorial)
+    with storage.unit_of_work() as unit_of_work:
+        storage.run_state_repo.create(
+            unit_of_work.connection,
+            _run_state(archived_memorial, phase=RunPhase.EXECUTING, updated_at=NOW),
+        )
+        unit_of_work.commit()
+    _seed_decision(
+        storage,
+        decision_id="decision-archived-ghost",
+        edict_id=archived_edict.id,
+        memorial_id=archived_memorial.id,
+        expires_at=NOW + timedelta(minutes=5),
+    )
+    storage.tombstone_edict(archived_edict.id)
+
+    evidence_edict, evidence_memorial = seed_closed_run(
+        storage,
+        submitter="user:owner",
+        edict_id="edict-archived-evidence",
+        memorial_id="memorial-archived-evidence",
+    )
+    archived_evidence_service = evidence_service(storage, tmp_path / "archived-artifacts")
+    opened_evidence = archived_evidence_service.build_open(evidence_memorial.id)
+    archived_evidence_service.close(
+        evidence_memorial.id,
+        expected_version=opened_evidence.version,
+    )
+    storage.tombstone_edict(evidence_edict.id)
+
+    query = ControlCenterQueryService(
+        unit_of_work=storage.unit_of_work,
+        decision_repository=storage.decision_repo,
+        run_state_repository=storage.run_state_repo,
+        evidence_repository=storage.evidence_repo,
+        readiness_status=lambda: "ready",
+        clock=lambda: NOW,
+    )
+
+    owner_snapshot = query.get_snapshot(_auth())
+    assert owner_snapshot.unarchived_edict_total == 2
+    assert owner_snapshot.awaiting_follow_up_total == 1
+    assert owner_snapshot.cancelled_edict_total == 1
+    assert owner_snapshot.active_run_total == 0
+    assert owner_snapshot.pending_decision_total == 0
+    assert owner_snapshot.evidence_total == 1
+    assert [item.edict_id for item in owner_snapshot.recent_evidence] == [
+        "edict-archived-evidence"
+    ]
+
+    admin_snapshot = query.get_snapshot(_admin_auth())
+    assert admin_snapshot.unarchived_edict_total == 4
+    assert admin_snapshot.awaiting_follow_up_total == 1
+    assert admin_snapshot.cancelled_edict_total == 1
+    assert admin_snapshot.active_run_total == 1
+    assert admin_snapshot.pending_decision_total == 1
+    assert admin_snapshot.evidence_total == 1
+    assert [item.edict_id for item in admin_snapshot.active_runs] == [
+        "edict-other-active"
+    ]
+    assert [item.edict_id for item in admin_snapshot.pending_decisions] == [
+        "edict-other-active"
+    ]
+
+
+def test_snapshot_rejects_workspace_breakdown_larger_than_total() -> None:
+    with pytest.raises(ValueError, match="workspace breakdown"):
+        ControlCenterSnapshotV1(
+            generated_at=NOW,
+            readiness="ready",
+            active_run_total=0,
+            unarchived_edict_total=0,
+            awaiting_follow_up_total=1,
+            cancelled_edict_total=0,
+            pending_decision_total=0,
+            evidence_total=0,
+            active_runs=(),
+            pending_decisions=(),
+            recent_evidence=(),
+            evolution_status="not_enabled",
+        )
+
+
 def test_snapshot_keeps_evolution_disabled_when_readiness_is_degraded(storage) -> None:
     degraded = ControlCenterQueryService(
         unit_of_work=storage.unit_of_work,
@@ -343,10 +514,9 @@ def test_snapshot_keeps_evolution_disabled_when_readiness_is_degraded(storage) -
     ).get_snapshot(_auth())
     assert degraded.readiness == "degraded"
     assert degraded.evolution_status == "not_enabled"
-    assert (
-        ControlCenterSnapshotV1.model_json_schema()["properties"]["evolution_status"]["const"]
-        == "not_enabled"
-    )
+    assert set(
+        ControlCenterSnapshotV1.model_json_schema()["properties"]["evolution_status"]["enum"]
+    ) == {"not_enabled", "enabled", "degraded"}
 
     unavailable = ControlCenterQueryService(
         unit_of_work=storage.unit_of_work,
@@ -358,6 +528,50 @@ def test_snapshot_keeps_evolution_disabled_when_readiness_is_degraded(storage) -
     )
     with pytest.raises(ControlCenterUnavailable):
         unavailable.get_snapshot(_auth())
+
+
+@pytest.mark.parametrize("evolution_status", ["enabled", "degraded"])
+def test_snapshot_projects_injected_evolution_status_for_auth(
+    storage,
+    evolution_status,
+) -> None:
+    seen_auth: list[AuthContext] = []
+
+    def read_evolution_status(auth: AuthContext):
+        seen_auth.append(auth)
+        return evolution_status
+
+    auth = _auth()
+    snapshot = ControlCenterQueryService(
+        unit_of_work=storage.unit_of_work,
+        decision_repository=storage.decision_repo,
+        run_state_repository=storage.run_state_repo,
+        evidence_repository=storage.evidence_repo,
+        readiness_status=lambda: "ready",
+        evolution_status=read_evolution_status,
+        clock=lambda: NOW,
+    ).get_snapshot(auth)
+
+    assert snapshot.evolution_status == evolution_status
+    assert seen_auth == [auth]
+
+
+def test_evolution_status_failure_is_not_hidden_as_a_disabled_snapshot(storage) -> None:
+    def unavailable(_auth: AuthContext):
+        raise RuntimeError("evolution source failed")
+
+    query = ControlCenterQueryService(
+        unit_of_work=storage.unit_of_work,
+        decision_repository=storage.decision_repo,
+        run_state_repository=storage.run_state_repo,
+        evidence_repository=storage.evidence_repo,
+        readiness_status=lambda: "ready",
+        evolution_status=unavailable,
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(ControlCenterUnavailable):
+        query.get_snapshot(_auth())
 
 
 def test_storage_decode_failure_is_not_hidden_as_an_empty_snapshot(storage) -> None:

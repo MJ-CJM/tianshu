@@ -8,12 +8,15 @@
 
 | type | 行为 | 持久化 |
 |---|---|---|
-| `immediate` | 立即 `emit("edict.scheduled")` | 否（内存 job 仅记录） |
-| `once` | `at` 为空或已过期 → 立即；否则延时一次 emit | `at` 在未来时写 `scheduler_jobs` |
+| `immediate` | 立即准备一次独立 run | 写 `scheduler_jobs`、`schedule_runs`、Memorial、attempt 与 outbox；准备后 job 标 `completed` |
+| `once` | 必须有未来的 `at`；到点准备一个独立 run | 写 `scheduler_jobs`，触发后标 `completed` |
 | `cron` | croniter 算下次触发，循环 emit | 写 `scheduler_jobs`（带 `cron_expr` + `next_run`） |
 | `interval` | 每 `interval_seconds` 周期 emit（每次新 memorial） | 写 `scheduler_jobs`（带 `interval_seconds`） |
 
-> 设计说明：核心是「立即 / 延时一次 / 周期」三类。`cron`（日历周期）与 `interval`（固定间隔）都属周期类，分开是因为 cron 要处理时区与 DST，interval 只是定长 sleep。非法配置（cron 无表达式、interval<1）一律降级为 immediate。
+> 核心是「立即 / 延时一次 / 周期」三类。`cron`（日历周期）与 `interval`（固定间隔）
+> 都属周期类。非法时区、缺少/过期 once 时间、空 cron、非法 interval 均显式拒绝，不会
+> 降级为 immediate。outer loop 或 `checkpointed/background` 长任务只能
+> `immediate/once`，并强制 `concurrency_policy=skip`。
 
 ## 2. schedule 表达式解析
 
@@ -32,7 +35,7 @@
 |---|---|
 | 算下次触发 | `_next_cron_utc(cron_expr, tz_name)`：croniter 用 tz-aware base 做日历推算（处理 DST），结果 `astimezone(UTC)` |
 | 存储 | 一律 UTC（`next_run` 列、内存 `_Job.next_run`） |
-| 非法时区 | `_resolve_tz` 回退 UTC 并 warn |
+| 非法时区 | 模型/API/恢复路径显式失败，不猜测 UTC |
 
 立场：**时区只在「算触发时刻」时存在，存储与 sleep 计算统一 UTC**，避免跨时区漂移。
 
@@ -40,13 +43,21 @@
 
 | 能力 | 实现 |
 |---|---|
-| 启动恢复 | `_restore_jobs()` 从 `list_active_scheduler_jobs` 重建 task；edict 已非 `open` 则删 job；`once` 已过期则立即 emit |
-| 取消/暂停/恢复 | `cancel` / `pause`（cancel timer 留行）/ `resume`（按持久化 schedule 重建 timer） |
-| 手动触发 | `run_now(job_id)`：立即 emit 一次，不动原 schedule |
-| 列举 | `list_jobs()`：合并 DB 行与内存 live `next_run` |
+| 启动恢复 | `_restore_jobs()` 从 active job 重建；周期 misfire 只补最近槽位；不再合法的长任务组合标 `failed` |
+| 取消/暂停/恢复 | `cancel` / `pause`（停 timer 留行）/ `resume`（按持久化 schedule 重建 timer） |
+| 修改时间 | `reschedule` 事务性更新 Edict schedule 与 job 游标；原 active job 修改后恢复 active |
+| 手动触发 | `run_now(job_id, idempotency_key)`：准备独立 run，不动原 schedule |
+| 列举 | `list_jobs()` 返回 active/paused/failed/completed，并附 timezone、title、last_run |
+| 历史 | `list_job_runs()` 关联真实 Memorial 终态、完成时间和错误 |
 | 停机 | `stop()` cancel 所有 task |
 
-cron/interval loop 每轮都 `get_edict` 拉**最新**状态：edict 不再 `open` 即停 loop（任务被关闭后定时器自动退出）。
+job 状态语义：`active` 可触发、`paused` 保留但不触发、`completed` 是一次任务正常完成、
+`failed` 是恢复/执行边界无法继续、`cancelled` 是用户取消。归档 Edict 会事务性取消其
+schedule；列表不再显示归档任务。
+
+每个触发槽位由 `ScheduledRunPreparer` 在一个事务中校验 Edict、建立确定性 run/Memorial/
+attempt/outbox，并以 compare-and-set 推进 job 游标。重放同一槽位复用身份；租约和 fencing
+阻止失去执行权的旧 runner 提交终态。
 
 ## 5. 系统级 cron
 
@@ -55,8 +66,12 @@ cron/interval loop 每轮都 `get_edict` 拉**最新**状态：edict 不再 `ope
 | cron | 名称 | 触发 |
 |---|---|---|
 | `0 3 * * *` | `profile.daily_synthesis` | 人格画像每日合成 |
-| `0 4 * * 0` | `skill.weekly_curate` | skill 每周整理（可选） |
+| `0 4 * * 0` | `skill.weekly_curate` | 兼容调度；非 dry-run 因 governed 写入未开放而跳过 |
 | `0 5 * * *` | `universe.daily_evolve` | 平行位面每日演化（可选） |
+| `30 5 * * *` | `universe.daily_code_propose` | 代码候选提案（可选、实验） |
+
+系统 job 启动时会把上个进程残留的 `running` 台账收敛为 `failed`；同名 system job
+仍在运行时，本轮记 `skipped`，不并发重入。
 
 ## 6. review 超时巡检
 
@@ -64,6 +79,7 @@ cron/interval loop 每轮都 `get_edict` 拉**最新**状态：edict 不再 `ope
 
 ## 7. 输出事件
 
-`_emit_scheduled(edict, memorial_id)`：把 `submitted` 状态的 memorial 推进到 `SCHEDULED`，再 `emit("edict.scheduled", payload={"goal": ...})` 交给 Planner。
+兼容路径仍可发 `edict.scheduled`，新路径以持久 schedule-run/attempt 为执行权威。事件用于
+观察和升级兼容，不能单独证明某个槽位只执行了一次。
 
 **相关实现**：[../../impl/scheduling/](../../impl/scheduling/)

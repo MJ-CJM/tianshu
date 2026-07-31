@@ -1,5 +1,11 @@
 # 天枢 Agent OS · Codex v1 开发交接包
 
+> **历史快照（2026-07-12）：** 本目录记录当时 `feat_codex_phase_1` 的交接现场，
+> 不再是当前分支的执行权威。当前实现和验证状态请先读
+> [当前实现与支持边界](../CURRENT-STATE.md) 与
+> [能力事实矩阵](../launch/capability-matrix.md)。包内 commit、报告和图片仍用于
+> 追溯当时事实，不因后续实现变化而改写结论。
+
 本目录是 G0–G5 产品设计、架构设计、实施计划、当前状态、验收口径和
 UI 图的自包含快照。目标是让一个不了解此前对话的 coding agent 能先判断
 真实状态，再从正确切片继续开发，而不是把历史规划误认为已经实现。
@@ -20,13 +26,13 @@ UI 图的自包含快照。目标是让一个不了解此前对话的 coding age
 - G0 UI 原型已审批；正式生产 Web 的 G3 迁移尚未开始。
 - 用户已要求暂停实施；任何 coding agent 恢复前必须重新冻结工作区状态。
 
-完整机器/人工状态见 [STATUS.md](./STATUS.md)。
+完整机器/人工状态见 [STATUS.md](./archive/STATUS.md)。
 
 ## 新 coding agent 必读顺序
 
-1. [STATUS.md](./STATUS.md)：现在停在哪里、哪些证据仍有效。
+1. [STATUS.md](./archive/STATUS.md)：现在停在哪里、哪些证据仍有效。
 2. [SOURCE-OF-TRUTH.md](./SOURCE-OF-TRUTH.md)：文档冲突时听谁的。
-3. [DEVELOPMENT-HANDOFF.md](./DEVELOPMENT-HANDOFF.md)：如何安全恢复当前 dirty tree。
+3. [DEVELOPMENT-HANDOFF.md](./archive/DEVELOPMENT-HANDOFF.md)：如何安全恢复当前 dirty tree。
 4. [PRODUCT-ARCHITECTURE.md](./PRODUCT-ARCHITECTURE.md)：产品定位、差异点和目标架构。
 5. [IMPLEMENTATION-GUIDE.md](./IMPLEMENTATION-GUIDE.md)：G0–G5 入口、出口和依赖。
 6. [plans/01-rebaselined-execution.md](./plans/01-rebaselined-execution.md)：唯一拥有执行顺序、切片和 Gate 的计划。

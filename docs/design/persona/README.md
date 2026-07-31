@@ -10,12 +10,12 @@ persona 子系统用明朝「六部」官员隐喻组织执行主体。制度层
 
 ## 2. 核心设计判断
 
-- **模板 / 运行时双层存储**：身份文件 `personas/{department}/`（git 模板，seed 源）与 `~/.tianshu/personas/{id}/`（运行时私有副本，可独立演化）分离。UI 修改只落运行时，git 永不动；`git = 起点，~/.tianshu = 真相源`。
-- **SQLite 为主、文件为 seed**：`PersonaLoader` 以 `personas` 表为 primary，文件目录仅作模板源；DB 存的 path 被忽略，运行时目录权威。
+- **打包默认 / 运行时 overlay 双层存储**：内建身份源位于 `src/tianshu/resources/personas/{department}/`，运行时通过 `resources.overlay.packaged_defaults().personas_dir()` 取得只读视图；`~/.tianshu/personas/{id}/` 是可独立演化的用户 overlay。UI / API 修改只落 overlay，不修改打包默认。
+- **SQLite 为主、打包文件为 seed**：`PersonaLoader` 以 `personas` 表为 primary，打包目录仅作初始 SOUL/ROLE/MEMORY 来源；DB 存的 path 被忽略，运行时目录权威。
 - **多层 prompt 注入有序叠加**：从 Base Identity 到 Task Context 约十余层有序拼接，后注入优先级更高；身份卡（Layer 2.5）作权威身份覆盖下文旧描述。
 - **路由可解释**：`OfficialSelector` 用任务类型偏好表 + 关键字打分两条路径选官，映射对 UI 可见、可解释。
 - **画像自动成长**：`ProfileSynthesizer` 按 AGENT_END 计数 + cron 周期合成 `PROFILE.md`，规则聚合 + LLM 归纳分工。
-- **模板库 vendored**：`TemplateLibrary` 把 agency-agents 模板拆成 SOUL/ROLE 两文件，供新建官员快速 seed。
+- **模板库 vendored**：模板源码位于 `src/tianshu/resources/persona_templates/`，运行时通过 `packaged_defaults().persona_templates_dir()` 读取；`TemplateLibrary` 把 agency-agents 模板拆成 SOUL/ROLE 两文件，供新建官员快速 seed。
 
 ## 3. 六部官员与 court
 
@@ -45,5 +45,6 @@ persona 子系统用明朝「六部」官员隐喻组织执行主体。制度层
 | [officials.md](./officials.md) | 六部官员职责、court 共享、OfficialSelector 路由 |
 | [prompt-builder.md](./prompt-builder.md) | PromptBuilder 多层注入顺序 |
 | [profile.md](./profile.md) | ProfileSynthesizer 画像合成、TemplateLibrary 模板库 |
+| [import-from-external.md](./import-from-external.md) | 外部人格种子只读预览、SOUL/ROLE 导入和 Skill 治理边界 |
 
 **相关实现**：[../../impl/persona/](../../impl/persona/)

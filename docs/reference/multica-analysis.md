@@ -4,6 +4,11 @@
 > 具体的落地实施计划见 [../superpowers/plans/2026-07-02-multica-inspired-control-plane.md](../superpowers/plans/2026-07-02-multica-inspired-control-plane.md)。
 >
 > 分析日期：2026-07-02（feat_phase8）。参考源：`/Users/chenjiamin/ai-example/multica`。
+>
+> **当前差异（2026-07-31）**：下文“天枢现状”和优先级保留分析当日语境。此后已落地
+> heartbeat/orphan sweeper、checkpointed recovery、周期任务 `skip` 并发策略、durable
+> fire identity、运行台账和游标 CAS；queue/replace、多节点 Worker 与分布式控制面仍未
+> 实现。当前事实以 [CURRENT-STATE](../CURRENT-STATE.md)为准。
 
 ---
 
@@ -53,10 +58,10 @@
 
 ### ★★★ 强烈推荐（契合 Phase 3，代价可控，价值高）
 
-| 项 | Multica 机制 | 天枢现状（证据） | 借鉴要点 |
+| 项 | Multica 机制 | 天枢当前落地 | 尚未完成 |
 |---|---|---|---|
-| **#1 Sweeper 孤儿任务回收** | 后台 sweeper 回收卡死任务 | `scheduler.py:175` 的 `_review_timeout_loop` 只覆盖 `needs_review` 超时；Memorial 无 heartbeat 字段；`RUNNING/PLANNING/AUDITING` 卡死无自愈 | 扩展 sweeper 到活跃态卡死检测；接现有 orchestrator checkpoint resume / L0–L3 升级 |
-| **#2 并发策略 + origin 追溯** | Autopilot `concurrency_policy` + `origin_id` | `_cron_loop`/`_interval_loop` 每次直接 `_emit_scheduled` **无去重**；系统 job（profile/skill/universe evolve）`asyncio.create_task` **fire-and-forget 无 run 台账** | 给定时/系统 job 加 skip/queue/replace + run 记录 + `origin_id` |
+| **#1 Sweeper 孤儿任务回收** | 后台 sweeper 回收卡死任务 | Memorial/attempt 已有 heartbeat、lease/fencing；checkpointed legacy 任务可恢复，普通孤儿明确失败；managed 路径由 continuation recovery 处理，sweeper 只诊断 | 多节点 Worker 的跨节点租约回收与外部副作用恢复 |
+| **#2 并发策略 + origin 追溯** | Autopilot `concurrency_policy` + `origin_id` | 普通周期任务支持 `skip/allow`；durable fire identity、schedule run 台账、幂等 replay 与 cursor CAS 已落地；长程任务固定 `skip` | `queue/replace`、统一业务 `origin_id` 和所有系统 job 台账 |
 | **#3 Runtime/Worker 解耦** | server ↔ daemon 认领协议 | executor 进程内自执行，单机 | Phase 3 分布式主线；#1 #2 是其地基 |
 
 ### ★★ 值得考虑（取决于是否走"协作"方向）
@@ -81,11 +86,13 @@
 
 ## 四、推荐优先级
 
-按"价值/代价比"：
+按 2026-07-31 的当前差异：
 
-1. **#1 Sweeper 孤儿任务回收** —— 可靠性刚需，复用现有 `_review_timeout_loop` 模式，立刻收益。
-2. **#2 并发策略 + origin 追溯** —— 补强现有 scheduler 明显缺口，代价低。
-3. **#4 / #5**（择一）—— 视是否强化"多官员协作"叙事。
-4. **#3 Runtime/Worker 解耦** —— Phase 3 分布式主线，前两步是地基，待 #1 #2 稳定后正式设计。
+1. **#1 基础回收已落地** —— 后续只在多节点 Worker 设计中扩展，不再作为当前单机
+   开源阻塞项。
+2. **#2 基础并发与台账已落地** —— `queue/replace` 和统一 origin 留到确有用户场景时，
+   避免为了完整枚举增加当前复杂度。
+3. **#4 / #5**（择一）—— 仅在产品明确走多人协作时再深化。
+4. **#3 Runtime/Worker 解耦** —— 仍是分布式主线，不属于 v0.4.2 单节点承诺。
 
 落地实施细节见 [../superpowers/plans/2026-07-02-multica-inspired-control-plane.md](../superpowers/plans/2026-07-02-multica-inspired-control-plane.md)。

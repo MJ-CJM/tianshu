@@ -140,6 +140,77 @@ class SchedulerMixin:
                 (status, job_id),
             )
 
+    def update_scheduler_job_schedule(
+        self,
+        job_id: str,
+        *,
+        edict_id: str,
+        schedule_json: str,
+        schedule_type: str,
+        cron_expr: str | None,
+        interval_seconds: int | None,
+        next_run: datetime,
+        status: str,
+    ) -> bool:
+        """事务性替换敕令与持久游标时间定义，保留 job_id 与历史关联。"""
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                """
+                SELECT sj.edict_id, sj.status, e.status AS edict_status
+                FROM scheduler_jobs sj
+                JOIN edicts e ON e.id = sj.edict_id
+                WHERE sj.job_id = ?
+                """,
+                (job_id,),
+            ).fetchone()
+            if (
+                row is None
+                or row["edict_id"] != edict_id
+                or row["status"] not in {"active", "paused"}
+                or row["edict_status"] != "open"
+            ):
+                return False
+            self._conn.execute(
+                "UPDATE edicts SET schedule_json = ? WHERE id = ?",
+                (schedule_json, edict_id),
+            )
+            cursor = self._conn.execute(
+                """
+                UPDATE scheduler_jobs
+                SET schedule_type = ?, cron_expr = ?, interval_seconds = ?,
+                    next_run = ?, status = ?
+                WHERE job_id = ? AND status IN ('active', 'paused')
+                """,
+                (
+                    schedule_type,
+                    cron_expr,
+                    interval_seconds,
+                    next_run.astimezone(UTC).isoformat(),
+                    status,
+                    job_id,
+                ),
+            )
+        return cursor.rowcount == 1
+
+    def compare_and_set_scheduler_next_run(
+        self,
+        job_id: str,
+        *,
+        expected_next_run: str,
+        next_run: datetime,
+    ) -> bool:
+        """在补跑合并前安全推进游标，避免与暂停/取消/其他实例竞争。"""
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                """
+                UPDATE scheduler_jobs
+                SET next_run = ?
+                WHERE job_id = ? AND status = 'active' AND next_run = ?
+                """,
+                (next_run.astimezone(UTC).isoformat(), job_id, expected_next_run),
+            )
+        return cursor.rowcount == 1
+
     def get_scheduler_job(self, job_id: str) -> dict | None:
         with self._lock:
             row = self._conn.execute(
@@ -152,6 +223,14 @@ class SchedulerMixin:
         with self._lock, self._conn:
             self._conn.execute(
                 "UPDATE scheduler_jobs SET status = 'cancelled' WHERE job_id = ?",
+                (job_id,),
+            )
+
+    def complete_scheduler_job(self, job_id: str) -> None:
+        """标记一次性任务已正常触发，区别于用户取消。"""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE scheduler_jobs SET status = 'completed', next_run = NULL WHERE job_id = ?",
                 (job_id,),
             )
 
@@ -236,3 +315,17 @@ class SchedulerMixin:
                     (limit,),
                 ).fetchall()
         return [dict(r) for r in rows]
+
+    def fail_running_system_schedule_runs(self, *, reason: str) -> int:
+        """启动时将上个进程遗留的全部 system/running 台账收敛为 failed。"""
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                """
+                UPDATE schedule_run
+                SET status = 'failed', error = ?, finished_at = ?
+                WHERE kind = 'system' AND status = 'running'
+                """,
+                (reason, now),
+            )
+        return cursor.rowcount

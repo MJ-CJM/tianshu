@@ -3,13 +3,20 @@
 import "@testing-library/jest-dom/vitest";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const apiMocks = vi.hoisted(() => ({
+  getKeqingStatus: vi.fn(),
+  getAgentConfig: vi.fn(),
+  updateAgentConfig: vi.fn(),
+}));
+
+vi.mock("../api/config", () => apiMocks);
+
 import KeqingManagementPage from "./KeqingManagementPage";
 
-// antd 组件依赖 matchMedia/getComputedStyle,jsdom 无原生实现——inline polyfill(同现有页面测试)。
-beforeAll(() => {
+beforeEach(() => {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: vi.fn().mockImplementation((query: string) => ({
@@ -25,90 +32,71 @@ beforeAll(() => {
   });
 });
 
-const mocks = vi.hoisted(() => ({
-  getKeqingStatus: vi.fn(),
-  getAgentConfig: vi.fn(),
-  updateAgentConfig: vi.fn(),
-}));
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
 
-vi.mock("../api/config", () => ({
-  getKeqingStatus: mocks.getKeqingStatus,
-  getAgentConfig: mocks.getAgentConfig,
-  updateAgentConfig: mocks.updateAgentConfig,
-}));
-
-// i18n:key 透传,便于对稳定 key 断言
-vi.mock("../i18n", () => ({ useT: () => (k: string) => k }));
-
-function renderPage() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <KeqingManagementPage />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
-}
-
-afterEach(cleanup);
-
-describe("KeqingManagementPage", () => {
-  it("renders backend registry with version drift + capabilities (外臣能力,非人格)", async () => {
-    mocks.getKeqingStatus.mockResolvedValue({
+describe("KeqingManagementPage data truth", () => {
+  it("does not expose the unwired credential gateway as a runnable control", async () => {
+    apiMocks.getKeqingStatus.mockResolvedValue({
+      backends: [],
       gateway_enabled: false,
-      backends: [
-        {
-          id: "keqing:pi",
-          backend: "pi",
-          binary: "pi",
-          installed: true,
-          installed_version: "0.79.3",
-          pinned_version: "0.81.1",
-          version_drift: true,
-          capabilities: {
-            permission_shaping: "none",
-            hooks: "none",
-            stop_gate: true,
-            session_resume: true,
-            interject: true,
-            usage_reporting: "full",
-          },
-          credential_status: "self-managed",
-        },
-      ],
     });
-    mocks.getAgentConfig.mockResolvedValue({
+    apiMocks.getAgentConfig.mockResolvedValue({
       keqing_default_models: {},
-      keqing_gateway_enabled: false,
+      keqing_gateway_enabled: true,
       keqing_per_run_budget_cny: 0,
-      keqing_model_allowlist: "",
+      keqing_model_allowlist: "openai/gpt-5",
     });
-    renderPage();
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
 
-    await waitFor(() => expect(screen.getByText("keqing:pi")).toBeInTheDocument());
-    expect(screen.getByText(/0\.79\.3/)).toBeInTheDocument(); // 安装版本
-    expect(screen.getByText("keqing.drift")).toBeInTheDocument(); // 漂移标
-    expect(screen.getByText("keqing.cap.resume")).toBeInTheDocument(); // 能力声明
-    expect(screen.getByText("keqing.cred.selfManaged")).toBeInTheDocument(); // 客卿自管
+    render(
+      <QueryClientProvider client={client}>
+        <KeqingManagementPage />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("治理默认")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "客卿" })).toBeInTheDocument();
+    expect(screen.getAllByText("实验")).toHaveLength(2);
+    expect(
+      screen.getByText(
+        "查验 Claude Code、Codex、Pi、OpenCode，并配置模型与单次靡费默认值。",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "凭证由各 CLI 自理；可靠事前动作拦截与 Provider 侧硬成本上限尚未具备。",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+    expect(screen.queryByText("模型白名单")).not.toBeInTheDocument();
   });
 
-  it("hydrates governance defaults form from agent-config", async () => {
-    mocks.getKeqingStatus.mockResolvedValue({ gateway_enabled: false, backends: [] });
-    mocks.getAgentConfig.mockResolvedValue({
-      keqing_default_models: { "claude-code": "anthropic/claude-opus" },
-      keqing_gateway_enabled: true,
-      keqing_per_run_budget_cny: 5,
-      keqing_model_allowlist: "",
+  it("does not present a status outage as an empty backend registry", async () => {
+    apiMocks.getKeqingStatus.mockRejectedValue({
+      status: 503,
+      code: "service-unavailable",
+      message: "客卿状态服务暂不可用",
+      correlationId: "keqing-correlation",
+      retryable: true,
     });
-    renderPage();
+    apiMocks.getAgentConfig.mockResolvedValue({});
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
 
-    await waitFor(() =>
-      expect(screen.getByText("keqing.section.governance")).toBeInTheDocument(),
+    render(
+      <QueryClientProvider client={client}>
+        <KeqingManagementPage />
+      </QueryClientProvider>,
     );
-    // 默认模型输入回填
-    await waitFor(() =>
-      expect(screen.getByDisplayValue("anthropic/claude-opus")).toBeInTheDocument(),
-    );
+
+    const errorText = await screen.findByText("客卿状态服务暂不可用");
+    expect(errorText.closest('[role="alert"]')).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 });

@@ -2,15 +2,25 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from typing import Any, Literal, Self
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from croniter import croniter
 from pydantic import BaseModel, Field, model_validator
 from ulid import ULID
 
 from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.common import EdictStatus
-from tianshu.models.governance_contract import RequestedGovernanceContractV1
+from tianshu.models.governance_contract import AcceptancePolicyV1, RequestedGovernanceContractV1
+
+
+class LongRunningScheduleError(ValueError):
+    """A schedule cannot safely represent the requested long-running work."""
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        super().__init__(message)
 
 
 class EdictSchedule(BaseModel):
@@ -22,6 +32,47 @@ class EdictSchedule(BaseModel):
     # 周期任务并发去重（Multica 借鉴 #2-A）：skip=上次未结束则跳过本次；allow=放行并发。
     # queue/replace 语义需任务队列基础设施，收敛到 #3 Worker 队列。
     concurrency_policy: Literal["skip", "allow"] = "skip"
+    # 进程停机期间错过多个周期时，只补执行最近一次，避免恢复后集中触发。
+    misfire_policy: Literal["coalesce"] = "coalesce"
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> Self:
+        timezone: tzinfo = UTC
+        if self.timezone.upper() != "UTC":
+            try:
+                timezone = ZoneInfo(self.timezone)
+            except ZoneInfoNotFoundError as exc:
+                raise ValueError(f"unknown IANA timezone: {self.timezone}") from exc
+        if self.at is not None and self.at.tzinfo is None:
+            self.at = self.at.replace(tzinfo=timezone)
+        if self.cron is not None and not croniter.is_valid(self.cron):
+            raise ValueError("invalid cron expression")
+        if self.interval_seconds is not None and self.interval_seconds < 1:
+            raise ValueError("interval_seconds must be positive")
+        return self
+
+
+def validate_long_running_schedule(
+    schedule: EdictSchedule,
+    *,
+    outer_loop: bool,
+    execution_profile: str,
+) -> None:
+    """Fail closed for long-running schedules unsupported by the single-node model."""
+    long_running = outer_loop or execution_profile in {"checkpointed", "background"}
+    if not long_running:
+        return
+    if schedule.type in {"cron", "interval"}:
+        raise LongRunningScheduleError(
+            "recurring_long_running_unsupported",
+            "recurring schedules do not support long-running tasks; "
+            "use an immediate or once schedule",
+        )
+    if schedule.concurrency_policy != "skip":
+        raise LongRunningScheduleError(
+            "long_running_concurrency_must_skip",
+            "long-running tasks require concurrency_policy='skip'",
+        )
 
 
 class EdictDispatch(BaseModel):
@@ -74,7 +125,7 @@ class EdictRuntime(BaseModel):
     # "keqing:<agent>"=派外部 CLI 客卿出工(如 keqing:claude-code / keqing:codex)。
     executor: str = "native"
     executor_model: str | None = None
-    # 对话模式：成功过审后不自动结案，敕令保持进行、「继续批示」持续可用，
+    # 对话模式：成功过审后不自动结案，敕令保持未结案、「继续批示」持续可用，
     # 由人工「结案」终止（follow-up 回放历史奏折的多轮上下文，等同与百官连续对话）。
     # 默认开启（2026-07-29 拍板）：人下的敕令天然是多轮的，结案权在人；
     # 机器自动化入口（agent 的 submit_edict 工具等）显式传 False 保持一次性闭环。
@@ -124,6 +175,21 @@ class Edict(BaseModel):
                 "runtime.executor_model conflicts with frozen governance_contract.executor.model"
             )
         return self
+
+
+def edict_uses_outer_loop(edict: Edict) -> bool:
+    contract = edict.governance_contract
+    return edict.acceptance is not None or (
+        contract is not None and contract.acceptance != AcceptancePolicyV1()
+    )
+
+
+def validate_edict_long_running_schedule(edict: Edict) -> None:
+    validate_long_running_schedule(
+        edict.schedule,
+        outer_loop=edict_uses_outer_loop(edict),
+        execution_profile=edict.execution_profile,
+    )
 
 
 def title_from_goal(goal: str, title: str | None = None) -> str:

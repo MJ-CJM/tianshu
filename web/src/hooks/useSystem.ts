@@ -2,9 +2,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   listSkills,
   getSkill,
-  updateSkill,
-  createSkill,
-  deleteSkill,
   listTools,
   setToolEnabled,
   listPromptFiles,
@@ -29,38 +26,6 @@ export function useSkillDetail(name: string | null) {
     queryFn: () => getSkill(name!),
     enabled: !!name,
     select: (data) => data.data,
-  });
-}
-
-export function useUpdateSkill() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ name, content }: { name: string; content: string }) =>
-      updateSkill(name, content),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["skills"] });
-    },
-  });
-}
-
-export function useCreateSkill() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ name, content }: { name: string; content: string }) =>
-      createSkill(name, content),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["skills"] });
-    },
-  });
-}
-
-export function useDeleteSkill() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (name: string) => deleteSkill(name),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["skills"] });
-    },
   });
 }
 

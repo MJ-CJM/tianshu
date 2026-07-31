@@ -1,5 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listSchedulerJobs, cancelSchedulerJob } from "../api/scheduler";
+import {
+  cancelSchedulerJob,
+  listSchedulerJobs,
+  pauseSchedulerJob,
+  resumeSchedulerJob,
+  runSchedulerJobNow,
+  updateSchedulerJob,
+} from "../api/scheduler";
+import type { EdictSchedule } from "../api/types";
 
 export function useSchedulerJobs() {
   return useQuery({
@@ -20,4 +28,33 @@ export function useCancelJob() {
       queryClient.invalidateQueries({ queryKey: ["scheduler_jobs"] });
     },
   });
+}
+
+function useJobMutation<T>(mutationFn: (value: T) => Promise<unknown>) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["scheduler_jobs"] });
+    },
+  });
+}
+
+export function usePauseJob() {
+  return useJobMutation((jobId: string) => pauseSchedulerJob(jobId));
+}
+
+export function useResumeJob() {
+  return useJobMutation((jobId: string) => resumeSchedulerJob(jobId));
+}
+
+export function useRunJobNow() {
+  return useJobMutation((jobId: string) => runSchedulerJobNow(jobId));
+}
+
+export function useUpdateJob() {
+  return useJobMutation(
+    ({ jobId, schedule }: { jobId: string; schedule: EdictSchedule }) =>
+      updateSchedulerJob(jobId, schedule),
+  );
 }

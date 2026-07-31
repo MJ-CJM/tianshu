@@ -30,11 +30,12 @@
 
 ```text
 on_agent_end(memorial 完成 + summary)
-  → store(entry): append_daily_log(MD) + _backend.save(SQLite write-through)
+  → store(entry): append_daily_log(MD, stable entry_id) + _backend.save(SQLite projection)
   → retain_drawers(summary): chunk_text → DrawerStore.store_drawer ×N (drawers.sqlite3)
 ```
 
-`store()` MD 写失败 / 索引写失败均 `logger.exception` 不抛；索引坏了走 `sync_index` 重建。
+`store()` 的 Markdown 写失败会抛出，避免把 SQLite 索引误当真相源；索引投影可从 Markdown
+通过 `sync_index` 重建。日志多行内容用缩进续行并保存 stable entry ID。
 
 ### 读（双路由）
 
@@ -43,7 +44,10 @@ on_agent_end(memorial 完成 + summary)
 
 ### 索引重建
 
-`sync_index(persona_id)` 清空该 persona 的 `memory_entries` → `markdown_backend.sync_to_sqlite` 扫 `YYYY-MM-DD.md`（正则 `- [HH:MM] [WBOS] content`）+ `MEMORY.md` 的 `- ` 行重新导入。`auto_sync_if_needed` 每会话每人格一次。
+`sync_index(persona_id)` 清空该 persona 的派生行，再扫描
+`- [HH:MM] [WBOS] [id:<stable-id>] content`（兼容没有 ID 的旧行）和缩进续行；新格式重建
+后保留原 ID。`MEMORY.md` 的 H2 section 由确定性 section ID 投影，replace/remove 后不会
+留下同 section 的旧索引。
 
 ## 3. 数据库
 
@@ -61,7 +65,17 @@ on_agent_end(memorial 完成 + summary)
 - **新跨人格策略**：`access_control.DEFAULT_POLICIES` 增 `MemoryAccessPolicy` 或运行时 `set_policy`
 - **Closet / Tunnel**：模型已在 `drawer.py` 定义，存储 + 检索待实现
 
-## 5. 注意点（与旧文档纠偏）
+## 5. 删除与策略
+
+- `delete(entry_id)` 先按 stable ID 删除 Markdown 行和续行，成功后再删 SQLite。找不到
+  真相源时返回 false，不允许 index-only 删除。
+- legacy 无 ID 行只在精确内容可唯一定位时兼容删除，不做 substring 删除。
+- `MemoryAccessControl` 从 `app_settings.memory_access_policies` 加载并在更新时持久化；
+  `list_policies()` 返回副本，不再由 Gateway 读取私有字段。
+- 全局 memory API 受 admin middleware 保护；它与普通 principal 的任务 ownership 是两套
+  边界。
+
+## 6. 注意点（与旧文档纠偏）
 
 - Drawer 的 `category` 是 `W/B/O/D`，但 `MemoryManager.store()` 写 MD 日志用 `W/B/O/S`（summary），两套字母不同源
 - `_recall_fulltext` 已移除 30 天硬窗口，改为全量 + recency 加权

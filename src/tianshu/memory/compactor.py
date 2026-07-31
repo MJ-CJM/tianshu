@@ -27,9 +27,7 @@ MAX_HISTORY_CHARS = 8000
 class MemoryCompactor:
     """Compacts old memory entries into summary entries using LLM."""
 
-    def __init__(
-        self, config_manager: ConfigManager, provider_manager: Any = None
-    ) -> None:
+    def __init__(self, config_manager: ConfigManager, provider_manager: Any = None) -> None:
         self._config_manager = config_manager
         self._provider_manager = provider_manager
 

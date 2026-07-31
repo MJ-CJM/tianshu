@@ -70,6 +70,9 @@
 
 ## 6. 写操作与资源安全
 
+以下是 Loader 的内部原语，不是当前公开写契约。生产 Agent 不注册 `skill_manage`；
+HTTP 新建/修改先形成治理候选，只有 PromotionService 晋升后才能改变 live。
+
 写回类操作均原子写（`_atomic_write`：同目录 tempfile + `os.replace`）并失效缓存：
 - `create_skill` / `save_skill` / `patch_skill`：写 SKILL.md
 - `write_skill_file` / `remove_skill_file`：写资源文件，路径经 `_resolve_skill_resource` 校验（拒绝绝对路径、`..` 穿越、非白名单顶层目录、逃逸 skill dir），单文件 ≤1MiB

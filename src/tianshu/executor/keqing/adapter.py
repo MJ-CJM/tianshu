@@ -245,9 +245,7 @@ class OpenCodeAdapter:
                 elif ptype == "tool":
                     state = part.get("state") or {}
                     if state.get("status") in ("completed", "error"):
-                        r.tool_events.append(
-                            {"type": "tool.called", "tool": part.get("tool", "?")}
-                        )
+                        r.tool_events.append({"type": "tool.called", "tool": part.get("tool", "?")})
                         if state.get("status") == "error":
                             r.is_error = True
             elif etype == "message.updated":

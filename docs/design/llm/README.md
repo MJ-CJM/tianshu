@@ -19,7 +19,7 @@
 |---|---|
 | 用 LiteLLM 而非自研多 provider 适配 | 借生态成熟度；差异点（缓存字段、provider 前缀）只补 LiteLLM 没统一的部分 |
 | `LLMConfigState` 用 frozen dataclass | 配置不可变，切换=换引用；并发读写靠一把 `threading.Lock` |
-| 成本走 hook + event 双轨 | 单轮记账走 `LLM_OUTPUT` hook（实时熔断需要），落盘走 `execution.completed` 事件（一次 flush） |
+| 成本走 usage observer + hook/event | LLMClient 统一观察所有调用；per-run tracker 实时熔断，成功/失败/取消终态 flush |
 | 预算熔断放 `BEFORE_ITERATION` | 在每轮 LLM 调用前拦截，超预算即 `block=True`，避免追加花费 |
 | 定价三维 `(input_miss, input_hit, output)` | 缓存命中价独立建模；provider 级配价，每维独立 fallback 到默认表 |
 | 模型回显校验 | 中转网关偶尔静默改写/降级模型，靠 `response.model` 回显对照请求侧，mismatch 即 WARNING |
@@ -28,7 +28,7 @@
 
 | 相邻方 | 关系 |
 |---|---|
-| scheduling/planner | Planner 直接 `LLMClient(...)` 做 JSON 规划（temperature=0.3），不经 ProviderManager |
+| scheduling/planner | Planner 在 managed attempt 中规划，显式传 LLM usage context；直接指派/失败 fallback 会标记 planning mode/reason |
 | executor/agent | Agent ReAct loop 每轮调 `LLMClient.chat/chat_stream`，触发 `LLM_OUTPUT`/`BEFORE_ITERATION` hook |
 | persona | `AgentPersona.llm_config_name` 指向命名配置；`ProviderManager.get_client(config_name_override=...)` 按 persona 取 |
 | storage | 配置存 `llm_configs`/`providers`，成本存 `cost_ledger`/`cost_budgets` |

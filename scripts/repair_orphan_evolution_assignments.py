@@ -18,9 +18,11 @@ TRIGGER = "run_evolution_assignments_no_delete"
 
 
 def main() -> None:
-    db_path = Path(sys.argv[1]).expanduser() if len(sys.argv) > 1 else Path(
-        "~/.tianshu/tianshu.db"
-    ).expanduser()
+    db_path = (
+        Path(sys.argv[1]).expanduser()
+        if len(sys.argv) > 1
+        else Path("~/.tianshu/tianshu.db").expanduser()
+    )
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")

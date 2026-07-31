@@ -258,7 +258,9 @@ def resolve_governance_contract(
         degradations.append(
             CapabilityDegradationV1(
                 capability="network_control",
-                manifest_state=(network_control_manifest_state or CapabilityState.UNSUPPORTED).value,
+                manifest_state=(
+                    network_control_manifest_state or CapabilityState.UNSUPPORTED
+                ).value,
                 effective_state=CapabilityState.UNSUPPORTED.value,
                 reason=(
                     "backend cannot enforce network policy; network downgraded to "

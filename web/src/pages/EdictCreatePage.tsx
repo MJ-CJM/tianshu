@@ -1,15 +1,12 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { notification } from "antd";
-import { flushSync } from "react-dom";
 import { createEdict } from "../api/edicts";
 import EdictForm from "../components/edict/EdictForm";
 import PageContainer from "../components/common/PageContainer";
 import GlowCard from "../components/common/GlowCard";
 import { useT } from "../i18n";
 import type { EdictCreateRequest } from "../api/types";
-import { ONBOARDING_QUERY_KEY, type OnboardingState } from "../api/onboarding";
 
 export function EdictCreationForm({
   governanceConfirmation = "advisory",
@@ -17,9 +14,14 @@ export function EdictCreationForm({
   governanceConfirmation?: "advisory" | "always";
 }) {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
   const t = useT();
+  const requestedScheduleMode = searchParams.get("schedule");
+  const initialScheduleMode =
+    requestedScheduleMode === "once" || requestedScheduleMode === "cron"
+      ? requestedScheduleMode
+      : "immediate";
 
   const handleSubmit = async (values: EdictCreateRequest) => {
     setLoading(true);
@@ -27,11 +29,7 @@ export function EdictCreationForm({
       const res = await createEdict(values);
       if (res.success && res.data) {
         const edictId = res.data.id;
-        await queryClient.cancelQueries({ queryKey: ONBOARDING_QUERY_KEY, exact: true });
-        flushSync(() => navigate(`/edicts/${edictId}`));
-        queryClient.setQueryData<OnboardingState>(ONBOARDING_QUERY_KEY, (current) =>
-          current ? { ...current, required: false } : current,
-        );
+        navigate(`/edicts/${edictId}`, { flushSync: true });
         notification.success({
           message: t("page.edictCreate.successTitle"),
           description: t("page.edictCreate.successDesc"),
@@ -48,6 +46,7 @@ export function EdictCreationForm({
         onSubmit={handleSubmit}
         loading={loading}
         governanceConfirmation={governanceConfirmation}
+        initialScheduleMode={initialScheduleMode}
       />
     </GlowCard>
   );

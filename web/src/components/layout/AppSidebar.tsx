@@ -6,12 +6,16 @@ import {
   SunOutlined,
 } from "@ant-design/icons";
 import { useLocation, useNavigate } from "react-router-dom";
-import type { KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { useTheme } from "../../hooks/useTheme";
 import { useNeedsReview } from "../../hooks/useApprovals";
 import { useSidebarState } from "../../hooks/useSidebarState";
 import { useT } from "../../i18n";
-import { buildSidebarItems } from "../../navigation/departments";
+import {
+  buildSidebarItems,
+  sidebarSectionForPath,
+  sidebarSelectedKey,
+} from "../../navigation/departments";
 
 function moveMenuFocus(event: KeyboardEvent<HTMLElement>) {
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
@@ -45,12 +49,23 @@ export default function AppSidebar() {
   const reviewCount = reviewData?.metadata?.total ?? reviewData?.data?.length ?? 0;
   const themeAction = mode === "light" ? t("sidebar.switchToDark") : t("sidebar.switchToLight");
   const collapseAction = collapsed ? t("sidebar.expand") : t("sidebar.collapse");
+  const routeSection = sidebarSectionForPath(location.pathname);
+  const [openOverride, setOpenOverride] = useState<{
+    locationKey: string;
+    section: string | null;
+  } | null>(null);
+  const openSection =
+    openOverride?.locationKey === location.key ? openOverride.section : routeSection;
+  const handleCollapsedChange = (nextCollapsed: boolean) => {
+    if (nextCollapsed) setOpenOverride(null);
+    setCollapsed(nextCollapsed);
+  };
 
   return (
     <Layout.Sider
       collapsible
       collapsed={collapsed}
-      onCollapse={setCollapsed}
+      onCollapse={handleCollapsedChange}
       trigger={null}
       width={200}
       collapsedWidth={60}
@@ -58,12 +73,18 @@ export default function AppSidebar() {
     >
       <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
         <Menu
-          aria-label="Primary navigation"
+          aria-label={t("sidebar.primaryNavigation")}
           tabIndex={0}
           onKeyDownCapture={moveMenuFocus}
           mode="inline"
           inlineCollapsed={collapsed}
-          selectedKeys={[location.pathname]}
+          selectedKeys={[sidebarSelectedKey(location.pathname)]}
+          openKeys={collapsed ? undefined : openSection ? [openSection] : []}
+          onOpenChange={(keys) => {
+            if (collapsed) return;
+            const next = keys.length > 0 ? String(keys[keys.length - 1]) : null;
+            setOpenOverride({ locationKey: location.key, section: next });
+          }}
           items={buildSidebarItems(t, reviewCount)}
           onClick={({ key }) => navigate(key)}
           style={{
@@ -105,7 +126,7 @@ export default function AppSidebar() {
               type="text"
               aria-label={collapseAction}
               icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              onClick={() => setCollapsed(!collapsed)}
+              onClick={() => handleCollapsedChange(!collapsed)}
               style={{
                 color: token.colorTextSecondary,
                 width: collapsed ? 40 : "100%",

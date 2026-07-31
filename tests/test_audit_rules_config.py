@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from tianshu.auditor.rules_config import AuditRulesConfig, load_audit_rules
+from tianshu.gateway.audit_api import get_audit_rules
 
 # 与 rules.py / reviewer.py 现状一致的默认基线,用于断言「行为不变」。
 _DEFAULTS = AuditRulesConfig()
@@ -197,3 +199,23 @@ def test_str_path_accepted(tmp_path: Path) -> None:
     path = _write_yaml(tmp_path, "check_token_budget: false\n")
     cfg = load_audit_rules(str(path))
     assert cfg.check_token_budget is False
+
+
+def test_audit_rules_api_reflects_runtime_config() -> None:
+    config = AuditRulesConfig(
+        check_token_budget=False,
+        check_execution_error=True,
+        check_empty_result=False,
+        risk_keywords=("secret",),
+    )
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(auditor=SimpleNamespace(rules_config=config)))
+    )
+
+    response = get_audit_rules(request)
+
+    rules = {row["id"]: row for row in response.data["rules"]}
+    assert rules["token_budget"]["enabled"] is False
+    assert rules["execution_error"]["enabled"] is True
+    assert rules["empty_result"]["enabled"] is False
+    assert rules["risk_keywords"]["enabled"] is True

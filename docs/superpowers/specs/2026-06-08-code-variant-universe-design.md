@@ -1,5 +1,10 @@
 # 高阶平行位面：代码变体的自进化分叉系统 — 设计文档（Phase 2）
 
+> **历史设计，当前边界已收紧：** Code variant 当前只到 worktree 变异、门禁、评估与
+> `recommended`；不存在可用的部署、reexec、健康自动回滚或 live activation 路径。
+> 当前事实见 [`../../design/universe/code-variant.md`](../../design/universe/code-variant.md)
+> 与 [`../../CURRENT-STATE.md`](../../CURRENT-STATE.md)。
+
 > 承接 Phase 1《平行位面：行为配置的自进化分叉系统》（`2026-06-07-parallel-universe-design.md`）。
 > Phase 1 把"自进化"从单线扩展到"行为配置层"的多位面并行择优；Phase 2 把分叉从**行为配置层**进一步扩展到**代码层**——每个位面可以是一份**可独立运行的代码变体**，平台能自动产出代码级变异、并行评估、择优。
 

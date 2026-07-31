@@ -200,48 +200,6 @@ def list_personas(request: Request):
     )
 
 
-def _install_imported_skills(source_dirs: list[str]) -> list[str]:
-    """把导入来源的 agentskills.io SKILL.md 目录复制到 user skills(幂等,失败安全)。
-
-    返回成功关联的技能名列表(供并入 skills_allowed)。已存在则跳过复制仍关联;
-    坏 frontmatter / 非法名 / 复制失败则跳过。技能对运行中的 loader 于下次加载/重载生效。
-    """
-    import logging
-    import shutil
-
-    import frontmatter
-
-    from tianshu.bootstrap.wiring_skills import runtime_skills_target
-    from tianshu.skills.loader import validate_skill_name
-
-    log = logging.getLogger(__name__)
-    target_root = runtime_skills_target()
-    installed: list[str] = []
-    for src in source_dirs:
-        src_dir = Path(str(src)).expanduser()
-        skill_md = src_dir / "SKILL.md"
-        if not skill_md.is_file():
-            log.warning("import-skill: 跳过(无 SKILL.md): %s", src_dir)
-            continue
-        try:
-            post = frontmatter.load(str(skill_md))
-            name = validate_skill_name(str(post.get("name") or src_dir.name))
-        except Exception:  # noqa: BLE001 — 坏技能(名字非法/frontmatter 坏)不该拖垮 persona 创建
-            log.warning("import-skill: 跳过(名字非法/frontmatter 坏): %s", src_dir)
-            continue
-        dest = target_root / name
-        if dest.exists():
-            installed.append(name)  # 已装,仍关联到该 persona
-            continue
-        try:
-            target_root.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(src_dir, dest)
-            installed.append(name)
-        except (OSError, shutil.Error) as exc:
-            log.warning("import-skill: 复制失败 %s → %s: %s", src_dir, dest, exc)
-    return installed
-
-
 @personas_router.post("/personas/import/preview", response_model=ApiResponse)
 async def preview_persona_import(request: Request):
     """从 openclaw/hermes 读配置作**导入预览**(只读,不落库):供预填百官创建表单。
@@ -298,6 +256,14 @@ async def create_persona(request: Request):
     body = await request.json()
     if not body.get("id") or not body.get("name") or not body.get("department"):
         raise HTTPException(status_code=400, detail="id, name, department are required")
+    if body.get("import_skill_paths"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Direct Skill installation through Persona import is unavailable; "
+                "review detected Skills separately through the governed candidate flow"
+            ),
+        )
 
     # Check duplicate
     if loader.get(body["id"]):
@@ -395,11 +361,7 @@ async def create_persona(request: Request):
     memory_manager = request.app.state.memory_manager
     memory_path = memory_manager.memory_dir / body["id"] / "MEMORY.md"
 
-    # 导入技能(agentskills.io):复制 SKILL.md 目录到 user skills + 并入 skills_allowed。
     skills_allowed = list(body.get("skills_allowed", []))
-    for skill_name in _install_imported_skills(body.get("import_skill_paths") or []):
-        if skill_name not in skills_allowed:
-            skills_allowed.append(skill_name)
 
     persona = AgentPersona(
         id=body["id"],

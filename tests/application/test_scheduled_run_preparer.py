@@ -6,6 +6,7 @@ import hashlib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
+from threading import Event, Thread
 
 import pytest
 
@@ -15,7 +16,7 @@ from tianshu.application.scheduled_runs import (
 )
 from tianshu.models import Edict, EdictRuntime, EdictSchedule, Memorial, TaskStatus
 from tianshu.models.events import EventEnvelope
-from tianshu.storage import Storage
+from tianshu.storage import EdictArchiveConflict, Storage
 from tianshu.storage.outbox_repo import OutboxRepository
 
 _NOW = datetime(2026, 7, 16, 8, tzinfo=UTC)
@@ -93,7 +94,7 @@ def test_initial_once_fire_reuses_submitted_root_and_replays_one_attempt(tmp_pat
         assert first.memorial_id == root.id
         assert replay == first.model_copy(update={"deduplicated": True})
         assert storage.get_memorial(root.id).status is TaskStatus.SUBMITTED  # type: ignore[union-attr]
-        assert storage.get_scheduler_job(job_id)["status"] == "cancelled"  # type: ignore[index]
+        assert storage.get_scheduler_job(job_id)["status"] == "completed"  # type: ignore[index]
         assert (
             storage._conn.execute(  # noqa: SLF001
                 "SELECT COUNT(*) FROM memorials WHERE edict_id='edict-1'"
@@ -158,6 +159,33 @@ def test_periodic_fire_identity_is_stable_and_interval_cursor_uses_scheduled_tim
         storage.close()
 
 
+def test_cron_cursor_preserves_local_time_across_dst_start(tmp_path: Path) -> None:
+    """纽约进入夏令时后仍在当地 09:00 触发，而不是固定 UTC 小时。"""
+    scheduled_at = datetime(2026, 3, 7, 14, 0, tzinfo=UTC)  # 09:00 EST
+    schedule = EdictSchedule(
+        type="cron",
+        cron="0 9 * * *",
+        timezone="America/New_York",
+        concurrency_policy="allow",
+    )
+    storage = _open(tmp_path / "dst.db", schedule=schedule)
+    storage.save_scheduler_job(
+        "job-dst",
+        "edict-1",
+        "cron",
+        cron_expr=schedule.cron,
+        next_run=scheduled_at,
+    )
+    try:
+        prepared = _preparer(storage).prepare(
+            job_id="job-dst",
+            scheduled_at=scheduled_at,
+        )
+        assert prepared.next_run == datetime(2026, 3, 8, 13, 0, tzinfo=UTC)  # 09:00 EDT
+    finally:
+        storage.close()
+
+
 def test_attempt_budget_comes_from_edict_retry_limit(tmp_path: Path) -> None:
     storage = Storage(str(tmp_path / "attempt-budget.db"))
     storage.init_db()
@@ -184,6 +212,42 @@ def test_attempt_budget_comes_from_edict_retry_limit(tmp_path: Path) -> None:
             (fire.attempt_id,),
         ).fetchone()
         assert row[0] == 5
+    finally:
+        storage.close()
+
+
+def test_fire_rejects_cancelled_edict_before_creating_work(tmp_path: Path) -> None:
+    storage = _open(
+        tmp_path / "cancelled-edict.db",
+        schedule=EdictSchedule(
+            type="interval",
+            interval_seconds=60,
+            concurrency_policy="allow",
+        ),
+    )
+    storage.save_scheduler_job(
+        "job-1",
+        "edict-1",
+        "interval",
+        interval_seconds=60,
+        next_run=_NOW,
+    )
+    storage.update_edict_status("edict-1", "cancelled")
+    try:
+        with pytest.raises(ScheduledFireConflict, match="no longer active"):
+            _preparer(storage).prepare(job_id="job-1", scheduled_at=_NOW)
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM memorials WHERE edict_id='edict-1'"
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM execution_attempts"
+            ).fetchone()[0]
+            == 0
+        )
     finally:
         storage.close()
 
@@ -266,6 +330,126 @@ def test_manual_fire_replay_returns_first_envelope_when_retry_clock_differs(
         assert replay == first.model_copy(update={"deduplicated": True})
         assert storage.get_scheduler_job("job-1")["next_run"] == cursor.isoformat()
     finally:
+        storage.close()
+
+
+@pytest.mark.parametrize("closed_by", ["status", "archive"])
+def test_manual_fire_rejects_non_active_edict_before_creating_work(
+    tmp_path: Path,
+    closed_by: str,
+) -> None:
+    storage = _open(
+        tmp_path / f"manual-{closed_by}.db",
+        schedule=EdictSchedule(type="interval", interval_seconds=60),
+    )
+    storage.save_scheduler_job(
+        "job-1",
+        "edict-1",
+        "interval",
+        interval_seconds=60,
+        next_run=_NOW + timedelta(minutes=1),
+    )
+    if closed_by == "status":
+        storage.update_edict_status("edict-1", "cancelled")
+    else:
+        storage._conn.execute(  # noqa: SLF001
+            "UPDATE edicts SET metadata_json = ? WHERE id = 'edict-1'",
+            ('{"archived_at":"2026-07-16T08:00:00+00:00"}',),
+        )
+        storage._conn.commit()  # noqa: SLF001
+    try:
+        with pytest.raises(ScheduledFireConflict, match="no longer active"):
+            _preparer(storage).prepare_manual(
+                job_id="job-1",
+                idempotency_key="closed-edict",
+                scheduled_at=_NOW,
+            )
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM memorials WHERE edict_id='edict-1'"
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM execution_attempts"
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        storage.close()
+
+
+def test_manual_fire_and_archive_race_has_one_serialized_winner(tmp_path: Path) -> None:
+    database = tmp_path / "manual-archive-race.db"
+    storage = _open(
+        database,
+        schedule=EdictSchedule(
+            type="interval",
+            interval_seconds=60,
+            concurrency_policy="allow",
+        ),
+    )
+    storage.save_scheduler_job(
+        "job-1",
+        "edict-1",
+        "interval",
+        interval_seconds=60,
+        next_run=_NOW + timedelta(minutes=1),
+    )
+    archiver = Storage(str(database))
+    archiver.init_db()
+    validated = Event()
+    release = Event()
+    results: dict[str, object] = {}
+
+    def pause_after_validation(boundary: str) -> None:
+        if boundary == "after_manual_edict_validation":
+            validated.set()
+            assert release.wait(timeout=5)
+
+    def prepare() -> None:
+        results["fire"] = _preparer(
+            storage,
+            boundary_hook=pause_after_validation,
+        ).prepare_manual(
+            job_id="job-1",
+            idempotency_key="race-1",
+            scheduled_at=_NOW,
+        )
+
+    def archive() -> None:
+        try:
+            archiver.tombstone_edict("edict-1")
+        except EdictArchiveConflict:
+            results["archive"] = "conflict"
+
+    prepare_thread = Thread(target=prepare)
+    archive_thread = Thread(target=archive)
+    try:
+        prepare_thread.start()
+        assert validated.wait(timeout=5)
+        archive_thread.start()
+        release.set()
+        prepare_thread.join(timeout=5)
+        archive_thread.join(timeout=5)
+
+        assert not prepare_thread.is_alive()
+        assert not archive_thread.is_alive()
+        assert results.get("fire") is not None
+        assert results.get("archive") == "conflict"
+        assert storage.get_edict("edict-1").status.value == "open"  # type: ignore[union-attr]
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM memorials WHERE edict_id='edict-1'"
+            ).fetchone()[0]
+            == 1
+        )
+    finally:
+        release.set()
+        prepare_thread.join(timeout=5)
+        archive_thread.join(timeout=5)
+        archiver.close()
         storage.close()
 
 

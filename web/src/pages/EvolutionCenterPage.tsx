@@ -1,6 +1,10 @@
 import { Tag, Typography } from "antd";
 
 import type { EvolutionCenterSnapshotV1 } from "../api/evolution";
+import {
+  CapabilityBoundary,
+  MaturityBadge,
+} from "../components/capabilities/CapabilityMaturity";
 import PageContainer from "../components/common/PageContainer";
 import MonoText from "../components/common/MonoText";
 import EvolutionGate from "../components/evolution/EvolutionGate";
@@ -32,6 +36,28 @@ function DisabledSnapshot({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 })
         <Typography.Text type="secondary">{t("page.evolutionCenter.reasonCode")}: </Typography.Text>
         <MonoText>{snapshot.reason_code}</MonoText>
       </div>
+    </section>
+  );
+}
+
+function EnabledEmptySnapshot() {
+  const t = useT();
+  return (
+    <section
+      role="status"
+      aria-labelledby="evolution-enabled-empty-title"
+      style={panelStyle}
+    >
+      <Typography.Title
+        id="evolution-enabled-empty-title"
+        level={4}
+        style={{ margin: 0 }}
+      >
+        {t("page.evolutionCenter.enabledEmptyTitle")}
+      </Typography.Title>
+      <Typography.Paragraph type="secondary" style={{ margin: "8px 0 0" }}>
+        {t("page.evolutionCenter.enabledEmptyDescription")}
+      </Typography.Paragraph>
     </section>
   );
 }
@@ -88,17 +114,30 @@ function SnapshotContent({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 }) 
 export default function EvolutionCenterPage() {
   const t = useT();
   const { data, status, problem, refetch } = useEvolutionCenter();
+  const isEnabledEmpty = status === "success-empty" && data !== null;
   return (
-    <PageContainer title={t("nav.evolution")}>
-      <PageDataState
-        status={status}
-        data={data}
-        problem={problem}
-        isEmpty={isEvolutionSnapshotEmpty}
-        onRetry={refetch}
-      >
-        {(snapshot) => <SnapshotContent snapshot={snapshot} />}
-      </PageDataState>
+    <PageContainer
+      title={t("nav.evolution")}
+      titleBadge={<MaturityBadge maturity="experimental" />}
+    >
+      <CapabilityBoundary
+        maturity="experimental"
+        canDo={t("page.evolutionCenter.capabilityCanDo")}
+        boundary={t("page.evolutionCenter.capabilityBoundary")}
+      />
+      {isEnabledEmpty ? (
+        <EnabledEmptySnapshot />
+      ) : (
+        <PageDataState
+          status={status}
+          data={data}
+          problem={problem}
+          isEmpty={isEvolutionSnapshotEmpty}
+          onRetry={refetch}
+        >
+          {(snapshot) => <SnapshotContent snapshot={snapshot} />}
+        </PageDataState>
+      )}
     </PageContainer>
   );
 }

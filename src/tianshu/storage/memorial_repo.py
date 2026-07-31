@@ -230,23 +230,33 @@ class MemorialMixin:
         return [self._row_with_effective_contract(r) for r in rows]
 
     def list_memorials(
-        self, status: str | None = None, limit: int = 50, offset: int = 0
+        self,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+        submitter: str | None = None,
     ) -> tuple[list[Memorial], int]:
+        conditions: list[str] = []
+        params: list[str] = []
+        if status:
+            conditions.append("memorial.status = ?")
+            params.append(status)
+        if submitter is not None:
+            conditions.append("edict.submitter = ?")
+            params.append(submitter)
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
         with self._lock:
-            if status:
-                rows = self._conn.execute(
-                    "SELECT * FROM memorials WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                    (status, limit, offset),
-                ).fetchall()
-                total = self._conn.execute(
-                    "SELECT COUNT(*) FROM memorials WHERE status = ?", (status,)
-                ).fetchone()[0]
-            else:
-                rows = self._conn.execute(
-                    "SELECT * FROM memorials ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                    (limit, offset),
-                ).fetchall()
-                total = self._conn.execute("SELECT COUNT(*) FROM memorials").fetchone()[0]
+            rows = self._conn.execute(
+                "SELECT memorial.* FROM memorials AS memorial "
+                f"JOIN edicts AS edict ON edict.id = memorial.edict_id{where} "
+                "ORDER BY memorial.created_at DESC LIMIT ? OFFSET ?",
+                (*params, limit, offset),
+            ).fetchall()
+            total = self._conn.execute(
+                "SELECT COUNT(*) FROM memorials AS memorial "
+                f"JOIN edicts AS edict ON edict.id = memorial.edict_id{where}",
+                params,
+            ).fetchone()[0]
         return [self._row_with_effective_contract(r) for r in rows], total
 
     def list_stale_memorials(

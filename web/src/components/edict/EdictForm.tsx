@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Button,
-  Card,
   Col,
   Collapse,
+  DatePicker,
   Descriptions,
   Divider,
   Form,
@@ -16,8 +16,10 @@ import {
   Space,
   Switch,
   Tag,
+  TimePicker,
   Typography,
 } from "antd";
+import dayjs, { type Dayjs } from "dayjs";
 import { SendOutlined, ToolOutlined } from "@ant-design/icons";
 import { parseEdict, previewEdictGovernance } from "../../api/edicts";
 import { usePersonas } from "../../hooks/usePersonas";
@@ -27,7 +29,6 @@ import type {
   CheckSpec,
   EdictCreateRequest,
   EdictRuntime,
-  ExecutionProfile,
   GovernanceContractPreview,
 } from "../../api/types";
 import type { PolicyProfileValue } from "../policy/PolicyProfilePanel";
@@ -40,6 +41,7 @@ interface EdictFormProps {
   onSubmit: (values: EdictCreateRequest) => void;
   loading: boolean;
   governanceConfirmation?: "advisory" | "always";
+  initialScheduleMode?: "immediate" | "once" | "cron";
 }
 
 interface PendingGovernanceDispatch {
@@ -47,17 +49,38 @@ interface PendingGovernanceDispatch {
   preview: GovernanceContractPreview;
 }
 
+const PRESET_FIELD_BASELINE: Record<string, unknown> = {
+  review_policy: "on_failure",
+  executor: "native",
+  priority: "normal",
+  execution_profile: "checkpointed",
+  max_outer_iterations: 5,
+  min_outer_iterations: 1,
+  critic_strictness: "lenient",
+  deadline_hours: 0,
+  deadline_minutes: 0,
+  on_exhaustion: "escalate",
+  on_critic_unavailable: "skip",
+  same_issue_threshold: 2,
+};
+
 export default function EdictForm({
   onSubmit,
   loading,
   governanceConfirmation = "advisory",
+  initialScheduleMode = "immediate",
 }: EdictFormProps) {
   const t = useT();
   const [form] = Form.useForm();
-  const [assignMode, setAssignMode] = useState<"auto" | "direct">("auto");
+  const defaultPreset = getPreset("quick")!;
+  const scheduleMode = Form.useWatch("schedule_mode", form) ?? initialScheduleMode;
+  const repeatPattern = Form.useWatch("repeat_pattern", form) ?? "daily";
+  const [assignMode, setAssignMode] = useState<"auto" | "direct">(
+    defaultPreset.assignMode ?? "auto",
+  );
   const [policyProfile, setPolicyProfile] = useState<PolicyProfileValue | null>(null);
-  const [longTaskEnabled, setLongTaskEnabled] = useState(false);
-  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
+  const [longTaskEnabled, setLongTaskEnabled] = useState(defaultPreset.longTask);
+  const [selectedPreset, setSelectedPreset] = useState(defaultPreset.key);
   const [expertMode, setExpertMode] = useState(false);
   const [nlText, setNlText] = useState("");
   const [nlLoading, setNlLoading] = useState(false);
@@ -73,6 +96,12 @@ export default function EdictForm({
     api_request_write_hosts: string[];
   }>({ api_request_hosts: [], api_request_write_hosts: [] });
   const { data: personas } = usePersonas();
+
+  useEffect(() => {
+    if (longTaskEnabled && scheduleMode === "cron") {
+      form.setFieldValue("schedule_mode", "once");
+    }
+  }, [form, longTaskEnabled, scheduleMode]);
 
   const personaOptions = (personas ?? []).map((p) => ({
     value: p.id,
@@ -91,7 +120,10 @@ export default function EdictForm({
     setSelectedPreset(key);
     setLongTaskEnabled(preset.longTask);
     if (preset.assignMode) setAssignMode(preset.assignMode);
-    form.setFieldsValue(preset.fields);
+    form.setFieldsValue({
+      ...PRESET_FIELD_BASELINE,
+      ...preset.fields,
+    });
   };
 
   const handleSmartFill = async () => {
@@ -106,6 +138,15 @@ export default function EdictForm({
       if (draft.title) patch.title = draft.title;
       if (draft.context) patch.context = draft.context;
       if (draft.priority) patch.priority = draft.priority;
+      if (draft.schedule?.type === "once" && draft.schedule.at) {
+        patch.schedule_mode = "once";
+        patch.schedule_at = dayjs(draft.schedule.at);
+      } else if (draft.schedule?.type === "cron" && draft.schedule.cron) {
+        patch.schedule_mode = "cron";
+        patch.repeat_pattern = "custom";
+        patch.custom_cron = draft.schedule.cron;
+        setExpertMode(true);
+      }
       form.setFieldsValue(patch);
       if (notes) setNlNotes(notes);
     } catch {
@@ -115,12 +156,46 @@ export default function EdictForm({
     }
   };
 
-  const handleFinish = async (values: Record<string, unknown>) => {
+  const handleFinish = async (visibleValues: Record<string, unknown>) => {
+    const values = {
+      ...defaultPreset.fields,
+      ...form.getFieldsValue(true),
+      ...visibleValues,
+    };
     const req: EdictCreateRequest = {
       goal: values.goal as string,
       title: (values.title as string) || undefined,
       context: (values.context as string) || undefined,
     };
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    if (scheduleMode === "once") {
+      const at = values.schedule_at as Dayjs | undefined;
+      if (at) {
+        req.schedule = {
+          type: "once",
+          at: at.toISOString(),
+          timezone,
+          misfire_policy: "coalesce",
+        };
+      }
+    } else if (scheduleMode === "cron") {
+      const time = (values.repeat_time as Dayjs | undefined) ?? dayjs().hour(9).minute(0);
+      const minute = time.minute();
+      const hour = time.hour();
+      let cron = `${minute} ${hour} * * *`;
+      if (repeatPattern === "weekly") {
+        cron = `${minute} ${hour} * * ${(values.repeat_weekday as number | undefined) ?? 1}`;
+      } else if (repeatPattern === "custom") {
+        cron = String(values.custom_cron ?? "").trim();
+      }
+      req.schedule = {
+        type: "cron",
+        cron,
+        timezone,
+        concurrency_policy: "skip",
+        misfire_policy: "coalesce",
+      };
+    }
 
     const priority = values.priority as string | undefined;
     if (priority && priority !== "normal") {
@@ -156,7 +231,9 @@ export default function EdictForm({
       runtime.max_concurrency = maxConcurrency;
     }
     const retryLimit = values.retry_limit as number | undefined;
-    if (retryLimit !== undefined && retryLimit !== 0) {
+    if (longTaskEnabled) {
+      runtime.retry_limit = Math.max(1, retryLimit ?? 1);
+    } else if (retryLimit !== undefined && retryLimit !== 0) {
       runtime.retry_limit = retryLimit;
     }
     const tokenBudget = values.token_budget as number | undefined;
@@ -230,7 +307,7 @@ export default function EdictForm({
       const criticPersonaIds = values.critic_persona_ids as string[] | undefined;
       const strictness = values.critic_strictness as "lenient" | "balanced" | "strict" | undefined;
       if (
-        sameIssueThreshold !== undefined ||
+        (sameIssueThreshold !== undefined && sameIssueThreshold !== 2) ||
         (criticPersonaIds && criticPersonaIds.length > 0) ||
         (strictness && strictness !== "lenient")
       ) {
@@ -262,10 +339,8 @@ export default function EdictForm({
       }
       req.acceptance = acceptance;
 
-      const profile = values.execution_profile as ExecutionProfile | undefined;
-      if (profile && profile !== "foreground") {
-        req.execution_profile = profile;
-      }
+      // 深度任务统一使用可检查点执行。历史 profile 仍由 API 接受，但不再让用户选择。
+      req.execution_profile = "checkpointed";
     }
 
     setGovernanceError(null);
@@ -571,9 +646,46 @@ export default function EdictForm({
       layout="vertical"
       onFinish={handleFinish}
       requiredMark={false}
-      initialValues={{ priority: "normal", review_policy: "on_failure", conversation: true }}
+      initialValues={{
+        ...defaultPreset.fields,
+        conversation: true,
+        schedule_mode: initialScheduleMode,
+        repeat_pattern: "daily",
+        repeat_weekday: 1,
+        repeat_time: dayjs().hour(9).minute(0).second(0),
+      }}
     >
-      {/* --- 第一层:极简默认(标题 / 目标 / 智能填充) --- */}
+      {/* --- 第一层:极简默认(任务类型 / 标题 / 目标 / 执行时间) --- */}
+      <Form.Item label={t("form.edict.field.taskType")}>
+        <Radio.Group
+          name="edict-preset"
+          value={selectedPreset}
+          onChange={(event) => applyPreset(String(event.target.value))}
+        >
+          <Space wrap align="start">
+            {EDICT_PRESETS.map((p) => (
+              <Radio.Button
+                key={p.key}
+                value={p.key}
+                style={{
+                  height: "auto",
+                  minWidth: 120,
+                  padding: "8px 14px",
+                  whiteSpace: "normal",
+                }}
+              >
+                <span style={{ display: "block", fontWeight: 500 }}>
+                  {p.icon} {t(`preset.${p.key}.label`)}
+                </span>
+                <Typography.Text type="secondary" style={{ display: "block", fontSize: 12 }}>
+                  {t(`preset.${p.key}.summary`)}
+                </Typography.Text>
+              </Radio.Button>
+            ))}
+          </Space>
+        </Radio.Group>
+      </Form.Item>
+
       <Form.Item name="title" label={t("form.edict.field.title")}>
         <Input placeholder={t("form.edict.placeholder.title")} />
       </Form.Item>
@@ -585,6 +697,103 @@ export default function EdictForm({
       >
         <Input.TextArea rows={4} placeholder={t("form.edict.placeholder.goal")} style={{ resize: "vertical" }} />
       </Form.Item>
+
+      <Form.Item name="schedule_mode" label={t("form.edict.field.when")}>
+        <Radio.Group
+          options={[
+            { value: "immediate", label: t("form.edict.option.scheduleImmediate") },
+            { value: "once", label: t("form.edict.option.scheduleOnce") },
+            {
+              value: "cron",
+              label: t("form.edict.option.scheduleCron"),
+              disabled: longTaskEnabled,
+            },
+          ]}
+          optionType="button"
+          buttonStyle="solid"
+        />
+      </Form.Item>
+
+      {longTaskEnabled && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={t("form.edict.warning.longTaskScheduleTitle")}
+          description={t("form.edict.warning.longTaskScheduleDesc")}
+        />
+      )}
+
+      {scheduleMode === "once" && (
+        <Form.Item
+          name="schedule_at"
+          label={t("form.edict.field.scheduleAt")}
+          rules={[
+            { required: true, message: t("form.edict.validation.scheduleAtRequired") },
+            {
+              validator: (_, value: Dayjs | undefined) =>
+                !value || value.isAfter(dayjs())
+                  ? Promise.resolve()
+                  : Promise.reject(new Error(t("form.edict.validation.scheduleAtFuture"))),
+            },
+          ]}
+        >
+          <DatePicker
+            showTime
+            format="YYYY-MM-DD HH:mm"
+            style={{ width: "100%" }}
+            disabledDate={(date) => date.endOf("day").isBefore(dayjs())}
+          />
+        </Form.Item>
+      )}
+
+      {scheduleMode === "cron" && (
+        <Row gutter={16}>
+          <Col xs={24} sm={12}>
+            <Form.Item name="repeat_pattern" label={t("form.edict.field.repeatPattern")}>
+              <Select
+                options={[
+                  { value: "daily", label: t("form.edict.option.repeatDaily") },
+                  { value: "weekly", label: t("form.edict.option.repeatWeekly") },
+                  ...(expertMode
+                    ? [{ value: "custom", label: t("form.edict.option.repeatCustom") }]
+                    : []),
+                ]}
+              />
+            </Form.Item>
+          </Col>
+          {repeatPattern !== "custom" && (
+            <Col xs={24} sm={12}>
+              <Form.Item name="repeat_time" label={t("form.edict.field.repeatTime")}>
+                <TimePicker format="HH:mm" minuteStep={5} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+          )}
+          {repeatPattern === "weekly" && (
+            <Col xs={24} sm={12}>
+              <Form.Item name="repeat_weekday" label={t("form.edict.field.repeatWeekday")}>
+                <Select
+                  options={[1, 2, 3, 4, 5, 6, 0].map((value) => ({
+                    value,
+                    label: t(`form.edict.option.weekday${value}`),
+                  }))}
+                />
+              </Form.Item>
+            </Col>
+          )}
+          {repeatPattern === "custom" && expertMode && (
+            <Col xs={24}>
+              <Form.Item
+                name="custom_cron"
+                label={t("form.edict.field.customCron")}
+                rules={[{ required: true, message: t("form.edict.validation.cronExprRequired") }]}
+              >
+                <Input placeholder={t("form.edict.placeholder.cronExpr")} />
+              </Form.Item>
+            </Col>
+          )}
+        </Row>
+      )}
 
       <Collapse
         ghost
@@ -615,35 +824,7 @@ export default function EdictForm({
         ]}
       />
 
-      {/* --- 第二层:意图预设卡 --- */}
-      <Form.Item label={t("form.edict.field.taskType")}>
-        <Space wrap>
-          {EDICT_PRESETS.map((p) => (
-            <Card
-              key={p.key}
-              size="small"
-              hoverable
-              onClick={() => applyPreset(p.key)}
-              styles={{ body: { padding: "8px 14px" } }}
-              style={{
-                cursor: "pointer",
-                borderColor: selectedPreset === p.key ? "var(--ts-color-accent)" : undefined,
-                borderWidth: selectedPreset === p.key ? 2 : 1,
-                minWidth: 120,
-              }}
-            >
-              <div style={{ fontWeight: 500 }}>
-                {p.icon} {t(`preset.${p.key}.label`)}
-              </div>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                {t(`preset.${p.key}.summary`)}
-              </Typography.Text>
-            </Card>
-          ))}
-        </Space>
-      </Form.Item>
-
-      {/* --- 第三层:专家模式(默认收起) --- */}
+      {/* --- 第二层:专家模式(默认收起) --- */}
       <Form.Item>
         <Space>
           <Switch

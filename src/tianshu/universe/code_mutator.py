@@ -7,7 +7,7 @@ allowlist 强制（演化域外的目标直接拒绝），traversal-safe（只�
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from tianshu.executor.git_backend import GitBackend, GitIdentity, GitLocation
 
@@ -42,6 +42,19 @@ def _within_evolvable(rel_path: str, evolvable_paths: tuple[str, ...]) -> bool:
     return False
 
 
+def _is_concrete_python_target(rel_path: str) -> bool:
+    """Return whether a target is a normalized repository-relative Python file."""
+    if not rel_path or rel_path.endswith("/"):
+        return False
+    path = PurePosixPath(rel_path)
+    return (
+        not path.is_absolute()
+        and ".." not in path.parts
+        and path.suffix == ".py"
+        and path.as_posix() == rel_path
+    )
+
+
 def _strip_code_fence(text: str) -> str:
     """剥掉 LLM 可能返回的 ```lang\\n...\\n``` 围栏，返回围栏内内容（保留尾部换行）。"""
     stripped = text.strip()
@@ -73,7 +86,7 @@ class CodeMutator:
         self._git_backend = git_backend or GitBackend()
 
     def is_within_evolvable(self, rel_path: str) -> bool:
-        return _within_evolvable(rel_path, self._evolvable)
+        return _is_concrete_python_target(rel_path) and _within_evolvable(rel_path, self._evolvable)
 
     async def mutate(self, worktree: Path, *, target_path: str, hypothesis: str) -> dict:
         """改写 worktree 内 target_path 文件以回应 hypothesis；失败安全 no-op。

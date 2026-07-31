@@ -9,7 +9,6 @@ import {
   Input,
   InputNumber,
   Space,
-  Switch,
   Table,
   Tag,
   Typography,
@@ -19,8 +18,14 @@ import type { ColumnsType } from "antd/es/table";
 import { getAgentConfig, getKeqingStatus, updateAgentConfig } from "../api/config";
 import type { AgentConfigUpdateRequest, KeqingBackendStatus } from "../api/types";
 import { useT } from "../i18n";
+import {
+  CapabilityBoundary,
+  MaturityBadge,
+} from "../components/capabilities/CapabilityMaturity";
+import PageContainer from "../components/common/PageContainer";
+import PageQueryError from "../components/states/PageQueryError";
 
-const { Title, Paragraph, Text } = Typography;
+const { Paragraph, Text } = Typography;
 
 // 客卿 backend(与后端 adapter 注册一致)+ 各自 provider 的模型示例(仅 placeholder 提示格式)。
 const KEQING_BACKENDS = ["pi", "claude-code", "codex", "opencode"] as const;
@@ -42,22 +47,22 @@ export default function KeqingManagementPage() {
   const qc = useQueryClient();
   const [form] = Form.useForm();
 
-  const { data: status, isLoading: statusLoading } = useQuery({
+  const statusQuery = useQuery({
     queryKey: ["keqing-status"],
     queryFn: getKeqingStatus,
   });
-  const { data: config } = useQuery({
+  const configQuery = useQuery({
     queryKey: ["agent-config"],
     queryFn: getAgentConfig,
   });
+  const { data: status, isLoading: statusLoading } = statusQuery;
+  const { data: config } = configQuery;
 
   useEffect(() => {
     if (config) {
       form.setFieldsValue({
         keqing_default_models: config.keqing_default_models ?? {},
-        keqing_gateway_enabled: config.keqing_gateway_enabled ?? false,
         keqing_per_run_budget_cny: config.keqing_per_run_budget_cny ?? 0,
-        keqing_model_allowlist: config.keqing_model_allowlist ?? "",
       });
     }
   }, [config, form]);
@@ -71,6 +76,29 @@ export default function KeqingManagementPage() {
     },
     onError: () => message.error(t("keqing.saveFailed")),
   });
+
+  const queryError = statusQuery.error ?? configQuery.error;
+  if (queryError) {
+    return (
+      <PageContainer
+        title={t("keqing.title")}
+        titleBadge={<MaturityBadge maturity="experimental" />}
+      >
+        <CapabilityBoundary
+          maturity="experimental"
+          canDo={t("keqing.capabilityCanDo")}
+          boundary={t("keqing.capabilityBoundary")}
+        />
+        <PageQueryError
+          error={queryError}
+          onRetry={() => {
+            void statusQuery.refetch();
+            void configQuery.refetch();
+          }}
+        />
+      </PageContainer>
+    );
+  }
 
   const columns: ColumnsType<KeqingBackendStatus> = [
     {
@@ -121,32 +149,35 @@ export default function KeqingManagementPage() {
     {
       title: t("keqing.col.credential"),
       dataIndex: "credential_status",
-      render: (cred: string) => {
-        // 客卿=外臣,自管凭证 → 默认「客卿自管」(中性,非错误);开网关 → 「网关托管」。
-        const map: Record<string, { color: string; key: string }> = {
-          gateway: { color: "green", key: "keqing.cred.gateway" },
-          "self-managed": { color: "blue", key: "keqing.cred.selfManaged" },
-        };
-        const m = map[cred] ?? { color: "blue", key: "keqing.cred.selfManaged" };
-        return <Tag color={m.color}>{t(m.key)}</Tag>;
-      },
+      render: () => <Tag color="blue">{t("keqing.cred.selfManaged")}</Tag>,
     },
   ];
 
   return (
-    <div style={{ padding: 24 }}>
-      <Space direction="vertical" size="large" style={{ width: "100%" }}>
-        <div>
-          <Title level={4} style={{ margin: 0 }}>
-            {t("keqing.title")}
-          </Title>
-          <Paragraph type="secondary" style={{ marginTop: 4 }}>
-            {t("keqing.subtitle")}
-          </Paragraph>
-        </div>
-
+    <PageContainer
+      title={t("keqing.title")}
+      titleBadge={<MaturityBadge maturity="experimental" />}
+    >
+      <CapabilityBoundary
+        maturity="experimental"
+        canDo={t("keqing.capabilityCanDo")}
+        boundary={t("keqing.capabilityBoundary")}
+      />
+      <Paragraph type="secondary" style={{ marginTop: -8, marginBottom: 16 }}>
+        {t("keqing.subtitle")}
+      </Paragraph>
+      <Space
+        direction="vertical"
+        size="large"
+        style={{ width: "100%", minWidth: 0, maxWidth: "100%" }}
+      >
         {/* 1. 健康体检 */}
-        <Card title={t("keqing.section.registry")} size="small">
+        <Card
+          title={t("keqing.section.registry")}
+          size="small"
+          style={{ minWidth: 0, maxWidth: "100%" }}
+          styles={{ body: { minWidth: 0, overflow: "hidden" } }}
+        >
           <Table
             rowKey="id"
             size="small"
@@ -154,6 +185,8 @@ export default function KeqingManagementPage() {
             dataSource={status?.backends ?? []}
             columns={columns}
             pagination={false}
+            scroll={{ x: 720 }}
+            style={{ maxWidth: "100%" }}
           />
         </Card>
 
@@ -209,32 +242,6 @@ export default function KeqingManagementPage() {
               <InputNumber min={0} step={1} addonAfter="CNY" style={{ width: 200 }} />
             </Form.Item>
 
-            {/* 网关模式治理:硬管控,须凭证网关接线(P3)后才生效 */}
-            <Divider orientation="left" plain>
-              {t("keqing.group.gateway")}
-            </Divider>
-            <Alert
-              type="warning"
-              showIcon
-              message={t("keqing.group.gatewayNote")}
-              style={{ marginBottom: 16 }}
-            />
-            <Form.Item
-              name="keqing_gateway_enabled"
-              label={t("keqing.field.gateway")}
-              tooltip={t("keqing.field.gatewayTip")}
-              valuePropName="checked"
-            >
-              <Switch />
-            </Form.Item>
-            <Form.Item
-              name="keqing_model_allowlist"
-              label={t("keqing.field.allowlist")}
-              tooltip={t("keqing.field.allowlistTip")}
-            >
-              <Input placeholder="anthropic/opus, openai/gpt-5" allowClear />
-            </Form.Item>
-
             <Button type="primary" htmlType="submit" loading={mutation.isPending}>
               {t("keqing.save")}
             </Button>
@@ -249,6 +256,6 @@ export default function KeqingManagementPage() {
           description={t("keqing.cred.note")}
         />
       </Space>
-    </div>
+    </PageContainer>
   );
 }

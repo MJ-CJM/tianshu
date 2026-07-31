@@ -38,9 +38,11 @@ bash scripts/local.sh stop
 | `uvicorn.log` | uvicorn 日志 |
 | `vite.log` | vite 日志 |
 
-## Docker 模式 (`docker.sh`)
+## Legacy Docker 本地验证 (`docker.sh`)
 
-容器化运行，适合部署和环境一致性验证。
+容器化运行仅用于本地环境一致性验证。该镜像是 `legacy/experimental` 开发资产，不是
+官方安装路径、registry 制品或对外部署承诺；正式本地路径仍是源码 checkout 与 exact
+Wheel。
 
 ```bash
 # 1. 构建镜像（多阶段：前端编译 + Python 安装）

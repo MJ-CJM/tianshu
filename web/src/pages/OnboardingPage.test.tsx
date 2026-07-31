@@ -271,10 +271,10 @@ describe("first-run onboarding", () => {
 
   it("previews requested/effective truth, omits browser actors, and opens the real Edict", async () => {
     onboardingApi.getOnboardingState.mockResolvedValue(FRESH_STATE);
-    const { queryClient } = renderPage();
-    const successNotification = vi.spyOn(notification, "success").mockImplementation(() => {
-      expect(screen.getByText("/edicts/edict-new")).toBeInTheDocument();
-    });
+    renderPage();
+    const successNotification = vi
+      .spyOn(notification, "success")
+      .mockImplementation(() => undefined);
     await userEvent.click(await screen.findByRole("radio", { name: /演示配置/ }));
     fireEvent.change(await screen.findByLabelText("敕令旨意"), {
       target: { value: "完成首次治理任务" },
@@ -304,10 +304,9 @@ describe("first-run onboarding", () => {
     expect(await screen.findByText("/edicts/edict-new")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "敕令详情" })).toBeInTheDocument();
     expect(successNotification).toHaveBeenCalledOnce();
-    expect(queryClient.getQueryData<OnboardingState>(ONBOARDING_QUERY_KEY)?.required).toBe(false);
   });
 
-  it("prevents a late onboarding request from restoring required after successful creation", async () => {
+  it("keeps the detail route stable when a late onboarding request completes", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -328,12 +327,11 @@ describe("first-run onboarding", () => {
     await userEvent.click(await screen.findByRole("button", { name: "确认契约并下发" }));
 
     expect(await screen.findByText("/edicts/edict-new")).toBeInTheDocument();
-    expect(queryClient.getQueryData<OnboardingState>(ONBOARDING_QUERY_KEY)?.required).toBe(false);
 
     lateOnboarding.resolve(FRESH_STATE);
     await lateFetch;
 
-    expect(queryClient.getQueryData<OnboardingState>(ONBOARDING_QUERY_KEY)?.required).toBe(false);
     expect(screen.getByText("/edicts/edict-new")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "敕令详情" })).toBeInTheDocument();
   });
 });

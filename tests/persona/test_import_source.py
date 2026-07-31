@@ -126,7 +126,10 @@ class TestOpenClawImport:
         base = tmp_path / ".openclaw"
         ws = base / "workspace"
         _write(ws / "SOUL.md", "# A\n人格")
-        _write(base / "openclaw.json", '{"agents": {"defaults": {"model": "anthropic/claude-sonnet-4-5"}}}')
+        _write(
+            base / "openclaw.json",
+            '{"agents": {"defaults": {"model": "anthropic/claude-sonnet-4-5"}}}',
+        )
         draft = import_from("openclaw", ws)
         assert draft.suggested_model == "anthropic/claude-sonnet-4-5"
 
@@ -143,7 +146,7 @@ class TestOpenClawImport:
             '{"id": "chat", "model": "anthropic/other"},'
             '{"id": "home", "default": true, "model": {"primary": "anthropic/home-model"}, '
             '"skills": ["weather", "spotify"]}'
-            ']}}',
+            "]}}",
         )
         draft = import_from("openclaw", ws)
         assert draft.suggested_model == "anthropic/home-model"

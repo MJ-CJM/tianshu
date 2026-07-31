@@ -49,7 +49,7 @@ Rules:
 
 
 class SkillReviewHandler:
-    """Evaluates completed tasks and creates/updates skills when valuable."""
+    """Reviews completed tasks only when a governed write path is available."""
 
     def __init__(
         self,
@@ -57,11 +57,13 @@ class SkillReviewHandler:
         config_manager: ConfigManager,
         validator: SkillValidator | None = None,
         metrics_store: Any | None = None,
+        governed_writes_available: bool = False,
     ) -> None:
         self._skills = skills
         self._config = config_manager
         self._validator = validator or SkillValidator()
         self._metrics = metrics_store
+        self._governed_writes_available = governed_writes_available
         self._tasks_since_last_review = 0
         self._event_bus: Any = None
 
@@ -72,6 +74,9 @@ class SkillReviewHandler:
         """AGENT_END hook handler. Triggers skill review if conditions are met."""
         agent_cfg = self._config.agent_config
         if not agent_cfg.skill_review_enabled:
+            return None
+        if not self._governed_writes_available:
+            logger.debug("[SKILL_REVIEW] skipped: governed skill activation is unavailable")
             return None
 
         if not self._should_review(context, agent_cfg.skill_review_interval):

@@ -58,11 +58,13 @@ class AgentConfigState:
     agent_token_budget: int | None = None
     agent_cost_budget_cny: float | None = None
     skills_char_budget: int = _SETTINGS_DEFAULTS["skills_char_budget"].default
-    skill_review_enabled: bool = True
+    # Governed candidate promotion is not connected to reviewer output yet.
+    # Keep both automatic writers off so completed tasks never incur throwaway LLM spend.
+    skill_review_enabled: bool = False
     skill_review_interval: int = 5
     fallback_llm_config_name: str | None = None
     # Skill curator (修撰) — periodic self-optimization of the agent skill library
-    skill_curator_enabled: bool = True
+    skill_curator_enabled: bool = False
     skill_curator_idle_hours: int = 2
     skill_stale_after_days: int = 30
     skill_archive_after_days: int = 90

@@ -1,12 +1,8 @@
-"""Durable retry boundary for internal notification handling.
+"""Durable retry boundary for notification channel acceptance.
 
-This module proves only that a notification reaches the in-process notification
-handler. Existing Feishu, DingTalk, email, Telegram, and webhook adapters remain
-best-effort external boundaries and are deliberately not relabelled as durable.
-
-FROZEN (2026-07-20 合入评审): 本层的持久化保证止步于进程内 handler，未覆盖真正的
-外部投递边界，维护但不再扩展。外部适配器需要 durable 语义时再重新评估本层去留，
-见 docs/plan/2026-07-20-cc-fable-v1-merge-checklist.md 阶段 3。
+The retained record is marked delivered only after every configured channel
+adapter reports success. Provider acceptance still does not prove that a human
+recipient read the message, and adapters must tolerate at-least-once retries.
 """
 
 from __future__ import annotations
@@ -19,6 +15,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from tianshu.models.canonical import RedactedError, canonical_json_bytes
 from tianshu.models.system_audit import AppendSystemAuditRequest
@@ -43,6 +40,7 @@ class InternalDeliveryRecord:
     lease_owner: str | None
     lease_expires_at: datetime | None
     last_error: RedactedError | None
+    accepted_channels: frozenset[str]
     delivered_at: datetime | None
     version: int
     created_at: datetime
@@ -292,7 +290,7 @@ class InternalDeliveryOutbox:
                     correlation_id=record.correlation_id,
                     delivery_id=record.delivery_id,
                     outcome="succeeded",
-                    reason_code="internal_handler_completed",
+                    reason_code="all_channels_accepted",
                     attempt_count=record.attempt_count,
                     max_attempts=record.max_attempts,
                     deadline_expired=False,
@@ -302,6 +300,49 @@ class InternalDeliveryOutbox:
                 _dead_letter_expired_claim(connection, record, owner_id, current)
             unit_of_work.commit()
             return delivered
+
+    def mark_channel_accepted(
+        self,
+        record: InternalDeliveryRecord,
+        *,
+        channel: str,
+        now: datetime,
+    ) -> InternalDeliveryRecord | None:
+        """Persist one provider acceptance while retaining the active lease."""
+        normalized = channel.strip()
+        if not normalized:
+            raise ValueError("channel must be non-blank")
+        if normalized in record.accepted_channels:
+            return record
+        owner_id = record.lease_owner
+        if owner_id is None:
+            raise ValueError("channel acceptance requires a claimed delivery")
+        current = _utc(now)
+        accepted = sorted((*record.accepted_channels, normalized))
+        with self._unit_of_work_factory() as unit_of_work:
+            connection = unit_of_work.connection
+            cursor = connection.execute(
+                """
+                UPDATE internal_notification_deliveries
+                SET accepted_channels_json=?, version=version+1, updated_at=?
+                WHERE delivery_id=? AND status='claimed' AND lease_owner=? AND version=?
+                    AND lease_expires_at > ? AND deadline_at > ?
+                """,
+                (
+                    json.dumps(accepted, ensure_ascii=False, separators=(",", ":")),
+                    current.isoformat(),
+                    record.delivery_id,
+                    owner_id,
+                    record.version,
+                    current.isoformat(),
+                    current.isoformat(),
+                ),
+            )
+            updated = _select(connection, record.delivery_id) if cursor.rowcount == 1 else None
+            if updated is None:
+                _dead_letter_expired_claim(connection, record, owner_id, current)
+            unit_of_work.commit()
+            return updated
 
     def mark_failed(
         self,
@@ -372,7 +413,10 @@ class InternalDeliveryWorker:
     def __init__(
         self,
         outbox: InternalDeliveryOutbox,
-        handler: Callable[[InternalDeliveryRecord], Awaitable[None]],
+        handler: Callable[
+            [InternalDeliveryRecord],
+            Awaitable[InternalDeliveryRecord | None],
+        ],
         *,
         owner_id: str,
         clock: Callable[[], datetime] | None = None,
@@ -422,9 +466,18 @@ class InternalDeliveryWorker:
         )
         for record in records:
             try:
-                await self._handler(record)
+                updated = await self._handler(record)
+                if updated is not None:
+                    record = updated
             except Exception as error:  # noqa: BLE001 - durable retry boundary
                 completed_at = _utc(self._clock())
+                retained = self._outbox.get(record.delivery_id)
+                if (
+                    retained is not None
+                    and retained.status == "claimed"
+                    and retained.lease_owner == self._owner_id
+                ):
+                    record = retained
                 delay = min(
                     self._max_backoff_seconds,
                     self._base_backoff_seconds * (2 ** max(record.attempt_count - 1, 0)),
@@ -499,6 +552,7 @@ def _select(connection, delivery_id: str) -> InternalDeliveryRecord | None:
         if row["last_error_json"] is not None
         else None
     )
+    accepted_channels = _accepted_channels(row["accepted_channels_json"])
     return InternalDeliveryRecord(
         delivery_id=row["delivery_id"],
         event_id=row["event_id"],
@@ -516,11 +570,23 @@ def _select(connection, delivery_id: str) -> InternalDeliveryRecord | None:
             _parse_utc(row["lease_expires_at"]) if row["lease_expires_at"] is not None else None
         ),
         last_error=last_error,
+        accepted_channels=accepted_channels,
         delivered_at=(_parse_utc(row["delivered_at"]) if row["delivered_at"] is not None else None),
         version=row["version"],
         created_at=_parse_utc(row["created_at"]),
         updated_at=_parse_utc(row["updated_at"]),
     )
+
+
+def _accepted_channels(raw: str) -> frozenset[str]:
+    value = json.loads(raw)
+    if (
+        not isinstance(value, list)
+        or any(not isinstance(channel, str) or not channel.strip() for channel in value)
+        or len(set(value)) != len(value)
+    ):
+        raise ValueError("invalid accepted_channels_json")
+    return frozenset(value)
 
 
 def _deadline_expired_error() -> RedactedError:
@@ -578,7 +644,7 @@ def _append_delivery_audit(
     action: str,
     correlation_id: str,
     delivery_id: str,
-    outcome: str,
+    outcome: Literal["allowed", "denied", "succeeded", "failed"],
     reason_code: str,
     attempt_count: int,
     max_attempts: int,

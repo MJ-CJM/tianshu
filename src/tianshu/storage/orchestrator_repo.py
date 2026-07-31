@@ -1,7 +1,44 @@
 """Storage Orchestrator 领域 Mixin —— 外环迭代/检查点归档、监督报告。"""
 
+import json
 import sqlite3
 import threading
+
+
+def finalize_outer_loop_terminal(connection: sqlite3.Connection, edict_id: str) -> None:
+    """清理外环续跑状态，并在没有后续周期触发时收敛 Edict 生命周期。"""
+
+    connection.execute(
+        "DELETE FROM outer_loop_checkpoints WHERE edict_id = ?",
+        (edict_id,),
+    )
+    connection.execute(
+        "DELETE FROM pending_steers WHERE edict_id = ?",
+        (edict_id,),
+    )
+    row = connection.execute(
+        "SELECT runtime_json, acceptance_json FROM edicts WHERE id = ?",
+        (edict_id,),
+    ).fetchone()
+    if row is None or row["acceptance_json"] is None:
+        return
+    recurring = connection.execute(
+        """
+        SELECT 1 FROM scheduler_jobs
+        WHERE edict_id = ? AND status IN ('active', 'paused')
+          AND schedule_type IN ('cron', 'interval')
+        LIMIT 1
+        """,
+        (edict_id,),
+    ).fetchone()
+    if recurring is not None:
+        return
+    runtime = json.loads(row["runtime_json"] or "{}")
+    runtime["lifecycle_phase"] = "complete"
+    connection.execute(
+        "UPDATE edicts SET runtime_json = ? WHERE id = ?",
+        (json.dumps(runtime), edict_id),
+    )
 
 
 class OrchestratorMixin:
@@ -74,7 +111,16 @@ class OrchestratorMixin:
 
     # --- outer loop checkpoints ------------------------------------------
 
-    def save_outer_loop_checkpoint(self, edict_id: str, data_json: str, saved_at: str) -> None:
+    def save_outer_loop_checkpoint(
+        self,
+        edict_id: str,
+        data_json: str,
+        saved_at: str,
+        *,
+        ack_steer_ids: tuple[str, ...] = (),
+    ) -> None:
+        """Commit the checkpoint and acknowledge applied steer instructions together."""
+
         with self._lock, self._conn:
             self._conn.execute(
                 """
@@ -84,6 +130,12 @@ class OrchestratorMixin:
             """,
                 (edict_id, data_json, saved_at),
             )
+            if ack_steer_ids:
+                placeholders = ",".join("?" for _ in ack_steer_ids)
+                self._conn.execute(
+                    f"DELETE FROM pending_steers WHERE edict_id = ? AND id IN ({placeholders})",
+                    (edict_id, *ack_steer_ids),
+                )
 
     def get_outer_loop_checkpoint(self, edict_id: str) -> str | None:
         row = self._conn.execute(
@@ -98,6 +150,12 @@ class OrchestratorMixin:
                 "DELETE FROM outer_loop_checkpoints WHERE edict_id = ?",
                 (edict_id,),
             )
+
+    def finalize_outer_loop_terminal(self, edict_id: str) -> None:
+        """在上层已持久化 Memorial 终态后清理所有外环续跑状态。"""
+
+        with self._lock, self._conn:
+            finalize_outer_loop_terminal(self._conn, edict_id)
 
     # --- Supervision report (long task 终态总评) ---
 

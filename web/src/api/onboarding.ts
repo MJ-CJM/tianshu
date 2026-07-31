@@ -37,9 +37,9 @@ function unavailable(code: string): ApiProblem {
   };
 }
 
-function exactPackagedPersonas(personas: PersonaInfo[]): PersonaInfo[] {
+function requiredPackagedPersonas(personas: PersonaInfo[]): PersonaInfo[] {
   const ids = personas.map((persona) => persona.id);
-  if (personas.length !== PACKAGED_PERSONAS.length || new Set(ids).size !== ids.length) {
+  if (new Set(ids).size !== ids.length) {
     throw unavailable("onboarding-resources-unavailable");
   }
   const byId = new Map(personas.map((persona) => [persona.id, persona]));
@@ -56,13 +56,10 @@ function exactPackagedPersonas(personas: PersonaInfo[]): PersonaInfo[] {
   return packaged as PersonaInfo[];
 }
 
-function exactBuiltinSkills(skills: SkillInfo[]): SkillInfo[] {
+function requiredBuiltinSkills(skills: SkillInfo[]): SkillInfo[] {
   const builtin = skills.filter((skill) => skill.source === "builtin");
-  const names = builtin.map((skill) => skill.name).sort();
-  if (
-    names.length !== BUILTIN_SKILL_NAMES.length ||
-    names.some((name, index) => name !== BUILTIN_SKILL_NAMES[index])
-  ) {
+  const names = new Set(builtin.map((skill) => skill.name));
+  if (BUILTIN_SKILL_NAMES.some((name) => !names.has(name))) {
     throw unavailable("onboarding-resources-unavailable");
   }
   const byName = new Map(builtin.map((skill) => [skill.name, skill]));
@@ -85,23 +82,36 @@ export async function getOnboardingState(): Promise<OnboardingState> {
     throw unavailable("onboarding-readiness-detail-unavailable");
   }
 
-  const [personasResponse, skillsResponse, edictsResponse] = await Promise.all([
+  // Persisted work is the authoritative returning-user signal. Do not block an
+  // established instance because its user has added personas/skills or because
+  // a bootstrap catalog endpoint is temporarily unavailable.
+  const edictsResponse = await listEdicts({ limit: 1 });
+  if (edictsResponse.metadata?.total === undefined) {
+    throw unavailable("onboarding-state-unavailable");
+  }
+  if (edictsResponse.metadata.total > 0) {
+    return {
+      required: false,
+      readiness: readiness.status,
+      profile: readiness.profile,
+      packagedPersonas: [],
+      builtinSkills: [],
+    };
+  }
+
+  const [personasResponse, skillsResponse] = await Promise.all([
     listPersonas(),
     listSkills(),
-    listEdicts({ limit: 1 }),
   ]);
   if (!personasResponse.data || !skillsResponse.data) {
     throw unavailable("onboarding-resources-unavailable");
   }
-  if (edictsResponse.metadata?.total === undefined) {
-    throw unavailable("onboarding-state-unavailable");
-  }
 
   return {
-    required: edictsResponse.metadata.total === 0,
+    required: true,
     readiness: readiness.status,
     profile: readiness.profile,
-    packagedPersonas: exactPackagedPersonas(personasResponse.data),
-    builtinSkills: exactBuiltinSkills(skillsResponse.data),
+    packagedPersonas: requiredPackagedPersonas(personasResponse.data),
+    builtinSkills: requiredBuiltinSkills(skillsResponse.data),
   };
 }

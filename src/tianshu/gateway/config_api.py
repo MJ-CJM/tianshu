@@ -35,11 +35,14 @@ def _state_to_agent_config(state) -> AgentConfig:
         agent_token_budget=state.agent_token_budget,
         agent_cost_budget_cny=state.agent_cost_budget_cny,
         skills_char_budget=state.skills_char_budget,
-        skill_review_enabled=state.skill_review_enabled,
+        # Compatibility field: automatic review cannot safely activate a skill yet.
+        skill_review_enabled=False,
         skill_review_interval=state.skill_review_interval,
         fallback_llm_config_name=state.fallback_llm_config_name,
         keqing_default_models=state.keqing_default_models,
-        keqing_gateway_enabled=state.keqing_gateway_enabled,
+        # Credential gateway is not wired into production execution yet.
+        # Keep the response field for compatibility, but never claim it is active.
+        keqing_gateway_enabled=False,
         keqing_per_run_budget_cny=state.keqing_per_run_budget_cny,
         keqing_model_allowlist=state.keqing_model_allowlist,
         task_slots=state.task_slots,
@@ -55,6 +58,16 @@ def get_agent_config(request: Request):
 @config_router.put("/agent-config", response_model=ApiResponse)
 def update_agent_config(body: AgentConfigUpdateRequest, request: Request):
     cm: ConfigManager = request.app.state.config_manager
+    if body.skill_review_enabled is True:
+        raise HTTPException(
+            status_code=409,
+            detail="automatic skill review is unavailable until governed skill activation is wired",
+        )
+    if body.keqing_gateway_enabled is True:
+        raise HTTPException(
+            status_code=409,
+            detail="Keqing credential gateway is experimental and unavailable in this release",
+        )
     updates = body.model_dump(exclude_none=True)
     if not updates:
         state = cm.agent_config

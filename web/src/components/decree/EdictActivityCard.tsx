@@ -22,12 +22,14 @@ interface EdictActivityCardProps {
   edict: Edict;
   latestMemorial: Memorial | null;
   pendingToolCalls?: PendingToolCall[];
+  pendingDecisionCount?: number;
 }
 
 export default function EdictActivityCard({
   edict,
   latestMemorial,
   pendingToolCalls = [],
+  pendingDecisionCount = 0,
 }: EdictActivityCardProps) {
   const t = useT();
   const { token } = theme.useToken();
@@ -39,7 +41,12 @@ export default function EdictActivityCard({
   };
 
   const hasPendingTool = pendingToolCalls.length > 0;
-  const borderColor = hasPendingTool
+  const otherPendingDecisionCount = Math.max(
+    0,
+    pendingDecisionCount - pendingToolCalls.length,
+  );
+  const hasPendingDecision = pendingDecisionCount > 0 || phase === "needs_review";
+  const borderColor = hasPendingDecision || hasPendingTool
     ? "var(--ts-color-warning)"
     : PHASE_COLORS[phase];
 
@@ -58,6 +65,11 @@ export default function EdictActivityCard({
           </SemanticTag>
           {hasPendingTool && (
             <Tag color="orange">{t("comp.edictActivity.pendingTool", { n: pendingToolCalls.length })}</Tag>
+          )}
+          {otherPendingDecisionCount > 0 && (
+            <Tag color="orange">
+              {t("comp.edictActivity.pendingDecision", { n: otherPendingDecisionCount })}
+            </Tag>
           )}
           <Typography.Text
             style={{ color: token.colorTextSecondary, fontSize: 12 }}
@@ -93,7 +105,7 @@ export default function EdictActivityCard({
         token={token}
         t={t}
       />
-      {(hasPendingTool || phase === "needs_review") && (
+      {(hasPendingDecision || hasPendingTool) && (
         <div style={{ marginTop: 12 }} onClick={(event) => event.stopPropagation()}>
           <Button size="small" icon={<ArrowRightOutlined />} onClick={handleClick}>
             {t("comp.edictActivity.openDecision")}

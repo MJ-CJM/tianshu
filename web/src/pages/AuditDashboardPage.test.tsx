@@ -43,6 +43,7 @@ const emptyStats: AuditStats = {
     total_memorials: 0,
     total_prompt_tokens: 0,
     total_completion_tokens: 0,
+    total_cache_read_tokens: 0,
     total_tokens: 0,
     audit_pass: 0,
     audit_flag: 0,

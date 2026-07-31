@@ -1,23 +1,32 @@
-# 客卿管理页设计
+# 客卿管理页：当前实验边界
 
-> 2026-07-24。前置:[执行主体本体论·百官(内臣) vs 客卿(外臣)](../domain-model.md#5-执行主体本体论百官内臣-vs-客卿外臣)。
+> 当前状态：**实验能力，默认导航隐藏**。本页描述已落地行为；完整 pi/凭证网关方案见
+> [pi-default-adapter.md](pi-default-adapter.md)，该文件是历史/演进设计，不是完成声明。
+> 本体论背景见
+> [执行主体本体论](../domain-model.md#6-执行主体本体论百官内臣-vs-客卿外臣)。
 
-## 定位
+## 当前可用
 
-客卿是**外臣**(外聘 coding agent),非百官。本页治理「外聘人才」——能力/健康/隔离/治理策略,**不含**人格(SOUL/ROLE)、京察、自进化(那是百官品类)。**红线**:别把客卿管理做成百官 dashboard 的翻版。
+- `/keqing` 路由仍可直接访问，但不在五个一级导航入口中。
+- `GET /api/keqing/status` 只读检查本机 CLI 是否可发现、可读取的安装版本、pi pinned
+  version 漂移和声明能力；检查不 spawn CLI。
+- 页面可配置各 backend 默认模型和 per-run 预算提示。
+- 当前 executor 只使用 CLI 自管凭证。页面不读取、不输入、不存储 raw provider key。
 
-## 三块
+## 当前不可用
 
-1. **注册表 · 健康体检**(只读):每 backend 的安装/版本(pi 0.79.3 vs 钉死 0.81.1 → drift 红字)、能力声明(会话续用/插话/验收/权限塑形/用量)、凭证来源。
-2. **治理默认**(可编辑):默认模型、凭证网关开关、per-run 预算、模型白名单。
-3. **凭证**(只读):来源提示,**无 raw key 输入框**(守 P3/P4 凭证隔离)。
+- Keqing 凭证网关没有接入生产 executor。状态 API 固定报告
+  `gateway_enabled=false`，`PUT /api/agent-config` 尝试开启时返回 `409`。
+- 因此目前没有通过天枢网关实现的 hard cost cap、模型 allowlist 强制、raw-key 隔离或
+  provider 请求级计费保证。
+- worktree、guard、scoped token、before-provider headers 和完整 session RPC 闭环的设计
+  不能当作所有 backend 的已验证能力。
+- Keqing 不属于开源黄金路径，也不参与“普通任务/长程任务已可用”的默认结论。
 
-## 实现
+## 产品约束
 
-- **后端**:`agent_config` 加 4 字段(`keqing_default_model`/`keqing_gateway_enabled`/`keqing_per_run_budget_cny`/`keqing_model_allowlist`),沿用 `/agent-config` GET/PUT 暴露链(config.py state → models/api.py `AgentConfig`+Update → config_api.py 映射)。`GET /api/keqing/status` 只读体检:`installed` 用 `shutil.which`、版本从 CLI package.json **读文件**取(不 spawn 进程,守 `test_no_direct_process_launch`),drift = installed≠pinned。
-- **前端**:`pages/KeqingManagementPage.tsx` + `router/AppRoutes` `/keqing` + `navigation/departments` group-system 导航项 + 三语 i18n。执行器选 keqing:* 时 `EdictForm` 显示 `executor_model` 可选输入。
-- **测试**:后端 `test_keqing_status.py`(9)+ config round-trip;前端 `KeqingManagementPage.test.tsx`(2)。
+客卿是外部执行器，不增加 SOUL/ROLE、京察或自进化入口。管理页只展示能力、安装健康与
+有限配置，并始终把“自管凭证”和“实验状态”展示给用户。
 
-## 本期不做
-
-guard deny/allow 工具策略可视化编辑(v2)· raw key 存储/输入(永不做,违反凭证隔离)· 客卿 persona/京察/自进化(永不做,违反本体论)。
+**相关实现**：`gateway/keqing_api.py`、`gateway/config_api.py`、
+`web/src/pages/KeqingManagementPage.tsx`、`web/src/router/AppRoutes.tsx`。

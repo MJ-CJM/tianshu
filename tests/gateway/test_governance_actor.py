@@ -94,8 +94,15 @@ def test_plan_review_uses_authenticated_actor(
 
 def test_plan_review_requires_exact_owned_decision_version_and_reason(storage) -> None:
     edict = Edict(goal="strict plan", submitter="user:owner", plan_review=True)
+    other_edict = Edict(
+        id="another-edict",
+        goal="another owned plan",
+        submitter="user:owner",
+        plan_review=True,
+    )
     memorial = Memorial(edict_id=edict.id, status=TaskStatus.NEEDS_REVIEW)
     storage.save_edict(edict)
+    storage.save_edict(other_edict)
     storage.save_memorial(memorial)
     app = _app_with_identity(storage)
     requested = app.state.approval_manager.request_plan_review_decision(
@@ -169,7 +176,7 @@ def test_plan_review_hides_non_owned_decision(storage) -> None:
 
 
 def test_outer_loop_review_uses_authenticated_actor_not_body_identity(storage) -> None:
-    edict = Edict(goal="outer loop review")
+    edict = Edict(goal="outer loop review", submitter="user:owner")
     memorial = Memorial(edict_id=edict.id, status=TaskStatus.NEEDS_REVIEW)
     storage.save_edict(edict)
     storage.save_memorial(memorial)

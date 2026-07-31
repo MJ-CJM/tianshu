@@ -37,7 +37,9 @@ continue_or_create(chat_id, sender, text)
 - **续接优先、新建兜底**：同一 chat 连说几句默认归到同一敕令（多轮上下文），只有当锚定敕令已结案才静默开新敕令（测试 `test_x1_auto_new_when_anchor_closed`）。
 - **单飞行约束**：一个敕令同时只允许一个在跑的 memorial，第二条消息撞上 `EdictBusyError` 而非排队/并发，避免长任务被插队打乱。
 - **归属固化进 metadata**：`create_new` 把 `channel` / `instance_id` / `chat_id` / `{user_meta_key}` 写进 `Edict.metadata`，这是后续出站与审批**反查 chat、按渠道/实例隔离**的唯一依据。
-- **事件解耦**：新建即 `fire("edict.submitted")`，由 Executor 订阅去真正排程；EdictBridge 不直接驱动执行。
+- **持久化提交**：新建经共享 `EdictApplicationService`，在同一事务写入
+  Edict、首个 Memorial 与 `edict.submitted` outbox 事件；后台 outbox/scheduler
+  接管排程，EdictBridge 不直接驱动 Executor。
 - **history 兼容 thinking 模型**：`_follow_up` 构造多轮 history 时，`_build_history` 对缺 `reasoning_content` 的老 memorial 整条跳过 assistant 消息，规避 DeepSeek reasoner 的 400 校验。
 
 `ensure_chat_edict` / `create_new` / `_follow_up` 通过 `channel` / `user_meta_key` / `chat_title_prefix` 三个构造参数参数化，因此 Telegram 只需换注解、不重写逻辑（测试 `test_telegram_channel_metadata`）。

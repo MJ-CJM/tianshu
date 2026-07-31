@@ -9,6 +9,7 @@ memory_write 借鉴 hermes-agent (`tools/memory_tool.py`) 的设计：
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -18,6 +19,11 @@ from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
 logger = logging.getLogger(__name__)
+
+
+def _core_section_entry_id(persona_id: str, section: str) -> str:
+    digest = hashlib.sha256(f"{persona_id}\0{section}".encode()).hexdigest()
+    return f"core-section-{digest}"
 
 
 async def _memory_search(
@@ -196,21 +202,28 @@ async def _memory_write(
         logger.exception("memory_write failed")
         return error_result(f"memory_write 失败: {e}")
 
-    # 同步索引到 memory_entries（仅 add；replace/remove 不索引以避免清掉旧文本后索引仍残留）
-    if action == "add" and storage is not None and content:
+    # Markdown is authoritative. Project one deterministic row per H2 section
+    # instead of rewriting every row that happens to contain the same phrase.
+    if storage is not None:
         try:
             from tianshu.memory.models import MemoryEntry
 
-            entry = MemoryEntry(
-                persona_id=index_persona_id,
-                category="insight",
-                content=content,
-                source="agent",  # MemoryEntry.source 仅限 agent/compaction/reflection
-            )
-            storage.save_memory_entry(entry)
+            entry_id = _core_section_entry_id(index_persona_id, section_norm)
+            section_body = md_backend.read_section_body(storage_key, section_norm)
+            storage.delete_memory_entry(entry_id)
+            if section_body:
+                storage.save_memory_entry(
+                    MemoryEntry(
+                        id=entry_id,
+                        persona_id=index_persona_id,
+                        category="insight",
+                        content=section_body,
+                        source="reflection",
+                    )
+                )
         except Exception:
             logger.warning(
-                "save_memory_entry failed for memory_write (non-fatal)",
+                "core section projection failed for memory_write (index can be rebuilt)",
                 exc_info=True,
             )
 

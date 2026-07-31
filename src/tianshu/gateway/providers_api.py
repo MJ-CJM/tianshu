@@ -1,4 +1,4 @@
-"""Provider 与插件路由（providers + plugins）：CRUD、状态、三维定价、插件安装与状态。无统一 prefix，路径写全。"""
+"""Provider routes plus the read-only experimental plugin manifest catalog."""
 
 from __future__ import annotations
 
@@ -151,10 +151,19 @@ def get_effective_pricing(name: str, request: Request):
 # --- Plugin endpoints ---
 
 
+def _manifest_only_plugin(plugin: dict) -> dict:
+    return {
+        **plugin,
+        "status": "manifest_only",
+        "capability_status": "manifest_only",
+        "loaded": False,
+    }
+
+
 @providers_router.get("/plugins")
 def list_plugins(request: Request):
     storage: Storage = request.app.state.storage
-    plugins = storage.list_plugins()
+    plugins = [_manifest_only_plugin(plugin) for plugin in storage.list_plugins()]
     return ApiResponse(success=True, data=plugins)
 
 
@@ -164,25 +173,26 @@ def get_plugin(name: str, request: Request):
     plugin = storage.get_plugin(name)
     if not plugin:
         raise HTTPException(status_code=404, detail=f"Plugin '{name}' not found")
-    return ApiResponse(success=True, data=plugin)
+    return ApiResponse(success=True, data=_manifest_only_plugin(plugin))
 
 
-@providers_router.post("/plugins/install", response_model=ApiResponse, status_code=201)
-async def install_plugin(request: Request):
-    storage: Storage = request.app.state.storage
-    body = await request.json()
-    if not body.get("name"):
-        raise HTTPException(status_code=400, detail="name is required")
-    storage.save_plugin(body)
-    return ApiResponse(success=True, data=body)
+@providers_router.post("/plugins/install", response_model=ApiResponse)
+async def install_plugin() -> ApiResponse:
+    raise HTTPException(
+        status_code=501,
+        detail={
+            "code": "plugin_install_not_supported",
+            "message": "plugin manifests can be discovered, but plugin code is not installed or loaded",
+        },
+    )
 
 
 @providers_router.put("/plugins/{name}/status", response_model=ApiResponse)
-async def update_plugin_status(name: str, request: Request):
-    storage: Storage = request.app.state.storage
-    plugin = storage.get_plugin(name)
-    if not plugin:
-        raise HTTPException(status_code=404, detail=f"Plugin '{name}' not found")
-    body = await request.json()
-    storage.update_plugin_status(name, body.get("status", "active"))
-    return ApiResponse(success=True, data={"name": name, "status": body.get("status", "active")})
+async def update_plugin_status(name: str) -> ApiResponse:
+    raise HTTPException(
+        status_code=501,
+        detail={
+            "code": "plugin_activation_not_supported",
+            "message": f"plugin '{name}' cannot be activated because dynamic loading is not supported",
+        },
+    )

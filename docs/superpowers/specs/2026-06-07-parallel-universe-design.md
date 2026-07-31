@@ -1,5 +1,10 @@
 # 平行位面：行为配置的自进化分叉系统 — 设计文档
 
+> **历史设计，当前边界已收紧：** Legacy Universe 只保留快照、分支、diff、评估与
+> 推荐；switch、rollback 和自动晋升固定 fail closed，也没有真实 challenger 小流量。
+> 当前事实见 [`../../design/universe/README.md`](../../design/universe/README.md) 与
+> [`../../CURRENT-STATE.md`](../../CURRENT-STATE.md)。
+
 | 项 | 值 |
 |---|---|
 | 日期 | 2026-06-07 |

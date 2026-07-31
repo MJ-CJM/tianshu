@@ -30,9 +30,7 @@ from tianshu.storage.migrations import (
     MIGRATIONS,
 )
 
-_V18_VERSION = next(
-    m.version for m in MIGRATIONS if m.name == "0018_governed_evolution_candidates"
-)
+_V18_VERSION = next(m.version for m in MIGRATIONS if m.name == "0018_governed_evolution_candidates")
 
 NOW = datetime(2026, 7, 17, 9, 0, tzinfo=UTC)
 DIGEST_A = "a" * 64
@@ -428,15 +426,11 @@ def test_v18_partial_or_drifted_shape_is_rejected_and_rolled_back(mode: str) -> 
     connection.execute("PRAGMA foreign_keys=ON")
     try:
         if mode == "partial":
-            apply_migrations(
-                connection, tuple(m for m in MIGRATIONS if m.version < _V18_VERSION)
-            )
+            apply_migrations(connection, tuple(m for m in MIGRATIONS if m.version < _V18_VERSION))
             connection.execute("CREATE TABLE evolution_candidates (candidate_id TEXT PRIMARY KEY)")
         else:
             apply_migrations(connection, MIGRATIONS)
-            connection.execute(
-                "DELETE FROM schema_migrations WHERE version >= ?", (_V18_VERSION,)
-            )
+            connection.execute("DELETE FROM schema_migrations WHERE version >= ?", (_V18_VERSION,))
             connection.execute("DROP INDEX idx_evolution_candidates_lifecycle")
             connection.execute(
                 "CREATE INDEX idx_evolution_candidates_lifecycle ON evolution_candidates(kind)"

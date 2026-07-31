@@ -7,7 +7,7 @@ import logging
 import re
 
 from tianshu.executor.orchestrator.state import CriticResult
-from tianshu.llm import LLMClient
+from tianshu.llm import LLMClient, LLMUsageContext
 from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.common import UsageSummary
 from tianshu.models.edict import Edict
@@ -177,6 +177,7 @@ async def _review_single(
     *,
     fallback_llm: LLMClient | None = None,
     max_retries: int = 2,
+    usage_context: LLMUsageContext | None = None,
 ) -> CriticResult:
     """单 persona 独立调一次 critic LLM。"""
     strictness = getattr(acceptance.critic, "strictness", "lenient")
@@ -195,7 +196,10 @@ async def _review_single(
     last_err: Exception | None = None
     for attempt in range(max_retries):
         try:
-            resp = await llm.chat(messages=messages)
+            if usage_context is None:
+                resp = await llm.chat(messages=messages)
+            else:
+                resp = await llm.chat(messages=messages, usage_context=usage_context)
             result = _parse(resp.content or "")
             return _replace_usage(result, resp.usage)
         except Exception as e:
@@ -203,7 +207,10 @@ async def _review_single(
             last_err = e
     if fallback_llm is not None:
         try:
-            resp = await fallback_llm.chat(messages=messages)
+            if usage_context is None:
+                resp = await fallback_llm.chat(messages=messages)
+            else:
+                resp = await fallback_llm.chat(messages=messages, usage_context=usage_context)
             result = _parse(resp.content or "")
             return _replace_usage(result, resp.usage)
         except Exception as e:
@@ -299,6 +306,7 @@ async def review(
     fallback_llm: LLMClient | None = None,
     max_retries: int = 2,
     ctx: object | None = None,
+    usage_context: LLMUsageContext | None = None,
 ) -> CriticResult:
     """监督评审入口。多监督官时并发调用，按"全过则过"聚合。
 
@@ -322,6 +330,7 @@ async def review(
             llm,
             fallback_llm=fallback_llm,
             max_retries=max_retries,
+            usage_context=usage_context,
         )
 
     persona_loader = getattr(ctx, "persona_loader", None)
@@ -334,6 +343,7 @@ async def review(
             llm,
             fallback_llm=fallback_llm,
             max_retries=max_retries,
+            usage_context=usage_context,
         )
 
     # 多 persona：并发调用
@@ -355,6 +365,7 @@ async def review(
                 actual_llm,
                 fallback_llm=fallback_llm,
                 max_retries=max_retries,
+                usage_context=usage_context,
             )
             return (pid, r)
         except CriticUnavailable as e:

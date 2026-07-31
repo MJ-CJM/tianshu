@@ -8,7 +8,7 @@
 
 | 文件 | 关键类/函数 | 职责 |
 |---|---|---|
-| `llm.py` | `LLMClient`、`LLMResponse`、`_apply_prompt_caching`、`_extract_cache_read_tokens`、`_extract_model_echo`、`_log_model_echo`、`_resolve_model` | LiteLLM 封装、缓存、回显校验 |
+| `llm.py` | `LLMClient`、`LLMUsageContext`、`set_usage_observer`、缓存/回显 helpers | LiteLLM 封装、统一用量观察 |
 | `config_manager.py` | `ConfigManager`、`LLMConfigState`、`AgentConfigState` | 多命名配置 + Agent 运行参数 |
 | `providers/manager.py` | `ProviderManager` | 路由、限速、配价生效计算 |
 | `providers/capabilities.py` | `ProviderInfo`、`ProviderCapability`、`TaskRequirements` | pydantic 容量/需求模型 |
@@ -25,10 +25,13 @@
 `chat()` 流程（`llm.py:253`）：
 1. `_resolve_model()` 给裸模型名补 provider 前缀（`_PROVIDER_HINTS`：`deepseek→deepseek`、`minimax(i)→openai`，默认 `openai`）。
 2. `_apply_prompt_caching(messages, model)` —— 仅 `claude*`/`anthropic/*` 插 `cache_control`。
-3. 组装 kwargs（固定带 `drop_params=True`），`@retry` 装饰（`tenacity`，3 次，仅瞬态错误）。
+3. 组装 kwargs（固定带 `drop_params=True`）；非 Router 路径按
+   `max_retries + 1` 对瞬态错误重试，Router 路径不叠加外层重试。
 4. `await litellm.acompletion(**kwargs)`。
 5. `_extract_model_echo` + `_log_model_echo` 校验上游回显。
 6. `_extract_cache_read_tokens` 提缓存命中，`estimate_cost` 算钱，组 `UsageSummary`。
+7. `_observe_usage` 把 usage、provider/model 和可选
+   `LLMUsageContext(edict_id, memorial_id, operation)` 交给 CostManager。
 
 `chat_stream()`（`llm.py:333`）逐 chunk yield 文本/工具增量，工具调用按 `index` 拼接 `args`，末 chunk 带完整 `UsageSummary`。回显在首个有效 chunk 校验一次。
 
@@ -55,14 +58,21 @@
 litellm response.usage
   → _extract_cache_read_tokens(usage, model)
   → estimate_cost(model, pt, ct, cache_read, provider_pricing=override) → UsageSummary
-  → LLM_OUTPUT hook → CostManager.on_llm_output → CostTracker.accumulate（本地累加，记 last_provider_name）
+  → process usage observer → CostManager.observe_llm_usage
+      → 有业务上下文：按 (edict_id, memorial_id) CostTracker.accumulate
+      → 无业务上下文：直接记 __platform__
   → BEFORE_ITERATION hook → CostManager.on_before_iteration → 超预算 HookResult(block=True) [+ emit cost.budget_exceeded]
-  → execution.completed/failed event → CostManager._finalize_cost → storage.save_cost_record(cost_ledger) + tracker.pop
+  → execution.completed/failed/cancelled → _finalize_cost → cost_ledger + tracker.pop
 ```
 
 ### 接入点登记
 
-`CostManager` 由 `app.py` 装配，hook 注册 `LLM_OUTPUT` / `BEFORE_ITERATION`，event 订阅 `execution.completed`/`execution.failed`（priority=150，详见 `runtime-flow.md` §2）。`record()` 同时更新 `global` 与 `edict:{id}` 的 `spent_cny`。
+`CostManager` 由 `bootstrap/wiring_llm.py` 装配并注册为 process usage observer。Planner、
+Critic、Auditor、Rubric、会诊等调用显式传 context；managed attempt 中的其他调用可从
+ambient authority 归因。旧 `LLM_OUTPUT` hook 仅为兼容入口。
+
+V23 后 `cost_ledger` 正式保存 `cache_read_tokens`。同一 run 观察到多个 provider/model
+时分别写聚合标签 `multiple`，不再拿最后一次调用代表整条 run。取消也结算已经发生的用量。
 
 ## 6. 默认定价表
 
@@ -70,6 +80,7 @@ litellm response.usage
 
 ## 7. 待办 / 已知简化
 
-- `cost_ledger` 无 `cache_read_tokens` 列（cache 维度数据未跨 edict 细化聚合）。
-- 跨 provider edict 成本归 `last_provider_name`，非逐调用分摊。
+- 多 provider/model run 目前只保存 `multiple` 聚合标签，不保存逐调用账本明细。
+- 无业务上下文的 LLM 调用归 `__platform__`，不能反推到具体用户任务。
+- 本地成本取决于 provider 返回的 usage 与配置价格，不等同于供应商正式账单。
 - `TaskRequirements` 的 `fastest` / `round_robin` 策略已定义未实现（`_select` 仅 cheapest/priority）。

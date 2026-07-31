@@ -69,7 +69,7 @@ async def batch_delete_memory(request: Request):
 def get_memory_policies(request: Request):
     mm: MemoryManager = request.app.state.memory_manager
     policies = {}
-    for pid, policy in mm._access_control._policies.items():
+    for pid, policy in mm._access_control.list_policies().items():
         policies[pid] = {
             "persona_id": policy.persona_id,
             "can_read": policy.can_read,

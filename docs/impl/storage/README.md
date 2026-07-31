@@ -1,71 +1,93 @@
-# storage 子系统 · 实现现状
+# storage 子系统 · 当前实现
 
-**相关设计**：[../../design/storage/](../../design/storage/)
-
-覆盖 `src/tianshu/storage/`（包）、`src/tianshu/bus/event_bus.py`、`src/tianshu/models/events.py`、`src/tianshu/memory/fts.py`。
+**设计**：[`../../design/storage/`](../../design/storage/)
+**发布边界**：single-node SQLite，见
+[`../../CURRENT-STATE.md`](../../CURRENT-STATE.md)。
 
 ## 1. 代码地图
 
-`storage/` 由 `_base`（连接生命周期）+ 15 个领域 Mixin + `facade`（组合根）构成：
+| 路径 | 职责 |
+|---|---|
+| `storage/_base.py` | connection、WAL/foreign keys、启动迁移锁、敏感迁移恢复备份 |
+| `storage/schema.py` | V1 baseline DDL |
+| `storage/migrations.py` | V1–V24 immutable migration definitions |
+| `storage/migration_ledger.py` | ledger 校验、事务性 apply/adopt、checksum |
+| `storage/facade.py` | Storage 组合根和跨域事务（含 Edict tombstone） |
+| `storage/*_repo.py` | Edict、Memorial、Scheduler、Cost、Notification、Orchestrator 等领域访问 |
+| `storage/unit_of_work.py` | caller-owned SQLite transaction |
+| `storage/outbox_repo.py` | durable event outbox（提交后分发权威） |
+| `application/event_history.py`、`storage/event_repo.py` | 可查询的持久事件历史 |
+| `storage/attempt_ledger.py` | execution attempt lease/fencing |
+| `bus/event_bus.py` | 进程内实时广播；不是跨重启历史或待投递权威 |
 
-| 文件 | 关键符号 | 职责 |
+## 2. 初始化与并发
+
+`Storage.init_db()` 打开共享 SQLite connection，启用 WAL 和 foreign keys，在同一数据库的
+跨进程 startup lock 内检查 pending migration，并在成功后初始化 FTS。Storage 的共享
+connection 由一把进程级 lock 保护；跨表原子操作使用 UnitOfWork。
+
+这套模型只证明单主机、single-node 行为。WAL 不是多节点协调、共识、replica recovery 或
+跨进程业务 exactly-once 协议。
+
+## 3. Migration ledger
+
+`schema_migrations` 保存 `version/name/checksum/applied_at`。定义必须严格递增且 checksum
+固定；已应用条目与代码不一致会 fail closed。Migration callback 不能自行控制事务。
+
+对于无 ledger 的旧库，只有当所有 migration-owned 对象与“在内存库从 V1 完整重放到当前
+版本”的权威形状语义等价时，才 adoption；残留临时表、缺失对象或漂移 schema 会拒绝。
+
+当前尾部：
+
+| 版本 | 名称 | 变化 |
 |---|---|---|
-| `_base.py` | `_StorageBase` | 连接生命周期：`init_db()`（connect/WAL/建表/迁移/FTS）、`close()`；`_conn`/`_lock` 供 Mixin 共享 |
-| `schema.py` | `SCHEMA_SQL_CORE`/`_FEISHU`/`_TELEGRAM`/`_CHANNELS` | 建表 DDL（37 张 `CREATE TABLE`） |
-| `migrations.py` | `run_migrations(conn)` | 历史 `ALTER TABLE`/重建表迁移列表（含 `schedule_run` 建表，累计 38+ 张业务表） |
-| `mappers.py` | `_row_to_edict` / `_row_to_memorial` / … | row → model/dict 纯函数（从旧 `Storage` staticmethod 抽出） |
-| `facade.py` | `Storage` | 组合 `_StorageBase` + 15 个领域 Mixin；仅保留跨域 JOIN 方法（`get_persona_stats`、`list_memorials_by_persona`） |
-| `edict_repo.py` `memorial_repo.py` `event_repo.py` `memory_repo.py` `cost_repo.py` `dag_repo.py` `scheduler_repo.py` | `EdictMixin` 等（批 B） | 任务/奏折/事件/记忆/成本/DAG/调度 CRUD |
-| `config_repo.py` `persona_repo.py` `universe_repo.py` `credential_repo.py` `orchestrator_repo.py` `channel_repo.py` `feishu_repo.py` `telegram_repo.py` | `ConfigMixin` 等（批 C） | 配置/人格/位面/凭证/编排台账/多实例通道 CRUD |
-| `bus/event_bus.py` | `EventBus`、`_HandlerEntry` | 异步事件总线 |
-| `models/events.py` | `EventEnvelope`、`make_event` | 事件信封 |
-| `memory/fts.py` | `create_fts_table`、`escape_fts5_query`、`search_fts` | FTS5 虚表与全文检索 |
+| V23 | `0023_cost_cache_read_tokens` | `cost_ledger.cache_read_tokens` |
+| V24 | `0024_notification_channel_progress` | `internal_notification_deliveries.accepted_channels_json` |
 
-## 2. Storage 怎么跑
+敏感 secret migration 之前先 checkpoint WAL，并使用数据库旁确定性
+`pre-migration-recovery.legacy-sensitive.bak`。备份含旧明文，必须按 secret 保护并在恢复后
+清理；详见 [`../../ops/credentials.md`](../../ops/credentials.md)。
 
-`init_db()`（`storage/_base.py`）：connect（`check_same_thread=False`，`row_factory=Row`）→ `PRAGMA journal_mode=WAL` / `foreign_keys=ON` → `_create_tables()`（执行 `schema.py` 四段 `executescript`）→ `_migrate()`（`migrations.run_migrations` + `_migrate_session_tables_add_instance` + `_seed_departments`）→ `_init_fts()`。
+## 4. 任务、调度与执行权威
 
-并发：`self._lock = threading.Lock()`（`_base.py` 持有，15 个 Mixin 共享），写方法统一 `with self._lock, self._conn:`（约 100+ 处），读方法走 `with self._lock:`，依赖 WAL 不阻塞。
+- `edicts`/`memorials` 是业务对象；
+- `outbox_events` 是提交后待投影事件；
+- `run_states`/`execution_attempts` 保存恢复状态、lease、heartbeat 和 fencing token；
+- `scheduler_jobs` 保存持久 cursor；
+- `schedule_run` 保存每个触发槽位；
+- `decision_requests` 保存可跨重启恢复的人工决定；
+- `artifact_records`/`evidence_bundles` 保存不可变交付证据。
 
-领域 API 形态（调用方不写 SQL，方法按 Mixin 分文件而非集中单类）：
-- 任务：`save_edict / get_edict / list_edicts / update_edict_status`（`edict_repo.py`）、`save_memorial / get_memorial / update_memorial / list_memorials`（`memorial_repo.py`）
-- 事件：`append_event(edict_id, memorial_id, event_type, payload)` / `list_events`（`event_repo.py`）
-- 批红：`save_decree / list_decrees`（`memorial_repo.py`）
-- DAG：`save_dag_execution / save_dag_node / list_dag_nodes / update_dag_node_status`（`dag_repo.py`）
-- 成本：`save_cost_record / update_budget_spent / get_cost_summary / list_cost_records / upsert_budget`（`cost_repo.py`）
-- 配置：`list_llm_configs / save_llm_config / set_active_llm_config`、`save_provider / list_providers / update_provider`（`config_repo.py`）
-- 调度：`save_scheduler_job / list_active_scheduler_jobs / set_scheduler_job_status / update_scheduler_job_next_run / delete_scheduler_job`（`scheduler_repo.py`）
-- 记忆：`search_memory`（配合 FTS5，`memory_repo.py`）
+调度 fire、follow-up 和普通根执行都先在事务里绑定 Memorial、attempt 与 outbox，commit
+后再唤醒 reconciler。Fencing 阻止已经失去 lease 的旧 runner 提交终态。
 
-`_seed_departments`（定义于 `persona_repo.py` 的 `PersonaMixin`）在 `_base.py` 的 `_migrate()` 内被调用——`Storage` 组合后 `self` 才同时具备 `_StorageBase` 与全部 Mixin 方法，这正是 15 个领域文件必须经 `facade.py` 统一组合、任何一个文件都不能单独实例化的原因。
+## 5. Edict tombstone
 
-## 3. 迁移怎么扩展
+`Storage.tombstone_edict()` 在同一事务中：
 
-新增一列：在 `migrations.py` 的 `run_migrations()` 的 `migrations` 列表末尾追加 `"ALTER TABLE x ADD COLUMN ..."`。循环逐条 execute，`OperationalError` 中 `duplicate column name` / `no such column` 被吞（幂等），其余 raise。
+1. 确认没有未结束根执行，否则抛 `EdictArchiveConflict`；
+2. 写 `metadata.archived_at`；
+3. 把关联 active/paused scheduler jobs 标 cancelled；
+4. 幂等追加一条 `edict.archived` 事件。
 
-改主键：参考 `supervision_reports`（`migrations.py:67-111`）—— 建 `_xxx_new` + `INSERT OR IGNORE ... SELECT` 回填 + `DROP` 旧表 + `RENAME`。
+普通列表过滤 archived 行，但按 ID 仍可读取治理历史。Gateway 的 DELETE 不触发物理级联。
 
-分批迁移有独立方法：`_migrate_session_tables_add_instance()`（`_base.py`，多 bot `instance_id`）、`persona_metrics` 合成锁列循环（`migrations.py` 尾段）、`_seed_departments()`（`persona_repo.py`）一次性回填。
+## 6. V23 成本
 
-## 4. EventBus 怎么跑
+`cost_ledger` 保存 prompt/completion/total/cache-read tokens 和 CNY 成本。一次 run 观察到多
+provider/model 时使用 `multiple` 聚合标签；取消、失败和成功终态都会结算已有 tracker。
 
-`EventBus(storage)`（`bus/event_bus.py`）：`_handlers: dict[event_type, list[_HandlerEntry]]`，`on()` 追加后按 `priority` 升序 `sort`。
+## 7. V24 通知
 
-- `emit(event)`（`:40`）：`_persist` → 顺序 `await entry.handler(event)`，每个包 try/except。
-- `fire(event)`（`:63`）：`_persist` → `asyncio.create_task(self._run_handlers(event))`，task 存入 `_background_tasks` set，`add_done_callback(discard)` 防 GC。
-- `_persist`（`:97`）：仅 `event.edict_id` 非空时 `storage.append_event`。
+`internal_notification_deliveries` 状态为
+`pending/claimed/retry_wait/delivered/dead_letter`。claim 由 lease/version CAS 保护。每个
+渠道成功后立即把名称加入 JSON array；重试跳过数组中已有渠道。全部渠道 accepted 才能
+delivered，deadline 或 max attempts 后进入 dead letter。
 
-注：events 表 `id` 为 ULID 文本主键（`append_event` 自生成），不是自增整数。
+accepted 是本地 adapter/provider acceptance，不是收件人阅读证明。
 
-## 5. FTS5 怎么跑
+## 8. 记忆
 
-`create_fts_table(conn)`（`memory/fts.py:11`）建 `memory_fts` 虚表 + `memory_fts_insert/delete/update` 三触发器同步 `memory_entries`。`search_fts` 用 `escape_fts5_query` 把查询词逐个加双引号转义后 `MATCH`，支持按 persona_id 过滤；异常时降级返回空（`_init_fts` 设 `_fts_available`）。
-
-## 6. 装配位置
-
-`bootstrap/wiring_storage.py` 的 `wire_storage()` 中：`Storage` 先于 `EventBus(storage)` 初始化，`HookRegistry` 随后创建；订阅链在装配尾段注册（见 `runtime-flow.md` §2 订阅表）。各模块经构造注入 `storage` / `event_bus`。
-
-## 7. 已知约束
-
-- `storage/` 已按领域拆成 `_base` + 15 Mixin + facade（原单文件 ~4000 行 God Module 的拆分目标已完成）；`facade.py` 仅剩 3 个真正跨域方法，其余按领域分文件。
-- `events` / `cost_ledger` / `dag_*` 无 FK，删除 edict 不级联清理，需手动 DELETE。
+主库 `memory_entries + memory_fts` 是 Markdown 的派生索引；
+`~/.tianshu/memory/drawers.sqlite3` 是独立 Drawer 库。新日志使用稳定 ID；索引可以从
+Markdown 重建。删除先修改真相源，拒绝 index-only 假删除。

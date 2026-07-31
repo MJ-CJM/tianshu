@@ -29,6 +29,18 @@ active -> complete
 
 它用于 pause/resume、预算软着陆、winding_down 工具副作用拦截。
 
+当前生命周期约束：
+
+- `DELETE /api/edicts/{id}` 是归档（tombstone），不是物理删除。存在未结束执行时返回
+  `409`；成功后列表隐藏任务，同时取消调度 job，但保留 Edict 身份、事件和治理证据。
+- pause/resume/steer 只对仍有未结束 Memorial 的开放深度任务有效。pause 在当前外环轮次
+  边界生效；steer 在下一轮 actor 边界吸收。
+- 深度任务统一以可检查点模式运行；outer loop 或
+  `execution_profile ∈ {checkpointed, background}` 不允许 `cron/interval`，也不允许
+  `concurrency_policy=allow`。
+- `conversation=true` 的交互任务完成后可保持 Edict 为 `open`，便于 follow-up；自动化入口可
+  显式关闭 conversation，让成功任务自动结案。
+
 ### Memorial
 
 `Memorial` 是一次执行记录。一个 `Edict` 可有多条 `Memorial`：初次执行、follow-up、DAG 节点、重试都可能产生新奏折。
@@ -46,9 +58,13 @@ active -> complete
 | `runtime_override`, `acceptance_override` | follow-up 单轮覆盖，不回写 Edict |
 | `reasoning_content` | thinking-mode 模型多轮回传所需 reasoning |
 
+失败、取消和成功是 Memorial 的真实终态。审计可以把成功结果推进到
+`auditing/needs_review`，但不会把执行失败改写为成功；取消时已经发生的 LLM 用量仍会结算。
+
 ### Decree
 
-`Decree` 是人工批红记录，用于工具审批、旧式奏折审批和 L3 人工决策。它把“人是否授权”变成可持久化、可审计的数据。
+当前人工授权权威是持久化 `Decision`；`Decree` 是旧接口兼容投影，用于工具审批、
+旧式奏折审批和 L3 人工决策。用户可见统一称“裁决”。
 
 ### Plan / PlanTask
 
@@ -101,15 +117,16 @@ active -> complete
 | 人格与 skill | `departments`, `personas`, `persona_metrics`, `skill_metrics` |
 | 权限 | `session_rules`, `network_credentials` |
 | 长任务 | `outer_loop_iterations`, `outer_loop_checkpoints`, `supervision_reports` |
+| 通知可靠性 | `internal_notification_deliveries`（含 V24 per-channel acceptance progress） |
 | 飞书 | `feishu_session_anchor`, `feishu_seen_messages`, `feishu_pending_cards`, `feishu_thinking_messages`, `channel_configs` |
-| 插件 | `plugins` |
+| 实验插件清单 | `plugins`（metadata-only，不代表已加载） |
 
 ## 4. 数据源分层
 
 | 数据 | 真相源 | 派生/缓存 |
 |---|---|---|
 | Edict/Memorial/Event/Decree | 主 SQLite | API 响应、前端页面 |
-| Persona 模板 | `personas/{id}/` | `personas` 表、运行时目录 |
+| Persona 打包默认 | `src/tianshu/resources/personas/{id}/` | 只读默认身份 |
 | Persona 运行时覆盖 | `~/.tianshu/personas/{id}/` | PromptBuilder 读取 |
 | Markdown 记忆 | `~/.tianshu/memory/` | `memory_entries` + FTS |
 | Drawer 记忆 | `~/.tianshu/memory/drawers.sqlite3` | Prompt L1、memory-palace API |
@@ -118,7 +135,20 @@ active -> complete
 
 这个分层的核心是：控制面强一致地放 SQLite，人格与长期记忆保留文件可读性，检索再建索引。
 
-## 5. 执行主体本体论：百官（内臣） vs 客卿（外臣）
+`cost_ledger` 自迁移 V23 起持久化 `cache_read_tokens`。`internal_notification_deliveries`
+自 V24 起持久化 `accepted_channels_json`：某渠道已接受后，后续重试只发送尚未成功的渠道。
+
+## 5. 任务归属与管理员边界
+
+`Edict.submitter` 是任务资源的归属字段。普通 PAT 只能列出、读取或控制与自己 principal
+ID 相同的任务，以及由该 Edict 派生的 Memorial、DAG、Scheduler job、决策和证据；访问
+其他用户的资源统一表现为 `404`，避免泄露资源是否存在。`admin` scope 可跨提交者访问。
+
+旧数据库里 `submitter IS NULL` 的任务不会对普通 PAT 开放；管理员和 trusted-local
+主人可处理这些兼容数据。SystemAudit、全局审计/网络事件、Worker、全局配置、记忆和成本
+属于管理面，不因“能访问自己的任务”而自动开放。
+
+## 6. 执行主体本体论：百官（内臣） vs 客卿（外臣）
 
 天枢有两类执行主体，**同为一等公民，但不同品类**。「客卿」一词取历史语义（客·卿：给外来人才卿的高位实权，但始终是「客」——外臣，非本国臣民），精确编码了二者的差别：
 
@@ -130,7 +160,7 @@ active -> complete
 | 演化 | 作为天枢**自身**自进化（运行时 SOUL 演化） | 按**自己的节奏**演化（如 pi 发版周期）→ 故**钉死版本** + 漂移告警 |
 | 考核 | **京察**（考「为官」本身） | **验收 / 配对评估**（只考**产出**：代码过没过，非官品） |
 
-**承重推论**（整套客卿架构由此导出，改动前须对照）：
+**承重推论**（这是设计方向，不代表所有隔离部件已落地）：
 - 为何有 guard/网关/worktree/clean-env —— 客卿是**外**（不可信），百官是**内**（可信）。
 - 为何钉死 pi 版本 + 漂移告警 —— 客卿按**自己节奏**演化，不受天枢自进化管。
 - 为何客卿**无 SOUL** —— 不给外人你的魂；给它任务 + 验收标准，然后治理。
@@ -138,4 +168,6 @@ active -> complete
 
 **分工**：百官治理（内阁规划 / 都察院审计 / 太医诊断 / 廷议评议 / 户部记账）· 客卿执行（写代码的手）。客卿在**功能上被抬高**（真正的 coding 交给它），但**本体论上仍是「外」**（被治理对象）。
 
-> **红线**：别给客卿加人格 / 京察 / 自进化——那是把外臣当内臣。客卿管理面是「治理外聘人才」（能力/健康/隔离/治理策略），**不是**百官 dashboard 的翻版（persona/京察/自进化）。
+> **当前实现边界**：客卿页面和路由属于实验能力，默认导航不展示。生产路径只报告 CLI
+> 自管凭证；凭证网关未接入实际 executor，尝试开启会返回 `409`。worktree、guard、
+> scoped-token 等完整组合仍是演进设计，不能把方案稿当作已验证安全边界。

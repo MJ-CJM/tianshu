@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 from tianshu.executor.orchestrator.critic import _extract_json, _read_persona_text
 from tianshu.executor.orchestrator.state import OuterLoopState
-from tianshu.llm import LLMClient
+from tianshu.llm import LLMClient, LLMUsageContext
 from tianshu.models.common import TaskStatus
 from tianshu.models.edict import Edict
 from tianshu.models.supervision import SupervisionReport
@@ -145,7 +145,17 @@ async def generate_supervision_report(
     recommendation: str | None = None
 
     try:
-        resp = await llm.chat(messages=messages)
+        if memorial_id:
+            resp = await llm.chat(
+                messages=messages,
+                usage_context=LLMUsageContext(
+                    edict_id=edict.id,
+                    memorial_id=memorial_id,
+                    operation="supervision_report",
+                ),
+            )
+        else:
+            resp = await llm.chat(messages=messages)
         raw_text = resp.content or ""
         try:
             data = _extract_json(raw_text)

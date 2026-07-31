@@ -132,11 +132,24 @@ def test_cost_tracker_accumulate_multiple_provider_name():
 
 
 @pytest.mark.unit
+def test_cost_tracker_uses_truthful_labels_for_mixed_calls():
+    t = CostTracker()
+    t.accumulate("model-a", 10, 5, provider_name="provider-a")
+    t.accumulate("model-b", 20, 10, provider_name="provider-b")
+
+    assert t.provider_label == "multiple"
+    assert t.model_label == "multiple"
+
+
+@pytest.mark.unit
 def test_cost_tracker_reset_clears_provider_name():
     t = CostTracker()
     t.accumulate("deepseek-chat", 100, 50, provider_name="p1")
     t.reset()
     assert t.last_provider_name is None
+    assert t.last_model is None
+    assert t.provider_label is None
+    assert t.model_label is None
     assert t.cache_read_tokens == 0
 
 

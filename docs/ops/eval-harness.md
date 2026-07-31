@@ -1,6 +1,7 @@
 # 评估套件运维：跑评估 / 读 fitness / debug 回归
 
-运维者视角：代码变体晋升前必过的评估底座怎么跑、fitness 结果怎么读、回归（变体跑挂或掉分）怎么排查。
+运维者视角：代码变体形成评估与推荐结论时，评估底座怎么跑、fitness 结果怎么读、
+回归（变体跑挂或掉分）怎么排查。当前没有代码晋升或部署入口。
 
 > **相关设计**：[../design/universe/eval.md](../design/universe/eval.md)（评估机制与适应度语义）、[../design/universe/code-variant.md](../design/universe/code-variant.md)（代码变体闭环）
 > **相关实现**：[../impl/universe/README.md](../impl/universe/README.md)
@@ -16,14 +17,14 @@
 | `code_variant_eval_set_size` | 20 | 回放评估集规模 |
 | `code_variant_sandbox_timeout_s` | 900 | Gate 全程 + 沙箱单步超时 |
 | `universe_promote_margin` | 0.05 | 变体须赢冠军此差距才被标 `recommended` |
-| `code_variant_auto_promote` | False | 自动晋升，**保持关闭**（晋升前人工审 diff 是主控制）|
+| `code_variant_auto_promote` | False | 兼容保留字段；当前提案链路不读取它，也不存在自动部署入口 |
 
 ## 2. 怎么跑评估套件
 
 评估**不是单独的命令**，是 `UniverseEvolver.propose_code_variant` 闭环的一环，触发途径：
 
-- **Web UI**：代码变体位面页发起提案（`POST /api/universes/code-variant`），后端编排 `分支 → 变异 → 门禁 → 评估 → 记录`。
-- **API 直调**：`POST /api/universes/code-variant`，body 带 `target_path` / `hypothesis` / 可选 `parent_id`。
+- **Web UI**：代码变体位面页发起提案（`POST /api/universes/propose-code`），后端编排 `分支 → 变异 → 门禁 → 评估 → 记录`。
+- **API 直调**：`POST /api/universes/propose-code`，body 带 `target_path` / `hypothesis` / 可选 `parent_id`。
 
 一次提案内部按顺序跑：
 
@@ -53,8 +54,8 @@ WAL/SHM。当前 `trusted-local` 宿主模式不提供可证明的内存、CPU�
 | `no_champion` | 没有冠军位面作 parent | 先 `ensure_genesis` |
 | `no_mutation` | LLM 没产出有效改动 | 变体已 archive，无需处理；可换 hypothesis 重试 |
 | `gate_failed` | 三关之一红 | 见 §4，detail 字段给出 stage |
-| `evaluated` | 过门禁、已打分，但**未超 margin** | 不推荐晋升，分数仅供参考 |
-| `recommended` | 超 margin，赢了冠军 | 人工审完整 diff + eval 记录后决定是否晋升 |
+| `evaluated` | 过门禁、已打分，但**未超 margin** | 不形成推荐，分数仅供参考 |
+| `recommended` | 超 margin，赢了冠军 | 人工审完整 diff + eval 记录，决定是否保留该推荐；当前不能部署 |
 | `error` | 闭环异常 | 看日志 `[EVOLVER] propose_code_variant failed` |
 
 **fitness 字段**（`compute_fitness` 输出，越高越好）：
@@ -69,7 +70,10 @@ WAL/SHM。当前 `trusted-local` 宿主模式不提供可证明的内存、CPU�
 | `cost_score` | 成本反向分，越接近 1 越省（注意它在默认权重下占比很小）|
 | `feedback` | 累积反馈分原始值 |
 
-判断「赢没赢」：`variant.score >= champion.score + universe_promote_margin`。`samples` 太小（如 < 5）时分数噪声大，别据此晋升 —— 调大 `code_variant_eval_set_size` 或先积累更多历史诏令。
+判断「是否达到推荐阈值」：
+`variant.score >= champion.score + universe_promote_margin`。`samples` 太小（如 < 5）时
+分数噪声大，不要据此形成未来受治理激活判断——调大 `code_variant_eval_set_size` 或先
+积累更多历史诏令。
 
 ## 4. 回归 debug
 
@@ -114,7 +118,11 @@ PYTHONPATH=$PWD/src .venv/bin/python -m pytest -q
 
 ### 4.4 安全提醒
 
-live 评估需要 LLM key，untrusted 变体进程能拿到 key（理论可外泄）。**残余风险靠晋升前人工审完整 diff 兜底**，`code_variant_auto_promote` 保持关闭。每次变异 / 评估 / 晋升 / 回滚都发 EventBus 事件，可在审计面板回溯。
+live 评估需要 LLM key，untrusted 变体进程能拿到 key（理论可外泄）。因此当前闭环只允许
+生成变体、跑门禁与评估并给出 `recommended`，没有晋升、回滚或部署代码的入口。变异与
+评估事件可在当前进程的 EventBus 中观察，持久证据以 `variant_eval_runs` 和位面记录为准；
+如果未来开放受治理部署，仍须先人工审完整 diff，并补齐独立的 promotion/rollback adapter
+与可验证收据。
 
 ## 5. 相关落盘
 

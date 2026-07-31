@@ -1,15 +1,24 @@
 import { useState } from "react";
-import { Button, Input, Popconfirm, Popover, Table, message, theme } from "antd";
+import { Button, Input, Popconfirm, Popover, Space, Table, message, theme } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { DeleteOutlined, EditOutlined } from "@ant-design/icons";
-import { useNavigate } from "react-router-dom";
-import type { Edict, EdictStatus } from "../../api/types";
+import { Link, useNavigate } from "react-router-dom";
+import type { Edict, Memorial } from "../../api/types";
 import { updateEdict } from "../../api/edicts";
 import MonoText from "../common/MonoText";
 import SemanticTag from "../common/SemanticTag";
 import { truncateId, formatTime } from "../../utils/format";
-import { EDICT_STATUS_LABELS, EDICT_STATUS_COLORS, PRIORITY_LABELS, PRIORITY_COLORS } from "../../utils/constants";
+import {
+  PRIORITY_LABELS,
+  PRIORITY_COLORS,
+} from "../../utils/constants";
 import { useT } from "../../i18n";
+import {
+  deriveEdictWorkspacePhase,
+  getEdictTaskKinds,
+  type EdictTaskKind,
+  type EdictWorkspacePhase,
+} from "../../utils/edictPresentation";
 
 interface EdictTableProps {
   edicts: Edict[];
@@ -21,6 +30,9 @@ interface EdictTableProps {
   onDelete: (edictId: string) => Promise<void>;
   onBatchDelete?: (edictIds: string[]) => Promise<void>;
   onRefresh?: () => void;
+  latestMemorials?: Record<string, Memorial | null>;
+  pendingDecisionCounts?: Record<string, number>;
+  progressUnavailable?: boolean;
 }
 
 export default function EdictTable({
@@ -33,6 +45,9 @@ export default function EdictTable({
   onDelete,
   onBatchDelete,
   onRefresh,
+  latestMemorials = {},
+  pendingDecisionCounts = {},
+  progressUnavailable = false,
 }: EdictTableProps) {
   const t = useT();
   const navigate = useNavigate();
@@ -42,6 +57,52 @@ export default function EdictTable({
   const [renameSaving, setRenameSaving] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [batchDeleting, setBatchDeleting] = useState(false);
+  const taskKindLabels: Record<EdictTaskKind, string> = {
+    immediate: t("taskKind.immediate"),
+    scheduled_once: t("taskKind.scheduledOnce"),
+    recurring: t("taskKind.recurring"),
+    long_running: t("taskKind.longRunning"),
+    conversation: t("taskKind.conversation"),
+    keqing: t("taskKind.keqing"),
+  };
+  const workspacePhaseLabels: Record<EdictWorkspacePhase, string> = {
+    submitted: t("status.submitted"),
+    running: t("status.running"),
+    completed: t("status.completed"),
+    failed: t("status.failed"),
+    cancelled: t("status.cancelled"),
+    scheduled: t("status.scheduled"),
+    planning: t("status.planning"),
+    auditing: t("status.auditing"),
+    needs_review: t("status.needs_review"),
+    paused: t("phase.paused"),
+    winding_down: t("phase.windingDown"),
+    idle: t("phase.idle"),
+    no_memorial: t("phase.no_memorial"),
+  };
+  const workspacePhaseColors: Record<EdictWorkspacePhase, string> = {
+    submitted: "var(--ts-status-submitted)",
+    running: "var(--ts-status-running)",
+    completed: "var(--ts-status-completed)",
+    failed: "var(--ts-status-failed)",
+    cancelled: "var(--ts-status-cancelled)",
+    scheduled: "var(--ts-status-scheduled)",
+    planning: "var(--ts-status-planning)",
+    auditing: "var(--ts-status-auditing)",
+    needs_review: "var(--ts-status-needs-review)",
+    paused: "var(--ts-status-scheduled)",
+    winding_down: "var(--ts-status-auditing)",
+    idle: "var(--ts-status-completed)",
+    no_memorial: "var(--ts-status-submitted)",
+  };
+  const taskKindColors: Record<EdictTaskKind, string> = {
+    immediate: "var(--ts-color-info)",
+    scheduled_once: "var(--ts-status-scheduled)",
+    recurring: "var(--ts-color-accent)",
+    long_running: "var(--ts-color-warning)",
+    conversation: "var(--ts-color-success)",
+    keqing: "var(--ts-color-accent)",
+  };
 
   const handleBatchDelete = async () => {
     if (selectedRowKeys.length === 0 || !onBatchDelete) return;
@@ -100,18 +161,50 @@ export default function EdictTable({
       title: t("comp.edictTable.title"),
       dataIndex: "title",
       ellipsis: true,
-      render: (_: string, record: Edict) =>
-        record.title || record.goal.slice(0, 20) + (record.goal.length > 20 ? "…" : ""),
+      render: (_: string, record: Edict) => (
+        <Link
+          to={`/edicts/${record.id}`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {record.title || record.goal.slice(0, 20) + (record.goal.length > 20 ? "…" : "")}
+        </Link>
+      ),
     },
     {
-      title: t("comp.edictTable.status"),
-      dataIndex: "status",
-      width: 100,
-      render: (status: EdictStatus) => (
-        <SemanticTag colorVar={EDICT_STATUS_COLORS[status]}>
-          {EDICT_STATUS_LABELS[status]}
-        </SemanticTag>
+      title: t("comp.edictTable.taskType"),
+      width: 210,
+      render: (_, record) => (
+        <Space size={[4, 4]} wrap>
+          {getEdictTaskKinds(record).map((kind) => (
+            <SemanticTag key={kind} colorVar={taskKindColors[kind]}>
+              {taskKindLabels[kind]}
+            </SemanticTag>
+          ))}
+        </Space>
       ),
+    },
+    {
+      title: t("comp.edictTable.progress"),
+      width: 120,
+      render: (_, record) => {
+        if (progressUnavailable && record.status === "open") {
+          return (
+            <SemanticTag colorVar="var(--ts-color-text-secondary)">
+              {t("phase.unavailable")}
+            </SemanticTag>
+          );
+        }
+        const phase = deriveEdictWorkspacePhase(
+          record,
+          latestMemorials[record.id] ?? null,
+          pendingDecisionCounts[record.id] ?? 0,
+        );
+        return (
+          <SemanticTag colorVar={workspacePhaseColors[phase]} solid={phase === "needs_review"}>
+            {workspacePhaseLabels[phase]}
+          </SemanticTag>
+        );
+      },
     },
     {
       title: t("comp.edictTable.priority"),
@@ -175,6 +268,7 @@ export default function EdictTable({
                 <Button
                   type="text"
                   size="small"
+                  aria-label={t("action.edit")}
                   icon={<EditOutlined />}
                 />
               </Popover>
@@ -193,6 +287,7 @@ export default function EdictTable({
                   type="text"
                   danger
                   size="small"
+                  aria-label={t("action.delete")}
                   icon={<DeleteOutlined />}
                 />
               </Popconfirm>
@@ -254,6 +349,7 @@ export default function EdictTable({
           showSizeChanger: false,
           onChange: onPageChange,
         }}
+        scroll={{ x: 1120 }}
         size="middle"
       />
     </>

@@ -1,6 +1,8 @@
 {
   "nav": {
     "control": "Control Center",
+    "tasks": "Task Workspace",
+    "settings": "Settings",
     "evolution": "Evolution Center",
     "edictCreate": "New Task",
     "approvals": "Decisions",
@@ -23,15 +25,57 @@
       "system": "System"
     },
     "evals": "Evals",
-    "keqing": "Keqing (Agents)"
+    "keqing": "Keqing (Agents)",
+    "menu": {
+      "control": "Control Center",
+      "tasks": "Task Workspace",
+      "allTasks": "All Tasks",
+      "edictCreate": "New Task",
+      "scheduler": "Scheduled Tasks",
+      "audit": "Audit",
+      "court": "Collaboration",
+      "persona": "Personas",
+      "consultation": "Consultation",
+      "cabinet": "Planning",
+      "offices": "Operations",
+      "knowledge": "Knowledge",
+      "foreign": "External",
+      "notify": "Notifications",
+      "laboratory": "Frontier Lab",
+      "evolution": "Evolution Center",
+      "universe": "Universes",
+      "evals": "Evals",
+      "keqing": "Keqing (Agents)",
+      "settings": "Administration",
+      "system": "System",
+      "sessionRules": "Session Rules",
+      "tax": "Finance",
+      "maturity": {
+        "experimental": "Experimental",
+        "trial": "Trial"
+      }
+    }
+  },
+  "maturity": {
+    "stableLimited": "Stable (limited)",
+    "beta": "Beta",
+    "experimental": "Experimental",
+    "canDo": "What it can do",
+    "currentBoundary": "Current boundary"
   },
   "sidebar": {
+    "primaryNavigation": "Primary navigation",
     "darkMode": "Dark Mode",
     "lightMode": "Light Mode",
     "collapse": "Collapse",
     "expand": "Expand",
     "switchToDark": "Switch to Dark",
     "switchToLight": "Switch to Light"
+  },
+  "notFoundPage": {
+    "title": "Page not found",
+    "description": "This address does not exist or has changed.",
+    "back": "Back to overview"
   },
   "pageDataState": {
     "loadingTitle": "Loading",
@@ -212,8 +256,11 @@
   "phase": {
     "running": "Running",
     "needs_review": "Pending Decision",
-    "idle": "Idle",
-    "no_memorial": "Not Started"
+    "idle": "Awaiting Follow-up",
+    "no_memorial": "Not Started",
+    "unavailable": "Progress unavailable",
+    "paused": "Paused",
+    "windingDown": "Wrapping Up"
   },
   "event": {
     "label": {
@@ -441,11 +488,7 @@
     }
   },
   "empty": {
-    "noMatch": "No matching tasks",
-    "noOpenEdict": "No active tasks"
-  },
-  "phaseFilter": {
-    "all": "All Phases"
+    "noMatch": "No matching tasks"
   },
   "page": {
     "onboarding": {
@@ -472,9 +515,11 @@
       "readinessDegraded": "Degraded",
       "evolutionNotEnabled": "Not enabled",
       "realCounts": "Authoritative Control Center counts",
-      "activeRunsMetric": "Total active runs",
+      "activeRunsMetric": "Currently running",
+      "unarchivedEdictsMetric": "Unarchived tasks",
+      "unarchivedEdictsBreakdown": "{awaiting} awaiting follow-up · {cancelled} cancelled",
       "pendingDecisionsMetric": "Total pending decisions",
-      "evidenceMetric": "Total evidence bundles",
+      "evidenceMetric": "Cumulative evidence bundles (including archived)",
       "activeRunsTitle": "Active governance runs",
       "pendingDecisionsTitle": "Pending decisions",
       "recentEvidenceTitle": "Recent evidence",
@@ -487,7 +532,21 @@
       "evidenceClosed": "Closed",
       "evidenceOpen": "Generating",
       "downloadEvidence": "Download evidence",
-      "evidenceAwaitingClose": "Awaiting closure"
+      "evidenceAwaitingClose": "Awaiting closure",
+      "uniqueCapabilitiesTitle": "Distinctive capabilities",
+      "uniqueCapabilitiesDescription": "Core governance stays stable while frontier capabilities remain visible with explicit limits.",
+      "viewCapability": "View",
+      "longGovernanceTitle": "Long-run governance",
+      "longGovernanceStatus": "Available",
+      "longGovernanceDescription": "Checkpoints, pause/resume, decisions, recovery, and evidence.",
+      "evolutionCapabilityTitle": "Self-evolution",
+      "evolutionCapabilityDescription": "Candidates, gates, routing, promotion, and rollback.",
+      "universeCapabilityTitle": "Parallel universes",
+      "universeCapabilityStatus": "Enable on demand",
+      "universeCapabilityDescription": "Parallel variants, code diffs, evals, and recommendations.",
+      "keqingCapabilityTitle": "Keqing",
+      "keqingCapabilityStatus": "Local environment",
+      "keqingCapabilityDescription": "Govern Claude Code, Codex, Pi, and OpenCode."
     },
     "evolutionCenter": {
       "notEnabledTitle": "Not enabled",
@@ -497,7 +556,11 @@
       "enabled": "Enabled",
       "degraded": "Degraded",
       "lastGateHash": "Last gate hash",
-      "candidatesTitle": "Evolution candidates"
+      "candidatesTitle": "Evolution candidates",
+      "capabilityCanDo": "Inspect and govern Skill candidate gates, canary routing, promotion, and rollback evidence.",
+      "capabilityBoundary": "Non-Skill activation adapters stay disabled, and candidates are never promoted automatically.",
+      "enabledEmptyTitle": "Enabled, with no candidates yet",
+      "enabledEmptyDescription": "The evolution service is ready. Governed Skill candidates will appear here with gate, routing, and rollback status."
     },
     "edictDetail": {
       "title": "Task Detail",
@@ -506,6 +569,16 @@
       "backToList": "Back",
       "planCardTitle": "Execution Plan",
       "planExecuted": "Executed",
+      "planFallbackTag": "Fallback",
+      "planFallbackMessage": "Smart planning was unavailable; this is running as one task",
+      "planFallbackReason": {
+        "llm_disabled": "The planning model is disabled.",
+        "empty_response": "The planning model returned no content.",
+        "invalid_response": "The planning result had an invalid format.",
+        "empty_plan": "The planning result contained no executable task.",
+        "llm_error": "The planning model request failed.",
+        "unknown": "The planning service is temporarily unavailable."
+      },
       "planTaskColumn": {
         "task": "Task",
         "executor": "Executor",
@@ -598,6 +671,7 @@
   },
   "form": {
     "search": {
+      "failed": "Memory search failed. Try again.",
       "edict": "Search tasks..."
     },
     "decree": {
@@ -625,7 +699,7 @@
         "planReview": "Plan Decision",
         "scheduleType": "Schedule",
         "cronExpr": "Cron Expression",
-        "scheduleAt": "Run At",
+        "scheduleAt": "Run time",
         "priority": "Priority",
         "reviewPolicy": "Review Policy",
         "constraints": "Constraints",
@@ -656,7 +730,12 @@
         "executor": "Executor",
         "taskType": "Task type",
         "executorModel": "Agent model (optional)",
-        "conversation": "Conversation mode"
+        "conversation": "Conversation mode",
+        "when": "When to run",
+        "repeatPattern": "Repeat",
+        "repeatTime": "Time",
+        "repeatWeekday": "Weekday",
+        "customCron": "Custom cron"
       },
       "placeholder": {
         "title": "Leave blank to auto-extract first 20 chars of goal",
@@ -688,6 +767,7 @@
         "assignedPersonaRequired": "Please select an assignee",
         "cronExprRequired": "Cron expression required",
         "scheduleAtRequired": "Run time required",
+        "scheduleAtFuture": "Run time must be in the future",
         "criticPersonasRequired": "At least one critic required for long task mode"
       },
       "tooltip": {
@@ -713,7 +793,17 @@
         "directAssign": "Direct Assign",
         "scheduleImmediate": "Immediate",
         "scheduleOnce": "Scheduled",
-        "scheduleCron": "Recurring"
+        "scheduleCron": "Recurring",
+        "repeatDaily": "Daily",
+        "repeatWeekly": "Weekly",
+        "repeatCustom": "Custom cron",
+        "weekday0": "Sunday",
+        "weekday1": "Monday",
+        "weekday2": "Tuesday",
+        "weekday3": "Wednesday",
+        "weekday4": "Thursday",
+        "weekday5": "Friday",
+        "weekday6": "Saturday"
       },
       "section": {
         "advanced": "Advanced",
@@ -732,6 +822,8 @@
       "warning": {
         "criticSelfReviewTitle": "Executor and Critic overlap",
         "criticSelfReviewDesc": "Same persona executing and self-reviewing significantly reduces critic objectivity. Recommend audit / knowledge-base personas not involved in execution.",
+        "longTaskScheduleTitle": "Long tasks cannot recur",
+        "longTaskScheduleDesc": "The current single-node runtime cannot safely distinguish each recurring run identity. Run the long task now or schedule it once; use a regular task for recurrence.",
         "governanceBlocked": "Governance preview failed. The executor cannot enforce: {capabilities}",
         "governanceAdvisory": "These advisory capabilities are best-effort or observed only: {capabilities}",
         "governanceReview": "Review the requested and effective contracts before dispatch.",
@@ -893,6 +985,14 @@
     "once": "Scheduled",
     "cron": "Recurring"
   },
+  "taskKind": {
+    "immediate": "Immediate",
+    "scheduledOnce": "Scheduled",
+    "recurring": "Recurring",
+    "longRunning": "Long-running",
+    "conversation": "Conversation",
+    "keqing": "Keqing · Experimental"
+  },
   "executionProfile": {
     "foreground": "Foreground",
     "checkpointed": "Resumable",
@@ -939,6 +1039,7 @@
     "close": "Close",
     "cancel": "Cancel",
     "pause": "Pause",
+    "pauseAfterRound": "Pause after this round",
     "resume": "Resume"
   },
   "common2": {
@@ -965,6 +1066,7 @@
     "edictCancelled": "Task cancelled",
     "cancelFailed": "Cancel failed",
     "edictPaused": "Task paused",
+    "edictPauseRequested": "The task will pause after the current round",
     "pauseFailed": "Pause failed",
     "edictResumed": "Task resumed",
     "resumeFailed": "Resume failed",
@@ -1091,6 +1193,8 @@
       "id": "Task ID",
       "title": "Task title",
       "status": "Status",
+      "taskType": "Task type",
+      "progress": "Current progress",
       "priority": "Priority",
       "createdAt": "Created at",
       "actions": "Actions",
@@ -1161,6 +1265,7 @@
     },
     "edictActivity": {
       "pendingTool": "Tool pending ({n})",
+      "pendingDecision": "Other decisions pending ({n})",
       "createdAt": "Created {time}",
       "initializing": "Initializing…",
       "executing": "Running…",
@@ -1511,6 +1616,7 @@
     }
   },
   "cost": {
+    "trackingNote": "Only model calls recorded in the cost ledger are shown. Read failures are never displayed as zero.",
     "title": "Cost Center",
     "period": {
       "day": "Today",
@@ -1824,9 +1930,10 @@
       "pathTip": "Leave empty to auto-detect the default dir (hermes: ~/.hermes; openclaw: ~/.openclaw/workspace). For another machine, copy the config dir here first.",
       "preview": "Preview import",
       "previewFailed": "Import preview failed (check path and config)",
-      "seedNote": "One-time seed import: takes persona + skills + prompts only, NOT memory/learning/channels (a guest minister's evolution belongs to Tianshu's jingcha). This official evolves independently after import.",
+      "seedNote": "One-time seed import: takes persona and prompts only, NOT memory, learning, channels, or live Skills. This official evolves independently after import.",
       "suggestedModel": "Suggested model",
-      "skills": "Import skills (select)"
+      "skills": "Detected Skills",
+      "skillsReadOnly": "Preview only. These Skills are not installed or activated; review them separately through the governed candidate flow."
     }
   },
   "memory": {
@@ -1912,13 +2019,65 @@
     }
   },
   "scheduler": {
-    "title": "Scheduler",
+    "title": "Scheduled tasks",
+    "create": "New scheduled task",
+    "loadFailed": "Failed to load scheduled tasks",
+    "editTitle": "Edit schedule",
+    "historyTitle": "Run history",
     "table": {
       "jobId": "Job ID",
       "edictId": "Task ID",
+      "task": "Task",
+      "schedule": "Schedule",
       "scheduleType": "Schedule type",
+      "status": "Status",
       "nextRun": "Next run",
+      "lastRun": "Last run",
+      "startedAt": "Started",
+      "error": "Error",
       "actions": "Actions"
+    },
+    "status": {
+      "active": "Active",
+      "paused": "Paused",
+      "failed": "Failed",
+      "completed": "Completed"
+    },
+    "schedule": {
+      "once": "Run once",
+      "daily": "Daily at {time}",
+      "weekly": "{weekday} at {time}",
+      "everyHours": "Every {n} hours",
+      "everyMinutes": "Every {n} minutes",
+      "everySeconds": "Every {n} seconds"
+    },
+    "runStatus": {
+      "prepared": "Queued",
+      "skipped": "Skipped",
+      "failed": "Failed",
+      "completed": "Completed",
+      "fired": "Fired",
+      "submitted": "Queued",
+      "scheduled": "Scheduled",
+      "planning": "Planning",
+      "running": "Running",
+      "auditing": "Auditing",
+      "needs_review": "Needs review",
+      "cancelled": "Cancelled"
+    },
+    "action": {
+      "pause": "Pause",
+      "resume": "Resume",
+      "runNow": "Run once now",
+      "edit": "Edit schedule",
+      "history": "Run history",
+      "more": "More actions"
+    },
+    "edit": {
+      "mode": "Schedule type",
+      "advanced": "Advanced schedules",
+      "interval": "Fixed interval",
+      "intervalSeconds": "Interval seconds"
     },
     "popconfirm": {
       "cancel": "Cancel this schedule?"
@@ -1926,7 +2085,16 @@
     "empty": "No scheduled jobs",
     "toast": {
       "cancelled": "Schedule cancelled",
-      "cancelFailed": "Cancel failed"
+      "cancelFailed": "Cancel failed",
+      "paused": "Schedule paused",
+      "pauseFailed": "Pause failed",
+      "resumed": "Schedule resumed",
+      "resumeFailed": "Resume failed",
+      "queued": "Run queued",
+      "runFailed": "Run-now failed",
+      "updated": "Schedule updated",
+      "updateFailed": "Update failed",
+      "historyFailed": "Failed to load run history"
     }
   },
   "system": {
@@ -1945,6 +2113,7 @@
     },
     "skills": {
       "charsLoaded": "{n} chars loaded",
+      "catalogReadOnly": "This page only shows loaded skills. Creation and edits produce governed candidates and are not yet connected here; this page never changes live skills directly.",
       "newSkill": "New skill",
       "detail": "Skill detail",
       "detailWithName": "Skill: {name}",
@@ -2101,13 +2270,15 @@
       "costSubscription": "Subscription ¥0"
     },
     "plugins": {
-      "empty": "No plugins",
+      "empty": "No plugin manifests",
+      "notice": "Experimental: this catalog only discovers manifests; it does not install, load, or execute plugin code.",
+      "manifestOnly": "Manifest only",
       "table": {
         "name": "Name",
         "version": "Version",
         "status": "Status",
-        "sha256": "SHA256",
-        "installedAt": "Installed at"
+        "sha256": "Declared SHA256",
+        "installedAt": "Discovered at"
       }
     },
     "globalConfig": {
@@ -2267,6 +2438,7 @@
     }
   },
   "skillsPage": {
+    "governedReadOnly": "Learned skills are currently viewable and pinnable only. Editing, archiving, and activation belong to the governed candidate flow and are not exposed as failing actions here.",
     "title": "Skills Control",
     "table": {
       "name": "Name",
@@ -2304,6 +2476,9 @@
     }
   },
   "study": {
+    "workspaceSummary": "{n} unarchived tasks. Types can overlap; progress reflects the latest run.",
+    "partialDataTitle": "Some progress data is unavailable",
+    "partialDataDescription": "The task list remains available. Refresh before relying on progress or intervention status.",
     "tab": {
       "pending": "Pending",
       "all": "All Tasks"
@@ -2312,6 +2487,8 @@
   "evals": {
     "title": "Evals",
     "subtitle": "Platform-level regression evals — replay historical tasks in a sandbox to quantify improvement. Run via: tianshu evals run",
+    "capabilityCanDo": "Inspect real eval sets, run scores, historical deltas, failure distribution, and cost.",
+    "capabilityBoundary": "Costly runs still start from the CLI, and one eval never triggers automatic promotion.",
     "firstRun": "first run",
     "goal": "Goal",
     "status": "Status",
@@ -2334,6 +2511,10 @@
     "setName": "Name",
     "goalCount": "Goals",
     "source": "Source"
+  },
+  "universe": {
+    "capabilityCanDo": "Create, branch, propose code, inspect diffs, evaluate, archive, and restore universes.",
+    "capabilityBoundary": "The Web UI cannot switch the live runtime or promote code, and candidates never write to the main workspace automatically."
   },
   "estop": {
     "intro": "Emergency brake: sever running tasks at any moment. Three tiers stack, state is persisted and audited.",
@@ -2374,7 +2555,7 @@
   "preset": {
     "quick": {
       "label": "Quick",
-      "summary": "Single task · native engine · always review"
+      "summary": "Single task · native engine · review on failure"
     },
     "analysis": {
       "label": "Analysis",
@@ -2386,23 +2567,21 @@
     },
     "research": {
       "label": "Research",
-      "summary": "Background · 15 outer · strict"
-    },
-    "keqing": {
-      "label": "Keqing",
-      "summary": "Dispatch Claude Code · shadow snapshots"
+      "summary": "Deep task · up to 15 rounds · strict"
     }
   },
   "steer": {
-    "title": "Mid-run steer",
-    "hint": "Inject a course-correction while the task runs; the next actor turn absorbs it first — no need to wait and follow up.",
+    "title": "Add a requirement for the next round",
+    "hint": "Add a requirement while the task is running. It will be applied in the next round.",
     "placeholder": "e.g. mind concurrency safety / prefer existing tools",
-    "send": "Inject",
-    "submitted": "Injected, effective next turn",
-    "failed": "Inject failed"
+    "send": "Submit",
+    "submitted": "Submitted for the next round",
+    "failed": "Submit failed"
   },
   "keqing": {
     "title": "Keqing Management",
+    "capabilityCanDo": "Inspect Claude Code, Codex, Pi, and OpenCode, then configure model and per-run budget defaults.",
+    "capabilityBoundary": "Each CLI manages its own credentials; reliable pre-action interception and provider-side hard cost caps are not available.",
     "default": "default",
     "pinned": "pinned",
     "drift": "version drift",
@@ -2435,14 +2614,14 @@
       "directEnv": "direct env",
       "unconfigured": "unconfigured",
       "title": "Credential isolation",
-      "note": "Keqing are guest ministers that manage their own credentials — this page never stores or accepts raw API keys. Default is self-managed: configure on the agent side (pi via `pi /login`; claude-code/codex/opencode via their own local login), and tianshu just invokes them. With the credential gateway on, tianshu instead hands out a per-run scoped token and the raw key never enters the agent process.",
+      "note": "Keqing agents manage their own credentials; this page never stores or accepts raw API keys. Sign in on the agent side (pi via `pi /login`; claude-code/codex/opencode via their own local login), and Tianshu only invokes the agent.",
       "selfManaged": "self-managed"
     },
     "field": {
       "defaultModel": "Default model · per agent",
       "defaultModelTip": "When an edict omits its executor model, that agent falls back to this default (format provider/id:thinking). Empty = the agent's own logged-in default.",
       "gateway": "Credential gateway (OpenShell)",
-      "gatewayTip": "When on, the agent only gets a scoped token; raw provider keys never enter the agent process; hard budget cap via gateway 402.",
+      "gatewayTip": "The credential gateway remains experimental and is unavailable in this release.",
       "budget": "Per-run budget",
       "budgetTip": "Per-run budget cap (CNY); 0 = use the global guardrail.",
       "allowlist": "Model allowlist",
@@ -2452,7 +2631,7 @@
     "group": {
       "active": "Active governance",
       "gateway": "Gateway-mode governance",
-      "gatewayNote": "The following is gateway-mode governance — hard enforcement takes effect only after the credential gateway (P3 upstream proxy) is wired. Under self-managed credentials the model allowlist cannot be hard-enforced (the agent picks any model it is logged into), and the gateway toggle is not yet runnable."
+      "gatewayNote": "The credential gateway remains experimental; this release does not expose a toggle."
     }
   }
 }

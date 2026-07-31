@@ -8,6 +8,7 @@ import { useConsultation, useCreateConsultation } from "../hooks/useConsultation
 import { usePersonas } from "../hooks/usePersonas";
 import type { ConsultationRequest, PersonaOpinion } from "../api/types";
 import { useT } from "../i18n";
+import PageQueryError from "../components/states/PageQueryError";
 
 const STANCE_COLORS: Record<string, string> = {
   support: "green",
@@ -24,9 +25,22 @@ export default function ConsultationPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [history, setHistory] = useState<string[]>([]);
 
-  const { data: personas } = usePersonas();
+  const personasQuery = usePersonas();
+  const { data: personas } = personasQuery;
   const createMutation = useCreateConsultation();
-  const { data: consultation, isLoading: consultationLoading } = useConsultation(activeId);
+  const consultationQuery = useConsultation(activeId);
+  const { data: consultation, isLoading: consultationLoading } = consultationQuery;
+
+  if (personasQuery.error) {
+    return (
+      <PageContainer title={t("consultation.title")}>
+        <PageQueryError
+          error={personasQuery.error}
+          onRetry={() => void personasQuery.refetch()}
+        />
+      </PageContainer>
+    );
+  }
 
   const handleSubmit = () => {
     if (!topic.trim() || selectedPersonas.length === 0) return;
@@ -125,6 +139,13 @@ export default function ConsultationPage() {
         {/* Consultation detail */}
         {activeId && (
           <>
+            {consultationQuery.error && (
+              <PageQueryError
+                error={consultationQuery.error}
+                onRetry={() => void consultationQuery.refetch()}
+              />
+            )}
+
             {consultationLoading && !consultation && (
               <div style={{ textAlign: "center", padding: 48 }}>
                 <Spin size="large" />

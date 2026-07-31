@@ -15,7 +15,11 @@
 | `_migrate()` | 幂等迁移（增列、改 PK 重建） |
 | `_init_fts()` | 建 `memory_fts` FTS5 虚表 + 3 触发器 |
 
-并发模型：一把进程级 `threading.Lock`，**所有写在 `with self._lock`** 内串行；读依赖 WAL 不加锁。默认库 `~/.tianshu/tianshu.db`，Drawer 记忆是独立库 `~/.tianshu/memory/drawers.sqlite3`（见 memory 子系统）。
+并发模型：一把进程级 `threading.Lock` 保护共享连接，读写都通过 Storage 方法进入该
+边界；WAL 改善数据库层读写并发，但不把同一 Python connection 变成无锁可并发对象。
+默认库 `~/.tianshu/tianshu.db`，Drawer 记忆是独立库
+`~/.tianshu/memory/drawers.sqlite3`（见 memory 子系统）。这是单进程、single-node
+SQLite 设计，不是多写者协议。
 
 ## 2. 控制面表（按分组）
 
@@ -48,7 +52,7 @@
 
 | 表 | 备注 |
 |---|---|
-| `cost_ledger` | `edict_id / memorial_id / provider_name / model / prompt/completion/total_tokens / cost_cny`（USD→CNY 列已迁移重命名） |
+| `cost_ledger` | `edict_id / memorial_id / provider_name / model / prompt/completion/total/cache_read tokens / cost_cny`；V23 增 `cache_read_tokens` |
 | `cost_budgets` | `scope / budget_cny / spent_cny / period / reset_at` |
 
 **配置**
@@ -92,6 +96,7 @@
 | `feishu_session_anchor / feishu_seen_messages / feishu_pending_cards / feishu_thinking_messages` | 飞书会话/去重/卡片/typing |
 | `telegram_session_anchor / telegram_seen_messages / telegram_pending_buttons / telegram_thinking_messages` | telegram 对应表 |
 | `channel_configs / channel_instances` | 多渠道/多 bot 实例配置（会话表经迁移加 `instance_id` 维度） |
+| `internal_notification_deliveries` | durable outbox；V24 的 `accepted_channels_json` 逐渠道保存 provider acceptance，重试跳过已成功渠道 |
 
 **平行位面 / 插件**
 
@@ -101,16 +106,18 @@
 | `variant_eval_runs` | 变体评估记录 |
 | `plugins` | `manifest_json / sha256 / enabled` |
 
-## 3. 迁移机制
+## 3. 版本迁移机制（当前 V1–V24）
 
 | 机制 | 实现 |
 |---|---|
-| 幂等增列 | `_migrate()` 内 `migrations` 列表逐条 `execute`；捕获 `OperationalError`，`duplicate column name` / `no such column` 视为已应用跳过，其余 raise |
-| 改主键 | SQLite 不支持改 PK → 建 `_xxx_new` 临时表 + `INSERT ... SELECT` 回填 + `DROP` + `RENAME`（如 `supervision_reports` 两次重建） |
-| 列重命名 | `ALTER ... RENAME COLUMN`（cost USD→CNY 系列） |
-| 分批迁移 | `_migrate_session_tables_add_instance`（多 bot instance_id）、`persona_metrics` 合成锁列、`_seed_departments` 一次性回填 |
+| 迁移账本 | `schema_migrations(version,name,checksum,applied_at)`；定义必须严格递增、名称唯一、checksum 固定 |
+| 事务所有权 | `apply_migrations` 逐项控制事务；migration callback 不能自行 commit/rollback、执行事务 SQL 或 `executescript` |
+| 旧库接纳 | 无 ledger 但物理 schema 与完整权威形状语义等价时，记录 adoption；形状不一致则 fail closed |
+| 敏感迁移 | 启动锁串行化同一数据库升级；敏感明文迁移前处理 WAL 并使用确定性恢复备份 |
+| 当前尾部 | V23 `cost_cache_read_tokens`；V24 `notification_channel_progress` |
 
-设计立场：**迁移可重入、可断点重跑**。无版本号表，靠「应用即幂等、重复即跳过」保证任意旧库升到当前 schema。
+设计立场：**迁移序列、账本与 checksum 共同定义当前 schema**。不能手工补列后伪装成已
+迁移，也不能把一次 `ALTER TABLE` 成功等同于完整迁移完成。当前最新版本为 V24。
 
 ## 4. FTS5 全文检索
 
@@ -118,6 +125,8 @@
 
 ## 5. 级联与清理
 
-`edicts→memorials`、`edicts→events` 走 FK `ON DELETE CASCADE`。`cost_ledger`、`dag_*`、记忆等表无 FK（历史留存），清理需手动 DELETE。
+面向用户的 Edict 删除现在是 tombstone/archive，不执行这条物理级联：列表隐藏记录并取消
+schedule，但保留治理历史。只有显式物理清理路径才会触发底层 FK 行为；开源默认 UI/API
+不把“删除”描述为抹除审计证据。
 
 **相关实现**：[../../impl/storage/](../../impl/storage/)

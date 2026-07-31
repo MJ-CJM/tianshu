@@ -6,6 +6,7 @@ import logging
 
 from tianshu.config_manager import ConfigManager
 from tianshu.consultation.models import ConsultationRequest, PersonaOpinion
+from tianshu.llm import LLMUsageContext
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,8 @@ class Synthesizer:
         self,
         request: ConsultationRequest,
         opinions: list[PersonaOpinion],
+        *,
+        usage_context: LLMUsageContext | None = None,
     ) -> dict:
         """Combine multiple opinions into a synthesis and decision."""
         from tianshu.llm import LLMClient
@@ -73,7 +76,10 @@ class Synthesizer:
             {"role": "user", "content": prompt},
         ]
 
-        response = await llm.chat(messages)
+        if usage_context is None:
+            response = await llm.chat(messages)
+        else:
+            response = await llm.chat(messages, usage_context=usage_context)
         content = response.content or ""
 
         # Parse synthesis and decision

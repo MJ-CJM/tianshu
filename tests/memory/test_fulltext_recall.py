@@ -6,13 +6,17 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 
+from tianshu.memory.access_control import MemoryAccessControl, MemoryAccessPolicy
 from tianshu.memory.fts import escape_fts5_query, fts_search
 from tianshu.memory.manager import MemoryManager
 from tianshu.memory.markdown_backend import MarkdownMemoryBackend
 from tianshu.memory.models import MemoryEntry
+from tianshu.persona.model import AgentPersona
+from tianshu.tools.memory_tools import _memory_write
 
 
 @pytest.fixture
@@ -52,6 +56,183 @@ def test_store_is_write_through(manager, storage):
     manager.store(entry)
     ids = fts_search(storage._conn, "deploy-xyz123", persona_id="wym")
     assert entry.id in ids
+
+
+def test_store_does_not_index_when_markdown_write_fails(manager, storage, monkeypatch):
+    entry = MemoryEntry(persona_id="wym", category="observation", content="must-not-index")
+
+    def fail_write(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(manager._md_backend, "append_daily_log", fail_write)
+
+    with pytest.raises(OSError, match="disk full"):
+        manager.store(entry)
+
+    assert storage.list_memory_by_persona("wym") == []
+
+
+def test_delete_uses_stable_id_for_similar_entries(manager, storage):
+    created_at = datetime(2026, 7, 31, 8, 30, tzinfo=UTC)
+    first = MemoryEntry(
+        id="memory-first",
+        persona_id="wym",
+        content="发布前检查",
+        created_at=created_at,
+    )
+    second = MemoryEntry(
+        id="memory-second",
+        persona_id="wym",
+        content="发布前检查已完成",
+        created_at=created_at,
+    )
+    manager.store(first)
+    manager.store(second)
+
+    assert manager.delete(first.id) is True
+
+    log_text = (manager.memory_dir / "wym" / "2026-07-31.md").read_text(encoding="utf-8")
+    assert "[id:memory-first]" not in log_text
+    assert "[id:memory-second]" in log_text
+    assert [entry.id for entry in storage.list_memory_by_persona("wym")] == [second.id]
+
+
+def test_sync_index_preserves_stable_entry_id(manager, storage):
+    entry = MemoryEntry(id="memory-stable", persona_id="wym", content="可重建索引")
+    manager.store(entry)
+
+    assert manager.sync_index("wym") == 1
+    rebuilt = storage.list_memory_by_persona("wym")
+    assert len(rebuilt) == 1
+    assert rebuilt[0].id == entry.id
+
+
+def test_sync_index_preserves_multiline_content(manager, storage):
+    content = "第一行\n第二行\n\n第四行"
+    entry = MemoryEntry(id="memory-multiline", persona_id="wym", content=content)
+    manager.store(entry)
+
+    assert manager.sync_index("wym") == 1
+    rebuilt = storage.list_memory_by_persona("wym")
+    assert len(rebuilt) == 1
+    assert rebuilt[0].id == entry.id
+    assert rebuilt[0].content == content
+
+
+def test_memory_access_policy_survives_restart(storage):
+    access = MemoryAccessControl(storage)
+    access.set_policy(
+        MemoryAccessPolicy(
+            "custom",
+            can_read=["court"],
+            can_write=["wenyuan"],
+            share_level="shared",
+        )
+    )
+
+    restored = MemoryAccessControl(storage).get_policy("custom")
+
+    assert restored.can_read == ["court"]
+    assert restored.can_write == ["wenyuan"]
+    assert restored.share_level == "shared"
+
+
+@pytest.mark.asyncio
+async def test_memory_write_replace_and_remove_refresh_index(storage, tmp_path):
+    from tianshu.kernel.ambient import bind_persona
+
+    md = MarkdownMemoryBackend(memory_dir=tmp_path / "memory", personas_dir=tmp_path)
+    persona = AgentPersona(
+        id="wym",
+        name="王阳明",
+        department="neige",
+        soul_path=tmp_path / "SOUL.md",
+        role_path=tmp_path / "ROLE.md",
+        memory_path=tmp_path / "MEMORY.md",
+    )
+    event_bus = AsyncMock()
+
+    with bind_persona(persona):
+        added = await _memory_write(
+            md,
+            event_bus,
+            storage,
+            action="add",
+            scope="self",
+            section="发布经验",
+            content="旧的发布步骤",
+        )
+        replaced = await _memory_write(
+            md,
+            event_bus,
+            storage,
+            action="replace",
+            scope="self",
+            section="发布经验",
+            old_text="旧的",
+            content="新的",
+        )
+
+    assert added.is_error is False
+    assert replaced.is_error is False
+    indexed = storage.list_memory_by_persona("wym")
+    assert [entry.content for entry in indexed] == ["新的发布步骤"]
+
+    with bind_persona(persona):
+        removed = await _memory_write(
+            md,
+            event_bus,
+            storage,
+            action="remove",
+            scope="self",
+            section="发布经验",
+            old_text="新的发布步骤",
+        )
+
+    assert removed.is_error is False
+    assert storage.list_memory_by_persona("wym") == []
+
+
+@pytest.mark.asyncio
+async def test_memory_write_only_refreshes_the_target_section_projection(storage, tmp_path):
+    from tianshu.kernel.ambient import bind_persona
+
+    md = MarkdownMemoryBackend(memory_dir=tmp_path / "memory", personas_dir=tmp_path)
+    persona = AgentPersona(
+        id="wym",
+        name="王阳明",
+        department="neige",
+        soul_path=tmp_path / "SOUL.md",
+        role_path=tmp_path / "ROLE.md",
+        memory_path=tmp_path / "MEMORY.md",
+    )
+
+    with bind_persona(persona):
+        for section in ("发布经验", "复盘经验"):
+            result = await _memory_write(
+                md,
+                None,
+                storage,
+                action="add",
+                scope="self",
+                section=section,
+                content="共同短语：先验证",
+            )
+            assert result.is_error is False
+        replaced = await _memory_write(
+            md,
+            None,
+            storage,
+            action="replace",
+            scope="self",
+            section="发布经验",
+            old_text="先验证",
+            content="先灰度",
+        )
+
+    assert replaced.is_error is False
+    indexed = sorted(entry.content for entry in storage.list_memory_by_persona("wym"))
+    assert indexed == ["共同短语：先灰度", "共同短语：先验证"]
 
 
 # 直接测 _recall_fulltext：公开入口 on_before_agent_start 需构造完整 hook 上下文，私有方法能更精确地断言召回行为

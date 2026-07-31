@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useSyncExternalStore } from "react";
+import { createContext, useContext, useCallback, useEffect, useSyncExternalStore } from "react";
 
 export type Locale = "zh-classic" | "zh-modern" | "en";
 
@@ -58,6 +58,9 @@ export function useLocale(): LocaleContextValue {
 
 export function useLocaleProvider(): LocaleContextValue {
   const locale = useLocaleMode();
+  useEffect(() => {
+    document.documentElement.lang = locale === "en" ? "en" : "zh-CN";
+  }, [locale]);
   const setLocale = useCallback((l: Locale) => {
     persistLocale(l);
   }, []);

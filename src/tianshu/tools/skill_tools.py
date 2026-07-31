@@ -293,8 +293,13 @@ def register_skill_tools(
     metrics_store: MetricsStore | None = None,
     guard_agent_created: bool = True,
     event_bus: Any | None = None,
+    include_unavailable_manage_tool: bool = False,
 ) -> None:
-    """Register skill_list, skill_view, and skill_manage tools."""
+    """Register read-only skill tools.
+
+    ``skill_manage`` remains available only to compatibility tests until its
+    governed candidate activation path is complete.
+    """
 
     registry.register(
         "skill_list",
@@ -355,6 +360,9 @@ def register_skill_tools(
             tier=ToolTier.T0_READONLY.value,
         ),
     )
+
+    if not include_unavailable_manage_tool:
+        return
 
     registry.register(
         "skill_manage",

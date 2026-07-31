@@ -18,6 +18,16 @@ async def test_propose_code_requires_fields(client):
     assert resp.status_code == 400
 
 
+async def test_propose_code_rejects_directory_target(client):
+    resp = await client.post(
+        "/api/universes/propose-code",
+        json={"target_path": "src/tianshu/planner/", "hypothesis": "improve"},
+    )
+
+    assert resp.status_code == 400
+    assert "concrete" in resp.json()["detail"]
+
+
 async def test_propose_code_disabled_by_default(client):
     resp = await client.post(
         "/api/universes/propose-code",

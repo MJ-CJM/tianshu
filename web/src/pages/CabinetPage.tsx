@@ -16,6 +16,7 @@ import { usePlannerStats } from "../hooks/useOps";
 import { formatTime } from "../utils/format";
 import type { PersonaInfo, PlannerHistoryItem } from "../api/types";
 import { useT } from "../i18n";
+import PageQueryError from "../components/states/PageQueryError";
 
 function CabinetOverview({ cabinetPersonas }: { cabinetPersonas: PersonaInfo[] }) {
   const t = useT();
@@ -54,9 +55,26 @@ function CabinetOverview({ cabinetPersonas }: { cabinetPersonas: PersonaInfo[] }
 
 export default function CabinetPage() {
   const t = useT();
-  const { data: personas, isLoading: personasLoading } = usePersonas();
-  const { data: plannerStats, isLoading: statsLoading } = usePlannerStats();
+  const personasQuery = usePersonas();
+  const plannerStatsQuery = usePlannerStats();
+  const { data: personas, isLoading: personasLoading } = personasQuery;
+  const { data: plannerStats, isLoading: statsLoading } = plannerStatsQuery;
   const { token } = theme.useToken();
+
+  const queryError = personasQuery.error ?? plannerStatsQuery.error;
+  if (queryError) {
+    return (
+      <PageContainer title={t("cabinet.title")}>
+        <PageQueryError
+          error={queryError}
+          onRetry={() => {
+            void personasQuery.refetch();
+            void plannerStatsQuery.refetch();
+          }}
+        />
+      </PageContainer>
+    );
+  }
 
   const cabinetPersonas = (personas ?? []).filter((p: PersonaInfo) => p.department === "neige");
 

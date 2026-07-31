@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query, Request
 
 from tianshu.cost.manager import CostManager
+from tianshu.cost.models import CostBudgetUpdate
 from tianshu.models import ApiResponse
 
 cost_router = APIRouter(prefix="/cost", tags=["cost"])
@@ -50,15 +51,19 @@ def get_cost_budget(request: Request, scope: str = "global"):
 
 
 @cost_router.put("/budget", response_model=ApiResponse)
-async def set_cost_budget(request: Request):
-    body = await request.json()
+async def set_cost_budget(body: CostBudgetUpdate, request: Request):
     cm: CostManager = request.app.state.cost_manager
     cm.set_budget(
-        scope=body.get("scope", "global"),
-        budget_cny=body["budget_cny"],
-        period=body.get("period", "monthly"),
+        scope=body.scope,
+        budget_cny=body.budget_cny,
+        period=body.period,
+        reset_at=body.reset_at.isoformat() if body.reset_at is not None else None,
     )
-    return ApiResponse(success=True, data={"scope": body.get("scope", "global")})
+    status = cm.get_budget(body.scope)
+    return ApiResponse(
+        success=True,
+        data=status.model_dump(mode="json") if status is not None else None,
+    )
 
 
 @cost_router.get("/export")

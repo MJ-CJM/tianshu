@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from tianshu.app import create_app
@@ -22,6 +22,13 @@ from tianshu.models.governance_contract import (
     RecoveryPolicyV1,
     WorkspacePolicyV1,
 )
+from tianshu.models.principal import (
+    AuthContext,
+    AuthenticationSource,
+    ClientKind,
+    Principal,
+    PrincipalKind,
+)
 
 
 def _app(config_manager) -> FastAPI:
@@ -29,6 +36,23 @@ def _app(config_manager) -> FastAPI:
     app.include_router(edicts_router)
     app.state.config_manager = config_manager
     app.state.settings = SimpleNamespace(workspace_dir="/private/example/workspace")
+    context = AuthContext(
+        principal=Principal(
+            id="local:owner",
+            kind=PrincipalKind.LOCAL,
+            display_name="Local Owner",
+            scopes=frozenset({"api", "admin"}),
+        ),
+        source=AuthenticationSource.TRUSTED_LOCAL,
+        client_kind=ClientKind.WEB,
+        correlation_id="test-correlation",
+    )
+
+    @app.middleware("http")
+    async def inject_identity(request: Request, call_next):
+        request.scope.setdefault("state", {})["auth_context"] = context
+        return await call_next(request)
+
     return app
 
 

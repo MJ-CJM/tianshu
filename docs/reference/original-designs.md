@@ -3,6 +3,11 @@
 > 本文是 [reference-projects.md](./reference-projects.md)（借鉴篇）的**镜像与对立面**。
 > 借鉴篇记录「天枢从哪些项目搬来了什么」；本篇记录「天枢自己造了什么、相对它借鉴的项目新在哪」。
 > 两篇互为参照：凡本篇标注「借来的子件」，其源头都能在借鉴篇找到对应行。
+>
+> 本文讨论设计来源，不代表所有机制都属于当前稳定支持面。尤其 Universe、代码变体和
+> external executor 仍有实验/延期边界；当前成熟度以
+> [CURRENT-STATE](../CURRENT-STATE.md)和
+> [能力事实矩阵](../launch/capability-matrix.md)为准。
 
 ---
 
@@ -14,7 +19,7 @@
 
 - **治理**——把单 Agent 人格扩展为受统一权限矩阵约束的「朝廷组织」，把任务建模为「诏令→题本→批红」的奏章闭环。
 - **长程自治**——把「长任务该怎么评」做成一套验收契约驱动的外层自检升级循环。
-- **自进化**——把 agent 的自我改进从「单线时间线」升级为「行为层 + 代码层」两层平行位面的「分支赛跑→适应度选优→择优晋升」。
+- **自进化**——原始方案把 agent 的自我改进扩展为行为层 + 代码层的分支与适应度选优；当前真正影响运行的晋升另走受治理 Candidate，生产可执行路径限于 Skill。
 
 下面按诚实分级展开：**真原创机制**（无直接借鉴源的端到端设计）、**原创封装与组合**（骨架或子件借来、组合方式原创）、**与借鉴的边界**（主体借来、仅做扩展，不算我们的原创）。
 
@@ -34,7 +39,7 @@
 
 **借来的子件**：`SOUL.md` / `ROLE.md` 身份卡文本结构与 `can_delegate` 字段借鉴 OpenClaw（见借鉴篇附录）。但运行时模型（`AgentPersona` 的权限分层）、`task_type→department` 映射、关键字打分路由是天枢独创。
 
-**代码落点**：`persona/selector.py`、`persona/model.py`、`persona/department.py`、`persona/prompt_builder.py`、`personas/neige/SOUL.md`
+**代码落点**：`src/tianshu/persona/selector.py`、`src/tianshu/persona/model.py`、`src/tianshu/persona/prompt_builder.py`、`src/tianshu/resources/overlay.py`、`src/tianshu/resources/personas/neige/SOUL.md`。部门由 `AgentPersona.department` 字段与 selector 规则表达，不设独立模块。
 
 **设计文档**：[../design/persona/officials.md](../design/persona/officials.md)、[../design/persona/prompt-builder.md](../design/persona/prompt-builder.md)
 
@@ -66,31 +71,35 @@
 
 **设计文档**：[../design/agent/orchestrator.md](../design/agent/orchestrator.md)、[../design/runtime-flow.md](../design/runtime-flow.md)
 
-### 1.4 平行位面演化 —— 行为配置层的「分支赛跑→适应度选优→晋升」
+### 1.4 平行位面演化 —— 行为配置层的历史「分支赛跑→适应度选优→晋升」方案
 
 **它解决什么**：参考项目都有 agent/skill 进化，但只在**单线时间线**上——历史快照丢失、无法多版本并行赛跑、无法择优晋升。
 
-**机制**：`Universe` 模型（`status`=champion/challenger/archived，`origin`=genesis/manual_branch/mutation/code_variant，`parent_universe_id`，`fitness`）。`UniverseStore` 全量快照落盘（personas/skills/manifest）。`UniverseManager`（ensure_genesis / branch / switch / rollback / diff / archive / restore）。`UniverseEvolver`（LLM 一处变异 → branch → `PersonaMutator` 真正改写人格文件 → 候选样本积累 → 熔断 → 晋升推荐）。`FitnessCalculator` 五维加权（success_rate / cost / audit_rate / retry / feedback）。`route_for_memorial`（用 memorial_id 做确定性哈希分桶，将新诏令小流量分给在线候选，无随机、可复现）。超冠军 margin + min_samples 自动晋升推荐。
+**历史设计机制**：`Universe` 模型（`status`=champion/challenger/archived，`origin`=genesis/manual_branch/mutation/code_variant，`parent_universe_id`，`fitness`）+ `UniverseStore` 全量快照 + `UniverseEvolver` 变异/评估，原本计划由 `UniverseManager` 完成 branch/switch/rollback/diff/archive/restore，并按 memorial identity 确定性分流。
 
-**相对参考项目新在哪**：把自进化从「单线」升级为「可分叉 + 可回滚 + 可选优」的平行版本控制——一套「行为版 git」。同时在役一个冠军（唯一指针），候选冻结快照，确定性探索分流。
+**当前边界**：Legacy Universe 仍支持 genesis/branch/diff/archive/restore/delete 与评估推荐，但 `UniverseManager.switch/rollback/promote_code_variant` 已固定 fail-closed。当前可审计灰度改由 `PromotionService`、`ChallengerRouter`、不可变 `RunAssignmentV1` 与 effective overlay 实现；非 demo profile 的 Candidate canary 使用 HMAC bucket 固化选择，不会由 Legacy manager 自动晋升或切换 live。
+
+**相对参考项目新在哪（历史设计语境）**：把自进化从「单线」升级为「可分叉 + 可回滚 + 可选优」的平行版本控制——一套「行为版 git」。同时在役一个冠军、候选冻结快照和确定性探索分流，是原始 Universe 方案，而不是当前 live routing 契约。
 
 **借来的子件**：fitness / 变异→评估→选优骨架与 GA/进化算法通用思路相通；SkillCurator 的「修撰」骨架（idle/lock/gate/LLM 变异/分支/熔断）启发了 evolver 主干。但位面级分叉、确定性哈希分桶、全量快照、五维权重配置是原创实现。
 
-**代码落点**：`universe/manager.py`、`universe/model.py`、`universe/store.py`、`universe/evolver.py`、`universe/fitness.py`、`universe/gate.py`、`universe/mutator.py`
+**当前代码落点**：`src/tianshu/universe/manager.py`、`src/tianshu/universe/router.py`、`src/tianshu/universe/store.py`、`src/tianshu/universe/evolver.py`、`src/tianshu/evolution/promotion.py`、`src/tianshu/models/run_assignment.py`
 
 **设计文档**：[../design/universe/evolution.md](../design/universe/evolution.md)、[../design/universe/README.md](../design/universe/README.md)
 
-### 1.5 代码变体位面 —— 代码层的自进化（worktree 隔离 + 三关门禁 + 自重部署）
+### 1.5 代码变体位面 —— 代码层自进化的历史完整方案
 
 **它解决什么**：AI 系统能安全地**改自己的代码**的平台不多见。Python agent 难以进程内热替换代码；行为层位面只能优化人格/策略，碰不到实现代码。
 
-**机制**：`CodeVariantStore`（git worktree + branch `universe/{id}` 隔离，相对起点 diff/gc/restore）。`CodeMutator`（allowlist 强制 + traversal-safe + 失败安全，只改演化域内代码）。三关 `Gate`（编译 → import → pytest，按成本递增 fail-fast，坏变体在前两关秒级出局）。`SandboxRunner`（受管子进程 + 临时随机端口 + 独立 DB + wall timeout + 进程组收敛）。当前 `trusted-local` 不宣称内存、CPU、文件系统或网络强隔离，`secure-remote` 缺少受验证后端时 fail-closed。`EvalHarness`（历史目标回放 + unified fitness vs 冠军）。`Deployer` + `DeployPointer`（`{current, previous}` 指针 + `os.execv` 自重启 + `/health` 健康检查失败自动回滚到 previous）。`launcher.py` 读指针决定 cwd 与 PYTHONPATH。
+**历史完整方案**：`CodeVariantStore`（git worktree + branch `universe/{id}` 隔离）、`CodeMutator`、三关 `Gate`、`SandboxRunner` 与 `EvalHarness` 之后，原设计还设想用 `current/previous` 指针、自重启和健康探针完成 live 部署回滚。
 
-**相对参考项目新在哪**：把代码变体纳入平行位面体系，使系统**既能优化人格/策略，也能优化实现代码**——这是对 agent 自进化的维度扩展。自重部署用「指针 + previous 槽 + 内部健康检查」实现同进程 PID 不变的自恢复，无需外部 supervisor；参考项目（web 服务 + 容器编排背景）无此逻辑。
+**当前边界**：worktree、变异、Gate、沙箱配对评估和 `recommended` 结论仍存在；部署指针、自重启 launcher 和自动健康回滚已移除。旧 Universe switch/promote-code 固定 409，Code Candidate 的生产 promotion adapter 也不可用，因此当前没有 code live activation。未来若重新开放，还必须经 `PromotionService` 并绑定精确、已批准的高风险 Decision。
 
-**借来的子件**：git worktree 是 git 标准功能（非创新）；蓝绿/金丝雀部署 pattern 业界常见，但通常依赖 systemd/docker/nginx。把 worktree 与位面联动、三关门禁、自重启回滚的整体架构是原创。
+**相对参考项目新在哪（历史设计语境）**：把代码变体纳入平行位面体系，使系统既能评估人格/策略，也能评估实现代码；指针 + previous 槽的自恢复是当时设计的一部分，但未保留为当前能力。
 
-**代码落点**：`universe/code_store.py`、`universe/code_mutator.py`、`universe/gate.py`、`universe/sandbox.py`、`universe/eval_harness.py`、`universe/deployer.py`、`universe/launcher.py`
+**借来的子件**：git worktree 是 git 标准功能（非创新）；蓝绿/金丝雀部署 pattern 业界常见。当前保留的是 worktree + Gate + 受治理评估，历史自重启回滚方案不应作为现有原创能力宣称。
+
+**当前代码落点**：`src/tianshu/universe/code_store.py`、`src/tianshu/universe/code_mutator.py`、`src/tianshu/universe/gate.py`、`src/tianshu/universe/sandbox.py`、`src/tianshu/universe/eval_harness.py`。历史部署器与 launcher 模块已删除。
 
 **设计文档**：[../design/universe/code-variant.md](../design/universe/code-variant.md)
 
@@ -106,7 +115,7 @@
 
 **借来的子件**：Markdown 记忆后端 + 双层结构（长期 + 日志）借鉴 NanoBot；PromptBuilder 多层注入借鉴 NanoBot 与 Claude Code。但 court 作为虚拟 persona wing 的统一共享约束、在记忆与 prompt 中的特殊地位是原创。
 
-**代码落点**：`memory/markdown_backend.py`、`memory/manager.py`、`persona/prompt_builder.py`、`consultation/session.py`、`personas/court/`　**文档**：[../design/persona/officials.md](../design/persona/officials.md)
+**代码落点**：`src/tianshu/memory/markdown_backend.py`、`src/tianshu/memory/manager.py`、`src/tianshu/persona/prompt_builder.py`、`src/tianshu/consultation/session.py`、`src/tianshu/resources/overlay.py`、`src/tianshu/resources/personas/court/`（只读打包默认；运行时覆盖在 `~/.tianshu/personas/court/`）　**文档**：[../design/persona/officials.md](../design/persona/officials.md)
 
 ### 2.2 咨询会诊 session —— 多官员并行意见汇聚
 
@@ -132,13 +141,13 @@
 
 **代码落点**：`executor/lanes.py`、`executor/worker_pool.py`、`executor/cancel.py`、`executor/retry.py`　**文档**：[../design/agent/orchestrator.md](../design/agent/orchestrator.md)
 
-### 2.5 五维适应度 + DeployPointer 自重部署
+### 2.5 五维适应度 + 历史 DeployPointer 设想
 
-**组合的新意**：`compute_fitness(stats, weights=(0.4,0.15,0.2,0.1,0.15))` 把成功率、成本反向、审计通过率、平均重试反向、用户反馈各归一到 [0,1] 再加权——五维的选择源于 memorial 表已存在的信号（attempt/status/usage/audit/feedback），反向项用倒数裁剪避免负值，小样本不参与晋升。`DeployPointer` 持久化 `{current, previous}`，`Deployer.promote()` = stage（指针翻到变体）+ `os.execv` 自重启，失败后 `verify_or_rollback` 轮询 `/health` 30s 失败则翻回 previous，让不可逆部署变成随时可退的重定向。
+**组合的新意（历史设计语境）**：`compute_fitness(stats, weights=(0.4,0.15,0.2,0.1,0.15))` 把成功率、成本反向、审计通过率、平均重试反向、用户反馈归一后加权；历史方案再用 `{current, previous}` 指针、自重启和健康探针把部署变成可退的重定向。当前只保留五维 fitness 与评估推荐，指针部署方案已经移除。
 
-**借来的子件**：fitness 概念源于优化/进化算法；指针文件、蓝绿/金丝雀是业界常见 pattern。但「选这五维 + 这组权重 + arctan squash 归一」「保留 previous 槽 + 重启后健康检查 + 失败自动回滚而不停摆」的具体参数化与自恢复组合是原创。
+**借来的子件**：fitness 概念源于优化/进化算法；指针文件、蓝绿/金丝雀是业界常见 pattern。当前可归属的实现贡献是五维信号与配对评估；已移除的自重启方案只作为历史设计记录。
 
-**代码落点**：`universe/fitness.py`、`universe/eval_harness.py`、`universe/deployer.py`、`universe/launcher.py`　**文档**：[../design/universe/eval.md](../design/universe/eval.md)、[../design/universe/code-variant.md](../design/universe/code-variant.md)
+**当前代码落点**：`src/tianshu/universe/fitness.py`、`src/tianshu/universe/eval_harness.py`　**文档**：[../design/universe/eval.md](../design/universe/eval.md)、[../design/universe/code-variant.md](../design/universe/code-variant.md)
 
 ---
 
@@ -158,6 +167,6 @@
 
 1. **奏章式治理领域模型**——`Edict / Memorial / Decree` 把「谁执行 / 是否通过 / 如何干预」三个治理维度分层建模为数据结构 + 状态机，让多 Agent 在统一权限矩阵（六部官制）下运转。
 2. **验收驱动的长程自检升级**——`AcceptanceCriteria` 驱动的 actor→checks→critic→L1/L2/L3 升级外环，把「长任务该怎么评、评不过怎么升级」做成可配可复用的闭环。
-3. **行为 + 代码双层平行位面自进化**——把 agent 自我改进从单线升级为「分支赛跑→五维适应度选优→择优晋升」的两层平行位面（行为配置层 + git worktree 代码层），并以自重部署 + 健康检查回滚兜底。
+3. **行为 + 代码双层演化评估**——把 agent 自我改进从单线升级为行为配置候选与 git worktree 代码候选的分支、Gate 和五维评估；当前受治理 canary/promotion 的已实现生产路径限于 Skill Candidate，代码 live activation 仍 fail-closed。
 
 其余原语（ReAct / compaction / fuzzy match / fitness / SSRF）多站在巨人肩上，出处见 [reference-projects.md](./reference-projects.md)。**天枢的价值不在原语，而在把治理、长程自治、自进化组织成一个连贯系统。**

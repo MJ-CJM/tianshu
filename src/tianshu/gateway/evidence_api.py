@@ -6,6 +6,7 @@ from typing import NoReturn
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from tianshu.authz import can_access_submitter
 from tianshu.evidence.models import ClosedEvidenceBundleV1
 from tianshu.evidence.service import EvidenceService
 from tianshu.gateway.auth import get_auth_context
@@ -39,7 +40,7 @@ def list_edict_evidence(request: Request, edict_id: str) -> dict[str, object]:
     context = get_auth_context(request)
     storage: Storage = request.app.state.storage
     edict = storage.get_edict(edict_id)
-    if edict is None or edict.submitter != context.principal.id:
+    if edict is None or not can_access_submitter(context, edict.submitter):
         _raise(context, 404, "edict_not_found")
     try:
         bundles = storage.evidence_repo.list_for_edict(edict_id)
@@ -70,7 +71,10 @@ def list_edict_evidence(request: Request, edict_id: str) -> dict[str, object]:
 def download_evidence(request: Request, bundle_id: str) -> Response:
     context = get_auth_context(request)
     storage: Storage = request.app.state.storage
-    if storage.evidence_repo.submitter_for_bundle(bundle_id) != context.principal.id:
+    if not can_access_submitter(
+        context,
+        storage.evidence_repo.submitter_for_bundle(bundle_id),
+    ):
         _raise(context, 404, "evidence_not_found")
     try:
         bundle = storage.evidence_repo.get(bundle_id)

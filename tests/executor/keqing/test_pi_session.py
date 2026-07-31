@@ -46,10 +46,22 @@ class TestSessionArgv:
     def test_resume_adds_continue_flag(self):
         # follow_up 续会话:resume=True → --continue(pi 加载上次对话上下文,连续对话有记忆)
         assert PiSessionAdapter().build_session_argv(session_dir="/s", resume=True) == [
-            "pi", "--mode", "rpc", "--session-dir", "/s", "--continue",
+            "pi",
+            "--mode",
+            "rpc",
+            "--session-dir",
+            "/s",
+            "--continue",
         ]
         assert PiSessionAdapter().build_session_argv(session_dir="/s", model="m", resume=True) == [
-            "pi", "--mode", "rpc", "--session-dir", "/s", "--continue", "--model", "m",
+            "pi",
+            "--mode",
+            "rpc",
+            "--session-dir",
+            "/s",
+            "--continue",
+            "--model",
+            "m",
         ]
         # resume=False 不加 --continue(首次执行,新会话)
         assert "--continue" not in PiSessionAdapter().build_session_argv(session_dir="/s")
@@ -64,7 +76,9 @@ class TestSessionArgv:
         )
         # --continue 仅在 --session-dir 后合法;--no-session 后 / 位置错须拒绝(防夹带)
         assert not pi.is_canonical_argv(["pi", "--mode", "rpc", "--no-session", "--continue"])
-        assert not pi.is_canonical_argv(["pi", "--mode", "rpc", "--continue", "--session-dir", "/s"])
+        assert not pi.is_canonical_argv(
+            ["pi", "--mode", "rpc", "--continue", "--session-dir", "/s"]
+        )
 
 
 class TestEncodeCommand:
@@ -75,7 +89,9 @@ class TestEncodeCommand:
         assert frame == {"type": "prompt", "id": "c1", "message": "do X"}
 
     def test_follow_up_frame(self):
-        frame = json.loads(PiSessionAdapter().encode_command("follow_up", cmd_id="c2", message="fix it"))
+        frame = json.loads(
+            PiSessionAdapter().encode_command("follow_up", cmd_id="c2", message="fix it")
+        )
         assert frame == {"type": "follow_up", "id": "c2", "message": "fix it"}
 
     def test_extra_fields_and_none_dropped(self):
@@ -89,7 +105,9 @@ class TestEncodeCommand:
 
     def test_ui_response_uses_request_id(self):
         frame = json.loads(
-            PiSessionAdapter().encode_command("extension_ui_response", cmd_id="req-9", cancelled=True)
+            PiSessionAdapter().encode_command(
+                "extension_ui_response", cmd_id="req-9", cancelled=True
+            )
         )
         assert frame == {"type": "extension_ui_response", "id": "req-9", "cancelled": True}
 

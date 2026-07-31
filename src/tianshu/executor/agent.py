@@ -26,7 +26,7 @@ from tianshu.executor.streaming import StreamCallback
 from tianshu.kernel.ambient import bind_edict, bind_persona
 from tianshu.kernel.exit_reason import ExitReason
 from tianshu.kernel.hooks import HookRegistry, HookType
-from tianshu.llm import LLMClient, LLMResponse
+from tianshu.llm import LLMClient, LLMResponse, LLMUsageContext
 from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.persona.prompt_builder import PromptBuilder
 from tianshu.skills.loader import SkillsLoader
@@ -287,6 +287,7 @@ class Agent:
 
             call_outcome = await self._call_llm_with_recovery(
                 edict,
+                memorial,
                 state,
                 llm,
                 openai_tools,
@@ -438,6 +439,7 @@ class Agent:
     async def _call_llm_with_recovery(
         self,
         edict: Edict,
+        memorial: Memorial | None,
         state: LoopState,
         llm: LLMClient,
         openai_tools: list[dict] | None,
@@ -487,10 +489,19 @@ class Agent:
             )
 
         # Phase 3: LLM call with context overflow recovery + fallback
+        usage_context = LLMUsageContext(
+            edict_id=edict.id,
+            memorial_id=memorial.id if memorial is not None else None,
+            operation="agent",
+        )
         try:
             if stream_callback:
                 final_response = None
-                async for chunk in llm.chat_stream(current_messages, tools=openai_tools):
+                async for chunk in llm.chat_stream(
+                    current_messages,
+                    tools=openai_tools,
+                    usage_context=usage_context,
+                ):
                     if cancellation_token and getattr(cancellation_token, "is_cancelled", False):
                         return _LlmCallOutcome(
                             state=state,
@@ -509,7 +520,11 @@ class Agent:
                     final_response = chunk
                 response = final_response
             else:
-                response = await llm.chat(current_messages, tools=openai_tools)
+                response = await llm.chat(
+                    current_messages,
+                    tools=openai_tools,
+                    usage_context=usage_context,
+                )
         except Exception as e:
             if _is_context_overflow(e):
                 # 恢复次数硬上限：压缩后仍反复 overflow 说明已无可压空间，
@@ -565,7 +580,11 @@ class Agent:
                         max_tokens=fallback_cfg.max_tokens,
                     )
                     try:
-                        response = await fallback_llm.chat(current_messages, tools=openai_tools)
+                        response = await fallback_llm.chat(
+                            current_messages,
+                            tools=openai_tools,
+                            usage_context=usage_context,
+                        )
                         recovery_attempts["fallback"] = fallback_name
                     except Exception as fallback_err:
                         return _LlmCallOutcome(
@@ -631,6 +650,7 @@ class Agent:
                 iteration=state.iteration,
                 usage=response.usage,
                 edict=edict,
+                memorial=memorial,
                 config_state=config_state,
                 provider_name=getattr(llm, "provider_name", None),
             )

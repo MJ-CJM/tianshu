@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Typography, Segmented, Space } from "antd";
+import { Alert, Typography, Segmented, Space } from "antd";
 import CostSummaryCards from "../components/cost/CostSummaryCards";
 import CostTrendChart from "../components/cost/CostTrendChart";
 import CostRecordTable from "../components/cost/CostRecordTable";
@@ -7,6 +7,7 @@ import BudgetProgressBar from "../components/cost/BudgetProgressBar";
 import ProviderPricingCard from "../components/cost/ProviderPricingCard";
 import { useCostSummary, useCostRecords, useCostBudget } from "../hooks/useCost";
 import { useT } from "../i18n";
+import PageQueryError from "../components/states/PageQueryError";
 
 const { Title } = Typography;
 
@@ -16,13 +17,33 @@ export default function CostDashboardPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
 
-  const { data: summary, isLoading: summaryLoading } = useCostSummary(period);
-  const { data: recordsData, isLoading: recordsLoading } = useCostRecords(
+  const summaryQuery = useCostSummary(period);
+  const recordsQuery = useCostRecords(
     undefined,
     pageSize,
     (page - 1) * pageSize,
   );
-  const { data: budget, isLoading: budgetLoading } = useCostBudget();
+  const budgetQuery = useCostBudget();
+  const queryError = summaryQuery.error ?? recordsQuery.error ?? budgetQuery.error;
+
+  if (queryError) {
+    return (
+      <div style={{ padding: 24 }}>
+        <PageQueryError
+          error={queryError}
+          onRetry={() => {
+            void summaryQuery.refetch();
+            void recordsQuery.refetch();
+            void budgetQuery.refetch();
+          }}
+        />
+      </div>
+    );
+  }
+
+  const summary = summaryQuery.data;
+  const recordsData = recordsQuery.data;
+  const budget = budgetQuery.data;
 
   return (
     <div style={{ padding: 24 }}>
@@ -42,21 +63,23 @@ export default function CostDashboardPage() {
           />
         </div>
 
-        <CostSummaryCards summary={summary} loading={summaryLoading} />
+        <Alert type="info" showIcon message={t("cost.trackingNote")} />
 
-        <BudgetProgressBar budget={budget} loading={budgetLoading} />
+        <CostSummaryCards summary={summary} loading={summaryQuery.isLoading} />
+
+        <BudgetProgressBar budget={budget} loading={budgetQuery.isLoading} />
 
         <ProviderPricingCard />
 
         <CostTrendChart
           records={recordsData?.records ?? []}
-          loading={recordsLoading}
+          loading={recordsQuery.isLoading}
         />
 
         <CostRecordTable
           records={recordsData?.records ?? []}
           total={recordsData?.total ?? 0}
-          loading={recordsLoading}
+          loading={recordsQuery.isLoading}
           page={page}
           pageSize={pageSize}
           onPageChange={(p, ps) => {

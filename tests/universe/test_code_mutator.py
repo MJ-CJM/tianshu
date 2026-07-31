@@ -77,6 +77,7 @@ def test_within_evolvable_matches_file_and_dir():
     # directory prefix match (with and without leading slash)
     assert m.is_within_evolvable("src/tianshu/planner/foo.py") is True
     assert m.is_within_evolvable("src/tianshu/planner/sub/bar.py") is True
+    assert m.is_within_evolvable("src/tianshu/planner/") is False
 
     # out of allowlist
     assert m.is_within_evolvable("src/tianshu/llm.py") is False

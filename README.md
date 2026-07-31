@@ -8,7 +8,7 @@
 
 *A governable, verifiable Agent OS designed to learn and evolve continuously.*
 
-[English](README.en.md) · [Lean Preview 使用指南](docs/usage/lean-developer-preview.md) · [能力事实矩阵](docs/launch/capability-matrix.md)
+[English](README.en.md) · [当前实现](docs/CURRENT-STATE.md) · [Lean Preview 使用指南](docs/usage/lean-developer-preview.md) · [能力事实矩阵](docs/launch/capability-matrix.md)
 
 </div>
 
@@ -27,13 +27,32 @@
   记录行为、裁决、产物和边界；严格 verifier 会重算 hash 并核对源码与 exact Wheel。
 - **持续成长：**技能候选经过 evidence-bound Gate、真实 canary assignment 和 effective
   overlay，再由受控回滚把新流量归零。它是通过的 Lean Core，不等于完整 G4。
-- **真实桌面产品：**中枢总览、敕令详情、演化中心三张核心页读取权威 API，不以 mock
-  数字冒充能力；阶段自动化已保留，新的 Candidate final Gate 尚待执行，视觉/交互终审仍为
-  `user_approval_pending`。
+- **真实桌面产品：**默认导航为中枢、御书房、朝堂、百司、天工院〔实验〕、内府六个
+  一级入口。
+  御书房以“全部敕令 / 颁发敕令 / 钦天监 / 都察院”统一承载任务、定时调度与审计；
+  朝堂包含吏部、廷议、内阁，百司包含翰林院、鸿胪寺、通政司。天工院集中展示演化司、
+  诸界台、考功司、客卿馆，其中演化司、诸界台与客卿馆标记“实验”，考功司标记
+  “试行”；内府保留藏兵阁、权印司、户部账房。御书房默认展示当前主体可见且未归档的
+  全部任务，以可叠加标签区分立即、定时、长程、对话和客卿任务，并显示最新执行事实
+  对应的当前进度；旧 `/edicts` 地址兼容跳转到御书房。中枢以四张“独特能力”卡展示
+  长程治理、自进化、平行位面和客卿，其中自进化状态来自后端 `evolution_status` 的真实
+  投影，不以 mock 数字冒充能力。
+
+本轮产品方案与发布边界严格拆分：
+
+- `design_status`: `approved`
+- `implementation_status`: `verified_local`
+- `visual_status`: `user_approval_pending`
+- `publication_status`: `not_authorized`
+
+最终六入口方案已获用户批准并完成本地实现与验证。现有 48 张视觉基线及哈希保留自前一版
+6 路由产品壳；最新源码已把御书房加入视觉矩阵，定义 7 个路由、预期 56 张图片，但
+尚未重新生成或更新哈希。该浏览器自动化需取得明确授权后再执行，`visual_status`
+仍为 `user_approval_pending`；`verified_local` 不代表新的 Candidate 已被接受。
 
 历史保留的黄金批次通过全部 13 步和严格校验，但不复用为新 Candidate；详见
 [使用指南](docs/usage/lean-developer-preview.md)与
-[不可变报告](docs/cc-fable-v1/evidence/lean-preview/20260718T072917Z-b27f525fe4ef/demo-report.json)。
+[不可变报告](docs/cc-fable-v1/evidence/lean-preview/20260719T083725Z-01da3844dde7/demo-report.json)。
 
 ## 当前支持边界
 
@@ -69,7 +88,8 @@ exact Wheel 本地安装、单一黄金 Demo 与严格 provenance 校验。指�
 - `external_pending`：缺少指定外部环境或时间窗证据；
 - `user_approval_pending`：自动化已过，但仍等待用户终审。
 
-逐项事实、默认值、保证、非保证和证据见
+当前工作树的功能结论和验证快照先看
+[当前实现](docs/CURRENT-STATE.md)；逐项默认值、保证、非保证和证据见
 [能力事实矩阵](docs/launch/capability-matrix.md)。延期工作的恢复条件见
 [延期路线图](docs/cc-fable-v1/06-deferred-work-backlog.md)。
 
@@ -78,15 +98,23 @@ exact Wheel 本地安装、单一黄金 Demo 与严格 provenance 校验。指�
 生产 desktop Web 使用 [`web/public/brand.png`](web/public/brand.png)，SHA-256 为
 `3f2bb6cfdcac70092fce3a9b8b534c4a0627f444cb9db38a9651087688ace799`。完整格言是
 “成功只有一个——按照自己的方式，去度过人生。”；右上五项为
-“彩蛋 / 通用 / English / 实时 / 通政”。十四部门导航继续保留，但本 Candidate 只把三张
-核心页纳入真实产品深度承诺。
+“彩蛋 / 通用 / English / 实时 / 通政”。左侧导航为“中枢 / 御书房 / 朝堂 / 百司 /
+天工院〔实验〕 / 内府”六个一级入口。御书房包含全部敕令、颁发敕令、钦天监、都察院；朝堂
+包含吏部、廷议、内阁；百司包含翰林院、鸿胪寺、通政司；天工院包含演化司〔实验〕、
+诸界台〔实验〕、考功司〔试行〕、客卿馆〔实验〕；内府保留藏兵阁、权印司、户部账房。
+御书房统一承载全部任务、任务进度与待人工介入事项，`/edicts` 仅作兼容跳转。该产品
+结构已经批准并本地实现；原
+[审批提案](docs/launch/final-approval-proposal.md)保留为决策过程记录，当前状态以
+[当前实现](docs/CURRENT-STATE.md)为准。
 
 ## 贡献与安全
 
-贡献前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)；漏洞报告与单节点/宿主机管理员边界见
+贡献前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 与
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)；漏洞报告与单节点/宿主机管理员边界见
 [SECURITY.md](SECURITY.md)。用户可见术语统一使用“敕令 / 裁决”；代码、API 与数据库为
 兼容保留 `Edict` / `Decree`。
 
 ## License
 
-[MIT License](LICENSE)
+[MIT License](LICENSE)；所含或改编第三方材料的来源与许可证见
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

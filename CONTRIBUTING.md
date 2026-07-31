@@ -1,5 +1,8 @@
 # 贡献指南
 
+参与项目即表示同意遵守 [社区行为准则](CODE_OF_CONDUCT.md)。安全漏洞不要提交公开 issue，
+请使用 [SECURITY.md](SECURITY.md) 中的私下报告渠道。
+
 ## 先读事实边界
 
 开始前阅读 [Lean Developer Preview 使用指南](docs/usage/lean-developer-preview.md)、

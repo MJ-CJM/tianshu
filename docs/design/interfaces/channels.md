@@ -18,11 +18,22 @@
 |---|---|
 | WebSocket 广播 | `register_ws` / `broadcast_ws`，死连接自动剔除 |
 | 事件处理 | 订阅 `audit.completed`（urgent 跳去抖，否则 0.5s debounce）、`execution.failed`、`outer_loop.*`（实时不去抖） |
-| 外部派发 | `_dispatch_external` 按 `edict.dispatch.channels` 渲染并发到对应渠道 |
+| 外部派发 | durable internal-delivery outbox 按 `edict.dispatch.channels` 逐渠道发送 |
 | webhook | `send_webhook` 直发 POST |
 | 流式回推 | `WebSocketStreamCallback`：Agent delta / tool_start / tool_end 推前端 |
 
 渲染器（`renderer.py`）按渠道选择：`render_feishu` / `render_dingtalk` / `render_email` / `render_status`。
+
+### 2.1 V24 逐渠道重试边界
+
+终态通知先进入 `internal_notification_deliveries`。worker claim 一条 delivery 后逐个发送尚未
+接受的渠道；每个 adapter 返回成功后，立即用 CAS 把渠道名写入
+`accepted_channels_json`。若后续渠道失败，整条 delivery 进入 `retry_wait`，但下一次只重试
+未成功渠道。全部配置渠道都接受后才标 `delivered`；达到 deadline/max attempts 则
+`dead_letter`。
+
+这里的“accepted”仅表示渠道 adapter/provider 接受，不证明最终用户阅读或第三方最终送达。
+WebSocket 实时流仍是进程内 best-effort；legacy pending queue 仅作旧数据兼容。
 
 ## 3. ChannelRegistry（出站渠道注册表）
 
@@ -51,7 +62,7 @@
 | 关注点 | 设计 |
 |---|---|
 | 连接模式 | `WebSocketConnection` 或 `WebhookConnection`（按 `connection_mode`），webhook 模式路由挂到 FastAPI |
-| 双模式（ModeRouter） | 读 `SessionAnchor`：`current_edict_id` 为空 → 助手模式（AssistantBranch，`/menu` `/list` `/budget` + 自然语言）；非空 → 敕令模式（EdictBranch，续接绑定的 edict） |
+| 双模式（ModeRouter） | dispatch 先确保 anchor 指向一个 `metadata.assistant_chat=true` 的聊天 Edict；指向聊天 Edict → 助手模式，指向普通业务 Edict → 敕令模式 |
 | 平台无关核心 | `EdictBridge`（下旨/续接）、`PersonaRenderer`、`approval_commands` 解析、`markdown_compat` 复用 |
 | 审批 | `ApprovalCardHandler`（卡片按钮）+ `ApprovalCommandHandler`（命令），共享 `ApprovalManager` |
 | 进程锁 | 启动占 `~/.tianshu/feishu_app_lock.{app_id}`，避免双开同一 app |
@@ -75,7 +86,8 @@
 
 ## 7. 边界
 
-- 渠道发送是 best-effort：单渠道失败被 catch + log，不阻塞主链路。
+- 外部渠道失败不阻断任务终态，但由 durable outbox 重试；V24 记录逐渠道进度，避免已成功
+  渠道被重复发送。
 - 限流是每渠道独立滑动窗口；urgent edict 在 Notifier 层跳过 WebSocket 去抖，但渠道层限流仍生效。
 - IM bot 的 allowlist 为空时会响应任何可达用户（生产须配 `TIANSHU_FEISHU_ALLOWED_USERS` 或通政司页填「允许用户」）。
 

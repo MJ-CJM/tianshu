@@ -1,66 +1,50 @@
-# 技能学习 — 实时学习、执行后复盘、周期修撰、评分
+# 技能学习 — 当前治理边界
 
-> 设计意图：让技能库随使用自我进化——发现即存、用后复盘、闲时策展，且全程不碰内建/人工技能。
+## 1. 状态总览
 
-## 1. 三层学习机制
+| 机制 | 当前状态 | 是否调用 LLM | 是否改变 live |
+|---|---|---:|---:|
+| Agent `skill_list` / `skill_view` | 可用 | 否 | 否 |
+| Agent `skill_manage` 写操作 | 生产不注册 | 否 | 否 |
+| HTTP 新建 / 修改 | 创建治理候选 | 否 | 否 |
+| `SkillReviewHandler` | 默认关闭；治理写路径不可用时提前跳过 | 否 | 否 |
+| `SkillCurator` 非 dry-run | 默认关闭；提前返回治理服务未接通 | 否 | 否 |
+| `SkillCurator` 人工 dry-run | 可显式预览 | 是 | 否 |
+| Skill Candidate 晋升 | 由 Evolution / `PromotionService` 管理 | 视门禁而定 | 通过治理后才是 |
 
-| 机制 | 触发 | 范围 | LLM | 写入 |
-|---|---|---|---|---|
-| 前台实时 | Agent 调 `skill_manage(action=create)` | 即时 | 无（Agent 自己写） | 立即可用 |
-| SkillReviewHandler | `AGENT_END` 每 N 次任务 | 单任务复盘 | 1 次轻量调用 | create / update |
-| SkillCurator（修撰） | idle 周期 / 手动 | 全部 agent 自建技能 | plan + iterate | 合并 / 归档 / 迭代 |
+当前不存在“Agent 写完立即生效”的公开路径。
 
-## 2. 前台实时学习
+## 2. 候选提案
 
-`skill_manage` 工具让 Agent 在任务执行中即时落库（不等任务结束）。index footer 明确提示：「发现非显而易见的可复用方法时，**当下**就 `skill_manage(action='create')` 保存，立即可经 `skill_view` 取用」。
+HTTP 新建或修改会快照当前 Skill 包并产生不可变 candidate identity，返回
+`candidate_id` 与 lifecycle。提案必须经过证据绑定和 gate；stage 明确返回
+`live_changed=false`。真正生效与回滚使用通用 Evolution Candidate API。
 
-action：create / edit / patch / delete / activate / write_file / remove_file。create 时打 `created_by='agent'` 标记（供 curator 识别），写资源文件经 Guard 扫描，emit `skill.learned` 事件。
+Web 目前只展示 live 目录和详情。候选工作台未形成完整的普通用户旅程，因此不在 Skill
+页暴露新建/保存操作。
 
-## 3. SkillReviewHandler — 执行后复盘
+## 3. Reviewer 费用保护
 
-注册在 `AGENT_END`。`_should_review` 门控：`exit_reason==COMPLETED` 且 `iteration_count>=3` 且距上次复盘 `>=skill_review_interval` 次任务。命中后跑一次轻量 LLM：
+`SkillReviewHandler` 的历史逻辑仍可解析任务、生成 create/update/skip 建议，但写入端尚未
+连接 `SkillInstallService` 和 `PromotionService`。生产装配传入
+`governed_writes_available=False`；handler 在 `_should_review` 和 LLM 调用之前返回。
+`skill_review_enabled=True` 的 API 写入也会返回 409，避免用户误以为开关生效。
 
-输入 = goal + exit_reason + iteration + 工具调用摘要 + 现有技能 index；输出 JSON `{action: create|update|skip, skill_name, reason, content?, patch_old?, patch_new?}`。
+## 4. Curator 费用保护
 
-规则：只存需 trial-and-error 或非显而易见的方法；已有技能覆盖则 update；否则 skip。create 走 `SkillValidator.validate(source="agent-created")`，通过才 `create_skill` + `metrics.ensure_exists(created_by="agent")` + emit `skill.learned`。复盘永不 block hook（异常吞掉）。
+`SkillCurator` 保留候选收集、结构化计划、低成功率迭代、报告与事件代码，用于后续接线和
+人工 dry-run。生产非 dry-run 在治理写路径不可用时直接返回：
 
-## 4. SkillCurator（修撰）— 周期策展
+```json
+{"skipped": "governed_skill_service_required"}
+```
 
-显示名「修撰」（仿翰林院修撰）。骨架对齐 `ProfileSynthesizer`：**gate → 生命周期迁移 → 收集候选 → 一次结构化 JSON LLM plan → 确定性 apply → 审计报告 + 事件**。
+它不会先做 LLM 规划再丢弃结果。`skill_curator_enabled` 默认关闭。
 
-### 安全边界（关键判断）
+## 5. Metrics
 
-- 只操作 `created_by=='agent'` 的技能，**永不碰** builtin / 人工技能
-- **归档非删除**（可 `loader.restore_skill` 恢复）；pinned 技能豁免；`dry_run` 只预览
-
-### gate
-
-非 dry_run 时需：`_idle_ok`（`last_activity_at` 距今 ≥ `skill_curator_idle_hours`，默认 2）+ `try_acquire_synthesis_lock`（与画像合成共用锁机制）。
-
-### 三步动作
-
-1. **生命周期迁移**（纯函数 `apply_automatic_transitions`，无 LLM）：按 `last_used_at`(fallback `created_at`) 年龄 — `>archive_after_days(90)` 归档；`>stale_after_days(30)` 标 stale；回到窗口内则 reactivate
-2. **consolidation / archival**（≥2 候选时 LLM plan）：把近似技能合并成上位「伞」技能（`into` + `into_content` + `absorb` 列表），或单纯归档陈旧技能。apply 确定性执行，校验 `into` 不撞非 agent 技能、过 validator，absorb 跳过 pinned/非 agent
-3. **单条迭代**（`_iterate_pass`）：对低成功率技能（`list_iteration_candidates`）让 LLM 产出改进版 SKILL.md，过 validator 后 `save_skill`
-
-报告写 `{runtime_dir}/curator/{ts}/`（run.json + REPORT.md），全程 emit `curate.started/completed/skipped/failed`。
-
-## 5. SkillMetricsStore — 评分
-
-SQLite `skill_metrics` 表，`SkillMetrics`（frozen dataclass）字段：
-
-| 分组 | 字段 |
-|---|---|
-| 使用 | `usage_count` / `success_count` / `failure_count` / `last_used_at` |
-| 来源 | `created_by`（manual/agent） / `source_edict_id` / `created_at` |
-| curator 生命周期 | `state`（active/stale/archived） / `pinned` / `archived_at` / `absorbed_into` |
-| 人在环 | `human_curated`（golden，curator 跳过迭代） / `last_human_action` |
-
-派生属性：
-- `success_rate`：`usage<3` 返 None（数据不足）
-- `status`：`rate<0.3 且 usage>=5` → retire_suggested；`rate<0.6` → warning；否则 healthy（驱动 index 的状态标）
-- `is_dormant(90)`：超 90 天未用
-
-`skill_view` 工具调用时 `increment_usage`；成功/失败归因由 `_active_skills` 模块级集合在执行结束时结算。
+`SkillMetricsStore` 继续记录 `usage_count`、成功/失败、来源、状态、Pin 和人工标记。
+`skill_view` 会增加使用计数；执行结束可对本轮实际加载的 Skill 结算效果。这些指标是候选
+评估信号，不等于自动获得 live 写权限。
 
 **相关实现**：[../../impl/skills/](../../impl/skills/)

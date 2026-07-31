@@ -13,6 +13,7 @@ export const CONTROL_CENTER_QUERY_KEY = ["control-center", "snapshot-v1"] as con
 function isEmpty(snapshot: ControlCenterSnapshotV1): boolean {
   return (
     snapshot.active_run_total === 0 &&
+    snapshot.unarchived_edict_total === 0 &&
     snapshot.pending_decision_total === 0 &&
     snapshot.evidence_total === 0
   );
@@ -23,6 +24,8 @@ export function useControlCenter() {
     queryKey: CONTROL_CENTER_QUERY_KEY,
     queryFn: getControlCenterSnapshot,
     refetchOnMount: "always",
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: false,
   });
   const problem = query.error
     ? isApiProblem(query.error)

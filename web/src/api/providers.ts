@@ -94,13 +94,3 @@ export async function getPlugins(): Promise<PluginInfo[]> {
   const resp = await fetchJson<ApiResponse<PluginInfo[]>>("/api/plugins");
   return resp.data ?? [];
 }
-
-export async function installPlugin(
-  data: Record<string, unknown>,
-): Promise<void> {
-  await fetchJson("/api/plugins/install", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-}

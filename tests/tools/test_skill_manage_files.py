@@ -315,20 +315,22 @@ class TestSkillView:
 
 
 class TestRegisterSkillTools:
-    def test_register_skill_tools_registers_three_tools(self, loader: SkillsLoader) -> None:
+    def test_register_skill_tools_exposes_only_working_read_tools(
+        self, loader: SkillsLoader
+    ) -> None:
         registry = ToolRegistry()
         register_skill_tools(registry, loader)
         tool_names = list(registry._tools.keys())
         assert "skill_list" in tool_names
         assert "skill_view" in tool_names
-        assert "skill_manage" in tool_names
+        assert "skill_manage" not in tool_names
 
     @pytest.mark.asyncio
     async def test_registered_skill_manage_rejects_direct_create(
         self, loader: SkillsLoader
     ) -> None:
         registry = ToolRegistry()
-        register_skill_tools(registry, loader)
+        register_skill_tools(registry, loader, include_unavailable_manage_tool=True)
         _, func = registry._tools["skill_manage"]
         result = await func(
             action="create",
@@ -498,7 +500,7 @@ class TestSkillManageHandlers:
             fail_if_workspace_is_resolved,
         )
         registry = ToolRegistry()
-        register_skill_tools(registry, loader)
+        register_skill_tools(registry, loader, include_unavailable_manage_tool=True)
 
         result = await registry.execute(tool_name, {"name": name, **arguments})
 

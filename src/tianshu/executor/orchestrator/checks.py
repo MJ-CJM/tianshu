@@ -20,7 +20,7 @@ from tianshu.executor.execution_gateway import (
     request_for_current_execution,
 )
 from tianshu.executor.orchestrator.state import CheckOutcome, ChecksResult
-from tianshu.llm import LLMClient
+from tianshu.llm import LLMClient, LLMUsageContext
 from tianshu.models.acceptance import CheckSpec
 from tianshu.models.governance_contract import AcceptanceCheckV1
 from tianshu.security.clean_env import build_clean_env
@@ -107,6 +107,7 @@ async def _run_rubric(
     spec: CheckSpec,
     actor_output: str,
     llm: LLMClient,
+    usage_context: LLMUsageContext | None = None,
 ) -> CheckOutcome:
     if not spec.rubric:
         raise ChecksConfigError(f"check {spec.name}: kind=rubric 需要 rubric 字段")
@@ -118,9 +119,11 @@ async def _run_rubric(
     )
     start = time.monotonic()
     try:
-        resp = await llm.chat(
-            messages=[{"role": "user", "content": prompt}],
-        )
+        messages = [{"role": "user", "content": prompt}]
+        if usage_context is None:
+            resp = await llm.chat(messages=messages)
+        else:
+            resp = await llm.chat(messages=messages, usage_context=usage_context)
     except Exception as e:
         logger.warning("rubric LLM call failed for check %s: %s", spec.name, e)
         return CheckOutcome(
@@ -157,6 +160,7 @@ async def run_checks(
     *,
     execution_gateway: ExecutionGateway | None = None,
     workspace_root: Path | None = None,
+    usage_context: LLMUsageContext | None = None,
 ) -> ChecksResult:
     """并发跑所有 checks，返回汇总。配置错（command not found / 字段缺）会冒泡。
 
@@ -181,7 +185,7 @@ async def run_checks(
                 raise ChecksConfigError(
                     f"check {spec.name}: kind=rubric 需要 LLMClient，但 llm=None"
                 )
-            return await _run_rubric(spec, actor_output, llm)
+            return await _run_rubric(spec, actor_output, llm, usage_context)
         raise ChecksConfigError(f"unknown check kind: {spec.kind}")
 
     outcomes = await asyncio.gather(*[_dispatch(s) for s in specs])

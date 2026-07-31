@@ -47,7 +47,9 @@ class TestAuth401:
 
     def test_revoked_token(self, client):
         c, store = client
-        tok = store.mint(edict_id="e", run_id="r", model_allowlist=None, budget_cny=None, ttl_seconds=999)
+        tok = store.mint(
+            edict_id="e", run_id="r", model_allowlist=None, budget_cny=None, ttl_seconds=999
+        )
         store.revoke_run("r")
         assert _post(c, tok).status_code == 401
 
@@ -56,7 +58,11 @@ class TestModel403:
     def test_model_not_in_allowlist(self, client):
         c, store = client
         tok = store.mint(
-            edict_id="e", run_id="r", model_allowlist={"anthropic/opus"}, budget_cny=None, ttl_seconds=999
+            edict_id="e",
+            run_id="r",
+            model_allowlist={"anthropic/opus"},
+            budget_cny=None,
+            ttl_seconds=999,
         )
         assert _post(c, tok, model="openai/gpt-9").status_code == 403
         assert _post(c, tok, model="anthropic/opus").status_code == 200
@@ -66,7 +72,9 @@ class TestBudget402:
     def test_over_budget_returns_402(self, client):
         c, store = client
         # 预算 3.6 CNY = 0.5 USD;一次 fake_forward 花 0.5 USD=3.6 CNY 即触顶
-        tok = store.mint(edict_id="e", run_id="r", model_allowlist=None, budget_cny=3.6, ttl_seconds=999)
+        tok = store.mint(
+            edict_id="e", run_id="r", model_allowlist=None, budget_cny=3.6, ttl_seconds=999
+        )
         assert _post(c, tok).status_code == 200  # 首次放行,花费后记账
         r2 = _post(c, tok)
         assert r2.status_code == 402  # 已 over-budget → 硬熔断断供
@@ -76,7 +84,11 @@ class TestPassthroughAndAttribution:
     def test_success_forwards_and_sets_attribution_headers(self, client):
         c, store = client
         tok = store.mint(
-            edict_id="edict-123", run_id="run-456", model_allowlist=None, budget_cny=None, ttl_seconds=999
+            edict_id="edict-123",
+            run_id="run-456",
+            model_allowlist=None,
+            budget_cny=None,
+            ttl_seconds=999,
         )
         r = _post(c, tok)
         assert r.status_code == 200
@@ -86,14 +98,18 @@ class TestPassthroughAndAttribution:
 
     def test_spend_recorded_after_forward(self, client):
         c, store = client
-        tok = store.mint(edict_id="e", run_id="r", model_allowlist=None, budget_cny=None, ttl_seconds=999)
+        tok = store.mint(
+            edict_id="e", run_id="r", model_allowlist=None, budget_cny=None, ttl_seconds=999
+        )
         _post(c, tok)
         rec = store.verify(tok)
         assert rec.spent_cny == pytest.approx(0.5 * 7.2)  # 0.5 USD ×7.2
 
     def test_openai_style_endpoint_also_enforced(self, client):
         c, store = client
-        tok = store.mint(edict_id="e", run_id="r", model_allowlist={"m"}, budget_cny=None, ttl_seconds=999)
+        tok = store.mint(
+            edict_id="e", run_id="r", model_allowlist={"m"}, budget_cny=None, ttl_seconds=999
+        )
         r = c.post(
             "/keqing/llm/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {tok}"},
@@ -105,7 +121,9 @@ class TestPassthroughAndAttribution:
 class TestXApiKeyHeader:
     def test_accepts_x_api_key_as_bearer(self, client):
         c, store = client
-        tok = store.mint(edict_id="e", run_id="r", model_allowlist=None, budget_cny=None, ttl_seconds=999)
+        tok = store.mint(
+            edict_id="e", run_id="r", model_allowlist=None, budget_cny=None, ttl_seconds=999
+        )
         r = c.post(
             "/keqing/llm/anthropic/v1/messages",
             headers={"x-api-key": tok},

@@ -79,7 +79,7 @@ async def test_resume_from_checkpoint(tmp_path):
         assert r.status == TaskStatus.COMPLETED
         # 从 iteration=2 续跑，下一轮是 iteration 2（actor 调一次，critic 通过），最终 state.iteration == 3
         assert r.state.iteration == 3
-        # checkpoint 已被清
-        assert storage.get_outer_loop_checkpoint(e.id) is None
+        # run() 只产出终态结果；Memorial 还未由上层落库前必须保留 checkpoint。
+        assert storage.get_outer_loop_checkpoint(e.id) is not None
     finally:
         storage.close()

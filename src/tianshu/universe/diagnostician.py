@@ -12,7 +12,7 @@ import json
 import logging
 from typing import Any
 
-from tianshu.universe.code_mutator import _within_evolvable
+from tianshu.universe.code_mutator import _is_concrete_python_target, _within_evolvable
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +95,9 @@ class Diagnostician:
             hypothesis = str(item.get("hypothesis") or "").strip()
             if not target or not hypothesis:
                 continue
-            if not _within_evolvable(target, self._evolvable):
+            if not _is_concrete_python_target(target) or not _within_evolvable(
+                target, self._evolvable
+            ):
                 logger.info("diagnose: drop out-of-evolvable proposal %s", target)
                 continue
             out.append(

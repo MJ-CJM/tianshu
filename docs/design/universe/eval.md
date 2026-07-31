@@ -1,6 +1,6 @@
 # Eval Harness 与 Fitness 门禁
 
-> 自改平台的命门：一份自动生成的代码变体在碰真实任务前，必须先在受治理的评估环境中**回放历史目标**、按统一适应度**打分**、与现冠军**回归比对**，再过门禁才配被人工晋升。本篇讲「为什么这样评 + 机制怎么转」。
+> 自改平台的命门：一份自动生成的代码变体在进入任何 live activation 讨论前，必须先在受治理的评估环境中**回放历史目标**、按统一适应度**打分**、与现冠军**回归比对**。当前代码变体闭环止于 `evaluated` / `recommended`，不执行 live 晋升。
 >
 > **相关实现**：[../../impl/universe/README.md](../../impl/universe/README.md)
 > **相关设计**：[./code-variant.md](./code-variant.md)、[./evolution.md](./evolution.md)
@@ -15,7 +15,7 @@
 | 与冠军可比 | 变体和冠军共用同一 `compute_fitness` 语义、同一评估集，分数同尺度 |
 | 降低评估期生产影响 | 受管子进程 + 独立 DB + `EVAL_MODE` 副作用围栏 + wall timeout + 进程组收敛；`trusted-local` 不具备强隔离 |
 
-`EvalHarness`（`eval_harness.py`）是回放打分主体，`compute_fitness`（`fitness.py`）是归一聚合纯函数，`Gate`（`gate.py`）是打分前的硬门禁，`Deployer`（`deployer.py`）管晋升落地。编排者是 `UniverseEvolver.propose_code_variant`（`evolver.py`）。
+`EvalHarness`（`eval_harness.py`）是回放打分主体，`compute_fitness`（`fitness.py`）是归一聚合纯函数，`Gate`（`gate.py`）是打分前的硬门禁。编排者 `UniverseEvolver.propose_code_variant`（`evolver.py`）只创建 worktree 变体、评估并给出推荐；仓库中没有 code deployment 模块。
 
 ## 2. Eval Case：定义与历史目标选取
 
@@ -98,7 +98,7 @@ paired = eval_harness.evaluate_paired(
              variant_env=..., budget_cny=..., cached_baseline=cached)
 delta  = paired["variant"]["fitness"]["score"] - paired["baseline"]["fitness"]["score"]
 margin = cfg.universe_promote_margin  (默认 0.05)
-delta >= margin  →  status="recommended"（或 auto_promote 开启时直接晋升）
+delta >= margin  →  status="recommended"
 否则             →  status="evaluated"
 ```
 
@@ -108,7 +108,7 @@ delta >= margin  →  status="recommended"（或 auto_promote 开启时直接晋
 
 每次评估（无论结果）都落 `variant_eval_runs` 表（`save_variant_eval_run`，变体分入 `fitness_json`、基线分入 `baseline_json`），并 `update_universe_fitness(uid, fitness)` 把变体分写回该位面，供 Web UI 看历史。
 
-## 6. 晋升门禁语义：Gate 三关 + margin
+## 6. 推荐门禁语义：Gate 三关 + margin
 
 打分只是**晋升资格链**的最后一环。完整门禁是「三关硬门禁（fail-fast）→ 评估打分 → margin 回归 → 人工审 diff」。`Gate.run(worktree)` 在 `evaluate` **之前**跑，逐级短路：
 
@@ -120,14 +120,25 @@ delta >= margin  →  status="recommended"（或 auto_promote 开启时直接晋
 
 `GateResult(passed, stage, detail)`：失败时 stage ∈ {static, import, test}，detail 取末尾输出（`_tail`，截 2000 字）；全过则 `stage="ok"`。任一关失败，`propose_code_variant` 落一条 `gate_passed=False` 的 eval run（detail 截 1000 字）并返回 `status="gate_failed"`，**根本不进评估**。整链超时由 `Gate` 的 `timeout_s`（默认 900s，对应配置 `code_variant_sandbox_timeout_s`）兜底。
 
-晋升资格链：
+当前资格链：
 
 ```
 gate ①②③ 全绿  →  沙箱配对评估(变体 vs 冠军基线，同评估集)  →  delta ≥ margin (recommended)
-  →  人工审完整 diff + eval 记录  →  Deployer 晋升
+  →  人工审完整 diff + eval 记录  →  到此停止，不改变 live 代码
 ```
 
-**晋升落地**（`manager.promote_code_variant` + `Deployer`）：翻状态为冠军 + `deployer.stage` 只写 `current_ref` 指针**不重启**（重启是单独受控步骤）；真重启时 `os.execv` 自重启，重启后查 `/health`，不健康则指针翻回 previous 自动回滚 —— 坏晋升绝不让平台停摆。详见 [./code-variant.md](./code-variant.md) §7。
+**当前 live 边界**：
+
+- `UniverseManager.promote_code_variant()` 固定抛出 `promotion_service_required`，旧
+  `/api/universes/{id}/promote-code` 固定返回 409；不存在 DeployPointer、自重启或健康检查自动回滚。
+- 受治理 lifecycle/routing 的唯一写入口是 `PromotionService`，经
+  `/api/evolution/candidates/{id}/canary|promote|rollback` 调用。
+- 生产装配目前只有 Skill Candidate 具备真实 activation/rollback adapter；Code
+  Candidate 使用 unavailable adapter，因此 code live promotion fail-closed。未来即使接入
+  code adapter，promote 仍必须绑定精确且已批准的高风险 Decision。
+
+Legacy Universe 的 `recommended` 记录与 governed Candidate 是两套身份，当前没有把前者
+自动转换并部署为后者的桥接。详见 [./code-variant.md](./code-variant.md) §7。
 
 ## 7. Worked Example：评估一个「persona 变异」代码变体
 
@@ -157,7 +168,7 @@ gate ①②③ 全绿  →  沙箱配对评估(变体 vs 冠军基线，同评�
 9. 任一步异常 → status="error"，失败安全，不留半截状态；若基线评估本身被预算闸截断，则该次基线不写入缓存（见 §9）
 ```
 
-可见 cost_score 在这套权重下很小（0.15 权重 × 0.016），主导分的是成功率与审计率 —— 评估真正盯的是「跑得对、审得过」，成本只作微调。最终是否晋升仍由人看 §6 的完整 diff 拍板，平台默认 `code_variant_auto_promote=False`。
+可见 cost_score 在这套权重下很小（0.15 权重 × 0.016），主导分的是成功率与审计率 —— 评估真正盯的是「跑得对、审得过」，成本只作微调。完整 diff 供人工判断是否值得进入未来受治理落地流程；当前评估结果不会改变 live 代码。
 
 ## 8. 配置项
 
@@ -167,7 +178,7 @@ gate ①②③ 全绿  →  沙箱配对评估(变体 vs 冠军基线，同评�
 | `code_variant_eval_budget_cny` | 20.0 | 单次沙箱评估的成本闸（元），触顶截断，已回放部分照常打分，详见 §9 |
 | `code_variant_sandbox_timeout_s` | 900 | Gate 全程 + 沙箱单步超时 |
 | `universe_promote_margin` | 0.05 | 回归带宽：变体须在配对 `delta` 上赢此差距才 `recommended` |
-| `code_variant_auto_promote` | False | 代码层自动晋升（默认关，明确不推荐开）|
+| `code_variant_auto_promote` | False | 兼容保留字段；当前 `propose_code_variant` 不读取它，也不存在自动晋升路径 |
 | `TIANSHU_EVAL_LLM_API_KEY` | 空 | 沙箱评估专用 LLM key（env-only，非 `AgentConfig` 热更字段）；空则沙箱沿用宿主 `TIANSHU_LLM_*` 凭证 |
 | `TIANSHU_EVAL_LLM_API_BASE` | 空 | 配合上者的可选 base url 叠加，仅当已设 key 才生效 |
 | `TIANSHU_EVAL_LLM_MODEL` | 空 | 配合上者的可选模型名叠加，仅当已设 key 才生效 |

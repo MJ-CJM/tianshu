@@ -14,6 +14,7 @@ from tianshu.application.fenced_run_completion import (
 )
 from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.models import ArtifactRef, Edict, Memorial, TaskStatus, UsageSummary
+from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 from tianshu.models.canonical import RedactedError
 from tianshu.models.run_state import (
@@ -28,10 +29,17 @@ from tianshu.storage.attempt_ledger import AttemptFenceLost
 _NOW = datetime(2026, 7, 16, 9, tzinfo=UTC)
 
 
-def _claimed(path: Path) -> tuple[Storage, AttemptAuthority]:
+def _claimed(path: Path, *, outer_loop: bool = False) -> tuple[Storage, AttemptAuthority]:
     storage = Storage(str(path))
     storage.init_db()
-    storage.save_edict(Edict(id="edict-1", goal="work"))
+    storage.save_edict(
+        Edict(
+            id="edict-1",
+            goal="work",
+            acceptance=AcceptanceCriteria() if outer_loop else None,
+            execution_profile="checkpointed" if outer_loop else "foreground",
+        )
+    )
     storage.save_memorial(Memorial(id="root-1", edict_id="edict-1"))
     with storage.unit_of_work() as unit_of_work:
         storage.attempt_repo.enqueue_initial(
@@ -180,6 +188,26 @@ def test_current_fence_commits_memorial_outbox_and_attempt_atomically(tmp_path: 
         storage.close()
 
 
+def test_current_fence_clears_outer_loop_resume_state_and_completes_lifecycle(
+    tmp_path: Path,
+) -> None:
+    storage, authority = _claimed(tmp_path / "outer-terminal.db", outer_loop=True)
+    storage.save_outer_loop_checkpoint("edict-1", "{}", _NOW.isoformat())
+    storage.save_steer("steer-1", "edict-1", "stop polishing", _NOW.isoformat())
+    try:
+        FencedRunCompletion(storage.unit_of_work, storage.attempt_repo).complete(
+            _command(authority)
+        )
+
+        assert storage.get_outer_loop_checkpoint("edict-1") is None
+        assert storage.list_steers("edict-1") == []
+        edict = storage.get_edict("edict-1")
+        assert edict is not None
+        assert edict.runtime.lifecycle_phase == "complete"
+    finally:
+        storage.close()
+
+
 def test_completion_preserves_full_terminal_evidence_and_existing_references(
     tmp_path: Path,
 ) -> None:
@@ -283,7 +311,13 @@ def test_cancellation_revokes_current_authority_with_root_projection(tmp_path: P
 
 @pytest.mark.parametrize(
     "boundary",
-    ["after_attempt", "after_memorial", "after_run_state", "after_outbox"],
+    [
+        "after_attempt",
+        "after_memorial",
+        "after_run_state",
+        "after_terminal_cleanup",
+        "after_outbox",
+    ],
 )
 def test_cancellation_failure_rolls_back_attempt_root_run_state_and_outbox(
     tmp_path: Path,
@@ -579,7 +613,10 @@ def test_attempt_authority_cannot_be_rebound_to_another_root(tmp_path: Path) -> 
         storage.close()
 
 
-@pytest.mark.parametrize("boundary", ["after_memorial", "after_outbox", "before_attempt"])
+@pytest.mark.parametrize(
+    "boundary",
+    ["after_memorial", "after_terminal_cleanup", "after_outbox", "before_attempt"],
+)
 def test_completion_failure_rolls_back_every_projection(tmp_path: Path, boundary: str) -> None:
     storage, authority = _claimed(tmp_path / f"rollback-{boundary}.db")
     before = _snapshot(storage)

@@ -34,8 +34,9 @@
 ## 4. court 朝廷共享
 
 `court` 不是独立 persona，而是共享上下文目录：
-- `personas/court/COURT.md` —— 朝廷协议、官员间规则（PromptBuilder Layer 2）。
-- `personas/court/MEMORY.md` + `~/.tianshu/memory/court/` —— 朝堂共享长期记忆（Layer 6）。
+
+- `src/tianshu/resources/personas/court/COURT.md` 是只读打包默认；`resolve_court_read(~/.tianshu/personas/)` 优先读取 `~/.tianshu/personas/court/COURT.md` overlay，不存在时回退默认（PromptBuilder Layer 2）。
+- `src/tianshu/resources/personas/court/MEMORY.md` 仅用于首次 seed；朝堂共享长期记忆实际读写 `~/.tianshu/memory/court/MEMORY.md`（Layer 6）。
 
 ## 5. OfficialSelector 路由
 

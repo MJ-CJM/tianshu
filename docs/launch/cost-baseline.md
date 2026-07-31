@@ -25,7 +25,7 @@
 | 旋钮 | 省钱方向 | 落点 |
 |---|---|---|
 | 模型选择 | persona/任务按现有配置选择更合适的模型 | persona 与 Provider 配置 |
-| prompt cache | Anthropic cache 命中降 input 成本 | `llm.py` 自动挂 |
+| prompt cache | Anthropic cache 命中降低实际 input 成本；cache-read token 单独入账 | `llm.py` + `cost_records.cache_read_tokens` |
 | 上下文压缩 | 三层 compaction 削 token | `executor/compaction/` |
 | 预算护栏 | 按已上报用量做 best-effort 检查，可能超调 | `TIANSHU_DAILY_BUDGET_GUARDRAIL_CNY`(默认 ¥20) |
 | 演化开关 | 实验能力默认关；启用候选流程会增加评测/变异成本 | ADR-0004 |
@@ -39,3 +39,5 @@
 - [ ] 附一句典型任务的单次成本示例(如"一份 PR 日报 ≈ ¥X")
 
 > 出厂每日预算护栏默认开(¥20)，但它不是预付费额度或 provider 侧硬上限；公开成本示例必须同时说明可能超调。
+> 取消任务时，取消前已经产生并被 provider 上报的用量仍会持久化；不得把“已取消”解释
+> 为零成本。跨 provider/model 的一次任务按真实记录分别汇总。

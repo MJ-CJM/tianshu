@@ -42,6 +42,7 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import PageContainer from "../components/common/PageContainer";
 import GlowCard from "../components/common/GlowCard";
+import PageQueryError from "../components/states/PageQueryError";
 import {
   usePersonas,
   useRegeneratePersonaIdentity,
@@ -801,7 +802,8 @@ export default function PersonaDetailPage() {
   const { personaId } = useParams<{ personaId: string }>();
   const navigate = useNavigate();
 
-  const { data: personas, isLoading } = usePersonas();
+  const personasQuery = usePersonas();
+  const { data: personas, isLoading } = personasQuery;
   const { data: departments } = useDepartments();
   const { data: tools } = useTools();
   const { data: skills } = useSkills();
@@ -817,6 +819,17 @@ export default function PersonaDetailPage() {
   const [form] = Form.useForm();
   const updateMutation = useUpdatePersona();
   const regenerateMutation = useRegeneratePersonaIdentity();
+
+  if (personasQuery.error) {
+    return (
+      <PageContainer title={t("persona.detail.title")}>
+        <PageQueryError
+          error={personasQuery.error}
+          onRetry={() => void personasQuery.refetch()}
+        />
+      </PageContainer>
+    );
+  }
 
   const openEdit = () => {
     if (!persona) return;

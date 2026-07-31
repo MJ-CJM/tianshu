@@ -8,27 +8,35 @@
 
 | 区域 | 路径 | 关键类 / 文件 |
 |---|---|---|
-| HTTP/WS 路由（兜底） | `gateway/api.py` | `gateway_router`：`/ws` WebSocket + `/consultations`（67 行；原单文件全路由已拆分为下一行的域 router） |
-| 域 router（15 个） | `gateway/{audit,config,cost,credentials,edicts,execution,hongluisi,mcp,memory,personas,providers,skills,system,tongzheng,universes}_api.py` | 各领域 CRUD/操作路由，`app.py` 统一 `include_router(prefix="/api")` |
+| HTTP/WS 路由（兜底） | `gateway/api.py` | `gateway_router`：`/ws` WebSocket + `/consultations` |
+| 域 router | `gateway/*_api.py` | auth、ownership、task、decision、evidence、audit、system 等领域路由；`app.py` 统一 include |
 | IM 门面 | `gateway/feishu/__init__.py`、`gateway/telegram/__init__.py` | `FeishuBot`、`TelegramBot` |
 | 多实例管理 | `gateway/bot_manager.py`、`gateway/instance.py` | `ChannelBotManager`、`ChannelInstance` |
 | 出站通知 | `notifier/notifier.py`、`channel_registry.py`、`renderer.py` | `Notifier`、`ChannelRegistry`、`render_*` |
 | 出站渠道 | `notifier/channels/*.py` | `NotificationChannel`、`FeishuChannel`、`DingTalkChannel`、`EmailChannel` |
 | CLI | `cli/main.py`、`cli/client.py`、`cli/commands/*.py` | typer app + httpx 客户端 |
-| 前端 | `web/src/App.tsx`、`web/src/pages/*`、`web/src/api/*` | React 路由 + 页面 + api 层 |
+| 前端 | `web/src/router/AppRoutes.tsx`、`web/src/pages/*`、`web/src/api/*` | React 路由 + 页面 + api 层 |
 
-## 2. 路由实现（`gateway/api.py` + 15 个域 router）
+## 2. 路由实现
 
-- 原单文件 `gateway_router`（~3300 行全路由）已按领域拆分为 15 个 `*_api.py`（见上表）；`gateway/api.py` 现仅剩 `gateway_router` 兜底：`/ws` WebSocket（`websocket_endpoint`，:25）+ `/consultations`（:39-67）。`app.py`（131 行）在 `create_app()` 内逐个 `include_router(prefix="/api")`（`gateway_router` :101，域 router 紧随其后）。
+- `gateway/api.py` 只保留 `/ws` 和 `/consultations`；`app.py` 明确 include 所有领域
+  router。Router 数量和源码行号不是稳定契约。
 - 处理函数从 `request.app.state.*` 取依赖（`storage` / `notifier` / `universe_manager` / `executor` / `config_manager` 等），无 DI 容器；各域 router 沿用同一模式。
 - 位面路由在 `universes_api.py`；下划线前缀路由（`/universes/_diff`、`/universes/_status`）仍声明在 `/universes/{id}` 之前避免被吞。
 - WebSocket：`gateway/api.py:25` `websocket_endpoint` → `notifier.register_ws/unregister_ws`。
+
+任务资源在进入 handler 后还会经过 `authz.py`/`ownership.py`：普通 principal 按
+`Edict.submitter` 过滤，跨 owner 返回 404；admin 可跨 owner。SystemAudit、全局审计/
+network、Worker、memory/cost/config 等管理面由 auth middleware 要求 admin。
 
 完整路由族见 [../../design/interfaces/gateway.md](../../design/interfaces/gateway.md)。
 
 ## 3. 出站通知实现
 
-- `Notifier`（`notifier/notifier.py`）：`_ws_clients` 连接集 + `_debounce_timers`；`handle_audit_completed`（urgent 跳去抖）/ `handle_execution_failed` / `handle_outer_loop_event`；`_dispatch_external` 按 `edict.dispatch.channels` 选 `render_feishu/dingtalk/email` 渲染再发。
+- `Notifier`（`notifier/notifier.py`）：WebSocket 连接/去抖；terminal external
+  notification 通过 `InternalDeliveryOutbox` 逐渠道发送。
+- V24 的 `accepted_channels_json` 在每个 adapter 成功后立即 CAS 持久化；retry 跳过已
+  accepted 渠道。全部成功才 delivered，超期/超次数 dead-letter。
 - `WebSocketStreamCallback`：`on_delta` / `on_tool_call_start` / `on_tool_call_end` 推 `stream.*`。
 - `ChannelRegistry`：`register(channel, rpm)` + 每渠道滑动窗口限流（默认 10/分钟）+ `send_all` / `send_to`。
 - 渲染器 `renderer.py`：`render_status`（dict）、`render_feishu` / `render_dingtalk` / `render_email`（str）。
@@ -66,10 +74,14 @@ include_router(gateway_router, prefix="/api") + credentials/hongluisi/tongzheng
 
 ## 7. 前端实现要点
 
-- `web/src/App.tsx`：`BrowserRouter` + 18 条路由，DAG 战图 `React.lazy`。
+- `web/src/router/AppRoutes.tsx`：页面全部 lazy，route error boundary 区分 chunk/render
+  错误，wildcard 使用真正的三语 404。
+- `web/src/navigation/departments.tsx`：默认五个一级目的地；Keqing、Evolution、
+  Universes、Evals、Session Rules 仍可达但隐藏为实验路由。
 - `web/src/api/client.ts`：axios 实例 baseURL `/api`，拦截器统一处理 `ApiResponse.error`。
 - 实时：`hooks/useWebSocket.ts` 连 `/api/ws`；`useWsQueryInvalidation.ts` 用 WS 事件失效 react-query 缓存；`useWsPolicyToasts.ts` 弹策略 toast。
-- 页面在 `web/src/pages/`（含 `UniversePage.tsx` 位面管理）。
+- `SchedulerPage` 支持 edit/pause/resume/run-now/history；`EdictForm` 默认折叠专家参数并禁止
+  周期长任务组合。
 
 ## 8. 扩展点
 
@@ -79,4 +91,4 @@ include_router(gateway_router, prefix="/api") + credentials/hongluisi/tongzheng
 | 加出站渠道 | 实现 `NotificationChannel`（`name` + `async send`），在 `app.py` `channel_registry.register(...)` |
 | 加 IM 平台 | 镜像 `gateway/telegram/` 结构，复用 `EdictBridge`/`PersonaRenderer`/审批解析，重写平台连接/出站层 |
 | 加 CLI 命令族 | 新建 `cli/commands/<x>.py` 的 `typer.Typer()`，在 `main.py` `add_typer` |
-| 加前端页面 | `web/src/pages/` 加组件 + `App.tsx` 加 Route + `AppSidebar` 加导航 + `api/` 加模块 |
+| 加前端页面 | `web/src/pages/` 加组件 + `router/AppRoutes.tsx` 加 Route；只有稳定用户入口才改 `navigation/departments.tsx` |

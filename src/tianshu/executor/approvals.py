@@ -1390,7 +1390,11 @@ class ApprovalManager:
 
     async def _handle_approve(self, memorial: Memorial, decree: Decree) -> None:
         memorial.review_status = "approved"
-        memorial.status = TaskStatus.COMPLETED
+        memorial.status = (
+            TaskStatus.FAILED
+            if memorial.audit is not None and memorial.audit.execution_failed
+            else TaskStatus.COMPLETED
+        )
         memorial.completed_at = datetime.now(UTC)
         self._storage.update_memorial(memorial)
         edict = self._storage.get_edict(memorial.edict_id)

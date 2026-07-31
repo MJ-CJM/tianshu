@@ -433,3 +433,86 @@ async def test_legacy_pending_exception_or_missing_channel_is_retained(tmp_path)
         "pending-channel-missing",
     }
     storage.close()
+
+
+async def test_durable_delivery_restart_retries_only_channels_not_yet_accepted(tmp_path) -> None:
+    database = tmp_path / "durable-channel-rejection.db"
+    storage = _open(database)
+    edict = Edict(
+        id="edict-durable-channel-rejection",
+        goal="retry rejected channels",
+        priority="urgent",
+        dispatch=EdictDispatch(channels=["feishu", "email"]),
+    )
+    memorial = Memorial(
+        id="memorial-durable-channel-rejection",
+        edict_id=edict.id,
+        instruction=edict.goal,
+        status=TaskStatus.FAILED,
+        error="notify",
+    )
+    storage.save_edict(edict)
+    storage.save_memorial(memorial)
+    feishu = _SequenceChannel([True])
+    email = _SequenceChannel([False])
+    notifier = Notifier(
+        storage,
+        channel_registry=_Registry({"feishu": feishu, "email": email}),
+    )
+    outbox = InternalDeliveryOutbox(storage.unit_of_work)
+    notifier.set_delivery_outbox(outbox)
+    delivery = outbox.enqueue(
+        event_id="event-durable-channel-rejection",
+        event_type="execution.failed",
+        correlation_id="correlation-durable-channel-rejection",
+        edict_id=edict.id,
+        memorial_id=memorial.id,
+        available_at=_NOW,
+        deadline_at=_NOW + timedelta(hours=1),
+        max_attempts=3,
+    )
+    worker = InternalDeliveryWorker(
+        outbox,
+        notifier.deliver_internal,
+        owner_id="durable-channel-rejection-worker",
+        clock=lambda: _NOW,
+    )
+
+    with patch("tianshu.notifier.notifier.datetime") as mocked_datetime:
+        mocked_datetime.now.return_value = _NOW
+        assert await worker.drain_once() == 1
+
+    retained = outbox.get(delivery.delivery_id)
+    assert retained is not None
+    assert retained.status == "retry_wait"
+    assert retained.accepted_channels == frozenset({"feishu"})
+    assert (feishu.calls, email.calls) == (1, 1)
+    storage.close()
+
+    retry_at = _NOW + timedelta(seconds=1)
+    restarted_storage = _open(database)
+    restarted_feishu = _SequenceChannel([AssertionError("accepted channel was retried")])
+    restarted_email = _SequenceChannel([True])
+    restarted_notifier = Notifier(
+        restarted_storage,
+        channel_registry=_Registry({"feishu": restarted_feishu, "email": restarted_email}),
+    )
+    restarted_outbox = InternalDeliveryOutbox(restarted_storage.unit_of_work)
+    restarted_notifier.set_delivery_outbox(restarted_outbox)
+    restarted_worker = InternalDeliveryWorker(
+        restarted_outbox,
+        restarted_notifier.deliver_internal,
+        owner_id="durable-channel-rejection-worker-after-restart",
+        clock=lambda: retry_at,
+    )
+
+    with patch("tianshu.notifier.notifier.datetime") as mocked_datetime:
+        mocked_datetime.now.return_value = retry_at
+        assert await restarted_worker.drain_once() == 1
+
+    delivered = restarted_outbox.get(delivery.delivery_id)
+    assert delivered is not None
+    assert delivered.status == "delivered"
+    assert delivered.accepted_channels == frozenset({"feishu", "email"})
+    assert (restarted_feishu.calls, restarted_email.calls) == (0, 1)
+    restarted_storage.close()

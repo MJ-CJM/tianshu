@@ -61,13 +61,17 @@ on_before_tool_call
   → allow: 放行 | deny: HookResult(block) | require_approval: _request_approval
 ```
 
-`_request_approval` 走 `ApprovalManager`：emit `tool.approval_required`（EventBus.fire 单点持久化 + 广播 WS）→ `wait_for_approval`（asyncio.Event，`APPROVAL_TIMEOUT=300s`）→ 拿到 `Decree`：approve 放行，reject/timeout block。
+`_request_approval` 走 `ApprovalManager`：`request_tool_decision` 在同一事务持久化
+Decision 请求与 Agent continuation → 发送 `tool.approval_required` 通知 →
+`wait_for_tool_decision` 轮询持久化权威（默认 300s）→ approve 放行，
+reject/guide/timeout 则阻断或把指导反馈给 Agent。进程内通知不是审批真相来源；
+`decision.resolved` 由 continuation recovery 幂等收敛需要恢复或取消的挂起尝试。
 
 ### ApprovalManager 审批种类
 
 | 接口 | 场景 |
 |---|---|
-| `wait_for_approval` / `submit_tool_decision` | 执行中 tool-call 审批（不改 memorial 状态，只 unblock） |
+| `request_tool_decision` / `wait_for_tool_decision` / `submit_tool_decision` | 执行中 tool-call 审批；请求、continuation 与结果均持久化 |
 | `submit_decree` | 旧式 memorial 审批（approve/reject/retry/amend/cancel，改 memorial 状态） |
 | `wait_for_outer_loop_decision` / `submit_outer_loop_decision` | 长任务 outer loop L3 人工决策（独立队列，超时 86400s） |
 
@@ -130,7 +134,7 @@ return last_allow or PolicyDecision(allow, "default")          # 全弃权 → �
 PolicyEngine → require_approval
   → SessionRuleStore.find_match(tool_name, args, edict_id)
       命中 → verdict 改 allow（emit policy.session_rule_matched）
-      未命中 → 走 ApprovalManager 等人工
+      未命中 → 持久化 Decision + continuation，等待人工或恢复链路收敛
 ```
 
 匹配靠 **arg_fingerprint**（`compute_fingerprint` 按工具选算法，见 §3），按「同类」而非「逐字节相等」复用：`edit_file` 用目录粒度、`shell_exec` 用命令前两 token，避免每个文件/每条命令都要重新批一次。`"*"` 通配指纹专供 manual 规则匹配任意 args。

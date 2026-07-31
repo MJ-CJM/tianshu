@@ -1,169 +1,119 @@
-# 可观测性 — trace、时间线与回放（operator / debugger 视角）
+# 可观测性与故障排查
 
-> 天枢的「黑盒」就是 `events` 表：每道 edict 的全生命周期都被 EventBus 落成一条有序事件流。本篇讲怎么按 `edict_id` 把一次 run 拼回来、读懂三类典型 trace、导出时间线。
+> 当前是单主机 SQLite 运行模型。不要只凭一个事件或一行状态判断“任务已经完成”；根执行、
+> 调度、通知和安全审计各有自己的持久身份。
 
-**相关设计**：[../design/storage/events.md](../design/storage/events.md)（EventEnvelope / emit vs fire / 优先级与持久化协议）
+## 1. 五类相关身份
 
-## 1. 事件分类法
+| 关注点 | 主要身份/表 | 回答的问题 |
+|---|---|---|
+| 用户任务 | `edicts.id` | 用户下达的长期业务对象是什么 |
+| 一次执行 | `memorials.id` | 这一轮/follow-up/周期触发结果是什么 |
+| 运行权威 | `run_states`、`execution_attempts` | 谁持有 lease，attempt 是否 retry/suspended/terminal |
+| 定时触发 | `scheduler_jobs.job_id`、`schedule_run.id` | 哪个时间槽位触发，cursor 是否推进 |
+| 通知 | `internal_notification_deliveries.delivery_id` | 哪些渠道已接受，是否 retry/dead-letter |
 
-落库事件都来自 `EventBus.emit` / `fire`，由 `_persist` 在 `event.edict_id` 非空时写 `events` 表（`bus/event_bus.py`）。按生产者与语义分四大类：
+`events` 是按 Edict 观察业务时间线的入口，但 EventBus 事件存在不等于 attempt fenced
+completion 已提交。最终任务状态看 Memorial + attempt/run state；最终定时触发看
+schedule-run + job cursor；最终通知看 delivery 行。
 
-| 类 | 前缀 | 关键事件（真实值） | 生产者 |
-|---|---|---|---|
-| **执行链** | `execution.*` | `execution.started` / `execution.completed` / `execution.failed` / `execution.cancelled` | executor（`executor/executor.py`） |
-| **审计 / 外环** | `audit.*` `outer_loop.*` | `audit.completed`；`outer_loop.started` / `iteration.started` / `iteration.finished` / `escalated` / `paused` / `resumed` / `completed` / `exhausted` / `approval.requested` / `approval.received` | auditor、orchestrator（`emit_audit`，`executor/orchestrator/`） |
-| **调度 / 计划** | `edict.*` `plan.*` `review.*` `decree.*` | `edict.submitted` / `edict.scheduled`；`plan.completed` / `plan.pending_review` / `plan.approved` / `plan.rejected`；`review.timeout`；`decree.approved` / `decree.rejected` | gateway、scheduler、planner、approvals |
-| **治理 / 工具** | `policy.*` `tool.*` `cost.*` | `policy.decision` / `policy.session_rule_matched`；`tool.approval_required`；`cost.budget_exceeded` | PolicyHook、ApprovalManager、CostManager |
+## 2. 用户/API 视图
 
-**不入 `events` 表的两类**（运维易踩坑）：
+普通 principal 只能访问自己 `Edict.submitter` 匹配的资源：
 
-- `stream.delta` / `stream.tool_start` / `stream.tool_end` —— 这些是 **WebSocket 推送消息类型**（`notifier/notifier.py` 的 `WebSocketStreamCallback`），是 live 流，不持久化，run 结束即消失。
-- 无 `edict_id` 的系统事件（如 global scope 预算事件）—— `_persist` 直接跳过。
-
-> `emit_audit`（`executor/orchestrator/persistence.py`）会同时 `storage.append_event` + `bus.emit`，所以 `outer_loop.*` 既进 memorial 事件流也走总线广播。
-
-## 2. 单次 run 的 trace 结构 + edict_id 作 correlation
-
-一次 run 没有独立的 trace_id —— **`edict_id` 就是 correlation key**。`events` 表 schema（`storage/schema.py` 建表）：
-
-| 列 | 含义 |
+| API | 用途 |
 |---|---|
-| `id` | ULID，事件主键（**单调递增，可当 tiebreaker 排序**） |
-| `edict_id` | 关联诏令；`ON DELETE CASCADE`（删 edict 连带清事件） |
-| `memorial_id` | 关联奏折（一次执行实例），可空 |
-| `event_type` | 事件名（见 §1） |
-| `payload_json` | 事件载荷 JSON 文本（`json.dumps(..., default=str)`） |
-| `created_at` | UTC ISO8601 字符串 |
+| `GET /api/edicts/{id}/detail` | Edict、最新 Memorial、运行与治理摘要 |
+| `GET /api/edicts/{id}/events` | 单任务业务事件 |
+| `GET /api/edicts/{id}/iterations` | outer-loop 迭代 |
+| `GET /api/edicts/{id}/evidence` | Evidence bundle |
+| `GET /api/scheduler/jobs` | 自己的 job 和 last_run |
+| `GET /api/scheduler/jobs/{id}/runs` | 某 job 的触发/执行历史 |
 
-排序基准：`get_events` 用 `ORDER BY created_at ASC`（`storage/event_repo.py`）。同毫秒并发时 `created_at` 可能并列，必要时叠加 `id ASC` 做稳定 tiebreaker。索引 `idx_events_edict_id` 保证按 `edict_id` 查询走索引。
+越权资源统一返回 404。全局审计统计、network events、Worker 列表/状态、记忆、全局成本和
+SystemAudit 需要 admin；不要用普通 PAT 做运维全局探测。
 
-一次完整 run 的 trace 层级：
+## 3. 任务卡住时
 
-```
-edict_id (correlation)
-└─ memorial_id (一次执行实例；重试/重跑会产生多个)
-   └─ events[]  按 created_at ASC：edict.* → plan.* → execution.* → outer_loop.* → audit.*
-```
+按以下顺序检查：
 
-## 3. 追踪一道 edict 全生命周期（真实 SQL）
+1. `/health/ready` 是否为 ready；只看 `/health/live` 不足；
+2. Edict 是否 open、是否 archived、`runtime.lifecycle_phase` 是否 paused/winding_down；
+3. 最新根 Memorial 是 submitted/planning/running/needs_review/terminal 哪一态；
+4. 是否存在 pending Decision（plan/tool/L3）；
+5. `execution_attempts` 是否有有效 lease、heartbeat、retry_at 或 suspended；
+6. outer loop 是否有 checkpoint，最近 iteration/check/critic 是什么；
+7. 若进程刚重启，给 reconciler 一次恢复窗口，再判断是否 orphan。
 
-直接查 `events` 表（列名以 §2 为准；注意是 `created_at` / `payload_json`，不是 `timestamp` / `payload`）。
+Scheduler 的 orphan sweep 会收敛真正失去进展的旧 Memorial；DAG 节点和有受监督 attempt
+的根执行由各自恢复机制负责，不应被通用 sweep 抢占。
 
-```sql
--- 3.1 一道 edict 的完整有序时间线
-SELECT created_at, event_type, memorial_id, payload_json
-FROM events
-WHERE edict_id = ?
-ORDER BY created_at ASC, id ASC;
+## 4. Scheduler 排查
 
--- 3.2 该 edict 各事件类型计数（快速判断卡在哪一阶段）
-SELECT event_type, COUNT(*) AS n
-FROM events
-WHERE edict_id = ?
-GROUP BY event_type
-ORDER BY n DESC;
+job 状态：
 
--- 3.3 只看外环升级 / 人工决策（排障升级路径）
-SELECT created_at, event_type, payload_json
-FROM events
-WHERE edict_id = ?
-  AND (event_type LIKE 'outer_loop.%' OR event_type LIKE 'decree.%')
-ORDER BY created_at ASC;
+- `active`：等待/循环触发；
+- `paused`：保留 cursor，不触发；
+- `completed`：once 已正常准备 run；
+- `failed`：恢复或 worker 边界不能继续，可在修复原因后 resume；
+- `cancelled`：用户取消或 Edict archive。
 
--- 3.4 治理决策审计（policy/approval；对照 list_policy_events 路由口径）
-SELECT created_at, event_type, payload_json
-FROM events
-WHERE edict_id = ?
-  AND (event_type LIKE 'policy.%'
-       OR event_type LIKE 'hook.%'
-       OR event_type = 'tool.approval_required'
-       OR event_type LIKE 'decree.%')
-ORDER BY created_at ASC;
+周期错过多个槽位时默认 `coalesce`，只准备最近一次。`run-now` 创建独立、幂等 run，不改变
+原 schedule。若 job cursor 已推进但页面还没有 terminal result，继续看关联 Memorial 和
+attempt，而不是再次 run-now 制造额外业务运行。
 
--- 3.5 跨 edict 找失败的 run（运营巡检）
-SELECT edict_id, created_at, payload_json
-FROM events
-WHERE event_type = 'execution.failed'
-ORDER BY created_at DESC
-LIMIT 50;
-```
+## 5. 长程任务排查
 
-DB 默认位于 `~/.tianshu/`；用 `sqlite3` 直连即可。`payload_json` 是文本，用 `json_extract(payload_json, '$.status')` 取字段，例如 `execution.completed` 的 `payload.status`、`execution.failed` 的 `payload.error`。
+- pause 在当前轮边界生效；看到 API 返回 paused 后，当前 actor 可能仍在收尾该轮。
+- steer 进入 pending 后，下一轮才注入；只有 checkpoint 成功后才 ack 删除。
+- checkpointed/background 在重启后优先从 durable attempt/continuation 恢复，旧 checkpoint
+  是兼容 fallback。
+- actor 明确 failed/cancelled 后 critic 不再改变终态。
+- checkpoint 只有在最终 Memorial 终态和监督收口持久化后才清理；终态后仍残留 checkpoint
+  应作为一致性问题排查。
 
-## 4. 三类 worked trace（事件序列）
+## 6. 通知排查（V24）
 
-按 `created_at ASC` 读到的典型序列。`execution.*` 的 producer 是 `executor`，`outer_loop.*` 是 `orchestrator`。
+delivery 状态：
 
-### 4.1 成功 run
-
-```
-edict.submitted        (gateway, fire → 202 立即返回)
-edict.scheduled        (scheduler)
-plan.completed         (planner；若免裁决直接进执行)
-execution.started      payload.memorial_id
-outer_loop.started     payload.max_outer
-outer_loop.iteration.started / .finished   (可能多轮)
-outer_loop.completed
-audit.completed
-execution.completed    payload.status="completed"
-```
-
-### 4.2 失败 run
-
-```
-edict.submitted → edict.scheduled → plan.completed
-execution.started
-outer_loop.started → iteration.started / .finished ...
-outer_loop.exhausted          (max_outer 耗尽，未达验收)
-execution.failed              payload.status="failed", payload.error="..."
-```
-
-排障入口：先 `execution.failed` 的 `payload.error`；若 `error` 为 `orchestrator error: ...` 说明外环抛异常（`executor.py` finally 兜底翻 failed）。
-
-### 4.3 升级 run（外环 escalate 到人工）
-
-```
-execution.started → outer_loop.started → iteration.started/.finished
-outer_loop.escalated            payload.to="L2"/"L3", payload.iteration
-outer_loop.approval.requested   (L3 触发人工，payload 带请求上下文)
-   ── 等待人工 ──
-decree.approved | decree.rejected
-outer_loop.approval.received    payload.action
-outer_loop.resumed | outer_loop.completed
-execution.completed | execution.failed
-```
-
-L2 会插入一次 consultation（咨询），失败则补一条 `outer_loop.escalated` 直接升 L3（`orchestrator/loop.py`）。卡在 `approval.requested` 之后无后续，即「等人工未决」。
-
-## 5. 导出 / 检查时间线
-
-### 5.1 HTTP 路由（`edicts_api.py` / `system_api.py` / `audit_api.py`）
-
-| 路由 | 用途 |
+| 状态 | 含义 |
 |---|---|
-| `GET /api/edicts/{edict_id}/events` | 单道 edict 全量事件（直接落库口径，`get_events`） |
-| `GET /api/edicts/{edict_id}/policy_events` | 仅 `policy.*` / `hook.*` / `tool.approval_required` / `decree.*`（治理审计视图） |
-| `GET /api/event-bus/recent?limit=` | 跨 edict 最近事件（默认 50，上限 200，`get_recent_events` 倒序） |
-| `GET /api/event-bus/stats` | 全库事件类型分布计数（`get_event_stats`） |
-| `GET /api/event-bus/handlers` | 当前注册的 handler + priority（核对订阅是否就位） |
-| `GET /api/policy/stats` | 当日 allow/deny/require_approval/approved/rejected 聚合 |
+| pending | 等待 claim |
+| claimed | worker 持有有效 lease |
+| retry_wait | 至少一个未成功渠道等待重试 |
+| delivered | 所有配置渠道 adapter/provider 均接受 |
+| dead_letter | 超过 deadline 或 max attempts |
 
-### 5.2 实时 timeline（WebSocket）
+检查 `accepted_channels_json`。若 `["feishu"]` 已存在而 email 失败，下一次只发 email；不要
+手工清空数组，否则可能重复通知。accepted 不证明收件人阅读或第三方最终送达。
 
-`GET /api/ws`（`websocket_endpoint`）→ `Notifier.register_ws`，推送 `stream.*`（增量 token / 工具起止）与 `audit.completed` 状态卡片。urgent 优先级 edict 跳过 0.5s debounce 立即广播（`notifier.py`）。
+## 7. 成本与用量
 
-> live 流只用于「正在跑」的观察；run 结束后回放一律走 §3/§5.1 的 `events` 表，那才是单一可信源。
+`cost_ledger` 按 Edict/Memorial 保存 prompt、completion、total、cache-read tokens 和 CNY
+估算。失败和取消也会结算已发生用量；多 provider/model run 标签为 `multiple`；平台级
+调用归 `__platform__`。本地数字取决于 provider usage 和价格配置，不等于供应商账单。
 
-### 5.3 命令行导出
+## 8. SystemAudit
 
-```bash
-# 导出某 edict 的时间线为 CSV（DB 默认 ~/.tianshu/tianshu.db）
-sqlite3 -header -csv ~/.tianshu/tianshu.db \
-  "SELECT created_at, event_type, memorial_id, payload_json
-   FROM events WHERE edict_id='<EDICT_ID>' ORDER BY created_at ASC, id ASC;" \
-  > timeline.csv
+`system_audit_events` 是独立于普通 Edict events 的 tamper-evident hash chain。读取和 export
+会从 genesis 校验 sequence、previous hash 和 event hash；发现 gap/篡改返回完整性错误。
 
-# 全库事件类型分布
-sqlite3 ~/.tianshu/tianshu.db \
-  "SELECT event_type, COUNT(*) FROM events GROUP BY event_type ORDER BY 2 DESC;"
-```
+- `GET /api/audit/system`
+- `GET /api/audit/system/export`
+
+两者只允许 admin。该链能检测本地数据库边界内的普通篡改，但不能抵抗特权攻击者同时替换
+数据库和 trust root，也不是外部 WORM 存储。
+
+## 9. 直接查 SQLite
+
+优先使用 API，因为 API 会执行 ownership、admin 和完整性校验。只有在停机或可信本地排障
+时才直接打开数据库；先备份 DB/WAL/SHM，不要在运行中手工 UPDATE 状态或迁移表。尤其不要
+手工修改：
+
+- `schema_migrations`；
+- `execution_attempts` fencing/lease；
+- `scheduler_jobs.next_run`；
+- `accepted_channels_json`；
+- `system_audit_events`。
+
+这些字段有跨表或 hash/CAS 约束，手改一行可能制造无法安全恢复的假状态。

@@ -64,7 +64,13 @@ describe("onboarding state composition", () => {
       metadata: { total: 1, limit: 1, offset: 0 },
     });
 
-    await expect(getOnboardingState()).resolves.toMatchObject({ required: false });
+    await expect(getOnboardingState()).resolves.toMatchObject({
+      required: false,
+      packagedPersonas: [],
+      builtinSkills: [],
+    });
+    expect(apiMocks.listPersonas).not.toHaveBeenCalled();
+    expect(apiMocks.listSkills).not.toHaveBeenCalled();
   });
 
   it("turns readiness not_ready into service-unavailable before catalog reads", async () => {
@@ -117,7 +123,7 @@ describe("onboarding state composition", () => {
     });
   });
 
-  it("rejects an extra persona because the catalog exposes no authoritative source marker", async () => {
+  it("allows custom personas while requiring the packaged bootstrap subset", async () => {
     apiMocks.listPersonas.mockResolvedValue({
       success: true,
       data: [
@@ -126,9 +132,9 @@ describe("onboarding state composition", () => {
       ],
     });
 
-    await expect(getOnboardingState()).rejects.toMatchObject({
-      status: 503,
-      code: "onboarding-resources-unavailable",
+    await expect(getOnboardingState()).resolves.toMatchObject({
+      required: true,
+      packagedPersonas: personas,
     });
   });
 
@@ -144,7 +150,7 @@ describe("onboarding state composition", () => {
     });
   });
 
-  it("requires exactly the two builtin skills while ignoring user overlays", async () => {
+  it("requires the two bootstrap skills while allowing builtin and user extensions", async () => {
     apiMocks.listSkills.mockResolvedValue({
       success: true,
       data: [...skills, { name: "user-helper", source: "user" }],
@@ -158,9 +164,8 @@ describe("onboarding state composition", () => {
       success: true,
       data: [...skills, { name: "unexpected-builtin", source: "builtin" }],
     });
-    await expect(getOnboardingState()).rejects.toMatchObject({
-      status: 503,
-      code: "onboarding-resources-unavailable",
+    await expect(getOnboardingState()).resolves.toMatchObject({
+      builtinSkills: skills,
     });
   });
 

@@ -54,6 +54,8 @@ _COMPLETE_MIGRATION_LEDGER = [
     (20, "0020_encrypt_llm_config_keys"),
     (21, "0021_app_settings"),
     (22, "0022_legacy_assignment_cleanup"),
+    (23, "0023_cost_cache_read_tokens"),
+    (24, "0024_notification_channel_progress"),
 ]
 _POST_BASELINE_TABLES = {
     "auth_tokens",
@@ -344,6 +346,10 @@ def _build_canonical_preledger(
             -- This pre-v8 fixture must not retain objects owned by later v16/v17
             -- migrations. Drop dependants before their FK parents so replay sees
             -- the actual older schema rather than a partially downgraded one.
+            -- Remove the later v23 column while every schema dependency still exists:
+            -- SQLite reparses all triggers during ALTER TABLE.
+            ALTER TABLE cost_ledger DROP COLUMN cache_read_tokens;
+
             DROP INDEX idx_internal_notification_delivery_claim;
             DROP INDEX idx_internal_notification_delivery_correlation;
             DROP TABLE internal_notification_deliveries;

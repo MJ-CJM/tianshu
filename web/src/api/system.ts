@@ -22,46 +22,6 @@ export async function getSkill(name: string): Promise<ApiResponse<SkillDetail>> 
   return data;
 }
 
-export async function updateSkill(
-  name: string,
-  content: string,
-): Promise<ApiResponse<SkillDetail>> {
-  const { data } = await apiClient.put<ApiResponse<SkillDetail>>(
-    `/skills/${encodeURIComponent(name)}`,
-    { content },
-  );
-  return data;
-}
-
-export async function createSkill(
-  name: string,
-  content: string,
-): Promise<ApiResponse<SkillDetail>> {
-  const { data } = await apiClient.post<ApiResponse<SkillDetail>>("/skills", {
-    name,
-    content,
-  });
-  return data;
-}
-
-export async function deleteSkill(
-  name: string,
-): Promise<ApiResponse<{ name: string }>> {
-  const { data } = await apiClient.delete<ApiResponse<{ name: string }>>(
-    `/skills/${encodeURIComponent(name)}`,
-  );
-  return data;
-}
-
-export async function archiveSkill(
-  name: string,
-): Promise<ApiResponse<{ name: string }>> {
-  const { data } = await apiClient.post<ApiResponse<{ name: string }>>(
-    `/skills/${encodeURIComponent(name)}/archive`,
-  );
-  return data;
-}
-
 export async function pinSkill(
   name: string,
   pinned: boolean,

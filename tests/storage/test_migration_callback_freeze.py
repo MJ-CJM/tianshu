@@ -99,6 +99,14 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0022_legacy_assignment_cleanup": (
         "01b7aa95582bc808f20c0e715ce3ecc43e6081218a2ec2900bcbe7c0f462f31f"
     ),
+    # v23 retains cache-read usage in the canonical cost ledger.
+    "0023_cost_cache_read_tokens": (
+        "c9c8c0f91bdb539abfe41263300fdb3a6bdfe87e9da83fa8c4816330fa424a3c"
+    ),
+    # v24 retains per-channel acceptance so retries skip channels already accepted.
+    "0024_notification_channel_progress": (
+        "ddedca050950e01e662e1f953a85bb988b61e8822d8d59398dd348e26d58fdc2"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

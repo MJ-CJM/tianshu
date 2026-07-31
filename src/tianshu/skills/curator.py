@@ -137,6 +137,7 @@ class SkillCurator:
         runtime_dir: Path,
         validator: SkillValidator | None = None,
         effect_evaluator: Any = None,
+        governed_writes_available: bool = False,
     ) -> None:
         self._llm = llm_client
         self._loader = loader
@@ -149,6 +150,7 @@ class SkillCurator:
         # 修撰效果门(ADR-0007):async (skill_name, old_md, new_md) -> float|None(delta)。
         # None = 评估未能进行;配置门 + 该 evaluator 均就绪时才启用效果门。
         self._effect_evaluator = effect_evaluator
+        self._governed_writes_available = governed_writes_available
 
     def attach_event_bus(self, bus: Any) -> None:
         self._event_bus = bus
@@ -402,8 +404,20 @@ class SkillCurator:
         dry_run: bool = False,
     ) -> CurateResult:
         cfg = self._config.agent_config
-        if not getattr(cfg, "skill_curator_enabled", True):
+        if not dry_run and not getattr(cfg, "skill_curator_enabled", True):
             return CurateResult(skipped="disabled", dry_run=dry_run)
+        if not dry_run and not self._governed_writes_available:
+            await self._emit(
+                "curate.skipped",
+                {
+                    "reason": "governed_skill_service_required",
+                    "trigger_source": trigger_source,
+                },
+            )
+            return CurateResult(
+                skipped="governed_skill_service_required",
+                dry_run=False,
+            )
 
         if not dry_run:
             if not self._idle_ok(getattr(cfg, "skill_curator_idle_hours", 2)):

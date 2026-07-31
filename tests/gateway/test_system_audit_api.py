@@ -238,3 +238,25 @@ def test_estop_mutations_use_request_actor_and_correlation_without_raw_fields(
         assert "Owner" not in repr(event)
         assert "127.0.0.1" not in repr(event)
         assert "security drill" not in repr(event)
+
+
+def test_estop_mutations_reject_api_only_pat(storage: Storage) -> None:
+    app = _app(storage)
+    limited_headers = {"Authorization": f"Bearer {_limited_token(app)}"}
+
+    with _client(app) as client:
+        engaged = client.post(
+            "/api/estop/engage",
+            headers=limited_headers,
+            json={"kill_all": True, "reason": "must not apply"},
+        )
+        resumed = client.post(
+            "/api/estop/resume",
+            headers=limited_headers,
+            json={"all_clear": True},
+        )
+        status = client.get("/api/estop", headers=limited_headers)
+
+    assert engaged.status_code == resumed.status_code == 403
+    assert status.status_code == 200
+    assert status.json()["data"]["engaged"] is False

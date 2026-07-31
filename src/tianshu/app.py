@@ -33,7 +33,6 @@ from tianshu.gateway.evolution_api import evolution_router
 from tianshu.gateway.execution_api import execution_router
 from tianshu.gateway.hongluisi_api import hongluisi_router
 from tianshu.gateway.keqing_api import keqing_router
-from tianshu.gateway.llm_gateway_api import llm_gateway_router
 from tianshu.gateway.mcp_api import mcp_router
 from tianshu.gateway.memory_api import memory_router
 from tianshu.gateway.model_providers_api import model_providers_router
@@ -306,8 +305,8 @@ async def lifespan(app: FastAPI):
                 instance_id=f"{settings.host}:{settings.port}",
             )
 
-        # Durable only up to the internal notification handler. Provider/channel
-        # acceptance remains best-effort and is intentionally outside this Gate.
+        # Retain and retry until every configured channel adapter accepts the
+        # notification (recipient read/ack remains outside this boundary).
         from tianshu.notifier.delivery_outbox import (
             InternalDeliveryOutbox,
             InternalDeliveryWorker,
@@ -334,18 +333,20 @@ async def lifespan(app: FastAPI):
         # Outbox starts last after every consumer is registered.
         startup_stops.append(_stop_outbox_if_created)
         await bootstrap.wire_outbox(app, settings)
+        evolution_center_service = EvolutionCenterQueryService(
+            app.state.storage,
+            app.state.evolution_gate_evaluator,
+        )
+        app.state.evolution_center_service = evolution_center_service
         app.state.control_center_service = ControlCenterQueryService(
             unit_of_work=app.state.storage.unit_of_work,
             decision_repository=app.state.storage.decision_repo,
             run_state_repository=app.state.storage.run_state_repo,
             evidence_repository=app.state.storage.evidence_repo,
             readiness_status=lambda: _assess_app_readiness(app.state).status,
+            evolution_status=lambda auth: evolution_center_service.get_snapshot(auth).status,
         )
         app.state.edict_detail_service = EdictDetailQueryService(app.state.storage)
-        app.state.evolution_center_service = EvolutionCenterQueryService(
-            app.state.storage,
-            app.state.evolution_gate_evaluator,
-        )
         logger.info("Tianshu started on %s:%s", settings.host, settings.port)
     except BaseException:
         await _cleanup_started()
@@ -391,6 +392,9 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("[mcp] manager shutdown error")
     await app.state.bot_manager.stop_all()
+    from tianshu.llm import set_usage_observer
+
+    set_usage_observer(None)
     app.state.drawer_store.close()
     app.state.storage.close()
     logger.info("Tianshu shutdown complete")
@@ -432,7 +436,6 @@ def create_app(settings: TianshuSettings | None = None) -> FastAPI:
     app.include_router(execution_router, prefix="/api")
     app.include_router(hongluisi_router, prefix="/api")
     app.include_router(keqing_router, prefix="/api")
-    app.include_router(llm_gateway_router, prefix="/api")
     app.include_router(mcp_router, prefix="/api")
     app.include_router(memory_router, prefix="/api")
     app.include_router(model_providers_router, prefix="/api")

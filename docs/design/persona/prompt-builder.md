@@ -11,7 +11,7 @@
 | Layer | 内容 | 来源 | 条件 |
 |---|---|---|---|
 | 1 | Base Identity | `_BASE_IDENTITY` 常量 | 恒有 |
-| 2 | Court Protocol（COURT.md） | `personas/court/COURT.md`（模板） | persona 非空 |
+| 2 | Court Protocol（COURT.md） | `resolve_court_read(~/.tianshu/personas/)`（overlay 优先，否则 `packaged_defaults()`） | persona 非空 |
 | 2.5 | Identity Card（权威身份卡） | persona name+department+title | persona 非空 |
 | 3 | SOUL.md（人格身份） | `~/.tianshu/personas/{id}/SOUL.md`（运行时） | persona 非空 |
 | 4 | ROLE.md（角色职责） | `~/.tianshu/personas/{id}/ROLE.md`（运行时） | persona 非空 |
@@ -29,6 +29,7 @@
 ## 3. 关键契约
 
 - **身份卡覆盖**：Layer 2.5 在 SOUL.md 之前注入权威身份（id/name/department/title），覆盖任何下文中可能的旧身份描述——这是双层存储下「运行时 SOUL 演化但身份不漂」的保证。
+- **打包默认只读**：Layer 2 的默认 COURT 来自 `src/tianshu/resources/personas/court/COURT.md` 的打包视图；自定义协议只写 `~/.tianshu/personas/court/COURT.md` overlay。
 - **SOUL 缺省降级**：SOUL.md 不存在时退化为 `You are {name}, serving in the {department} department...` 并打 warning，prompt 不中断。
 - **记忆分层来源**：个人记忆（Layer 5）、部门同侪池（5.6）、朝堂共享（6）三级，从私有到公共逐级注入。
 - **skills 按 persona 过滤**：`persona.skills_allowed` 非空时只注入白名单内 skills，索引（渐进加载）与 always 全文分开注入。

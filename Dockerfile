@@ -1,42 +1,65 @@
-# ========== Stage 1: Build frontend ==========
+# Legacy/local validation image only. This is not an official release or registry artifact.
+
+# ========== Stage 1: Build the desktop Web payload ==========
 FROM node:20-slim AS frontend-builder
 WORKDIR /build
-COPY web/package.json web/package-lock.json* ./
-RUN npm ci --prefer-offline
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --ignore-scripts
 COPY web/ ./
 RUN npm run build
-# Output: /build/src/tianshu/web/static/
+# vite emits /src/tianshu/web/static from this work directory.
 
-# ========== Stage 2: Python backend + static files ==========
-FROM ubuntu:24.04
-WORKDIR /app
+# ========== Stage 2: Build the same self-contained Python wheel ==========
+FROM python:3.12-slim-bookworm AS wheel-builder
+WORKDIR /build
 
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        python3.12 python3.12-venv python3-pip \
-        git curl wget jq zip unzip \
-        build-essential ca-certificates openssh-client \
-    && ln -sf /usr/bin/python3.12 /usr/bin/python3 \
-    && ln -sf /usr/bin/python3 /usr/bin/python \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY pyproject.toml ./
+COPY pyproject.toml MANIFEST.in README.md LICENSE NOTICE THIRD_PARTY_NOTICES.md ./
+COPY build_backend/ ./build_backend/
 COPY src/ ./src/
-RUN pip install --no-cache-dir --break-system-packages ".[cli]"
+COPY --from=frontend-builder /src/tianshu/web/static ./src/tianshu/web/static/
 
-# Copy frontend build output from Stage 1
-# vite outDir = "../src/tianshu/web/static" relative to /build → /src/tianshu/web/static
-COPY --from=frontend-builder /src/tianshu/web/static /app/static
+# The in-tree backend rejects a wheel without the Web payload.
+RUN python -m pip wheel --no-cache-dir --no-deps --wheel-dir /dist .
 
-ENV TIANSHU_DB_PATH="/data/tianshu.db"
-ENV TIANSHU_WORKSPACE_DIR="/workspace"
-ENV TIANSHU_STATIC_DIR="/app/static"
+# ========== Stage 3: Minimal non-root runtime ==========
+FROM python:3.12-slim-bookworm
+
+LABEL org.opencontainers.image.source="https://github.com/MJ-CJM/tianshu" \
+      org.opencontainers.image.licenses="MIT" \
+      io.tianshu.distribution-status="legacy-local-validation"
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HOME=/home/tianshu \
+    TIANSHU_DB_PATH=/data/tianshu.db \
+    TIANSHU_ARTIFACT_DIR=/data/artifacts \
+    TIANSHU_MEMORY_DIR=/data/memory \
+    TIANSHU_RUNTIME_PERSONAS_DIR=/data/personas \
+    TIANSHU_PLUGINS_DIR=/data/plugins \
+    TIANSHU_LOG_DIR=/data/logs \
+    TIANSHU_WORKSPACE_STAGING_ROOT=/data/workspaces \
+    TIANSHU_WORKSPACE_DIR=/workspace
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git openssh-client \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 tianshu \
+    && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/tianshu tianshu \
+    && install -d -o 10001 -g 10001 /app /data /workspace
+
+WORKDIR /app
+COPY --from=wheel-builder /dist/tianshu-*.whl /tmp/
+RUN python -m pip install --no-cache-dir /tmp/tianshu-*.whl \
+    && python -c "from pathlib import Path; [path.unlink() for path in Path('/tmp').glob('tianshu-*.whl')]"
+
 VOLUME ["/data", "/workspace"]
 EXPOSE 8000
+USER 10001:10001
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD ["python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health/live', timeout=3).read()"]
 
-# 经 launcher 引导：读 deploy 指针决定从主仓或某代码变体 worktree 启动（支持代码变体晋升后重启生效）
-CMD ["python", "-m", "tianshu.universe.launcher"]
+# scripts/docker.sh supplies the validated trusted-local container boundary
+# variables (or a complete secure-remote profile) before starting this runtime.
+CMD ["uvicorn", "tianshu.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

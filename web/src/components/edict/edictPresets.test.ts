@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { EDICT_PRESETS, getPreset } from "./edictPresets";
 
 const VALID_REVIEW = new Set(["always", "on_flag", "on_failure", "never"]);
-const VALID_PROFILE = new Set(["foreground", "checkpointed", "background"]);
-const VALID_EXECUTOR = new Set(["native", "keqing:claude-code", "keqing:codex"]);
+const VALID_PROFILE = new Set(["checkpointed"]);
+const VALID_EXECUTOR = new Set(["native"]);
 
 describe("EDICT_PRESETS 定义完整性", () => {
   it("key 唯一且非空", () => {
@@ -28,24 +28,23 @@ describe("EDICT_PRESETS 定义完整性", () => {
     }
   });
 
-  it("longTask 预设必带 execution_profile", () => {
+  it("longTask 预设统一使用可恢复的 checkpointed profile", () => {
     for (const p of EDICT_PRESETS) {
       if (p.longTask) {
-        expect(p.fields).toHaveProperty("execution_profile");
+        expect(p.fields.execution_profile).toBe("checkpointed");
       }
     }
   });
 
-  it("keqing 预设派 Claude Code", () => {
-    const keqing = getPreset("keqing");
-    expect(keqing?.fields.executor).toBe("keqing:claude-code");
-    expect(keqing?.longTask).toBe(false);
+  it("实验性客卿不作为普通用户任务类型", () => {
+    expect(getPreset("keqing")).toBeUndefined();
   });
 
   it("quick 预设是默认态(不长程/自研引擎)", () => {
     const quick = getPreset("quick");
     expect(quick?.longTask).toBe(false);
     expect(quick?.fields.executor).toBe("native");
+    expect(quick?.fields.review_policy).toBe("on_failure");
   });
 });
 

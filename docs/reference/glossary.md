@@ -12,6 +12,8 @@
 | 规划 | `Plan` / `PlanTask` | 内阁规划产出的任务计划，可展开为 DAG |
 | 验收标准 | `AcceptanceCriteria` | 长任务 outer loop 的触发器与验收契约 |
 | 事件 | `EventEnvelope` / `EventBus` | 模块间主协议，带 `edict_id` 的事件落 `events` 表成时间线 |
+| 身份主体 | `Principal` / `AuthContext` | 一次 HTTP、WebSocket、MCP 或 webhook 调用的已认证行动者 |
+| 管理员 | scope=`admin` | 可读取全局审计、成本、Worker 和平台配置；普通主体只访问自己的任务资源 |
 
 ## 六部官员（Persona）
 
@@ -25,7 +27,7 @@
 | 户部 | `hubu` | 成本审查、配额裁决（Cost） |
 | 朝廷 | `court` | 所有官员共享的上下文层 |
 
-> 官员的人格资料以 Markdown 文件承载：`SOUL.md`（性格/价值观）、`ROLE.md`（职责/边界）、`MEMORY.md`（长期记忆）。Git 模板在 `personas/{id}/`，运行时覆盖在 `~/.tianshu/personas/{id}/`。
+> 官员的人格资料以 Markdown 文件承载：`SOUL.md`（性格/价值观）、`ROLE.md`（职责/边界）、`MEMORY.md`（长期记忆）。打包默认资源在 `src/tianshu/resources/personas/{id}/`，运行时人格覆盖在 `~/.tianshu/personas/{id}/`，运行时记忆在 `~/.tianshu/memory/{id}/`。
 
 ## 其他官署与隐喻
 
@@ -34,6 +36,7 @@
 | 鸿胪寺 | `tools/hongluisi/` | 对外邦交 → 对外网络访问工具（web_fetch / web_search / web_extract / api_request） |
 | 记忆宫殿 | Memory Palace | 多层记忆系统（宫殿/偏殿/房间/抽屉隐喻） |
 | 抽屉 | `Drawer` / `DrawerStore` | L1 记忆快照，独立 SQLite，检索优先 |
+| 记忆条目标识 | stable entry ID | Markdown 真相源与 SQLite/FTS 索引共用的稳定标识，用于精确同步和删除 |
 | 会诊 | `ConsultationSession` | 多官员协作决策 |
 | 通政（前端） | Tongzheng 页 | 通知渠道配置页 |
 
@@ -42,8 +45,8 @@
 | 术语 | 代码标识 | 含义 |
 |---|---|---|
 | 位面 | `Universe` | 一份可分叉、可自进化的行为配置快照 |
-| 冠军 | status=`champion` | 在役位面（含工作副本，会随使用 live 漂移） |
-| 挑战者 / 候选 | status=`challenger` | 冻结快照，接受小流量探索 |
+| 冠军 | status=`champion` | Legacy Universe 的基线快照标记；不等于当前 live 工作副本 |
+| 挑战者 / 候选 | status=`challenger` | Legacy 实验快照；自身不接真实小流量，受治理流量归因另由 Candidate/Assignment 链路负责 |
 | 归档 | status=`archived` | 退役位面（保留可恢复） |
 | 来源 | `origin` | `genesis` / `manual_branch` / `mutation` / `code_variant` |
 | 适应度 | `FitnessCalculator` | 评估函数：成功率、成本、审计通过率、用户反馈 |
@@ -61,6 +64,13 @@
 | 会话规则 | `SessionRule` | 会话级 allow/deny 工具权限 |
 | 副作用拦截 | `winding_down` | 生命周期收尾阶段拦截有副作用的工具调用 |
 | 钩点 | `HookRegistry` / `HookType` | Agent 生命周期扩展点，按 priority 排序 |
+| 检查点 | checkpoint | 长任务轮次边界的持久状态；用于暂停、恢复和受控故障接续，不代表任意副作用 exactly-once |
+| 运行中指引 | steer | 持久化用户补充要求，并在下一轮 actor 边界吸收 |
+| 单次定时 | schedule type=`once` | 在指定 IANA 时区时间执行一次；普通任务与长程任务均支持 |
+| 周期定时 | schedule type=`cron` / `interval` | 普通任务支持；长程任务统一拒绝，避免单节点运行身份重叠 |
+| misfire | `coalesce` | 服务停机错过多个周期时只补最近一次，避免恢复后集中触发 |
+| 渠道接受进度 | `accepted_channels` | 通知 outbox 已成功渠道集合；部分成功重试只发送剩余渠道 |
+| 缓存读取用量 | `cache_read_tokens` | provider 返回的 prompt-cache 读取 token，独立于普通 prompt/completion token 入账 |
 
 ## 三档执行路径
 

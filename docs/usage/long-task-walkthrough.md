@@ -6,19 +6,23 @@
 
 > 触发条件：只要 `Edict.acceptance` 非空，执行就从普通 ReAct 切换到 orchestrator outer loop。不配 `acceptance` 的诏令走普通单轮路径，本篇不适用。
 > 入口契约见 `AcceptanceCriteria`（`src/tianshu/models/acceptance.py`），HTTP 路由在 `gateway/edicts_api.py`。
+>
+> 调度边界：长任务支持 `immediate` 和 `once`；`cron` / `interval` 周期长任务在 Web、
+> API 和工具入口统一返回拒绝。周期运行请使用普通任务。
 
 ## 1. 带 acceptance_criteria 下诏
 
 走 `POST /api/edicts`（`create_edict`），在请求体 `acceptance` 字段塞入验收契约。注意：CLI `tianshu edict submit` 只接受 `--goal/--context/--priority`，**不带** acceptance，要配验收契约请直接走 HTTP（curl / Web）。
 
-curl 示例（最小可跑，含一条 bash check + 一个监督官 + 升级策略）：
+curl 示例（使用仓库自带人格和系统自带 `test` 命令，不依赖额外安装的 lint 工具）：
 
 ```bash
 curl -X POST http://localhost:8000/api/edicts \
   -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: long-task-readme-001' \
   -d '{
-    "goal": "把 docs/draft.md 改写成一篇可发布的技术博客，保留全部代码示例",
-    "title": "博客改写",
+    "goal": "完善 README.md 的安装说明，保留现有链接并给出可执行的首次启动步骤",
+    "title": "完善安装说明",
     "execution_profile": "checkpointed",
     "acceptance": {
       "min_outer_iterations": 2,
@@ -28,11 +32,11 @@ curl -X POST http://localhost:8000/api/edicts \
       "on_critic_unavailable": "skip",
       "on_approval_timeout": "best_effort",
       "checks": [
-        {"kind": "bash", "name": "markdown_lint", "command": "markdownlint docs/draft.md", "timeout_seconds": 60},
-        {"kind": "rubric", "name": "覆盖度", "rubric": "正文是否完整保留了原文每个代码块", "pass_threshold": 0.8, "weight": 1.0}
+        {"kind": "bash", "name": "readme_exists", "command": "test -s README.md", "timeout_seconds": 60},
+        {"kind": "rubric", "name": "可执行性", "rubric": "安装说明是否包含清晰、可直接执行的首次启动步骤，并保留已有链接", "pass_threshold": 0.8, "weight": 1.0}
       ],
       "critic": {
-        "persona_ids": ["editor-in-chief"],
+        "persona_ids": ["ducha"],
         "strictness": "balanced",
         "same_issue_threshold": 2
       },
@@ -41,19 +45,24 @@ curl -X POST http://localhost:8000/api/edicts \
         "l1_max_rounds": 2,
         "l2_max_rounds": 1,
         "l1_thinking_budget": 8000,
-        "l2_consultation_personas": ["senior-editor", "fact-checker"]
+        "l2_consultation_personas": ["wenyuan", "neige"]
       }
     }
   }'
 ```
 
-返回 `202` + edict 数据（`ApiResponse`，`data.id` 即 edict_id）。`create_edict` 只在 `body.acceptance is not None` 时把它挂到 `Edict`，所以不传该字段就是普通诏令。
+首次提交返回 `202` + edict 数据（`ApiResponse`，`data.id` 即 edict_id）；用相同
+`Idempotency-Key` 和相同请求体重放时返回 `200`，并复用原任务。`create_edict` 只在
+`body.acceptance is not None` 时把它挂到 `Edict`，所以不传该字段就是普通诏令。
 
 | 入口 | 怎么带验收契约 |
 |---|---|
 | **HTTP / curl** | `POST /api/edicts`，body 加 `acceptance` 对象（上例） |
 | **Web UI** | 新建 Edict 表单里展开「验收契约」，填 checks / critic / 升级；前端类型见 `web/src/api/types.ts` 的 `AcceptanceCriteria` |
 | **追加指令** | `POST /api/edicts/{id}/follow-up` 带 `acceptance_override`，对单次 follow-up 覆盖验收契约 |
+
+Web 默认先让用户选择快速、分析、编码或研究任务；后 3 种会启用可检查点的长任务合理
+默认值。验收检查、监督官、预算和执行参数放在“专家模式”，普通用户无需逐项配置。
 
 ## 2. 配 CriticSpec 与 CheckSpec
 
@@ -88,15 +97,21 @@ curl -X POST http://localhost:8000/api/edicts \
 | `outer_loop.paused` / `outer_loop.resumed` | 暂停 / 续跑（checkpoint） |
 | `outer_loop.supervision_completed` | 监督报告已生成（见第 5 节） |
 
-升级是纯函数 FSM（`decide_escalation`）：L0 基线注入 critic feedback 重试；同类问题 streak 达 `same_issue_threshold` 才升 L1（加 thinking budget / 可换模型）；再不行升 L2 触发多 persona 会诊；仍不行升 L3 请人。所以监控时盯 `outer_loop.escalated` 的 level 即可看清「机器自救 → 求助人」的跳变。
+升级是纯函数 FSM（`decide_escalation`）：L0 基线注入 critic feedback 重试；同类问题 streak 达 `same_issue_threshold` 才升 L1（加 thinking budget / 可换模型）；再不行升 L2 触发多 persona 会诊；仍不行升 L3 请人。所以监控时盯 `outer_loop.escalated` 的 level 即可看清「机器自救 → 求助人」的跳变。失败或人工介入不会被审计器误写成成功终态。
 
 CLI 旁观：`tianshu watch <edict_id>` 也连 `/api/ws`，但它的状态表只识别 `execution.*` 终态事件、把 outer_loop.* 当普通事件逐条打印；要细看升级跳变直接订阅 WebSocket 或看 Web UI 更清楚。落库后的迭代记录可用 `GET /api/edicts/{id}/iterations` 回看。
 
 ## 4. L3 暂停 → 审阅 → 裁决
 
-升到 L3 时，loop 发 `outer_loop.approval.requested` 并**阻塞等待**人工裁决（`_escalate_to_human` → `ApprovalManager.wait_for_outer_loop_decision`，默认等 `deadline_seconds` 或 24h；内部 `approval` 名称为兼容保留）。
+升到 L3 时，受管执行路径会在同一持久边界内保存 checkpoint，并原子写入
+`Decision`、`WAITING_DECISION` RunState、`SUSPENDED` attempt 与 outbox，随后抛出
+`ManagedRunSuspended` 结束当前执行协程。服务和 runner 可以重启，不需要靠一个进程内
+future 挂满等待窗口；内部事件继续使用 `outer_loop.approval.*` 作为兼容名称。
 
-**审阅**：拉待决清单 `GET /api/edicts/outer-loop/pending`（`list_outer_loop_pending` → `list_pending_outer_loop`），每项含裁决 payload：`edict_id / iteration / level / best_output（当前最佳产出）/ critic_feedback（监督官意见）/ history_length`。
+**审阅**：规范入口是 `GET /api/decisions?status=pending`。其中长任务 L3 决策的
+payload 含 `edict_id / iteration / level / best_output（当前最佳产出）/
+critic_feedback（监督官意见）/ history_length`。旧
+`GET /api/edicts/outer-loop/pending` 仍作为兼容查询保留。
 
 **提交裁决**：`POST /api/edicts/{edict_id}/outer-loop/decide`（`submit_outer_loop_decision_api`），body 是 `OuterLoopDecisionRequest` → `HumanDecision`：
 
@@ -123,12 +138,17 @@ curl -X POST http://localhost:8000/api/edicts/<edict_id>/outer-loop/decide \
   -d '{"action": "modify_acceptance", "feedback": "代码块覆盖度降到 0.7 即可",
        "new_acceptance": { "max_outer_iterations": 3,
          "checks": [{"kind": "rubric", "name": "覆盖度", "rubric": "代码块是否大致保留", "pass_threshold": 0.7}],
-         "critic": {"persona_ids": ["editor-in-chief"], "strictness": "lenient"} }}'
+         "critic": {"persona_ids": ["ducha"], "strictness": "lenient"} }}'
 ```
 
-提交后 loop 唤醒、发 `outer_loop.approval.received`。若没有 edict 在等待裁决，decide 返回 `404`。裁决等待超时按 `on_approval_timeout`：`best_effort` 等价于 `accept_as_is`，`fail` 等价于 `abort`。
+提交后，恢复器建立新的受管 attempt，从持久 checkpoint 接续并发
+`outer_loop.approval.received`。若没有 edict 在等待裁决，decide 返回 `404`。裁决等待
+超时按 `on_approval_timeout`：`best_effort` 等价于 `accept_as_is`，`fail` 等价于
+`abort`。
 
-Web UI：御书房 / 裁决队列页消费 `outer-loop/pending` 渲染裁决卡片，弹出 L3 Modal 提交上述四种动作。
+Web UI：御书房通过 `/api/decisions` 只展示真正待处理的决策，点击后进入任务详情提交上述
+动作。兼容/测试装配没有 attempt authority 时，才回退到
+`ApprovalManager.wait_for_outer_loop_decision` 的进程内等待。
 
 ## 5. 读监督报告
 
@@ -155,6 +175,11 @@ Web UI：御书房 / 裁决队列页消费 `outer-loop/pending` 渲染裁决卡�
 | **L3 现场救** | 任务卡在 L3 时直接 `modify_acceptance` 放宽契约续跑（第 4 节） | 不想重头跑，只是验收过严 |
 | **重下新诏** | 重新 `POST /api/edicts`，按监督建议调低 `pass_threshold` / `strictness` 或加大 `max_outer_iterations` / `deadline_seconds` | 原诏已结案，或要换验收策略 |
 | **断点续跑** | `execution_profile` 为 `checkpointed`/`background` 时保存 checkpoint，中断后由受控触发续跑（发 `outer_loop.resumed`） | 长耗时任务、想避免重头算 |
+
+运行中的长任务还可调用 `POST /api/edicts/{id}/steer` 补充要求。指示先持久化，并在下一
+轮 actor 边界吸收；不会破坏当前轮 checkpoint。`pause` 同样在当前轮结束后生效，
+`resume` 从持久 checkpoint 接续。服务启动时不会把陈旧的 `running` 记录伪装成仍在
+执行：可恢复任务按持久游标接续，无法恢复的旧运行会明确落为失败。
 
 调参速查：
 

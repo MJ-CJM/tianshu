@@ -31,7 +31,7 @@ VALID_PRIORITIES = ("urgent", "normal", "low")
 VALID_EXECUTION_PROFILES = ("foreground", "checkpointed", "background")
 
 EDICT_STATUS_LABELS: dict[str, str] = {
-    "open": "进行中",
+    "open": "未结案",
     "completed": "已完成",
     "cancelled": "已取消",
 }
@@ -65,6 +65,10 @@ class AuditResult(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     rules_checked: int = 0
     llm_reviewed: bool = False
+    # Durable execution truth used when a failed run enters human review.
+    # Reviewer approval may accept the audit disposition, but must not rewrite
+    # the executor's failed terminal result into a successful execution.
+    execution_failed: bool = False
 
 
 class ArtifactRef(BaseModel):

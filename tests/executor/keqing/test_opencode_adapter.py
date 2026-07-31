@@ -54,7 +54,11 @@ class TestParseStream:
                 },
                 {
                     "type": "message.updated",
-                    "info": {"role": "assistant", "tokens": {"input": 100, "output": 20}, "cost": 0.003},
+                    "info": {
+                        "role": "assistant",
+                        "tokens": {"input": 100, "output": 20},
+                        "cost": 0.003,
+                    },
                 },
             )
         )

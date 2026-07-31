@@ -8,8 +8,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from tianshu.bus.event_bus import EventBus
+from tianshu.cost.manager import CostManager
 from tianshu.executor.orchestrator import OrchestratorContext, run
 from tianshu.executor.orchestrator.human_decision import HumanDecision
+from tianshu.llm import LLMUsageContext
 from tianshu.models.acceptance import (
     AcceptanceCriteria,
     CheckSpec,
@@ -111,6 +113,32 @@ async def test_pass_first_try(storage, bus):
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("status", [TaskStatus.FAILED, TaskStatus.CANCELLED])
+async def test_actor_terminal_status_cannot_be_washed_by_critic(storage, bus, status):
+    agent = MagicMock()
+    agent.execute = AsyncMock(
+        return_value=MagicMock(
+            status=status,
+            result="output that might otherwise pass review",
+            summary=None,
+            error=f"actor {status.value}",
+            usage=UsageSummary(cost_cny=0.1),
+        )
+    )
+    ctx = _make_ctx(storage, bus, agent, [])
+    e = _edict()
+    storage.save_edict(e)
+
+    result = await run(e, _memorial(e.id), ctx)
+
+    assert result.status is status
+    assert result.error == f"actor {status.value}"
+    assert result.final_output == "output that might otherwise pass review"
+    assert result.state.history == ()
+    assert ctx.critic_llm.chat.call_count == 0
+
+
+@pytest.mark.integration
 async def test_rubric_check_completion_is_persisted_as_evidence_event(storage, bus):
     actor = _agent(["candidate output"])
     actor_llm = MagicMock()
@@ -140,6 +168,18 @@ async def test_rubric_check_completion_is_persisted_as_evidence_event(storage, b
     result = await run(e, memorial, ctx)
 
     assert result.status == TaskStatus.COMPLETED
+    rubric_context = actor_llm.chat.await_args.kwargs["usage_context"]
+    assert (rubric_context.edict_id, rubric_context.memorial_id, rubric_context.operation) == (
+        e.id,
+        memorial.id,
+        "acceptance_rubric",
+    )
+    critic_contexts = [call.kwargs["usage_context"] for call in critic_llm.chat.await_args_list]
+    assert [context.operation for context in critic_contexts] == [
+        "critic_review",
+        "completion_audit",
+    ]
+    assert all(context.memorial_id == memorial.id for context in critic_contexts)
     evidence_events = [
         event
         for event in storage.get_events(e.id)
@@ -546,6 +586,35 @@ async def test_budget_hard_limit_forces_early_finalize(storage, bus):
     assert r.error is not None and r.error.startswith("budget_exhausted")
     assert ctx.agent.execute.call_count == 0, "预算耗尽应在 actor 调用前提前收工"
     assert ctx.critic_llm.chat.call_count == 0
+
+
+@pytest.mark.integration
+async def test_budget_hard_limit_includes_non_actor_llm_usage(storage, bus):
+    """Rubric/audit/consultation 等旁路调用也必须进入下一轮预算熔断。"""
+    cost_manager = CostManager(storage)
+    ctx = _make_ctx(storage, bus, _agent(["should not be called"]), [])
+    ctx.cost_manager = cost_manager
+    e = _edict().model_copy(
+        update={"runtime": EdictRuntime(token_budget=1000, lifecycle_phase="winding_down")}
+    )
+    storage.save_edict(e)
+    m = _memorial(e.id)
+    cost_manager.observe_llm_usage(
+        UsageSummary(prompt_tokens=1000, total_tokens=1000),
+        LLMUsageContext(
+            edict_id=e.id,
+            memorial_id=m.id,
+            operation="completion_audit",
+        ),
+        "provider",
+        "model",
+    )
+
+    r = await run(e, m, ctx)
+
+    assert r.status == TaskStatus.FAILED
+    assert r.error is not None and r.error.startswith("budget_exhausted")
+    assert ctx.agent.execute.call_count == 0
 
 
 @pytest.mark.integration

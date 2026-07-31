@@ -96,6 +96,39 @@ async def test_create_relative_once(setup):
 
 
 @pytest.mark.asyncio
+async def test_create_rejects_recurring_long_running_profile(setup):
+    func, storage, _ = setup
+
+    result = await func(
+        action="create",
+        goal="长时间周期巡检",
+        schedule="every 2h",
+        execution_profile="background",
+    )
+
+    assert result.is_error is True
+    assert "周期任务当前仅支持 foreground" in result.content
+    assert storage.list_edicts()[1] == 0
+
+
+@pytest.mark.asyncio
+async def test_create_allows_once_long_running_profile(setup):
+    func, storage, _ = setup
+
+    result = await func(
+        action="create",
+        goal="半小时后执行长任务",
+        schedule="30m",
+        execution_profile="background",
+    )
+
+    assert result.is_error is False
+    edict = storage.get_edict(result.details["edict_id"])
+    assert edict.schedule.type == "once"
+    assert edict.execution_profile == "background"
+
+
+@pytest.mark.asyncio
 async def test_create_requires_goal_and_schedule(setup):
     func, _, _ = setup
     assert (await func(action="create", schedule="30m")).is_error is True

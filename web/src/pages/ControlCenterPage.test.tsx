@@ -27,6 +27,9 @@ const SNAPSHOT: ControlCenterSnapshotV1 = {
   generated_at: "2026-07-17T09:00:00Z",
   readiness: "ready",
   active_run_total: 25,
+  unarchived_edict_total: 6,
+  awaiting_follow_up_total: 5,
+  cancelled_edict_total: 1,
   pending_decision_total: 24,
   evidence_total: 23,
   active_runs: [
@@ -67,6 +70,9 @@ const SNAPSHOT: ControlCenterSnapshotV1 = {
 const EMPTY_SNAPSHOT: ControlCenterSnapshotV1 = {
   ...SNAPSHOT,
   active_run_total: 0,
+  unarchived_edict_total: 0,
+  awaiting_follow_up_total: 0,
+  cancelled_edict_total: 0,
   pending_decision_total: 0,
   evidence_total: 0,
   active_runs: [],
@@ -136,7 +142,19 @@ describe("real Control Center snapshot", () => {
     expect(await screen.findByText("当前没有进行中的治理运行。")).toBeInTheDocument();
     expect(screen.getByText("当前没有待裁决事项。")).toBeInTheDocument();
     expect(screen.getByText("当前还没有可核验的证据束。")).toBeInTheDocument();
-    expect(screen.getAllByText("0")).toHaveLength(3);
+    expect(screen.getAllByText("0")).toHaveLength(4);
+  });
+
+  it("separates current runs from the unarchived Edict workspace", async () => {
+    controlApi.getControlCenterSnapshot.mockResolvedValue(SNAPSHOT);
+    renderPage();
+
+    expect(await screen.findByText("当前执行中")).toBeInTheDocument();
+    expect(screen.getByText("未归档敕令")).toBeInTheDocument();
+    expect(screen.getByText("待裁决总数")).toBeInTheDocument();
+    expect(screen.getByText("累计证据束（含归档）")).toBeInTheDocument();
+    expect(screen.getByText("待后续指令 5 · 已撤回 1")).toBeInTheDocument();
+    expect(screen.getByText("6")).toBeInTheDocument();
   });
 
   it("renders real counts and keyboard-accessible Edict Decision and Evidence links", async () => {
@@ -147,15 +165,32 @@ describe("real Control Center snapshot", () => {
     const edictLink = await screen.findByRole("link", { name: "查看敕令" });
     const decisionLink = screen.getByRole("link", { name: "查看并裁决" });
     const evidenceLink = screen.getByRole("link", { name: "下载证据" });
+    const longGovernanceLink = screen.getByRole("link", { name: "查看 长程治理" });
+    const evolutionLink = screen.getByRole("link", { name: "查看 自进化" });
+    const universeLink = screen.getByRole("link", { name: "查看 平行位面" });
+    const keqingLink = screen.getByRole("link", { name: "查看 客卿" });
     expect(edictLink).toHaveAttribute("href", "/edicts/edict-1");
     expect(decisionLink).toHaveAttribute("href", "/approvals");
     expect(evidenceLink).toHaveAttribute("href", "/api/evidence/bundle-1/download");
+    await user.tab();
+    expect(document.activeElement).toBe(longGovernanceLink);
+    await user.tab();
+    expect(document.activeElement).toBe(evolutionLink);
+    await user.tab();
+    expect(document.activeElement).toBe(universeLink);
+    await user.tab();
+    expect(document.activeElement).toBe(keqingLink);
     await user.tab();
     expect(document.activeElement).toBe(edictLink);
     expect(screen.getByText("25")).toBeInTheDocument();
     expect(screen.getByText("24")).toBeInTheDocument();
     expect(screen.getByText("23")).toBeInTheDocument();
     expect(screen.getByText("尚未启用")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "独特能力" })).toBeInTheDocument();
+    expect(longGovernanceLink).toHaveAttribute("href", "/edicts/create");
+    expect(evolutionLink).toHaveAttribute("href", "/evolution");
+    expect(universeLink).toHaveAttribute("href", "/universes");
+    expect(keqingLink).toHaveAttribute("href", "/keqing");
     expect(document.body.textContent).not.toMatch(/系统可信|置信度|信心分|88%/);
     expect(controlApi.getControlCenterSnapshot).toHaveBeenCalledTimes(1);
   });
@@ -236,6 +271,17 @@ describe("real Control Center snapshot", () => {
     expect(screen.queryByText("随系统降级")).not.toBeInTheDocument();
   });
 
+  it("projects the authoritative enabled evolution status into its capability card", async () => {
+    controlApi.getControlCenterSnapshot.mockResolvedValue({
+      ...EMPTY_SNAPSHOT,
+      evolution_status: "enabled",
+    });
+    renderPage();
+
+    expect(await screen.findByText("已启用")).toBeInTheDocument();
+    expect(screen.queryByText("尚未启用")).not.toBeInTheDocument();
+  });
+
   it("uses the English locale for Control Center copy", async () => {
     controlApi.getControlCenterSnapshot.mockResolvedValue(EMPTY_SNAPSHOT);
     const user = userEvent.setup();
@@ -246,6 +292,7 @@ describe("real Control Center snapshot", () => {
     expect(await screen.findByText("There are no active governance runs.")).toBeInTheDocument();
     expect(screen.getByText("There are no pending decisions.")).toBeInTheDocument();
     expect(screen.getByText("There are no verifiable evidence bundles yet.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Distinctive capabilities" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "switch-classic" }));
   });
 });

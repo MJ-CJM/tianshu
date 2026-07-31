@@ -133,6 +133,11 @@ def register_schedule_edict(
             return error_result(
                 "schedule_edict 仅用于定时/周期任务；要立即执行请改用 submit_edict",
             )
+        if parsed.type in {"cron", "interval"} and execution_profile != "foreground":
+            return error_result(
+                "schedule_edict: 周期任务当前仅支持 foreground；"
+                "长任务请改为单次定时（如 '30m' 或 ISO 时间）",
+            )
 
         edict_title = title_from_goal(goal, title)
         edict_kwargs: dict = {
@@ -306,6 +311,7 @@ def register_schedule_edict(
             description=(
                 "安排一道【定时 / 周期】敕令（到点再下发执行，每次触发独立运行）。"
                 "颁发后立即执行请用 submit_edict；本工具用于 '明天9点/每天/每周/每隔N分钟/N小时后' 这类延后或重复任务。"
+                "周期任务仅支持 foreground；checkpointed/background 长任务只能定时执行一次。"
                 "用 action 分发：create=新建；list=列出现有定时任务；cancel/pause/resume/run_now=按 job_id 管理。"
                 "**指派人选规则**：用户点名指派则传 assigned_persona_id；未指定时**先调用 list_personas** "
                 "拿到实际官员名册再匹配，勿凭空猜测。返回 job_id 供后续管理。"
@@ -358,8 +364,9 @@ def register_schedule_edict(
                         "type": "string",
                         "enum": list(VALID_EXECUTION_PROFILES),
                         "description": (
-                            "执行模式：foreground=短任务（默认）；checkpointed=带检查点；"
-                            "background=长任务后台执行。"
+                            "执行模式：foreground=短任务（默认，可周期执行）；"
+                            "checkpointed=带检查点；background=长任务后台执行。"
+                            "后两者只支持单次定时，不支持 cron/interval。"
                         ),
                     },
                     "timezone": {

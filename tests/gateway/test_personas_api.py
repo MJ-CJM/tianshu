@@ -87,6 +87,24 @@ async def test_create_persona_missing_fields_rejected(client):
     assert resp.status_code == 400
 
 
+async def test_create_persona_rejects_direct_imported_skill_install(client):
+    depts = (await client.get("/api/departments")).json()["data"]
+    dept_id = depts[0]["id"]
+    body = {
+        "id": "test-persona-skill-bypass",
+        "name": "技能旁路测试",
+        "department": dept_id,
+        "import_skill_paths": ["/tmp/unreviewed-skill"],
+    }
+
+    resp = await client.post("/api/personas", json=body)
+
+    assert resp.status_code == 409
+    assert "governed candidate flow" in resp.json()["detail"]
+    ids = [p["id"] for p in (await client.get("/api/personas")).json()["data"]]
+    assert body["id"] not in ids
+
+
 async def test_create_persona_duplicate_conflict(client):
     depts = (await client.get("/api/departments")).json()["data"]
     dept_id = depts[0]["id"]

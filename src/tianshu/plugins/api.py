@@ -50,7 +50,7 @@ class PluginApi:
         self._registered_plugins: dict[str, PluginManifest] = {}
 
     def register_plugin(self, manifest: PluginManifest) -> None:
-        """Register a plugin and persist its metadata."""
+        """Catalog a discovered manifest without loading its entry point."""
         self._registered_plugins[manifest.name] = manifest
         self._storage.save_plugin(
             {
@@ -58,9 +58,14 @@ class PluginApi:
                 "version": manifest.version,
                 "manifest": manifest.model_dump(),
                 "sha256": manifest.sha256,
+                "status": "manifest_only",
             }
         )
-        logger.info("Plugin registered: %s v%s", manifest.name, manifest.version)
+        logger.info(
+            "Plugin manifest catalogued without code loading: %s v%s",
+            manifest.name,
+            manifest.version,
+        )
 
     def register_tool(self, name: str, handler, schema: dict | None = None) -> None:
         """Register a tool via ToolRegistry.

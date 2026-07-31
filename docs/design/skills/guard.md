@@ -53,8 +53,9 @@ verdict 判定：有 `CRITICAL` → dangerous；有 finding 但无 critical → 
 
 ## 5. 触发点
 
-- `skill_manage(action=write_file)`：资源文件写入前（`_guard_enabled` 时，按 AGENT_CREATED 扫描，命中即拒）
-- 技能安装 / 用户上传（按来源 resolve trust level）
-- 与执行后学习链路配合：`SkillReviewHandler` 生成的新技能先过 `SkillValidator`，再视场景过 Guard
+- Skill candidate 包快照、安装和晋升前（按来源 resolve trust level）；
+- Loader 内部资源写原语被治理服务调用时；
+- 兼容测试可显式注册 `skill_manage` 来验证 Guard，但生产 Agent 当前不公开该工具；
+- Reviewer/Curator 自动写链尚未接通，默认关闭并在 LLM 调用前跳过。
 
 **相关实现**：[../../impl/skills/](../../impl/skills/)

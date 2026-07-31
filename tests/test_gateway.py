@@ -63,8 +63,8 @@ class TestEdictEndpoints:
         assert get_resp.status_code == 200
         assert get_resp.json()["data"]["goal"] == "find me"
 
-    async def test_create_edict_ignores_schedule_field(self, client):
-        """颁发即时化：即使带 schedule 字段也被忽略（edict 恒 immediate）；定时改用 schedule_edict。"""
+    async def test_create_edict_persists_schedule_field(self, client):
+        """普通 API 可直接创建定时敕令，调度定义不得被静默丢弃。"""
         with patch("tianshu.executor.agent.LLMClient"):
             resp = await client.post(
                 "/api/edicts",
@@ -75,7 +75,15 @@ class TestEdictEndpoints:
                 },
             )
         assert resp.status_code == 202
-        assert resp.json()["data"]["schedule"]["type"] == "immediate"
+        assert resp.json()["data"]["schedule"] == {
+            "type": "cron",
+            "at": None,
+            "cron": "0 11 * * *",
+            "interval_seconds": None,
+            "timezone": "UTC",
+            "concurrency_policy": "skip",
+            "misfire_policy": "coalesce",
+        }
 
 
 class TestMemorialEndpoints:

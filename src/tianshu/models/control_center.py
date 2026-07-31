@@ -10,6 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from tianshu.models.decision import DecisionKind
 from tianshu.models.run_state import RunPhase
 
+EvolutionStatus = Literal["not_enabled", "enabled", "degraded"]
+
 
 def _utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
@@ -74,6 +76,21 @@ class ControlCenterSnapshotV1(_StrictModel):
     generated_at: datetime
     readiness: Literal["ready", "degraded"]
     active_run_total: int = Field(ge=0, description="Total active runs before summary limit")
+    unarchived_edict_total: int = Field(
+        default=0,
+        ge=0,
+        description="Total visible Edicts without archived_at",
+    )
+    awaiting_follow_up_total: int = Field(
+        default=0,
+        ge=0,
+        description="Unarchived conversation Edicts whose latest run is complete",
+    )
+    cancelled_edict_total: int = Field(
+        default=0,
+        ge=0,
+        description="Unarchived Edicts in the cancelled state",
+    )
     pending_decision_total: int = Field(
         ge=0,
         description="Total pending decisions before summary limit",
@@ -85,7 +102,7 @@ class ControlCenterSnapshotV1(_StrictModel):
     active_runs: tuple[ControlRunSummaryV1, ...] = Field(max_length=20)
     pending_decisions: tuple[ControlDecisionSummaryV1, ...] = Field(max_length=20)
     recent_evidence: tuple[ControlEvidenceSummaryV1, ...] = Field(max_length=20)
-    evolution_status: Literal["not_enabled"]
+    evolution_status: EvolutionStatus
 
     _normalize_generated_at = field_validator("generated_at")(_utc)
 
@@ -97,6 +114,11 @@ class ControlCenterSnapshotV1(_StrictModel):
             raise ValueError("pending_decision_total must cover pending_decisions")
         if self.evidence_total < len(self.recent_evidence):
             raise ValueError("evidence_total must cover recent_evidence")
+        if (
+            self.awaiting_follow_up_total + self.cancelled_edict_total
+            > self.unarchived_edict_total
+        ):
+            raise ValueError("workspace breakdown must not exceed unarchived_edict_total")
         return self
 
 
@@ -105,4 +127,5 @@ __all__ = [
     "ControlDecisionSummaryV1",
     "ControlEvidenceSummaryV1",
     "ControlRunSummaryV1",
+    "EvolutionStatus",
 ]

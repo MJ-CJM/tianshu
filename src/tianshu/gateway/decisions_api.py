@@ -6,6 +6,7 @@ from typing import NoReturn, Protocol
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from tianshu.authz import has_global_task_access
 from tianshu.gateway.auth import get_auth_context
 from tianshu.governance.decision_service import (
     DecisionAuthorizationError,
@@ -104,9 +105,14 @@ def require_owned_decision(
     context: AuthContext,
     decision_request_id: str,
 ) -> DecisionRecordV1:
-    record = _service(request).get_for_submitter(
-        decision_request_id,
-        submitter=context.principal.id,
+    service = _service(request)
+    record = (
+        service.get(decision_request_id)
+        if has_global_task_access(context)
+        else service.get_for_submitter(
+            decision_request_id,
+            submitter=context.principal.id,
+        )
     )
     if record is None:
         _raise(context, 404, "decision_not_found")
@@ -171,10 +177,15 @@ def list_pending_decisions(
 ) -> dict[str, object]:
     context = get_auth_context(request)
     decision_kind = _parse_kind(context, kind)
-    requests = _service(request).list_pending_owned(
-        submitter=context.principal.id,
-        kind=decision_kind,
-        limit=limit,
+    service = _service(request)
+    requests = (
+        service.list_pending(kind=decision_kind)[:limit]
+        if has_global_task_access(context)
+        else service.list_pending_owned(
+            submitter=context.principal.id,
+            kind=decision_kind,
+            limit=limit,
+        )
     )
     return {
         "items": [item.model_dump(mode="json") for item in requests],

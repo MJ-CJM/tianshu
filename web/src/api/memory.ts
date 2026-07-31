@@ -1,22 +1,22 @@
 import type { ApiResponse, MemoryEntry, EdictMemorialGroup } from "./types";
-import { authFetch } from "./authFetch";
+import apiClient from "./client";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "";
-
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await authFetch(`${API_BASE}${url}`, init);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+interface MemoryPolicy {
+  persona_id: string;
+  can_read: string[];
+  can_write: string[];
+  share_level: string;
 }
 
 export async function getPersonaMemory(
   personaId: string,
   limit = 50,
 ): Promise<MemoryEntry[]> {
-  const resp = await fetchJson<ApiResponse<MemoryEntry[]>>(
-    `/api/memory/${personaId}?limit=${limit}`,
+  const { data } = await apiClient.get<ApiResponse<MemoryEntry[]>>(
+    `/memory/${encodeURIComponent(personaId)}`,
+    { params: { limit } },
   );
-  return resp.data ?? [];
+  return data.data ?? [];
 }
 
 export async function recallMemory(query: {
@@ -26,50 +26,43 @@ export async function recallMemory(query: {
   limit?: number;
   include_shared?: boolean;
 }): Promise<MemoryEntry[]> {
-  const resp = await fetchJson<ApiResponse<MemoryEntry[]>>(
-    `/api/memory/recall`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(query),
-    },
+  const { data } = await apiClient.post<ApiResponse<MemoryEntry[]>>(
+    "/memory/recall",
+    query,
   );
-  return resp.data ?? [];
+  return data.data ?? [];
 }
 
 export async function deleteMemoryEntry(entryId: string): Promise<void> {
-  await fetchJson(`/api/memory/${entryId}`, { method: "DELETE" });
+  await apiClient.delete(`/memory/${encodeURIComponent(entryId)}`);
 }
 
 export async function deleteMemoryEntries(
   entryIds: string[],
 ): Promise<{ deleted: number }> {
-  const resp = await fetchJson<ApiResponse<{ deleted: number }>>(
-    `/api/memory/batch-delete`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ entry_ids: entryIds }),
-    },
+  const { data } = await apiClient.post<ApiResponse<{ deleted: number }>>(
+    "/memory/batch-delete",
+    { entry_ids: entryIds },
   );
-  return resp.data ?? { deleted: 0 };
+  return data.data ?? { deleted: 0 };
 }
 
 export async function getPersonaMemorials(
   personaId: string,
   limit = 100,
 ): Promise<EdictMemorialGroup[]> {
-  const resp = await fetchJson<ApiResponse<EdictMemorialGroup[]>>(
-    `/api/memorials/by-persona/${personaId}?limit=${limit}`,
+  const { data } = await apiClient.get<ApiResponse<EdictMemorialGroup[]>>(
+    `/memorials/by-persona/${encodeURIComponent(personaId)}`,
+    { params: { limit } },
   );
-  return resp.data ?? [];
+  return data.data ?? [];
 }
 
 export async function getMemoryPolicies(): Promise<
-  Record<string, { persona_id: string; can_read: string[]; can_write: string[]; share_level: string }>
+  Record<string, MemoryPolicy>
 > {
-  const resp = await fetchJson<ApiResponse<Record<string, unknown>>>(
-    `/api/memory/policies`,
+  const { data } = await apiClient.get<ApiResponse<Record<string, MemoryPolicy>>>(
+    "/memory/policies",
   );
-  return (resp.data ?? {}) as any;
+  return data.data ?? {};
 }

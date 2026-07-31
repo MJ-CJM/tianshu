@@ -1,56 +1,65 @@
 # 平行位面（universe）设计总览
 
-> 平行位面让天枢的自进化从「单线」升级为「可分叉 + 可回滚 + 可选优」：把行为配置（乃至代码）捕获成可命名、可切换、可对比的快照，让几套长法并行赛跑，再据适应度择优。
-> 设计源头：`docs/superpowers/specs/2026-06-07-parallel-universe-design.md`（Phase 1 行为配置层）、`docs/superpowers/specs/2026-06-08-code-variant-universe-design.md`（Phase 2 代码变体层）。
+> 平行位面的原始设计把行为配置和代码捕获成可分叉、可切换、可回滚的快照。
+> **当前实现已收紧边界**：旧 Universe 面保留存照、分支、对比、归档、恢复和评估，
+> 但不再直接切换 live 位面或部署代码；运行期灰度由受治理 Candidate、
+> `RunAssignmentV1` 与 effective overlay 承担。
+>
+> 设计源头位于历史 specs；其中 live switch、DeployPointer、自重启和健康检查自动回滚
+> 是历史方案，不是当前可用能力。
 
 ## 1. 职责定位
 
 | 项 | 说明 |
 |---|---|
-| 解决什么 | 自进化原本只有一条时间线：改坏不好回滚、不能多版本赛跑、发版后衍生的不适配只能就地覆盖 |
-| 提供什么 | 「宫殿版 git」——存照 / 分支 / 切换 / 对比 / 回滚 / 归档，叠加演化引擎的变异选优 |
-| 默认态 | 总开关 `parallel_universe_enabled=False`：默认单位面、行为等同今日、演化引擎不运转、零探索流量（opt-in） |
-| 两步走 | Phase 1 分叉「行为配置」（人格/技能/策略/config），Phase 2 把分叉延伸到「代码」（git worktree 变体） |
+| 解决什么 | 为行为配置和代码试验保留可比较、可审计的候选，不直接覆盖当前运行态 |
+| 当前提供 | Legacy Universe 的存照 / 分支 / diff / 归档 / 恢复，以及代码 worktree 的门禁、沙箱评估与 `recommended` 结论 |
+| 运行期治理 | `PromotionService` 独占 Candidate canary / promote / rollback 写入口；每个 Memorial 固化 assignment，只有命中 governed canary 时才是 `RunAssignmentV1` 并携带 effective overlay |
+| 当前边界 | 生产装配只有 Skill Candidate 具备真实激活/回滚 adapter；Code Candidate 的 live activation fail-closed，旧 live switch / code promote 接口固定拒绝 |
+| 默认态 | `parallel_universe_enabled=False`；当前发布状态也没有 active Candidate |
 
 ## 2. 核心设计判断（铁律）
 
 **位面分叉的是「怎么做」，全局共享的是「知道什么 + 做过什么」。**
 
-| 进位面快照（可分叉/进化） | 全局共享（切换不丢） |
+| 进位面快照（可分叉/进化） | 试验外共享（不随快照分支） |
 |---|---|
 | 人格 SOUL.md / ROLE.md、技能集与状态、策略规则、agent/LLM config、prompt 层组合 | 记忆宫殿（`memory_entries`）、官员工作记忆（MEMORY.md）、全部工作历史（edicts/memorials/events/成本/审计） |
 
-两个直接后果：
+两个当前后果：
 
-1. **切换位面不失忆、不丢历史**——换的是「宫殿的性格与规矩」，不是「宫殿对你的记忆」。
-2. **适应度可干净归因**——诏令执行开始即固化 `memorials.universe_id`，在途任务不被切换打断，打分能归因到具体位面。
+1. **试验不直接覆盖 live**——旧 Universe 的 branch/diff/archive/restore 只管理快照或
+   worktree；`UniverseManager.switch()` / `rollback()` 固定 fail-closed。
+2. **运行归因固化到每次执行**——创建 Memorial 的同一事务内写入不可变 assignment；
+   无可路由 canary 时写 `LegacyRunAssignmentV1` 且没有 overlay，命中 governed canary
+   时才写 `RunAssignmentV1` 并绑定 effective overlay；重试不会重新分桶。
 
 其余关键判断：
 
 | 判断 | 取舍 |
 |---|---|
-| 冠军=工作副本 | 在役期间自进化持续写 live 目录，冠军存盘快照与 live 漂移；branch/diff/switch-away 前先 `snapshot_live` 回写。非冠军=冻结快照 |
-| 单真相源 | 无独立 `active_universe_id` 字段，以 `status=champion` 唯一行（同一时刻仅一个 champion）为在役指针 |
+| Legacy champion | 旧 Universe 模型仍以 `status=champion` 表示基线快照；branch/diff 前可 `snapshot_live`，但它不再是可直接切换 live 的运行指针 |
+| Candidate 真相源 | `evolution_candidates`、routing allocation、不可变 lifecycle/promotion journal 与 per-run assignment 共同构成受治理真相；不得由 UniverseManager 旁路写入 |
 | 全量拷贝 | v1 不做 COW 差量存储——小文本文件，全量拷贝简单又安全 |
-| 评估安全 | 评估采历史诏令 goal 的受治理回放（EvalHarness 受管子进程 + 独立 DB）；适应度由基线与变体同集配对评估产生，delta 超阈值推荐晋升、明确劣于基线则归档、带内留观 |
-| 代码层边界 | Python 不能进程内热替换代码：代码变体靠 worktree、独立 DB、wall timeout 与进程组收敛评估；`trusted-local` 不提供强隔离，晋升=重定向 + 重启 + 健康检查自动回滚 |
+| 评估安全 | 评估采历史诏令 goal 的受治理回放（EvalHarness 受管子进程 + 独立 DB）；delta 超阈值只产生 `recommended`，不会自动晋升 |
+| 代码层边界 | worktree、Gate、独立 DB、wall timeout 与进程组收敛用于提案/评估；当前没有 code live writer、DeployPointer、自重启或自动健康回滚 |
 
 ## 3. 与相邻子系统的关系
 
 | 相邻子系统 | 关系 |
 |---|---|
-| persona / skills | 位面快照的主体；切换位面时 PersonaLoader/SkillsLoader 的 runtime 根目录被重定向 + 缓存失效 |
-| config_manager | config 类快照存于 manifest，切换时读回并 `update_agent_config`；演化/代码变体的全部开关都是 `AgentConfigState` 字段 |
-| executor | 执行开始时按 `route_for_memorial` 固化 `universe_id`；探索路由已退役，一律归冠军，候选的适应度改由沙箱配对评估产生 |
-| bus / scheduler | memorial 完成事件触发 fitness 更新；演化引擎可由 scheduler 周期 + 空闲触发（类比 SkillCurator「修撰」） |
-| 单线自进化（修撰/reviewer） | 正交：演化选「哪套配置」，修撰优化「在役这套里的技能」 |
+| persona / skills | Legacy Universe 可保存快照；当前受治理运行 overlay 由 `ChallengerRouter.bind_runtime()` 按 Memorial 绑定，生产路径已实际消费 Skill overlay |
+| config_manager | Legacy manifest 可保存 config 快照；当前没有通过 Universe switch 把 manifest 应用到 live 的入口 |
+| executor | 提交时固化 assignment；dispatcher claim 后加载同一 assignment/effective overlay；非 demo profile 的 canary 使用带 secret 的确定性 bucket，失败解析则 fail-closed |
+| bus / scheduler | memorial 完成事件触发 fitness 更新；可选系统 job 只形成 Legacy 实验/推荐，不获得 live 切换权限 |
+| reviewer / curator | 兼容 Hook 与 cron 仍可装配，但 governed live 写入未开放；默认在 LLM 前 fail fast，显式 dry-run 只做预览 |
 
 ## 4. 本目录子文档索引
 
 | 文档 | 内容 |
 |---|---|
-| [evolution.md](./evolution.md) | Phase 1 位面模型、UniverseStore 快照、UniverseManager 切换/分支/对比/回滚、UniverseEvolver 演化、FitnessCalculator 适应度、PersonaMutator 变异、Gate 探索路由 |
-| [code-variant.md](./code-variant.md) | Phase 2 代码变体位面、CodeVariantStore 与 git worktree、相对 fork 起点的 diff、SandboxRunner/Gate/EvalHarness 评估门禁、CodeMutator 自改代码、Deployer 晋升回滚、archive/restore、来源分类 |
-| [eval.md](./eval.md) | Eval Harness 与 Fitness 门禁：沙箱回放历史目标、统一适应度打分、与现冠军回归比对、过门禁才配人工晋升 |
+| [evolution.md](./evolution.md) | 当前行为演化链路、受治理 overlay，以及 Legacy Universe 的 fail-closed 边界 |
+| [code-variant.md](./code-variant.md) | CodeVariantStore、worktree、Gate/Sandbox/EvalHarness，以及当前“只到推荐、不部署”的边界 |
+| [eval.md](./eval.md) | Eval Harness 与 Fitness：同集配对评估、预算闸、推荐结论与受治理 Candidate 的边界 |
 
 **相关实现**：[../../impl/universe/](../../impl/universe/)

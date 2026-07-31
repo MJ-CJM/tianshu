@@ -1,0 +1,111 @@
+.pageGrid {
+  display: grid;
+  gap: 16px;
+}
+
+.pageGrid > section[aria-labelledby="control-status-title"],
+.metricsGrid > article,
+.activityGrid > section,
+.pageGrid > section[aria-labelledby="recent-evidence-title"] {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--ts-color-border);
+  border-radius: 8px;
+  background: var(--ts-color-surface);
+}
+
+.pageGrid > section[aria-labelledby="control-status-title"] > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.metricsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.metricsGrid > article {
+  height: 100%;
+}
+
+.metricsGrid > article > :global(h2.ant-typography) {
+  margin: 8px 0 0 !important;
+}
+
+.metricsGrid > article > :global(span.ant-typography:last-child) {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.pageGrid :global(h4.ant-typography) {
+  margin: 0 !important;
+}
+
+.pageGrid > section[aria-labelledby="unique-capabilities-title"] > :global(p.ant-typography) {
+  margin: 4px 0 12px !important;
+}
+
+.capabilitiesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.activityGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: 16px;
+}
+
+.list {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 12px 0 0;
+  list-style: none;
+}
+
+.list > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ts-color-border);
+}
+
+.list > li > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.activityGrid > section > :global(p.ant-typography),
+.pageGrid > section[aria-labelledby="recent-evidence-title"] > :global(p.ant-typography) {
+  margin: 12px 0 0 !important;
+}
+
+@media (max-width: 960px) {
+  .metricsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .activityGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .metricsGrid,
+  .capabilitiesGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .list > li {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

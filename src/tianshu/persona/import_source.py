@@ -214,7 +214,9 @@ def _import_hermes(home: Path) -> PersonaImportDraft:
             agent_cfg = agent_cfg_raw if isinstance(agent_cfg_raw, dict) else {}
             disabled = agent_cfg.get("disabled_toolsets") or []
             if disabled:
-                notes.append(f"hermes 禁用工具集(仅提示,未自动映射): {', '.join(map(str, disabled))}")
+                notes.append(
+                    f"hermes 禁用工具集(仅提示,未自动映射): {', '.join(map(str, disabled))}"
+                )
             # personalities:hermes 特有的命名多人格预设(运行态切换),v1 不导入,透明提示
             personalities = agent_cfg.get("personalities")
             if isinstance(personalities, dict) and personalities:

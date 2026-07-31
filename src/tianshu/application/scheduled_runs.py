@@ -90,11 +90,17 @@ class ScheduledRunPreparer:
                 if job is None:
                     raise ScheduledFireConflict("scheduler job does not exist")
                 edict = connection.execute(
-                    "SELECT goal, schedule_json, runtime_json FROM edicts WHERE id = ?",
+                    """
+                    SELECT goal, status, schedule_json, runtime_json, metadata_json
+                    FROM edicts WHERE id = ?
+                    """,
                     (job["edict_id"],),
                 ).fetchone()
                 if edict is None:
                     raise ScheduledFireConflict("scheduler edict does not exist")
+                metadata = json.loads(edict["metadata_json"] or "{}")
+                if edict["status"] != "open" or metadata.get("archived_at"):
+                    raise ScheduledFireConflict("scheduler edict is no longer active")
                 try:
                     schedule = EdictSchedule.model_validate(json.loads(edict["schedule_json"]))
                     runtime = EdictRuntime.model_validate(json.loads(edict["runtime_json"]))
@@ -233,7 +239,7 @@ class ScheduledRunPreparer:
                     job_id=job_id,
                     expected_next_run_raw=persisted_cursor_raw,
                     next_run=None if terminal else next_run,
-                    status="cancelled" if terminal else "active",
+                    status="completed" if terminal else "active",
                 ):
                     raise ScheduledFireConflict("scheduler cursor changed during preparation")
                 unit_of_work.commit()
@@ -279,12 +285,19 @@ class ScheduledRunPreparer:
                 if job is None or job["status"] not in {"active", "paused"}:
                     raise ScheduledFireConflict("manual scheduler job is unavailable")
                 edict = connection.execute(
-                    "SELECT goal, runtime_json FROM edicts WHERE id=?",
+                    "SELECT goal, status, runtime_json, metadata_json FROM edicts WHERE id=?",
                     (job["edict_id"],),
                 ).fetchone()
                 if edict is None:
                     raise ScheduledFireConflict("manual scheduler edict is unavailable")
-                runtime = EdictRuntime.model_validate(json.loads(edict["runtime_json"]))
+                try:
+                    metadata = json.loads(edict["metadata_json"] or "{}")
+                    runtime = EdictRuntime.model_validate(json.loads(edict["runtime_json"]))
+                except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                    raise ScheduledFireConflict("manual scheduler envelope is invalid") from exc
+                if edict["status"] != "open" or metadata.get("archived_at"):
+                    raise ScheduledFireConflict("manual scheduler edict is no longer active")
+                self._observe_boundary("after_manual_edict_validation")
                 max_attempts = runtime.retry_limit + 1
                 next_run = (
                     _utc(datetime.fromisoformat(str(job["next_run"])))

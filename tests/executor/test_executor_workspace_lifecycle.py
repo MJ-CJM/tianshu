@@ -730,6 +730,13 @@ async def test_outer_loop_binds_staging_before_orchestrator_context(
     storage.save_edict(edict)
     memorial = Memorial(edict_id=edict.id, instruction=edict.goal)
     storage.save_memorial(memorial)
+    storage.save_outer_loop_checkpoint(edict.id, "{}", datetime.now(UTC).isoformat())
+    storage.save_steer(
+        "outer-terminal-steer",
+        edict.id,
+        "one last adjustment",
+        datetime.now(UTC).isoformat(),
+    )
 
     async def run(_edict, active_memorial: Memorial, context):
         bound = require_bound_workspace(run_id=active_memorial.id)
@@ -755,6 +762,9 @@ async def test_outer_loop_binds_staging_before_orchestrator_context(
     loaded = storage.get_memorial(memorial.id)
     assert loaded.status is TaskStatus.COMPLETED
     assert loaded.final_output == "outer done"
+    assert storage.get_outer_loop_checkpoint(edict.id) is None
+    assert storage.list_steers(edict.id) == []
+    assert storage.get_edict(edict.id).runtime.lifecycle_phase == "complete"
     lease = storage.get_workspace_lease_by_run(memorial.id)
     assert lease is not None and lease.state is WorkspaceLeaseState.ACTIVE
     changes = storage.get_latest_canonical_change_set_for_lease(lease.id)

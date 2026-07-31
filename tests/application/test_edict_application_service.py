@@ -10,7 +10,9 @@ from typing import Any
 import pytest
 
 from tianshu.models import Edict
+from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.canonical import JsonValue, canonical_json_bytes
+from tianshu.models.edict import EdictSchedule, LongRunningScheduleError
 from tianshu.models.governance_contract import ObjectiveV1, RequestedGovernanceContractV1
 from tianshu.models.principal import (
     AuthContext,
@@ -130,6 +132,37 @@ def test_first_submit_persists_one_complete_canonical_transaction(storage: Stora
     assert response_payload["memorial_id"] == result.memorial.id
     assert response_payload["event_id"] == result.event_id
     assert response_payload["request_hash"] == result.request_hash
+
+
+def test_application_boundary_rejects_recurring_long_running_submission(
+    storage: Storage,
+) -> None:
+    _, command_type = _application_types()
+    goal = "unsafe recurring long task"
+    command = command_type(
+        edict=Edict(
+            goal=goal,
+            acceptance=AcceptanceCriteria(),
+            execution_profile="checkpointed",
+            schedule=EdictSchedule(type="cron", cron="0 9 * * *"),
+        ),
+        idempotency_key="recurring-long-task",
+        requested_contract=RequestedGovernanceContractV1(objective=ObjectiveV1(goal=goal)),
+        extra_payload={},
+    )
+
+    with pytest.raises(
+        LongRunningScheduleError,
+        match="recurring schedules do not support long-running tasks",
+    ):
+        _service(storage).submit(
+            command,
+            auth=_auth(),
+            producer="test",
+            correlation_id="correlation-recurring-long-task",
+        )
+
+    assert storage.list_edicts()[1] == 0
 
 
 @pytest.mark.parametrize(

@@ -1,5 +1,8 @@
 # 当前开发状态
 
+> **历史状态快照（2026-07-12）：** 本文已归档，不代表当前分支或当前 Gate。
+> 当前入口见 [当前实现与支持边界](../../CURRENT-STATE.md)。
+
 ## Snapshot
 
 ```yaml
@@ -89,7 +92,7 @@ S0 core 自审在既有 governed-apply 实现中发现并按 TDD 局部修复：
 - `302cba3` — G1.4b2 最后一个实现提交
 - G0 checkpoint：`edf638a`、`20c4213`、`673fcef`、`13fbdc7`
 
-完整已完成切片 commit 列表见 [progress snapshot](./evidence/progress-snapshot-2026-07-12.md)。
+完整已完成切片 commit 列表见 [progress snapshot](../evidence/progress-snapshot-2026-07-12.md)。
 
 ## 恢复前必须完成
 

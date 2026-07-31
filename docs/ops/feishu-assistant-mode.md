@@ -52,7 +52,7 @@
 | 飞书首次发"你好" | silent reply | 自动建 chat 敕令 + LLM 回应 |
 | "你是谁?" | silent reply | LLM 自然回应 |
 | "显示我的列表" | IntentParser → /list | LLM 调 list_edicts 工具回应 |
-| "每天爬这个网页" | silent reply | LLM 触发 cron + 长任务 plan |
+| "每天爬这个网页" | silent reply | LLM 创建 cron 普通任务；确需深度处理时，由每次普通任务再创建一次长程任务 |
 | `/exit` | 删 anchor → 助手模式 | 切回 chat 敕令 |
 | `/clear`（新）| - | 归档 + 新建 chat 敕令 |
 

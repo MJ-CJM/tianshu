@@ -226,21 +226,23 @@ class DecisionRepository:
         self,
         connection: sqlite3.Connection,
         *,
-        submitter: str,
+        submitter: str | None,
         limit: int,
     ) -> list[ControlDecisionSummaryV1]:
-        if not submitter.strip():
+        if submitter is not None and not submitter.strip():
             raise ValueError("submitter must not be blank")
         if type(limit) is not int or limit <= 0:
             raise ValueError("limit must be a positive integer")
         rows = connection.execute(
             _SELECT_RECORD
             + """
-            WHERE request.status = 'pending' AND edict.submitter = ?
+            WHERE request.status = 'pending'
+              AND (? IS NULL OR edict.submitter = ?)
+              AND json_extract(edict.metadata_json, '$.archived_at') IS NULL
             ORDER BY request.expires_at, request.created_at, request.decision_request_id
             LIMIT ?
             """,
-            (submitter, limit),
+            (submitter, submitter, limit),
         ).fetchall()
         summaries: list[ControlDecisionSummaryV1] = []
         for row in rows:
@@ -262,18 +264,20 @@ class DecisionRepository:
     def count_pending_for_submitter(
         connection: sqlite3.Connection,
         *,
-        submitter: str,
+        submitter: str | None,
     ) -> int:
-        if not submitter.strip():
+        if submitter is not None and not submitter.strip():
             raise ValueError("submitter must not be blank")
         row = connection.execute(
             """
             SELECT COUNT(*)
             FROM decision_requests AS request
             JOIN edicts AS edict ON edict.id = request.edict_id
-            WHERE request.status = 'pending' AND edict.submitter = ?
+            WHERE request.status = 'pending'
+              AND (? IS NULL OR edict.submitter = ?)
+              AND json_extract(edict.metadata_json, '$.archived_at') IS NULL
             """,
-            (submitter,),
+            (submitter, submitter),
         ).fetchone()
         return int(row[0])
 

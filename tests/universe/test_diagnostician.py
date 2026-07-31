@@ -71,6 +71,11 @@ async def test_diagnose_returns_allowlisted_hypotheses():
                 "hypothesis": "越界提案",
                 "rationale": "x",
             },
+            {
+                "target_path": "src/tianshu/planner/",  # 目录不是可改写文件
+                "hypothesis": "目录提案",
+                "rationale": "x",
+            },
         ]
     )
     mems = [_FakeMemorial("e1", error="timeout", audit_json={"reasons": ["拆解过粗"]})]

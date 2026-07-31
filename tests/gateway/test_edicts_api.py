@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from tianshu.gateway.edicts_api import edicts_router
 from tianshu.models import Edict, Memorial, TaskStatus
+from tianshu.models.principal import (
+    AuthContext,
+    AuthenticationSource,
+    ClientKind,
+    Principal,
+    PrincipalKind,
+)
 
 
 @pytest.fixture
@@ -15,6 +22,23 @@ def app(storage):
     app = FastAPI()
     app.include_router(edicts_router)
     app.state.storage = storage
+    context = AuthContext(
+        principal=Principal(
+            id="local:owner",
+            kind=PrincipalKind.LOCAL,
+            display_name="Local Owner",
+            scopes=frozenset({"api", "admin"}),
+        ),
+        source=AuthenticationSource.TRUSTED_LOCAL,
+        client_kind=ClientKind.WEB,
+        correlation_id="test-correlation",
+    )
+
+    @app.middleware("http")
+    async def inject_identity(request: Request, call_next):
+        request.scope.setdefault("state", {})["auth_context"] = context
+        return await call_next(request)
+
     return app
 
 

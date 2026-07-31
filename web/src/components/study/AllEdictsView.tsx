@@ -1,8 +1,13 @@
-import { useState, useMemo } from "react";
-import { Button, Input, Select, Space } from "antd";
+import { useEffect, useMemo, useState } from "react";
+import { Alert, Button, Input, Select, Space, Typography } from "antd";
 import { ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listEdicts, deleteEdict } from "../../api/edicts";
+import {
+  useEdictLatestMemorials,
+  usePendingDecisions,
+  usePendingToolCalls,
+} from "../../hooks/useApprovals";
 import EdictTable from "../edict/EdictTable";
 import { PAGE_SIZE, useEdictStatusLabels } from "../../utils/constants";
 import { useT } from "../../i18n";
@@ -21,20 +26,17 @@ export default function AllEdictsView() {
     })),
   ];
   const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState("open");
+  const [statusFilter, setStatusFilter] = useState("");
   const [searchText, setSearchText] = useState("");
   const [searchValue, setSearchValue] = useState("");
 
-  const debouncedSearch = useMemo(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    return (value: string) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        setSearchValue(value);
-        setPage(1);
-      }, 300);
-    };
-  }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearchValue(searchText);
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [searchText]);
 
   const edictsQuery = useQuery({
     queryKey: ["edicts", page, statusFilter, searchValue],
@@ -48,8 +50,35 @@ export default function AllEdictsView() {
   });
 
   const queryClient = useQueryClient();
-  const edicts = edictsQuery.data?.data ?? [];
+  const edicts = useMemo(
+    () => edictsQuery.data?.data ?? [],
+    [edictsQuery.data?.data],
+  );
   const total = edictsQuery.data?.metadata?.total ?? 0;
+  const edictIds = useMemo(() => edicts.map((edict) => edict.id), [edicts]);
+  const memorialsQuery = useEdictLatestMemorials(edictIds, edictIds.length > 0);
+  const pendingToolsQuery = usePendingToolCalls();
+  const pendingDecisionsQuery = usePendingDecisions();
+  const pendingDecisionCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const decision of pendingDecisionsQuery.data ?? []) {
+      counts[decision.edict_id] = (counts[decision.edict_id] ?? 0) + 1;
+    }
+    for (const toolCall of pendingToolsQuery.data ?? []) {
+      counts[toolCall.edict_id] = Math.max(counts[toolCall.edict_id] ?? 0, 1);
+    }
+    return counts;
+  }, [pendingDecisionsQuery.data, pendingToolsQuery.data]);
+  const enrichmentError =
+    memorialsQuery.error ||
+    pendingToolsQuery.error ||
+    pendingDecisionsQuery.error;
+  const refetchAll = () => {
+    void edictsQuery.refetch();
+    void memorialsQuery.refetch();
+    void pendingToolsQuery.refetch();
+    void pendingDecisionsQuery.refetch();
+  };
 
   const handleDelete = async (edictId: string) => {
     await deleteEdict(edictId);
@@ -78,20 +107,39 @@ export default function AllEdictsView() {
 
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
-        <Space>
+      {enrichmentError && (
+        <Alert
+          type="warning"
+          showIcon
+          message={t("study.partialDataTitle")}
+          description={t("study.partialDataDescription")}
+          style={{ marginBottom: 16 }}
+        />
+      )}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 16,
+          gap: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        <Typography.Text type="secondary">
+          {t("study.workspaceSummary", { n: total })}
+        </Typography.Text>
+        <Space wrap>
           <Input
             prefix={<SearchOutlined />}
             placeholder={t("form.search.edict")}
             allowClear
             value={searchText}
-            onChange={(e) => {
-              setSearchText(e.target.value);
-              debouncedSearch(e.target.value);
-            }}
-            style={{ width: 200 }}
+            onChange={(e) => setSearchText(e.target.value)}
+            style={{ width: 240, maxWidth: "100%" }}
           />
           <Select
+            aria-label={t("comp.edictTable.status")}
             value={statusFilter}
             onChange={(v) => {
               setStatusFilter(v);
@@ -102,7 +150,14 @@ export default function AllEdictsView() {
           />
           <Button
             icon={<ReloadOutlined />}
-            onClick={() => edictsQuery.refetch()}
+            aria-label={t("action.refresh")}
+            onClick={refetchAll}
+            loading={
+              edictsQuery.isFetching ||
+              memorialsQuery.isFetching ||
+              pendingToolsQuery.isFetching ||
+              pendingDecisionsQuery.isFetching
+            }
           />
         </Space>
       </div>
@@ -116,7 +171,10 @@ export default function AllEdictsView() {
         onPageChange={(p) => setPage(p)}
         onDelete={handleDelete}
         onBatchDelete={handleBatchDelete}
-        onRefresh={() => queryClient.invalidateQueries({ queryKey: ["edicts"] })}
+        onRefresh={refetchAll}
+        latestMemorials={memorialsQuery.data?.data ?? {}}
+        pendingDecisionCounts={pendingDecisionCounts}
+        progressUnavailable={Boolean(memorialsQuery.error)}
       />
     </>
   );

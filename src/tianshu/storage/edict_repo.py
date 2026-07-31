@@ -3,6 +3,7 @@
 import json
 import sqlite3
 import threading
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from tianshu.models import Edict
@@ -103,6 +104,70 @@ def get_edict_current(conn: sqlite3.Connection, edict_id: str) -> Edict | None:
     return _row_to_edict(row, governance_contract=contract)
 
 
+@dataclass(frozen=True, slots=True)
+class ControlEdictTotals:
+    unarchived: int
+    awaiting_follow_up: int
+    cancelled: int
+
+
+def count_control_edict_totals_current(
+    conn: sqlite3.Connection,
+    *,
+    submitter: str | None,
+) -> ControlEdictTotals:
+    """Return workspace totals from the caller-owned Control Center snapshot."""
+
+    if submitter is not None and not submitter.strip():
+        raise ValueError("submitter must not be blank")
+    submitter_filter = " AND edict.submitter = ?" if submitter is not None else ""
+    parameters: tuple[object, ...] = (submitter,) if submitter is not None else ()
+    row = conn.execute(
+        f"""
+        SELECT
+            COUNT(*) AS unarchived,
+            COALESCE(SUM(CASE WHEN edict.status = 'cancelled' THEN 1 ELSE 0 END), 0)
+                AS cancelled,
+            COALESCE(SUM(CASE
+                WHEN edict.status = 'open'
+                 AND COALESCE(json_extract(edict.runtime_json, '$.conversation'), 1) = 1
+                 AND COALESCE(
+                       json_extract(edict.runtime_json, '$.lifecycle_phase'), 'active'
+                     ) = 'active'
+                 AND latest.status = 'completed'
+                 AND COALESCE(latest.review_status, '') != 'pending'
+                 AND NOT EXISTS (
+                       SELECT 1 FROM run_states AS state
+                       WHERE state.edict_id = edict.id
+                         AND state.phase NOT IN ('completed', 'failed')
+                     )
+                 AND NOT EXISTS (
+                       SELECT 1 FROM decision_requests AS decision
+                       WHERE decision.edict_id = edict.id
+                         AND decision.status = 'pending'
+                     )
+                THEN 1 ELSE 0
+            END), 0) AS awaiting_follow_up
+        FROM edicts AS edict
+        LEFT JOIN memorials AS latest ON latest.id = (
+            SELECT memorial.id
+            FROM memorials AS memorial
+            WHERE memorial.edict_id = edict.id
+            ORDER BY memorial.created_at DESC, memorial.id DESC
+            LIMIT 1
+        )
+        WHERE json_extract(edict.metadata_json, '$.archived_at') IS NULL
+        {submitter_filter}
+        """,
+        parameters,
+    ).fetchone()
+    return ControlEdictTotals(
+        unarchived=int(row["unarchived"]),
+        awaiting_follow_up=int(row["awaiting_follow_up"]),
+        cancelled=int(row["cancelled"]),
+    )
+
+
 class EdictMixin:
     _conn: sqlite3.Connection
     _lock: threading.Lock
@@ -160,6 +225,7 @@ class EdictMixin:
         offset: int = 0,
         exclude_assistant_chat: bool = False,
         instance_id: str | None = None,
+        submitter: str | None = None,
     ) -> tuple[list[Edict], int]:
         """列敕令。
 
@@ -180,6 +246,9 @@ class EdictMixin:
             conditions.append("(title LIKE ? OR goal LIKE ?)")
             params.append(f"%{search}%")
             params.append(f"%{search}%")
+        if submitter is not None:
+            conditions.append("submitter = ?")
+            params.append(submitter)
         if instance_id is not None:
             if instance_id.endswith("-default"):
                 channel_prefix = instance_id[: -len("-default")]

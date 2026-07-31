@@ -6,7 +6,7 @@
 
 **Tianshu is a governable, verifiable Agent OS designed to learn and evolve continuously.**
 
-[中文](README.md) · [Lean Preview guide](docs/usage/lean-developer-preview.md) · [Capability matrix](docs/launch/capability-matrix.md)
+[中文](README.md) · [Current implementation](docs/CURRENT-STATE.md) · [Lean Preview guide](docs/usage/lean-developer-preview.md) · [Capability matrix](docs/launch/capability-matrix.md)
 
 </div>
 
@@ -28,14 +28,37 @@ candidate, evidence-bound gate, canary assignment, and rollback.
   and checks source/exact-Wheel provenance.
 - **Lean evolution:** a skill candidate reaches a real candidate overlay only after its evidence
   gate, and rollback closes new candidate traffic. This is Lean Core evidence, not full G4.
-- **Desktop product:** Control Center, Edict detail, and Evolution Center consume authoritative
-  APIs without mock product data. Retained phase automation exists, while the new Candidate final
-  Gate is pending; final visual/interaction approval remains `user_approval_pending`.
+- **Desktop product:** the default navigation has six top-level destinations—Control Center
+  (中枢), Task Workspace (御书房), Collaboration (朝堂), Operations (百司), Frontier Lab
+  [Experimental] (天工院〔实验〕), and Administration (内府). The Task Workspace contains All Edicts, New Task,
+  Scheduler, and Audit; Collaboration contains Personas, Consultation, and Planning; Operations
+  contains Knowledge, External, and Notifications. Frontier Lab keeps Evolution, Universes, and
+  Keqing marked Experimental and Evals marked Beta (`试行` in the classic Chinese locale).
+  Administration retains System, Session Rules, and Finance. The Task Workspace defaults to every
+  unarchived task visible to the current principal, uses overlapping tags for immediate, scheduled,
+  long-running, conversational, and Keqing tasks, and shows progress derived from the latest
+  execution facts. The legacy `/edicts` URL redirects to the workspace. Four “Unique Capabilities”
+  cards present long-running governance, Evolution, Universes, and Keqing in the Control Center;
+  Evolution renders the authoritative backend `evolution_status` instead of mock product data.
+
+The current product decision and release boundary remain separate:
+
+- `design_status`: `approved`
+- `implementation_status`: `verified_local`
+- `visual_status`: `user_approval_pending`
+- `publication_status`: `not_authorized`
+
+The user approved the final six-destination structure, and it is implemented and verified locally.
+The retained 48 visual baselines and hashes cover the preceding six-route shell. The latest source
+adds the Task
+Workspace to a seven-route matrix intended to contain 56 images, but regeneration and hash updates
+have not run and remain pending explicit browser-automation authorization. `visual_status` remains
+`user_approval_pending`; `verified_local` does not mean a new Candidate is accepted.
 
 The historical retained golden batch passed all 13 steps and strict verification, but it is not
 reused for a new Candidate. See the
 [usage guide](docs/usage/lean-developer-preview.md) and its
-[immutable report](docs/cc-fable-v1/evidence/lean-preview/20260718T072917Z-b27f525fe4ef/demo-report.json).
+[immutable report](docs/cc-fable-v1/evidence/lean-preview/20260719T083725Z-01da3844dde7/demo-report.json).
 
 ## Supported boundary
 
@@ -63,7 +86,8 @@ Dockerfile is not an official distribution path for this Candidate.
 ## Evidence states
 
 Public documentation keeps these states distinct: `implemented`, `disabled`, `deferred`,
-`experimental`, `external_pending`, and `user_approval_pending`. See the
+`experimental`, `external_pending`, and `user_approval_pending`. Start with the
+[current implementation](docs/CURRENT-STATE.md), then see the
 [capability matrix](docs/launch/capability-matrix.md) for each capability's default, supported
 scope, verified guarantee, explicit non-guarantees, and evidence. Recovery conditions for deferred
 work are in the [deferred roadmap](docs/cc-fable-v1/06-deferred-work-backlog.md).
@@ -73,11 +97,21 @@ work are in the [deferred roadmap](docs/cc-fable-v1/06-deferred-work-backlog.md)
 The production desktop Web uses [`web/public/brand.png`](web/public/brand.png), whose SHA-256 is
 `3f2bb6cfdcac70092fce3a9b8b534c4a0627f444cb9db38a9651087688ace799`. The frozen motto is
 “成功只有一个——按照自己的方式，去度过人生。” and the five right-side labels are
-“彩蛋 / 通用 / English / 实时 / 通政”. The fourteen-department navigation remains, while this
-Candidate makes deep product claims only for the three core pages.
+“彩蛋 / 通用 / English / 实时 / 通政”. The left navigation has six top-level destinations:
+Control Center, Task Workspace, Collaboration, Operations, Frontier Lab, and Administration. In
+the classic Chinese locale these are 中枢、御书房、朝堂、百司、天工院〔实验〕、内府. Their children
+map respectively to All Edicts / New Task / Scheduler / Audit; Personas / Consultation / Planning;
+Knowledge / External / Notifications; Evolution / Universes / Evals / Keqing; and System / Session
+Rules / Finance. Evolution, Universes, and Keqing are labelled Experimental; Evals is labelled
+Beta (`试行` in the classic Chinese locale). The Task Workspace combines all tasks, current
+progress, and items needing human intervention; `/edicts` remains only as a compatibility redirect.
+This product structure is approved and implemented locally. The original
+[approval proposal](docs/launch/final-approval-proposal.md) remains a decision-process record;
+[Current implementation](docs/CURRENT-STATE.md) is authoritative for present status.
 
 ## Contributing, security, and license
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing behavior. See [SECURITY.md](SECURITY.md)
-for vulnerability reporting and the single-node/host-administrator boundary. The license is
-[MIT](LICENSE).
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before
+participating. See [SECURITY.md](SECURITY.md) for vulnerability reporting and the
+single-node/host-administrator boundary. The project is licensed under [MIT](LICENSE);
+[third-party notices](THIRD_PARTY_NOTICES.md) cover included or adapted upstream material.

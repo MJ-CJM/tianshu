@@ -26,7 +26,6 @@ import {
   Radio,
   Collapse,
   Segmented,
-  Checkbox,
   Alert,
   message,
 } from "antd";
@@ -43,6 +42,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import PageContainer from "../components/common/PageContainer";
 import GlowCard from "../components/common/GlowCard";
+import PageQueryError from "../components/states/PageQueryError";
 import {
   usePersonas,
   usePersonaMetrics,
@@ -428,7 +428,6 @@ function PersonaFormModal({
   const [importSource, setImportSource] = useState<PersonaImportSourceKind>("hermes");
   const [importPath, setImportPath] = useState("");
   const [importDraft, setImportDraft] = useState<PersonaImportDraft | null>(null);
-  const [importedSkillDirs, setImportedSkillDirs] = useState<string[]>([]);
   const [importLoading, setImportLoading] = useState(false);
 
   const runImportPreview = async () => {
@@ -436,7 +435,6 @@ function PersonaFormModal({
     try {
       const draft = await previewPersonaImport(importSource, importPath || undefined);
       setImportDraft(draft);
-      setImportedSkillDirs(draft.skills.map((s) => s.source_dir)); // 默认全选
       form.setFieldsValue({ name: draft.suggested_name });
     } catch {
       message.error(t("persona.import.previewFailed"));
@@ -463,7 +461,6 @@ function PersonaFormModal({
       setImportSource("hermes");
       setImportPath("");
       setImportDraft(null);
-      setImportedSkillDirs([]);
     }
   };
 
@@ -477,7 +474,6 @@ function PersonaFormModal({
         ...(values as PersonaCreateRequest),
         imported_soul: importDraft.soul_body,
         imported_role: importDraft.role_body,
-        import_skill_paths: importedSkillDirs,
       });
     } else if (selectedTemplateId) {
       onSubmit({
@@ -587,14 +583,17 @@ function PersonaFormModal({
                 )}
                 {importDraft.skills.length > 0 && (
                   <Form.Item label={t("persona.import.skills")}>
-                    <Checkbox.Group
-                      value={importedSkillDirs}
-                      onChange={(v) => setImportedSkillDirs(v as string[])}
-                      options={importDraft.skills.map((s) => ({
-                        value: s.source_dir,
-                        label: `${s.name}${s.description ? ` — ${s.description}` : ""}`,
-                      }))}
-                    />
+                    <Typography.Paragraph type="secondary">
+                      {t("persona.import.skillsReadOnly")}
+                    </Typography.Paragraph>
+                    <Space wrap>
+                      {importDraft.skills.map((s) => (
+                        <Tag key={`${s.name}:${s.source_dir}`}>
+                          {s.name}
+                          {s.description ? ` — ${s.description}` : ""}
+                        </Tag>
+                      ))}
+                    </Space>
                   </Form.Item>
                 )}
                 <Collapse
@@ -994,8 +993,10 @@ function DepartmentTab({
 
 export default function PersonaDashboardPage() {
   const t = useT();
-  const { data: personas, isLoading } = usePersonas();
-  const { data: departments } = useDepartments();
+  const personasQuery = usePersonas();
+  const departmentsQuery = useDepartments();
+  const { data: personas, isLoading } = personasQuery;
+  const { data: departments } = departmentsQuery;
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingPersona, setEditingPersona] = useState<PersonaInfo | null>(null);
@@ -1012,6 +1013,21 @@ export default function PersonaDashboardPage() {
     if (!deptFilter) return personas;
     return personas.filter((p) => p.department === deptFilter);
   }, [personas, deptFilter]);
+
+  const catalogError = personasQuery.error ?? departmentsQuery.error;
+  if (catalogError) {
+    return (
+      <PageContainer title={t("persona.title")}>
+        <PageQueryError
+          error={catalogError}
+          onRetry={() => {
+            void personasQuery.refetch();
+            void departmentsQuery.refetch();
+          }}
+        />
+      </PageContainer>
+    );
+  }
 
   const handleEdit = (persona: PersonaInfo) => {
     setEditingPersona(persona);

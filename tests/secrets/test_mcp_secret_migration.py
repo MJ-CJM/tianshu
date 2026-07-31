@@ -343,7 +343,7 @@ def test_v8_fails_before_backup_when_legacy_wal_checkpoint_is_busy(
     try:
         [row] = retry.list_mcp_overrides()
         assert row["env"] == {"TOKEN": _ENV_SENTINEL}
-        assert retry._conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 22
+        assert retry._conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 24
         for active_file in (database_path, wal_path):
             if active_file.exists():
                 assert _ENV_SENTINEL.encode() not in active_file.read_bytes()
@@ -415,7 +415,7 @@ def test_v8_resumes_post_migration_wal_cleanup_while_backup_marker_exists(
         assert first._conn is None
         [backup_path] = _legacy_sensitive_backups(database_path)
         with closing(sqlite3.connect(database_path)) as current:
-            assert current.execute("SELECT MAX(version) FROM schema_migrations").fetchone() == (22,)
+            assert current.execute("SELECT MAX(version) FROM schema_migrations").fetchone() == (24,)
         assert _ENV_SENTINEL.encode() in database_path.read_bytes()
 
         second = Storage(str(database_path))
@@ -447,7 +447,7 @@ def test_v8_resumes_post_migration_wal_cleanup_while_backup_marker_exists(
         try:
             assert (
                 third._conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
-                == 22
+                == 24
             )
             assert third.list_mcp_overrides()[0]["env"] == {"TOKEN": _ENV_SENTINEL}
             for active_file in (database_path, wal_path):
@@ -507,7 +507,7 @@ def test_v8_prior_prefix_upgrade_preserves_yaml_override_semantics(
                 "SELECT version, name FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-        assert ledger[-15:] == [
+        assert ledger[-17:] == [
             (8, _MIGRATION_NAME),
             (9, _DURABLE_INGRESS_MIGRATION_NAME),
             (10, _TELEGRAM_SEEN_IDENTITY_MIGRATION_NAME),
@@ -523,6 +523,8 @@ def test_v8_prior_prefix_upgrade_preserves_yaml_override_semantics(
             (20, "0020_encrypt_llm_config_keys"),
             (21, "0021_app_settings"),
             (22, "0022_legacy_assignment_cleanup"),
+            (23, "0023_cost_cache_read_tokens"),
+            (24, "0024_notification_channel_progress"),
         ]
     finally:
         storage.close()

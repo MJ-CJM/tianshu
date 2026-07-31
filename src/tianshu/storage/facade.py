@@ -7,6 +7,11 @@ evals（迭代 2）。
 本文件仅保留跨域方法（涉及多张表 JOIN，无法唯一归入某个领域表）与 Storage 组合声明本身。
 """
 
+import json
+from datetime import UTC, datetime
+
+from ulid import ULID
+
 from tianshu.storage._base import _StorageBase
 from tianshu.storage.artifact_repo import ArtifactRepository, EvidenceRepository
 from tianshu.storage.attempt_ledger import AttemptLeaseRepository
@@ -40,6 +45,10 @@ from tianshu.storage.telegram_repo import TelegramMixin
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 from tianshu.storage.universe_repo import UniverseMixin
 from tianshu.storage.workspace_repo import WorkspaceMixin
+
+
+class EdictArchiveConflict(RuntimeError):
+    """An Edict acquired unfinished work while an archive was requested."""
 
 
 class Storage(
@@ -87,8 +96,100 @@ class Storage(
         with self._lock:
             return correlation_for_memorial(self._conn, memorial_id)
 
-    # 以下 3 个方法命中多个领域 Mixin 的表（真跨表 JOIN 或语义横跨 persona/memorial/cost），
+    # 以下方法命中多个领域 Mixin 的表（真跨表 JOIN 或语义横跨 persona/memorial/cost），
     # 无法唯一归入某个领域 Mixin，保留在组合根。
+
+    def tombstone_edict(self, edict_id: str, *, reason: str = "user_request") -> list[str]:
+        """Atomically archive an Edict, cancel its schedules, and append one audit event.
+
+        Returns the scheduler job IDs that were durably cancelled so the caller can
+        also stop their in-memory timers. Repeated calls are idempotent.
+        """
+
+        archived_at = datetime.now(UTC).isoformat()
+        with self.unit_of_work() as unit_of_work:
+            connection = unit_of_work.connection
+            row = connection.execute(
+                "SELECT status, runtime_json, metadata_json FROM edicts WHERE id = ?",
+                (edict_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(edict_id)
+            unfinished = connection.execute(
+                """
+                SELECT 1 FROM memorials
+                WHERE edict_id = ?
+                  AND status NOT IN ('completed', 'failed', 'cancelled')
+                LIMIT 1
+                """,
+                (edict_id,),
+            ).fetchone()
+            if unfinished is not None:
+                raise EdictArchiveConflict(edict_id)
+
+            runtime = json.loads(row["runtime_json"] or "{}")
+            runtime["lifecycle_phase"] = "complete"
+            metadata = json.loads(row["metadata_json"] or "{}")
+            metadata.setdefault("archived_at", archived_at)
+            previous_status = str(row["status"])
+            status = "cancelled" if previous_status == "open" else previous_status
+
+            job_rows = connection.execute(
+                """
+                SELECT job_id FROM scheduler_jobs
+                WHERE edict_id = ? AND status IN ('active', 'paused')
+                """,
+                (edict_id,),
+            ).fetchall()
+            cancelled_job_ids = [str(job["job_id"]) for job in job_rows]
+            connection.execute(
+                """
+                UPDATE scheduler_jobs
+                SET status = 'cancelled', next_run = NULL
+                WHERE edict_id = ? AND status IN ('active', 'paused')
+                """,
+                (edict_id,),
+            )
+            connection.execute(
+                """
+                UPDATE edicts
+                SET status = ?, runtime_json = ?, metadata_json = ?
+                WHERE id = ?
+                """,
+                (
+                    status,
+                    json.dumps(runtime),
+                    json.dumps(metadata, ensure_ascii=False, default=str),
+                    edict_id,
+                ),
+            )
+            event_exists = connection.execute(
+                """
+                SELECT 1 FROM events
+                WHERE edict_id = ? AND event_type = 'edict.archived'
+                LIMIT 1
+                """,
+                (edict_id,),
+            ).fetchone()
+            if event_exists is None:
+                connection.execute(
+                    """
+                    INSERT INTO events
+                        (id, edict_id, memorial_id, event_type, payload_json, created_at)
+                    VALUES (?, ?, NULL, 'edict.archived', ?, ?)
+                    """,
+                    (
+                        str(ULID()),
+                        edict_id,
+                        json.dumps(
+                            {"reason": reason, "previous_status": previous_status},
+                            ensure_ascii=False,
+                        ),
+                        archived_at,
+                    ),
+                )
+            unit_of_work.commit()
+        return cancelled_job_ids
 
     # --- Persona Stats (Phase 3.12) ---
 
@@ -149,6 +250,7 @@ class Storage(
         persona_id: str,
         limit: int = 100,
         offset: int = 0,
+        submitter: str | None = None,
     ) -> tuple[list[dict], int]:
         """Return memorials grouped by edict for a persona.
 
@@ -161,6 +263,11 @@ class Storage(
         else:
             join_where = "m.persona_id = ?"
             count_where = "persona_id = ?"
+        params: list[str | int] = [persona_id]
+        if submitter is not None:
+            join_where += " AND e.submitter = ?"
+            count_where += " AND e.submitter = ?"
+            params.append(submitter)
         with self._lock:
             rows = self._conn.execute(
                 f"""SELECT m.*, e.title as edict_title, e.goal as edict_goal, e.status as edict_status
@@ -169,11 +276,13 @@ class Storage(
                    WHERE {join_where}
                    ORDER BY m.created_at DESC
                    LIMIT ? OFFSET ?""",
-                (persona_id, limit, offset),
+                (*params, limit, offset),
             ).fetchall()
             total = self._conn.execute(
-                f"SELECT COUNT(*) FROM memorials WHERE {count_where}",
-                (persona_id,),
+                f"""SELECT COUNT(*) FROM memorials m
+                    JOIN edicts e ON m.edict_id = e.id
+                    WHERE {count_where}""",
+                params,
             ).fetchone()[0]
 
         # Group by edict_id

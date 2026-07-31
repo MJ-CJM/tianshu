@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tianshu.authz import can_access_submitter
 from tianshu.evidence.models import ClosedEvidenceBundleV1
 from tianshu.models.decision import DecisionRecordV1
 from tianshu.models.edict_detail import (
@@ -89,7 +90,7 @@ class EdictDetailQueryService:
             with self._storage.unit_of_work() as unit_of_work:
                 connection = unit_of_work.connection
                 edict = get_edict_current(connection, edict_id)
-                if edict is None or edict.submitter != auth.principal.id:
+                if edict is None or not can_access_submitter(auth, edict.submitter):
                     raise EdictDetailNotFound(edict_id)
                 memorials = list_memorials_for_edict_current(connection, edict_id)
                 run_states = self._storage.run_state_repo.list_for_edict(connection, edict_id)

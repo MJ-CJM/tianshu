@@ -1,6 +1,8 @@
 {
   "nav": {
     "control": "中枢总览",
+    "tasks": "御书房",
+    "settings": "设置",
     "evolution": "演化中心",
     "edictCreate": "颁发敕令",
     "approvals": "御书房",
@@ -23,15 +25,57 @@
       "system": "内府"
     },
     "evals": "考成",
-    "keqing": "客卿"
+    "keqing": "客卿",
+    "menu": {
+      "control": "中枢",
+      "tasks": "御书房",
+      "allTasks": "全部敕令",
+      "edictCreate": "颁发敕令",
+      "scheduler": "钦天监",
+      "audit": "都察院",
+      "court": "朝堂",
+      "persona": "吏部",
+      "consultation": "廷议",
+      "cabinet": "内阁",
+      "offices": "百司",
+      "knowledge": "翰林院",
+      "foreign": "鸿胪寺",
+      "notify": "通政司",
+      "laboratory": "天工院",
+      "evolution": "演化司",
+      "universe": "诸界台",
+      "evals": "考功司",
+      "keqing": "客卿馆",
+      "settings": "内府",
+      "system": "藏兵阁",
+      "sessionRules": "权印司",
+      "tax": "户部账房",
+      "maturity": {
+        "experimental": "实验",
+        "trial": "试行"
+      }
+    }
+  },
+  "maturity": {
+    "stableLimited": "稳定（有限边界）",
+    "beta": "Beta",
+    "experimental": "实验",
+    "canDo": "能做什么",
+    "currentBoundary": "当前边界"
   },
   "sidebar": {
+    "primaryNavigation": "主导航",
     "darkMode": "深色模式",
     "lightMode": "浅色模式",
     "collapse": "收起侧栏",
     "expand": "展开",
     "switchToDark": "切换深色",
     "switchToLight": "切换浅色"
+  },
+  "notFoundPage": {
+    "title": "未找到页面",
+    "description": "此地址不存在，或已经变更。",
+    "back": "返回概览"
   },
   "pageDataState": {
     "loadingTitle": "正在加载",
@@ -205,15 +249,18 @@
     "auditing": "审计中"
   },
   "edictStatus": {
-    "open": "进行中",
+    "open": "未结案",
     "completed": "已结案",
     "cancelled": "已撤回"
   },
   "phase": {
     "running": "运行中",
     "needs_review": "待裁决",
-    "idle": "待裁定",
-    "no_memorial": "待启动"
+    "idle": "待后续指令",
+    "no_memorial": "待启动",
+    "unavailable": "进度暂不可用",
+    "paused": "已暂停",
+    "windingDown": "收尾中"
   },
   "event": {
     "label": {
@@ -441,11 +488,7 @@
     }
   },
   "empty": {
-    "noMatch": "无匹配的敕令",
-    "noOpenEdict": "暂无进行中的敕令"
-  },
-  "phaseFilter": {
-    "all": "全部阶段"
+    "noMatch": "无匹配的敕令"
   },
   "page": {
     "onboarding": {
@@ -472,9 +515,11 @@
       "readinessDegraded": "服务降级",
       "evolutionNotEnabled": "尚未启用",
       "realCounts": "中枢真实计数",
-      "activeRunsMetric": "活跃运行总数",
+      "activeRunsMetric": "当前执行中",
+      "unarchivedEdictsMetric": "未归档敕令",
+      "unarchivedEdictsBreakdown": "待后续指令 {awaiting} · 已撤回 {cancelled}",
       "pendingDecisionsMetric": "待裁决总数",
-      "evidenceMetric": "证据束总数",
+      "evidenceMetric": "累计证据束（含归档）",
       "activeRunsTitle": "进行中的治理运行",
       "pendingDecisionsTitle": "当前待裁决",
       "recentEvidenceTitle": "近期证据",
@@ -487,7 +532,21 @@
       "evidenceClosed": "已封存",
       "evidenceOpen": "生成中",
       "downloadEvidence": "下载证据",
-      "evidenceAwaitingClose": "等待封存"
+      "evidenceAwaitingClose": "等待封存",
+      "uniqueCapabilitiesTitle": "独特能力",
+      "uniqueCapabilitiesDescription": "治理主链守其稳定，前沿能力公开可见，边界亦明示。",
+      "viewCapability": "查看",
+      "longGovernanceTitle": "长程治理",
+      "longGovernanceStatus": "可用",
+      "longGovernanceDescription": "检查点、暂停续行、裁决、恢复与证据闭环。",
+      "evolutionCapabilityTitle": "自进化",
+      "evolutionCapabilityDescription": "候选、门禁、分流、晋升与回滚。",
+      "universeCapabilityTitle": "平行位面",
+      "universeCapabilityStatus": "按需开启",
+      "universeCapabilityDescription": "并行变体、代码差异、考成与荐举。",
+      "keqingCapabilityTitle": "客卿",
+      "keqingCapabilityStatus": "依本机环境",
+      "keqingCapabilityDescription": "治理 Claude Code、Codex、Pi 与 OpenCode。"
     },
     "evolutionCenter": {
       "notEnabledTitle": "尚未启用",
@@ -497,7 +556,11 @@
       "enabled": "已启用",
       "degraded": "降级",
       "lastGateHash": "最近门禁哈希",
-      "candidatesTitle": "演化候选"
+      "candidatesTitle": "演化候选",
+      "capabilityCanDo": "查看并治理 Skill 候选之门禁、灰度分流、晋升与回滚证据。",
+      "capabilityBoundary": "非 Skill 激活仍闭；系统不会自行晋升候选。",
+      "enabledEmptyTitle": "已启用，尚无候选",
+      "enabledEmptyDescription": "演化服务已就绪；待建立受治理 Skill 候选，此处即呈门禁、分流与回滚状态。"
     },
     "edictDetail": {
       "title": "敕令详情",
@@ -506,6 +569,16 @@
       "backToList": "返回总览",
       "planCardTitle": "规划方案",
       "planExecuted": "已执行",
+      "planFallbackTag": "已降级",
+      "planFallbackMessage": "智能筹划未成，现按单项差事施行",
+      "planFallbackReason": {
+        "llm_disabled": "筹划模型未启用。",
+        "empty_response": "筹划模型未有回复。",
+        "invalid_response": "筹划结果格式有误。",
+        "empty_plan": "筹划结果中无可施行差事。",
+        "llm_error": "筹划模型调用未成。",
+        "unknown": "筹划服务暂不可用。"
+      },
       "planTaskColumn": {
         "task": "任务",
         "executor": "执行官",
@@ -598,6 +671,7 @@
   },
   "form": {
     "search": {
+      "failed": "检索记忆失败，请重试",
       "edict": "搜索敕令..."
     },
     "decree": {
@@ -625,7 +699,7 @@
         "planReview": "规划裁决",
         "scheduleType": "调度方式",
         "cronExpr": "Cron 表达式",
-        "scheduleAt": "执行时间",
+        "scheduleAt": "施行时刻",
         "priority": "优先级",
         "reviewPolicy": "审核策略",
         "constraints": "约束条件",
@@ -656,7 +730,12 @@
         "executor": "执事",
         "taskType": "差事类别",
         "executorModel": "客卿模型（可选）",
-        "conversation": "对答模式"
+        "conversation": "对答模式",
+        "when": "何时施行",
+        "repeatPattern": "循行方式",
+        "repeatTime": "每日时刻",
+        "repeatWeekday": "星期",
+        "customCron": "自定 Cron"
       },
       "placeholder": {
         "title": "留空则自动截取旨意前 20 字",
@@ -688,6 +767,7 @@
         "assignedPersonaRequired": "请选择执行官员",
         "cronExprRequired": "请输入 Cron 表达式",
         "scheduleAtRequired": "请输入执行时间",
+        "scheduleAtFuture": "施行时刻须晚于当下",
         "criticPersonasRequired": "启用长任务时至少选择一位监督官"
       },
       "tooltip": {
@@ -713,7 +793,17 @@
         "directAssign": "直接指派官员",
         "scheduleImmediate": "即时执行",
         "scheduleOnce": "定时执行",
-        "scheduleCron": "周期执行"
+        "scheduleCron": "循期执行",
+        "repeatDaily": "每日",
+        "repeatWeekly": "每周",
+        "repeatCustom": "自定 Cron",
+        "weekday0": "星期日",
+        "weekday1": "星期一",
+        "weekday2": "星期二",
+        "weekday3": "星期三",
+        "weekday4": "星期四",
+        "weekday5": "星期五",
+        "weekday6": "星期六"
       },
       "section": {
         "advanced": "高级选项",
@@ -732,6 +822,8 @@
       "warning": {
         "criticSelfReviewTitle": "执行官与监督官重合",
         "criticSelfReviewDesc": "同一位 persona 既执行又自我审议，会显著降低 critic 的客观性（自我评判倾向高 PASS）。建议监督官选用都察院 / 文渊阁等不参与执行的 persona。",
+        "longTaskScheduleTitle": "长任务不可循期执行",
+        "longTaskScheduleDesc": "当前单节点尚不能安全区分各期运行身份。长任务可即时执行或择时执行一次；如需循期执行，请改用普通任务。",
         "governanceBlocked": "契约预检未通过，执行器无法强制能力：{capabilities}",
         "governanceAdvisory": "以下建议能力仅为尽力或观测状态：{capabilities}",
         "governanceReview": "请核验请求契约与生效契约后再行下发。",
@@ -893,6 +985,14 @@
     "once": "定时",
     "cron": "周期"
   },
+  "taskKind": {
+    "immediate": "即时",
+    "scheduledOnce": "定时",
+    "recurring": "周期",
+    "longRunning": "长程",
+    "conversation": "可续批",
+    "keqing": "客卿·实验"
+  },
   "executionProfile": {
     "foreground": "前台",
     "checkpointed": "可续跑",
@@ -939,6 +1039,7 @@
     "close": "结案",
     "cancel": "废除",
     "pause": "暂停",
+    "pauseAfterRound": "本轮毕后暂停",
     "resume": "恢复"
   },
   "common2": {
@@ -965,6 +1066,7 @@
     "edictCancelled": "敕令已废除",
     "cancelFailed": "废除失败",
     "edictPaused": "敕令已暂停",
+    "edictPauseRequested": "已命本轮毕后暂停",
     "pauseFailed": "暂停失败",
     "edictResumed": "敕令已恢复",
     "resumeFailed": "恢复失败",
@@ -1091,6 +1193,8 @@
       "id": "敕令编号",
       "title": "敕令标题",
       "status": "状态",
+      "taskType": "任务类型",
+      "progress": "当前进度",
       "priority": "优先级",
       "createdAt": "颁发时间",
       "actions": "操作",
@@ -1161,6 +1265,7 @@
     },
     "edictActivity": {
       "pendingTool": "工具待裁决 ({n})",
+      "pendingDecision": "其他待裁决 ({n})",
       "createdAt": "创建于 {time}",
       "initializing": "正在初始化…",
       "executing": "执行中…",
@@ -1511,6 +1616,7 @@
     }
   },
   "cost": {
+    "trackingNote": "此处仅展示已进入成本账本的模型调用；读取失败时不会显示为零。",
     "title": "户部账房",
     "period": {
       "day": "今日",
@@ -1824,9 +1930,10 @@
       "pathTip": "留空则自动探测默认目录(hermes: ~/.hermes;openclaw: ~/.openclaw/workspace)。跨机器先将配置目录拷来本机。",
       "preview": "导入预览",
       "previewFailed": "导入预览未成(查路径与配置)",
-      "seedNote": "一次性种子:只取人格+技能+提示词,不纳记忆/学习/渠道(外臣之演化归天枢京察)。入后此官独立演化。",
+      "seedNote": "一次性种子：只取人格与提示词，不纳记忆、学习、渠道或 live Skill。入后此官独立演化。",
       "suggestedModel": "建议模型",
-      "skills": "导入技能(择选)"
+      "skills": "所见 Skill",
+      "skillsReadOnly": "仅供阅览，不予安装或启用；须另循受治理候选流程审定。"
     }
   },
   "memory": {
@@ -1912,13 +2019,65 @@
     }
   },
   "scheduler": {
-    "title": "文书房",
+    "title": "定时差事",
+    "create": "新建定时差事",
+    "loadFailed": "未能载入定时差事",
+    "editTitle": "更改施行时刻",
+    "historyTitle": "施行记录",
     "table": {
       "jobId": "调度编号",
       "edictId": "敕令编号",
+      "task": "差事",
+      "schedule": "施行安排",
       "scheduleType": "调度类型",
+      "status": "状态",
       "nextRun": "下次执行",
+      "lastRun": "上次执行",
+      "startedAt": "触发时刻",
+      "error": "失败缘由",
       "actions": "操作"
+    },
+    "status": {
+      "active": "施行中",
+      "paused": "已暂停",
+      "failed": "异常",
+      "completed": "已完成"
+    },
+    "schedule": {
+      "once": "单次施行",
+      "daily": "每日 {time}",
+      "weekly": "{weekday} {time}",
+      "everyHours": "每 {n} 时辰",
+      "everyMinutes": "每 {n} 分钟",
+      "everySeconds": "每 {n} 秒"
+    },
+    "runStatus": {
+      "prepared": "已触发",
+      "skipped": "已略过",
+      "failed": "失败",
+      "completed": "已成",
+      "fired": "已触发",
+      "submitted": "候行",
+      "scheduled": "已排期",
+      "planning": "筹划中",
+      "running": "施行中",
+      "auditing": "复核中",
+      "needs_review": "待裁",
+      "cancelled": "已撤"
+    },
+    "action": {
+      "pause": "暂停",
+      "resume": "恢复",
+      "runNow": "即刻施行一次",
+      "edit": "更改时刻",
+      "history": "施行记录",
+      "more": "更多操作"
+    },
+    "edit": {
+      "mode": "施行方式",
+      "advanced": "高级排期",
+      "interval": "固定间隔",
+      "intervalSeconds": "间隔秒数"
     },
     "popconfirm": {
       "cancel": "确认取消此排期？"
@@ -1926,7 +2085,16 @@
     "empty": "暂无排期任务",
     "toast": {
       "cancelled": "排期已取消",
-      "cancelFailed": "取消失败"
+      "cancelFailed": "取消失败",
+      "paused": "排期已暂停",
+      "pauseFailed": "暂停失败",
+      "resumed": "排期已恢复",
+      "resumeFailed": "恢复失败",
+      "queued": "已列入施行队列",
+      "runFailed": "即刻施行失败",
+      "updated": "施行时刻已更新",
+      "updateFailed": "更改时刻失败",
+      "historyFailed": "未能载入施行记录"
     }
   },
   "system": {
@@ -1945,6 +2113,7 @@
     },
     "skills": {
       "charsLoaded": "已加载 {n} chars",
+      "catalogReadOnly": "此处仅阅已载之技能。新建与修订须入治理候选，尚未接入本页；不会在此直接改动在役技能。",
       "newSkill": "新建技能",
       "detail": "技能详情",
       "detailWithName": "技能: {name}",
@@ -2101,13 +2270,15 @@
       "costSubscription": "订契 ¥0"
     },
     "plugins": {
-      "empty": "暂无插件",
+      "empty": "暂无插件清单",
+      "notice": "试行能力：此处只列已发现的 manifest，不会安装、载入或执行插件代码。",
+      "manifestOnly": "仅清单",
       "table": {
         "name": "名称",
         "version": "版本",
         "status": "状态",
-        "sha256": "SHA256",
-        "installedAt": "安装时间"
+        "sha256": "声明的 SHA256",
+        "installedAt": "发现时间"
       }
     },
     "globalConfig": {
@@ -2267,6 +2438,7 @@
     }
   },
   "skillsPage": {
+    "governedReadOnly": "习得技能当前仅供查阅与钉选。修订、归档及生效归治理候选流程，本页不列不可用之动作。",
     "title": "秘技台",
     "table": {
       "name": "技名",
@@ -2304,6 +2476,9 @@
     }
   },
   "study": {
+    "workspaceSummary": "共 {n} 项未归档任务；任务类型可叠加，进度据最近一次执行实况呈现。",
+    "partialDataTitle": "部分进度暂未更新",
+    "partialDataDescription": "任务清单仍可查看；刷新后再确认当前进度与待人工介入状态。",
     "tab": {
       "pending": "待处置",
       "all": "全部敕令"
@@ -2312,6 +2487,8 @@
   "evals": {
     "title": "考成院",
     "subtitle": "回放旧敕于沙箱,量核政绩之进退。开考之令:tianshu evals run",
+    "capabilityCanDo": "查看真实考卷、运行分数、历次差异、失事分布与靡费。",
+    "capabilityBoundary": "高靡费跑批仍由 CLI 发起；单次考成不会自行触发晋升。",
     "firstRun": "初考",
     "goal": "敕命",
     "status": "状情",
@@ -2334,6 +2511,10 @@
     "setName": "卷名",
     "goalCount": "题数",
     "source": "出处"
+  },
+  "universe": {
+    "capabilityCanDo": "创建、分支、生成代码候选、查看差异、考成、归档与恢复位面。",
+    "capabilityBoundary": "不可从 Web 切换在役运行时或晋升代码；候选不会自行写入主工房。"
   },
   "estop": {
     "intro": "锦衣卫缇骑,随时勒停在役之差事。三档可并施,状态存档并录入起居注。",
@@ -2374,7 +2555,7 @@
   "preset": {
     "quick": {
       "label": "速办",
-      "summary": "单差·自研引擎·每回御览"
+      "summary": "单差·自研引擎·失败时呈览"
     },
     "analysis": {
       "label": "案陈",
@@ -2386,23 +2567,21 @@
     },
     "research": {
       "label": "穷究",
-      "summary": "后台长程·外环十五·从严"
-    },
-    "keqing": {
-      "label": "遣客卿",
-      "summary": "遣 Claude Code·影卷兜底"
+      "summary": "深度差事·至多十五轮·从严"
     }
   },
   "steer": {
-    "title": "中途谕示(steer)",
-    "hint": "差事在办之际,可随时降一句谕示,下一轮承旨者先纳——不必待其毕事再追敕。",
+    "title": "补充下轮要求",
+    "hint": "差事在办之际可补一项要求，下轮优先采纳。",
     "placeholder": "如:留意并发之安 / 优先用现成器用",
-    "send": "降谕",
-    "submitted": "谕已降,下轮即行",
-    "failed": "降谕不果"
+    "send": "提交",
+    "submitted": "已提交，下轮施行",
+    "failed": "提交未成"
   },
   "keqing": {
     "title": "客卿",
+    "capabilityCanDo": "查验 Claude Code、Codex、Pi、OpenCode，并配置模型与单次靡费默认值。",
+    "capabilityBoundary": "凭证由各 CLI 自理；可靠事前动作拦截与 Provider 侧硬成本上限尚未具备。",
     "default": "默认",
     "pinned": "钉死",
     "drift": "版本漂移",
@@ -2435,14 +2614,14 @@
       "directEnv": "直连环境变量",
       "unconfigured": "未配置",
       "title": "凭证隔离",
-      "note": "客卿乃外臣,自管凭证——本页不存、不输入 raw API key。默认「客卿自管」:于客卿处配（pi 走 `pi /login`,claude-code/codex/opencode 走各自本地登录）,天枢直接调。开「凭证网关」后天枢改托管一次性 scoped token,raw key 永不入客卿进程。",
+      "note": "客卿乃外臣，自管凭证——本页不存、不输入 raw API key。请于客卿处登录（pi 用 `pi /login`，claude-code/codex/opencode 用各自本地登录），天枢仅负责调用。",
       "selfManaged": "客卿自管"
     },
     "field": {
       "defaultModel": "默认模型 · 按客卿",
       "defaultModelTip": "敕令未指定「客卿模型」时,该客卿回退到此默认(格式 provider/id:thinking)。留空=交该客卿自身登录默认。",
       "gateway": "凭证网关（OpenShell 隔离）",
-      "gatewayTip": "开启后客卿只拿 scoped token，raw provider key 不入客卿进程；预算硬熔断在网关 402。",
+      "gatewayTip": "凭证网关尚属实验，今版不可用。",
       "budget": "单次运行预算",
       "budgetTip": "每次客卿运行的预算上限（CNY），0=沿用全局护栏。",
       "allowlist": "模型白名单",
@@ -2452,7 +2631,7 @@
     "group": {
       "active": "现行治理",
       "gateway": "网关治理",
-      "gatewayNote": "下列为「网关治理」——硬管控须凭证网关接线（P3 上游反代）后方生效。自管模式下,模型白名单不可硬拦（客卿自择已登录之模型）,网关开关亦暂不可行。"
+      "gatewayNote": "凭证网关尚属实验，今版不设开关。"
     }
   }
 }

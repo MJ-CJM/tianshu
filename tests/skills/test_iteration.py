@@ -182,6 +182,7 @@ class TestIteratePass:
                 skill_iterate_min_usage=3,
             ),
             runtime_dir=tmp / "runtime",
+            governed_writes_available=True,
         )
         return curator
 

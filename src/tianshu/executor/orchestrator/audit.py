@@ -15,7 +15,7 @@ from tianshu.executor.orchestrator.templates import (
     TemplateName,
     render_template,
 )
-from tianshu.llm import LLMClient
+from tianshu.llm import LLMClient, LLMUsageContext
 from tianshu.models.acceptance import AcceptanceCriteria
 
 logger = logging.getLogger(__name__)
@@ -125,6 +125,7 @@ async def run_completion_audit(
     objective: str,
     acceptance: AcceptanceCriteria,
     llm: LLMClient,
+    usage_context: LLMUsageContext | None = None,
 ) -> AuditResult:
     """跑一次完成审计；JSON 解析失败时重试 1 次。"""
     audit_prompt = render_template(
@@ -136,10 +137,16 @@ async def run_completion_audit(
         {"role": "system", "content": audit_prompt},
         {"role": "user", "content": f"## 待审产出\n\n{actor_output}"},
     ]
-    response = await llm.chat(messages)
+    if usage_context is None:
+        response = await llm.chat(messages)
+    else:
+        response = await llm.chat(messages, usage_context=usage_context)
     result = parse_audit_response(response.content or "")
     if result.gaps and result.gaps[0].check_name == "_meta":
         logger.info("audit JSON 解析失败，重试 1 次")
-        response = await llm.chat(messages)
+        if usage_context is None:
+            response = await llm.chat(messages)
+        else:
+            response = await llm.chat(messages, usage_context=usage_context)
         result = parse_audit_response(response.content or "")
     return result

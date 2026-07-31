@@ -7,43 +7,30 @@ import type {
   ControlEvidenceSummaryV1,
   ControlRunSummaryV1,
 } from "../api/control";
+import { CapabilitySummaryCard } from "../components/capabilities/CapabilityMaturity";
 import PageContainer from "../components/common/PageContainer";
 import PageDataState from "../components/states/PageDataState";
 import { useLocaleMode } from "../hooks/useLocale";
 import { useControlCenter } from "../hooks/useControlCenter";
 import { useT } from "../i18n";
+import styles from "./ControlCenterPage.module.css";
 
-const sectionStyle = {
-  border: "1px solid var(--ts-color-border)",
-  borderRadius: 8,
-  padding: 16,
-  background: "var(--ts-color-surface)",
-} as const;
-
-const listStyle = {
-  listStyle: "none",
-  padding: 0,
-  margin: "12px 0 0",
-  display: "grid",
-  gap: 10,
-} as const;
-
-const rowStyle = {
-  borderTop: "1px solid var(--ts-color-border)",
-  paddingTop: 10,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 16,
-} as const;
-
-function Metric({ label, value }: { label: string; value: number }) {
+function Metric({
+  detail,
+  label,
+  value,
+}: {
+  detail?: string;
+  label: string;
+  value: number;
+}) {
   return (
-    <article style={sectionStyle}>
+    <article>
       <Typography.Text type="secondary">{label}</Typography.Text>
-      <Typography.Title level={2} style={{ margin: "8px 0 0" }}>
-        {value}
-      </Typography.Title>
+      <Typography.Title level={2}>{value}</Typography.Title>
+      {detail ? (
+        <Typography.Text type="secondary">{detail}</Typography.Text>
+      ) : null}
     </article>
   );
 }
@@ -51,7 +38,7 @@ function Metric({ label, value }: { label: string; value: number }) {
 function RunRow({ run }: { run: ControlRunSummaryV1 }) {
   const t = useT();
   return (
-    <li style={rowStyle}>
+    <li>
       <div>
         <Typography.Text strong>{run.edict_title}</Typography.Text>
         <br />
@@ -71,7 +58,7 @@ function DecisionRow({ decision }: { decision: ControlDecisionSummaryV1 }) {
   const locale = useLocaleMode();
   const dateLocale = locale === "en" ? "en-US" : "zh-CN";
   return (
-    <li style={rowStyle}>
+    <li>
       <div>
         <Typography.Text strong>{decision.edict_title}</Typography.Text>
         <br />
@@ -89,7 +76,7 @@ function EvidenceRow({ evidence }: { evidence: ControlEvidenceSummaryV1 }) {
   const t = useT();
   const isClosed = evidence.status === "closed";
   return (
-    <li style={rowStyle}>
+    <li>
       <div>
         <Typography.Text strong>{evidence.edict_title}</Typography.Text>
         <br />
@@ -118,9 +105,7 @@ function EvidenceRow({ evidence }: { evidence: ControlEvidenceSummaryV1 }) {
 
 function EmptyLine({ children }: { children: string }) {
   return (
-    <Typography.Paragraph type="secondary" style={{ margin: "12px 0 0" }}>
-      {children}
-    </Typography.Paragraph>
+    <Typography.Paragraph type="secondary">{children}</Typography.Paragraph>
   );
 }
 
@@ -128,12 +113,18 @@ function SnapshotContent({ snapshot }: { snapshot: ControlCenterSnapshotV1 }) {
   const t = useT();
   const locale = useLocaleMode();
   const dateLocale = locale === "en" ? "en-US" : "zh-CN";
+  const evolutionStatus =
+    snapshot.evolution_status === "enabled"
+      ? t("page.evolutionCenter.enabled")
+      : snapshot.evolution_status === "degraded"
+        ? t("page.evolutionCenter.degraded")
+        : t("page.controlCenter.evolutionNotEnabled");
   return (
-    <div style={{ display: "grid", gap: 16 }}>
-      <section aria-labelledby="control-status-title" style={sectionStyle}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
+    <div className={styles.pageGrid}>
+      <section aria-labelledby="control-status-title">
+        <div>
           <div>
-            <Typography.Title id="control-status-title" level={4} style={{ margin: 0 }}>
+            <Typography.Title id="control-status-title" level={4}>
               {t("page.controlCenter.statusTitle")}
             </Typography.Title>
             <Typography.Text type="secondary">
@@ -147,18 +138,25 @@ function SnapshotContent({ snapshot }: { snapshot: ControlCenterSnapshotV1 }) {
                 ? t("page.controlCenter.readinessReady")
                 : t("page.controlCenter.readinessDegraded")}
             </Tag>
-            <Tag>{t("page.controlCenter.evolutionNotEnabled")}</Tag>
           </div>
         </div>
       </section>
 
       <section
         aria-label={t("page.controlCenter.realCounts")}
-        style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}
+        className={styles.metricsGrid}
       >
         <Metric
           label={t("page.controlCenter.activeRunsMetric")}
           value={snapshot.active_run_total}
+        />
+        <Metric
+          detail={t("page.controlCenter.unarchivedEdictsBreakdown", {
+            awaiting: snapshot.awaiting_follow_up_total,
+            cancelled: snapshot.cancelled_edict_total,
+          })}
+          label={t("page.controlCenter.unarchivedEdictsMetric")}
+          value={snapshot.unarchived_edict_total}
         />
         <Metric
           label={t("page.controlCenter.pendingDecisionsMetric")}
@@ -170,21 +168,54 @@ function SnapshotContent({ snapshot }: { snapshot: ControlCenterSnapshotV1 }) {
         />
       </section>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 2fr) minmax(280px, 1fr)",
-          gap: 16,
-        }}
-      >
-        <section aria-labelledby="active-runs-title" style={sectionStyle}>
-          <Typography.Title id="active-runs-title" level={4} style={{ margin: 0 }}>
+      <section aria-labelledby="unique-capabilities-title">
+        <Typography.Title id="unique-capabilities-title" level={4}>
+          {t("page.controlCenter.uniqueCapabilitiesTitle")}
+        </Typography.Title>
+        <Typography.Paragraph type="secondary">
+          {t("page.controlCenter.uniqueCapabilitiesDescription")}
+        </Typography.Paragraph>
+        <div className={styles.capabilitiesGrid}>
+          <CapabilitySummaryCard
+            title={t("page.controlCenter.longGovernanceTitle")}
+            maturity="stableLimited"
+            status={t("page.controlCenter.longGovernanceStatus")}
+            description={t("page.controlCenter.longGovernanceDescription")}
+            to="/edicts/create"
+          />
+          <CapabilitySummaryCard
+            title={t("page.controlCenter.evolutionCapabilityTitle")}
+            maturity="experimental"
+            status={evolutionStatus}
+            description={t("page.controlCenter.evolutionCapabilityDescription")}
+            to="/evolution"
+          />
+          <CapabilitySummaryCard
+            title={t("page.controlCenter.universeCapabilityTitle")}
+            maturity="experimental"
+            status={t("page.controlCenter.universeCapabilityStatus")}
+            description={t("page.controlCenter.universeCapabilityDescription")}
+            to="/universes"
+          />
+          <CapabilitySummaryCard
+            title={t("page.controlCenter.keqingCapabilityTitle")}
+            maturity="experimental"
+            status={t("page.controlCenter.keqingCapabilityStatus")}
+            description={t("page.controlCenter.keqingCapabilityDescription")}
+            to="/keqing"
+          />
+        </div>
+      </section>
+
+      <div className={styles.activityGrid}>
+        <section aria-labelledby="active-runs-title">
+          <Typography.Title id="active-runs-title" level={4}>
             {t("page.controlCenter.activeRunsTitle")}
           </Typography.Title>
           {snapshot.active_runs.length === 0 ? (
             <EmptyLine>{t("page.controlCenter.activeRunsEmpty")}</EmptyLine>
           ) : (
-            <ul style={listStyle}>
+            <ul className={styles.list}>
               {snapshot.active_runs.map((run) => (
                 <RunRow key={run.memorial_id} run={run} />
               ))}
@@ -192,14 +223,14 @@ function SnapshotContent({ snapshot }: { snapshot: ControlCenterSnapshotV1 }) {
           )}
         </section>
 
-        <section aria-labelledby="pending-decisions-title" style={sectionStyle}>
-          <Typography.Title id="pending-decisions-title" level={4} style={{ margin: 0 }}>
+        <section aria-labelledby="pending-decisions-title">
+          <Typography.Title id="pending-decisions-title" level={4}>
             {t("page.controlCenter.pendingDecisionsTitle")}
           </Typography.Title>
           {snapshot.pending_decisions.length === 0 ? (
             <EmptyLine>{t("page.controlCenter.pendingDecisionsEmpty")}</EmptyLine>
           ) : (
-            <ul style={listStyle}>
+            <ul className={styles.list}>
               {snapshot.pending_decisions.map((decision) => (
                 <DecisionRow key={decision.decision_request_id} decision={decision} />
               ))}
@@ -208,14 +239,14 @@ function SnapshotContent({ snapshot }: { snapshot: ControlCenterSnapshotV1 }) {
         </section>
       </div>
 
-      <section aria-labelledby="recent-evidence-title" style={sectionStyle}>
-        <Typography.Title id="recent-evidence-title" level={4} style={{ margin: 0 }}>
+      <section aria-labelledby="recent-evidence-title">
+        <Typography.Title id="recent-evidence-title" level={4}>
           {t("page.controlCenter.recentEvidenceTitle")}
         </Typography.Title>
         {snapshot.recent_evidence.length === 0 ? (
           <EmptyLine>{t("page.controlCenter.recentEvidenceEmpty")}</EmptyLine>
         ) : (
-          <ul style={listStyle}>
+          <ul className={styles.list}>
             {snapshot.recent_evidence.map((evidence) => (
               <EvidenceRow key={evidence.bundle_id} evidence={evidence} />
             ))}

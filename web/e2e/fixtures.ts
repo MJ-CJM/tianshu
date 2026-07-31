@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test as base, type Page } from "@playwright/test";
+import { expect, test as base, type Page, type Request } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
@@ -39,8 +39,12 @@ export const VIEWPORTS = [
 export const THEMES = ["dark", "light"] as const;
 export const CORE_ROUTES = [
   { name: "control", path: "/control" },
+  { name: "workbench", path: "/approvals" },
   { name: "edict-detail", path: "/edicts/:fixture" },
   { name: "evolution", path: "/evolution" },
+  { name: "universes", path: "/universes" },
+  { name: "evals", path: "/evals" },
+  { name: "keqing", path: "/keqing" },
 ] as const;
 
 async function freePort(): Promise<number> {
@@ -204,8 +208,23 @@ export const test = base.extend<Fixtures>({
   },
   page: async ({ page }, use) => {
     const failures: string[] = [];
+    const cancelledPreloads = new Set<string>();
     const isAssertedMissingDag = (url: string) =>
       /^\/api\/dag\/by-edict\/[^/]+$/.test(new URL(url).pathname);
+    const isCancelledPreload = (request: Request) => {
+      if (
+        request.failure()?.errorText !== "net::ERR_ABORTED" ||
+        !["script", "stylesheet"].includes(request.resourceType())
+      ) {
+        return false;
+      }
+      const target = new URL(request.url());
+      const current = new URL(page.url());
+      return (
+        target.origin === current.origin &&
+        /^\/assets\/[^/]+\.(?:js|css)$/.test(target.pathname)
+      );
+    };
     await page.addInitScript(() => {
       if (localStorage.getItem("tianshu-locale") === null) {
         localStorage.setItem("tianshu-locale", "en");
@@ -221,6 +240,10 @@ export const test = base.extend<Fixtures>({
     });
     page.on("pageerror", (error) => failures.push(`pageerror: ${error.message}`));
     page.on("requestfailed", (request) => {
+      if (isCancelledPreload(request)) {
+        cancelledPreloads.add(request.url());
+        return;
+      }
       failures.push(`requestfailed: ${request.method()} ${request.url()} ${request.failure()?.errorText ?? ""}`);
     });
     page.on("response", (response) => {
@@ -233,6 +256,21 @@ export const test = base.extend<Fixtures>({
       }
     });
     await use(page);
+    for (const url of cancelledPreloads) {
+      try {
+        const response = await page.request.get(url);
+        if (!response.ok()) {
+          failures.push(`cancelled static preload is unavailable: ${response.status()} ${url}`);
+        }
+        await response.dispose();
+      } catch (error) {
+        failures.push(
+          `cancelled static preload could not be verified: ${url} ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
     expect(failures, "browser console and network failures").toEqual([]);
   },
 });
@@ -363,15 +401,33 @@ export async function seedClosedEvidence(
   });
 }
 
-const coreEdicts = new Map<string, Promise<string>>();
-async function coreEdictId(stack: DemoStack): Promise<string> {
+interface CoreEdictFixture {
+  edictId: string;
+  detailResponse: unknown;
+  eventsResponse: unknown;
+}
+
+const coreEdicts = new Map<string, Promise<CoreEdictFixture>>();
+async function coreEdictFixture(stack: DemoStack): Promise<CoreEdictFixture> {
   let pending = coreEdicts.get(stack.baseURL);
   if (!pending) {
     pending = (async () => {
       const created = await createPlanReviewEdict(stack);
       await seedClosedEvidence(stack, created.edictId, created.decisionId);
       await waitForClosedEvidence(stack, created.edictId);
-      return created.edictId;
+      const [detailResponse, eventsResponse] = await Promise.all([
+        jsonRequest<unknown>(
+          `${stack.baseURL}/api/edicts/${encodeURIComponent(created.edictId)}/detail`,
+        ),
+        jsonRequest<unknown>(
+          `${stack.baseURL}/api/edicts/${encodeURIComponent(created.edictId)}/events`,
+        ),
+      ]);
+      return {
+        edictId: created.edictId,
+        detailResponse,
+        eventsResponse,
+      };
     })();
     coreEdicts.set(stack.baseURL, pending);
   }
@@ -393,14 +449,116 @@ export async function setShellState(
   }, state);
 }
 
+export async function installKeqingContracts(page: Page): Promise<void> {
+  await page.route("**/api/keqing/status", async (route) => {
+    expect(route.request().method()).toBe("GET");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: {
+          backends: [
+            {
+              id: "keqing:pi",
+              backend: "pi",
+              binary: "pi",
+              installed: true,
+              installed_version: "0.0.0-e2e",
+              pinned_version: "0.0.0-e2e",
+              version_drift: false,
+              capabilities: {
+                permission_shaping: "workspace",
+                hooks: "supported",
+                stop_gate: true,
+                session_resume: true,
+                interject: true,
+                usage_reporting: "native",
+              },
+              credential_status: "self-managed",
+            },
+          ],
+          gateway_enabled: false,
+        },
+        error: null,
+        metadata: null,
+      }),
+    });
+  });
+  await page.route("**/api/agent-config", async (route) => {
+    expect(route.request().method()).toBe("GET");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: {
+          agent_max_iterations: 50,
+          agent_timeout_seconds: 600,
+          agent_max_concurrency: 4,
+          agent_retry_limit: 2,
+          agent_token_budget: null,
+          agent_cost_budget_cny: null,
+          skills_char_budget: 12_000,
+          task_slots: {},
+          keqing_default_models: {},
+          keqing_gateway_enabled: false,
+          keqing_per_run_budget_cny: 0,
+          keqing_model_allowlist: "",
+        },
+        error: null,
+        metadata: null,
+      }),
+    });
+  });
+}
+
 export async function prepareCoreRoute(
   page: Page,
   stack: DemoStack,
   route: (typeof CORE_ROUTES)[number],
 ): Promise<void> {
-  const path = route.name === "edict-detail"
-    ? `/edicts/${encodeURIComponent(await coreEdictId(stack))}`
-    : route.path;
+  await page.route("**/api/memorials?*", async (requestRoute) => {
+    const requestUrl = new URL(requestRoute.request().url());
+    if (requestUrl.searchParams.get("status") !== "needs_review") {
+      await requestRoute.continue();
+      return;
+    }
+    await requestRoute.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: [],
+        error: null,
+        metadata: { total: 0, limit: 50, offset: 0 },
+      }),
+    });
+  });
+  if (route.name === "keqing") {
+    await installKeqingContracts(page);
+  }
+  let path = route.path;
+  if (route.name === "workbench") {
+    await coreEdictFixture(stack);
+  } else if (route.name === "edict-detail") {
+    const fixture = await coreEdictFixture(stack);
+    await page.route("**/api/edicts/*/detail", async (requestRoute) => {
+      await requestRoute.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(fixture.detailResponse),
+      });
+    });
+    await page.route("**/api/edicts/*/events", async (requestRoute) => {
+      await requestRoute.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(fixture.eventsResponse),
+      });
+    });
+    path = `/edicts/${encodeURIComponent(fixture.edictId)}`;
+  }
   await page.goto(`${stack.baseURL}${path}`);
   await expect(page.locator("main")).toBeVisible();
   await expect(page.getByText("Loading", { exact: true })).toHaveCount(0, { timeout: 30_000 });
@@ -502,7 +660,10 @@ export async function assertKeyboardActionsHaveVisibleFocus(page: Page): Promise
       const name = element.getAttribute("aria-label") ??
         proxy.getAttribute("aria-label") ?? proxy.textContent?.trim().replace(/\s+/g, " ") ?? "";
       const href = element.getAttribute("href") ?? "";
-      const identity = `${role}:${name}:${href}`;
+      // The frozen id is the primary identity. Include the occurrence so
+      // legitimate icon-only actions with the same accessible name do not
+      // collapse into a false duplicate before focus traversal begins.
+      const identity = `${role}:${name}:${href}#${frozen.length}`;
       element.dataset.s4FocusTarget = id;
       proxy.dataset.s4FocusProxy = id;
       frozen.push({ id, identity });
@@ -642,7 +803,8 @@ export async function assertZoomHasNoPrimaryHorizontalTrap(page: Page): Promise<
   const connection = page.getByRole("status").filter({ hasText: FROZEN_CONNECTION_LABEL });
   const health = page.getByRole("status").filter({ hasText: FROZEN_HEALTH_LABEL });
   const control = page.getByRole("menuitem", { name: "Control Center", exact: true });
-  const evolution = page.getByRole("menuitem", { name: "Evolution Center", exact: true });
+  const workspace = page.getByRole("menuitem", { name: /^Task Workspace(?:\s*\d+)?$/ });
+  const allTasks = page.getByRole("menuitem", { name: "All Tasks", exact: true });
   const sidebar = page.locator("aside");
   const theme = sidebar.getByRole("button", { name: "Switch to Light", exact: true });
   const collapse = sidebar.getByRole("button", { name: "Collapse", exact: true });
@@ -654,12 +816,16 @@ export async function assertZoomHasNoPrimaryHorizontalTrap(page: Page): Promise<
     ["realtime status", connection],
     ["governance health status", health],
     ["Control Center entry", control],
-    ["Evolution Center entry", evolution],
+    ["Task Workspace entry", workspace],
     ["theme control", theme],
     ["sidebar collapse control", collapse],
   ] as const) {
     await assertInViewport(name, locator);
   }
+  if (await workspace.getAttribute("aria-expanded") !== "true") {
+    await workspace.click();
+  }
+  await assertInViewport("All Tasks entry", allTasks);
 
   const localeTarget = locale.locator(".ant-segmented-item-input:checked");
   await assertFocused("language switcher", localeTarget);
@@ -681,8 +847,11 @@ export async function assertZoomHasNoPrimaryHorizontalTrap(page: Page): Promise<
   for (const [name, locator, path] of [
     ["brand logo", brand, "/control"],
     ["Control Center entry", control, "/control"],
-    ["Evolution Center entry", evolution, "/evolution"],
+    ["All Tasks entry", allTasks, "/approvals"],
   ] as const) {
+    if (path === "/approvals" && await workspace.getAttribute("aria-expanded") !== "true") {
+      await workspace.click();
+    }
     await assertInViewport(name, locator);
     await assertFocused(name, locator);
     await locator.press("Enter");
@@ -690,16 +859,19 @@ export async function assertZoomHasNoPrimaryHorizontalTrap(page: Page): Promise<
     if (path === "/control") {
       await expect(page.getByRole("heading", { name: "Control Center" })).toBeVisible();
     } else {
-      await expect(page.getByRole("heading", { name: "Evolution Center" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Task Workspace" })).toBeVisible();
     }
     if (page.url() !== originalUrl) {
       await page.goto(originalUrl);
       const originalPath = new URL(originalUrl).pathname;
-      const heading = originalPath === "/control"
-        ? "Control Center"
-        : originalPath === "/evolution"
-          ? "Evolution Center"
-          : "Governance Contract";
+      const heading = {
+        "/control": "Control Center",
+        "/approvals": "Task Workspace",
+        "/evolution": "Evolution Center",
+        "/universes": "Universes",
+        "/evals": "Evals",
+        "/keqing": "Keqing Management",
+      }[originalPath] ?? "Task Detail";
       await expect(page.getByRole("heading", { name: heading })).toBeVisible();
     }
   }

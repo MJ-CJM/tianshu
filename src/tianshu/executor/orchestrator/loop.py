@@ -8,9 +8,11 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.bus.event_bus import EventBus
+from tianshu.cost.manager import CostManager
 from tianshu.executor.checkpoint import OuterLoopCheckpoint
 from tianshu.executor.execution_gateway import (
     ExecutionContext,
@@ -44,7 +46,7 @@ from tianshu.executor.orchestrator.templates import (
     TemplateName,
     render_template,
 )
-from tianshu.llm import LLMClient
+from tianshu.llm import LLMClient, LLMUsageContext
 from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.common import TaskStatus, UsageSummary
 from tianshu.models.edict import Edict
@@ -107,21 +109,22 @@ class OrchestratorContext:
 
     def __init__(
         self,
-        agent: object,  # 现有 Agent 实例
+        agent: Any,  # 现有 Agent 或执行器适配器
         storage: Storage,
         bus: EventBus,
         actor_llm: LLMClient,
         critic_llm: LLMClient,
         critic_fallback_llm: LLMClient | None = None,
-        consultation_session: object | None = None,
-        notifier: object | None = None,
-        approvals: object | None = None,
+        consultation_session: Any | None = None,
+        notifier: Any | None = None,
+        approvals: Any | None = None,
         persona_loader: object | None = None,  # PersonaLoader (rsv 循环 import)
         provider_manager: object | None = None,  # ProviderManager
         execution_gateway: ExecutionGateway | None = None,
         workspace_root: Path | None = None,
         execution_context: ExecutionContext | None = None,
         attempt_authority: AttemptAuthority | None = None,
+        cost_manager: CostManager | None = None,
     ) -> None:
         self.agent = agent
         self.storage = storage
@@ -138,6 +141,7 @@ class OrchestratorContext:
         self.workspace_root = workspace_root
         self.execution_context = execution_context
         self.attempt_authority = attempt_authority
+        self.cost_manager = cost_manager
 
 
 class OrchestratorResult:
@@ -153,6 +157,21 @@ class OrchestratorResult:
         self.status = status
         self.final_output = final_output
         self.state = state
+        self.error = error
+
+
+class _ActorTerminal(RuntimeError):
+    """Actor 已给出确定性失败/取消，不允许后续 critic 改写终态。"""
+
+    def __init__(
+        self,
+        status: TaskStatus,
+        final_output: str | None,
+        error: str,
+    ) -> None:
+        super().__init__(error)
+        self.status = status
+        self.final_output = final_output
         self.error = error
 
 
@@ -196,6 +215,7 @@ def _save_checkpoint(ctx: OrchestratorContext, state: OuterLoopState) -> None:
         state.edict_id,
         cp.to_json(),
         cp.saved_at,
+        ack_steer_ids=state.steer_ids,
     )
 
 
@@ -242,13 +262,12 @@ async def _finalize_with_supervision(
     final_output: str | None,
     error: str | None = None,
 ) -> OrchestratorResult:
-    """终态包装：清 checkpoint + (可选) 生成监督报告 + 返回 OrchestratorResult。
+    """终态包装：(可选) 生成监督报告 + 返回 OrchestratorResult。
 
     监督报告仅在 edict.acceptance.critic.persona_id 配了且 ctx.persona_loader 可用时生成。
-    LLM 失败时吞异常不阻塞终态返回。
+    LLM 失败时吞异常不阻塞终态返回。checkpoint 必须由持久化 Memorial 终态的
+    上层在落库成功后清理，避免崩溃窗口丢失可恢复状态。
     """
-    ctx.storage.clear_outer_loop_checkpoint(edict.id)
-
     acceptance = edict.acceptance
     persona_ids: list[str] = (
         acceptance.critic.effective_persona_ids() if acceptance and acceptance.critic else []
@@ -319,11 +338,15 @@ def _inject_steer(
     edict: Edict,
     state: OuterLoopState,
 ) -> OuterLoopState:
-    """取出该 edict 待注入的 steer(取即消费),塞进 state.steer_note;无则清空上一轮。"""
+    """Read pending steer instructions; acknowledge only with a durable checkpoint."""
     from dataclasses import replace
 
-    notes = ctx.storage.list_and_clear_steers(edict.id)
-    return replace(state, steer_note="\n".join(notes) if notes else None)
+    pending = ctx.storage.list_steers(edict.id)
+    return replace(
+        state,
+        steer_note="\n".join(row["note"] for row in pending) if pending else None,
+        steer_ids=tuple(row["id"] for row in pending),
+    )
 
 
 async def _check_pause(
@@ -400,10 +423,18 @@ async def _check_budget(
     返回 (state, edict, 提前收工结果)；后者非 None 时 run() 应立即 return 它。
     """
     # ---- NEW: 预算检查（usage_ratio）+ 软着陆触发 ----
+    memorial_tokens = memorial.usage.total_tokens if memorial.usage else 0
+    memorial_cost = float(memorial.usage.cost_cny) if memorial.usage else 0.0
+    live_usage = (
+        ctx.cost_manager.get_live_usage(edict.id, memorial.id) if ctx.cost_manager else None
+    )
     budget_snap = BudgetSnapshot(
-        tokens_used=memorial.usage.total_tokens if memorial.usage else 0,
+        # The process-wide observer includes rubric, critic, completion audit,
+        # consultation and supervision calls. ``max`` preserves compatibility
+        # with older Agent-only memorial accounting without double-counting.
+        tokens_used=max(memorial_tokens, live_usage.total_tokens if live_usage else 0),
         token_budget=edict.runtime.token_budget,
-        cost_used_cny=float(memorial.usage.cost_cny) if memorial.usage else 0.0,
+        cost_used_cny=max(memorial_cost, float(live_usage.cost_cny) if live_usage else 0.0),
         cost_budget_cny=edict.runtime.cost_budget_cny,
         time_used_seconds=int((datetime.now(UTC) - memorial.created_at).total_seconds())
         if getattr(memorial, "created_at", None)
@@ -536,6 +567,17 @@ async def _run_actor_turn(
         user_content=augmented_content,
     )
     actor_output = actor_result.result or actor_result.summary or ""
+    actor_status = getattr(actor_result, "status", None)
+    if actor_status in {TaskStatus.FAILED, TaskStatus.CANCELLED}:
+        error = actor_result.error or f"actor returned {actor_status.value}"
+        logger.warning(
+            "[ORCH] edict %s iter %d: actor terminated with %s: %s",
+            edict.id,
+            state.iteration,
+            actor_status.value,
+            error,
+        )
+        raise _ActorTerminal(actor_status, actor_output or None, error)
     # Actor 错误时把 error 信息暴露出来，让 critic + 监督报告能正确诊断（而非误判为 actor 偷懒）
     if not actor_output and getattr(actor_result, "error", None):
         actor_output = f"[ACTOR ERROR] {actor_result.error}"
@@ -585,6 +627,11 @@ async def _run_checks_phase(
                 ctx.actor_llm,
                 execution_gateway=ctx.execution_gateway,
                 workspace_root=ctx.workspace_root,
+                usage_context=LLMUsageContext(
+                    edict_id=edict.id,
+                    memorial_id=memorial.id,
+                    operation="acceptance_rubric",
+                ),
             )
     except ChecksConfigError as e:
         last_output = state.history[-1].actor_output if state.history else actor_output
@@ -620,6 +667,7 @@ async def _run_checks_phase(
 async def _run_critic_phase(
     ctx: OrchestratorContext,
     edict: Edict,
+    memorial: Memorial,
     acceptance: AcceptanceCriteria,
     actor_output: str,
     checks_result: ChecksResult,
@@ -636,6 +684,11 @@ async def _run_critic_phase(
                 ctx.critic_llm,
                 fallback_llm=ctx.critic_fallback_llm,
                 ctx=ctx,
+                usage_context=LLMUsageContext(
+                    edict_id=edict.id,
+                    memorial_id=memorial.id,
+                    operation="critic_review",
+                ),
             )
         except CriticUnavailable as e:
             if acceptance.on_critic_unavailable == "skip":
@@ -688,6 +741,11 @@ async def _run_post_critic(
             objective=edict.goal,
             acceptance=acceptance,
             llm=audit_llm,
+            usage_context=LLMUsageContext(
+                edict_id=edict.id,
+                memorial_id=memorial.id,
+                operation="completion_audit",
+            ),
         )
         await emit_audit(
             ctx.bus,
@@ -784,7 +842,7 @@ async def _run_post_critic(
     if decision == "EXHAUSTED":
         return state, edict, await _handle_exhaustion(state, edict, ctx, memorial)
     if decision != state.current_level:
-        state = state.with_level(decision)  # type: ignore[arg-type]
+        state = state.with_level(decision)
         await emit_audit(
             ctx.bus,
             ctx.storage,
@@ -966,16 +1024,28 @@ async def run(
         if budget_exit is not None:
             return budget_exit
 
-        actor_output, actor_cost = await _run_actor_turn(ctx, edict, memorial, state)
+        try:
+            actor_output, actor_cost = await _run_actor_turn(ctx, edict, memorial, state)
+        except _ActorTerminal as terminal:
+            return await _finalize_with_supervision(
+                state,
+                edict,
+                ctx,
+                memorial,
+                terminal.status,
+                terminal.final_output,
+                error=terminal.error,
+            )
 
         checks_result, checks_exit = await _run_checks_phase(
             ctx, edict, memorial, state, acceptance, actor_output
         )
         if checks_exit is not None:
             return checks_exit
+        assert checks_result is not None
 
         critic_result, critic_skipped = await _run_critic_phase(
-            ctx, edict, acceptance, actor_output, checks_result
+            ctx, edict, memorial, acceptance, actor_output, checks_result
         )
 
         record = IterationRecord(
@@ -1136,7 +1206,14 @@ async def _run_consultation(
         edict_id=edict.id,
         persona_ids=acceptance.escalation.l2_consultation_personas,
     )
-    resp = await ctx.consultation_session.start(req)
+    resp = await ctx.consultation_session.start(
+        req,
+        usage_context=LLMUsageContext(
+            edict_id=edict.id,
+            memorial_id=memorial.id,
+            operation="consultation",
+        ),
+    )
 
     if resp is None:
         return None

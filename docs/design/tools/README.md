@@ -25,7 +25,8 @@ Agent 工具调用 (非 T0)
           → 规则管线 (tier_escalation→workspace_boundary→bash/lark/network→approval_list→default_tier)
           → allow / deny / require_approval
       → require_approval: 先查 session rule cache 命中则放行
-                          否则 ApprovalManager 等人工批红 → Decree → 可升级 session rule
+                          否则 ApprovalManager 等人工裁决 → Decision
+                          （legacy Decree 兼容投影）→ 可升级 session rule
   → ToolRegistry.execute (winding_down 拦截 side_effect)
 ```
 

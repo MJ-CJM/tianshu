@@ -1,4 +1,12 @@
-# 客卿体系设计：pi 为默认执行内核
+# 客卿体系设计：pi 为默认执行内核（历史/演进方案）
+
+> **状态说明（当前实现优先）**：本文是目标架构和阶段方案，不是已完成能力清单。当前
+> `/keqing` 为默认导航隐藏的实验路由，生产 executor 只支持 CLI 自管凭证；凭证网关未接入，
+> 尝试开启返回 `409`。本文中的 scoped token、hard cost cap、raw-key 隔离、provider
+> headers 和完整 guard/session 闭环，除非在
+> [`management-page.md`](management-page.md) 或
+> [`../../CURRENT-STATE.md`](../../CURRENT-STATE.md) 明确列为当前可用，否则均不得作为发布
+> 承诺。
 
 > 2026-07-23。前置文档：[grok-build/pi 借鉴分析与客卿抽象层设计](../../plan/2026-07-23-grok-pi-borrow-and-agent-adapter.md)（adapter 抽象、能力协商、候选矩阵）。
 >
@@ -27,7 +35,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 天枢治理核心（协议无关，不变）                                   │
-│  edict(需求+验收物) · PolicyEngine · 批红/廷议 · Auditor        │
+│  edict(需求+验收物) · PolicyEngine · 裁决/廷议 · Auditor        │
 │  起居注 · memorial · 户部 · 配对沙箱评估                        │
 ├─────────────────────────────────────────────────────────────┤
 │ KeqingSupervisor（进程托管）                                   │
@@ -106,7 +114,7 @@ PI_CAPABILITIES = AgentCapabilities(
 - `pi.on("tool_call")`：按 guard 配置（天枢 PolicyCompiler 产物，JSON，spawn 前写入 workspace 外的受控路径）本地快速裁决：
   - deny 命中 → `{block: true, reason}`（reason 进起居注）
   - bash 命令走段级不对称匹配（E2 语义：deny 逐段+全串、allow 仅全串、不可拆升 ask）
-  - **ask 档 → 经 `extension_ui_request` 反向通道上报天枢**（confirm/select 语义），天枢批红 UI 裁决后回 `extension_ui_response`；**timeout 兜底 = 拒绝**（修正 pi 默认放行的软肋）
+  - **ask 档 → 经 `extension_ui_request` 反向通道上报天枢**（confirm/select 语义），天枢裁决 UI 处理后回 `extension_ui_response`；**timeout 兜底 = 拒绝**（修正 pi 默认放行的软肋）
 - 本地裁决优先、上报仅 ask 档：会中拦截不产生每工具一次的网络往返。
 
 ### 4.2 传输层（凭证隔离 + 模型治理）
@@ -131,7 +139,7 @@ guard 运行在客卿进程内，理论上可被同进程内代码干扰（pi �
 
 - 凭证与预算强制点在**网关**（scoped token 只能访问白名单模型、预算耗尽网关直接断供——hard cost cap 由此落地，不再依赖事后杀进程）；
 - 文件系统边界在 worktree + 后续 OS 级沙箱；
-- 最终关卡在验收 + 三方合并（产出不经批红不落主仓）。
+- 最终关卡在验收 + 三方合并（产出不经裁决不落主仓）。
 
 ---
 
@@ -158,7 +166,7 @@ spawn(pi rpc + guard) → prompt(edict 需求规格)
         │            免进程重启、免 -r 重载）→ 循环，上限 N 次（默认 3）
         │            连续否决入起居注；N 次仍不合格 → 挂 memorial
         └─ 合格 → get_session_stats 终账 → 关 stdin 优雅收尾
-                → WorkspaceApplyEngine 三方合并（冲突进批红）
+                → WorkspaceApplyEngine 三方合并（冲突进入裁决）
                 → 配对评估/廷议终审 → 晋升
 ```
 
@@ -207,12 +215,12 @@ spawn(pi rpc + guard) → prompt(edict 需求规格)
    + provider 白名单/摘除 + 握手 fail-closed
 ④ 验收闭环（S）
    验收物执行 + follow_up 回灌循环 + 上限 N + 起居注轨迹
-⑤ guard v2：ask 档批红（M）
-   extension_ui_request 反向通道 → 天枢批红 UI → timeout=拒绝
+⑤ guard v2：ask 档裁决（M）
+   extension_ui_request 反向通道 → 天枢裁决 UI → timeout=拒绝
 ⑥ 三方合并发布（D2，M）+ 证据保全（D3，S）
 ⑦ ClaudeCodeAdapter 对照（M）→ 多客卿/多模型配对评估
 ```
 
 横切项不变（F1 原文回注、E1 重试分类落网关层、E2 bash 段级落 PolicyCompiler+guard 共用、B3 origin、B4 Hooks UI、C1-C3 存储恢复、D1 MemorialCurator、F2 供应链）。
 
-每步验收标准：① 一条真实 edict 经 pi 完成并产出 diff；② 客卿进程内抓不到任何真实 key、超预算网关断供；③ 恶意仓库 `.pi/` 扩展不加载、deny 工具被拦且入账；④ 一次不合格→回灌→合格的完整闭环入起居注；⑤ ask 工具在批红 UI 出现并可裁决；⑥ 冲突进批红、快照可复查；⑦ 同一 edict 双客卿/双模型评估报告产出。
+每步验收标准：① 一条真实 edict 经 pi 完成并产出 diff；② 客卿进程内抓不到任何真实 key、超预算网关断供；③ 恶意仓库 `.pi/` 扩展不加载、deny 工具被拦且入账；④ 一次不合格→回灌→合格的完整闭环入起居注；⑤ ask 工具在裁决 UI 出现并可处理；⑥ 冲突进入裁决、快照可复查；⑦ 同一 edict 双客卿/双模型评估报告产出。

@@ -28,7 +28,7 @@ export const STATUS_LABELS: Record<TaskStatus, string> = {
 };
 
 export const EDICT_STATUS_LABELS: Record<EdictStatus, string> = {
-  open: "进行中",
+  open: "未结案",
   completed: "已结案",
   cancelled: "已撤回",
 };

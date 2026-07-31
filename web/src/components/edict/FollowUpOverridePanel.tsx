@@ -84,18 +84,6 @@ export default function FollowUpOverridePanel({ onChange, assignedPersonaId }: P
                 <Form.Item name="cost_budget_cny" label={t("comp.followUp.costBudgetLabel")}>
                   <InputNumber min={0} step={0.01} style={{ width: "100%" }} placeholder={t("comp.followUp.placeholderInherit")} />
                 </Form.Item>
-                <Form.Item name="review_policy" label={t("comp.followUp.reviewPolicyLabel")}>
-                  <Select
-                    allowClear
-                    placeholder={t("comp.followUp.placeholderInherit")}
-                    options={[
-                      { value: "always", label: t("reviewPolicy.always") },
-                      { value: "on_flag", label: t("reviewPolicy.on_flag") },
-                      { value: "on_failure", label: t("reviewPolicy.on_failure") },
-                      { value: "never", label: t("reviewPolicy.never") },
-                    ]}
-                  />
-                </Form.Item>
               </>
             ),
           },
@@ -205,12 +193,6 @@ function buildOverride(
   const cb = values.cost_budget_cny as number | undefined;
   if (cb !== undefined && cb !== null) runtime.cost_budget_cny = cb;
   if (Object.keys(runtime).length > 0) result.runtime_override = runtime;
-
-  const reviewPolicy = values.review_policy as string | undefined;
-  // review_policy 在 edict 顶层而非 runtime — 放进 runtime_override 后端会忽略；
-  // 因此 follow-up 暂不支持改 review_policy（明确不放，避免静默失败）。
-  // 若未来支持，需要扩展 Memorial.acceptance_override 之外的 edict-level override。
-  void reviewPolicy;
 
   // acceptance override（仅在 longTaskEnabled 时构建）
   if (longTaskEnabled) {

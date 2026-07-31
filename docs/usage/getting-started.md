@@ -8,14 +8,14 @@ tianshu/
 │   └── web/static/        # 前端构建产物（gitignore）
 ├── web/                   # 前端源码（React + Vite + TypeScript）
 ├── pyproject.toml         # Python 依赖
-└── Dockerfile             # 两阶段构建，单容器部署
+└── Dockerfile             # legacy/experimental 本地容器验证
 ```
 
 ## 前置条件
 
 - Python >= 3.12
 - Node.js >= 20
-- Docker（仅部署需要）
+- Docker（仅本地容器验证需要）
 
 ---
 
@@ -27,7 +27,7 @@ tianshu/
 
 ```bash
 # 安装依赖（首次 / 依赖变更后）
-pip install -e ".[cli]"
+pip install -e .
 
 # 配置环境变量
 cp .env.example .env
@@ -74,47 +74,30 @@ TIANSHU_STATIC_DIR=src/tianshu/web/static \
 
 ---
 
-## 3. Docker 部署
+## 3. Legacy Docker 本地验证
 
-### 构建镜像
-
-```bash
-docker build -t tianshu .
-```
-
-Dockerfile 采用两阶段构建，最终产出单容器：
-
-1. **Stage 1（frontend-builder）**：Node 20 环境，`npm ci` + `npm run build`，编译前端为静态文件
-2. **Stage 2（runtime）**：Python 3.12 环境，安装后端依赖，将 Stage 1 的构建产物复制到 `/app/static`
-
-两阶段构建不会把 Node.js 和 node_modules 带入运行阶段；运行镜像仍包含 Python 应用源码、后端依赖，以及 `git`、`curl`、`jq`、编译工具等执行器所需的系统工具。
-前端静态文件由 FastAPI 直接 serve，React 在用户浏览器中运行。
-
-### 运行容器
+Dockerfile 是 `legacy/experimental` 开发资产，仅用于本地容器路径验证；它不是官方安装
+路径，也没有发布到 registry。正式本地路径仍是源码 checkout 与同一 checkout 构建的
+exact Wheel。
 
 ```bash
-docker run -d \
-  --name tianshu \
-  -p 127.0.0.1:8000:8000 \
-  -v tianshu-data:/data \
-  -v "$(pwd)/workspace:/workspace" \
-  --env-file .env \
-  tianshu
+bash scripts/docker.sh build
+bash scripts/docker.sh start
+bash scripts/docker.sh status
 ```
 
-> ⚠️ v0.4.2 无统一鉴权，仅限可信本地。必须把宿主端口绑定到 `127.0.0.1`，不要映射到公网或不可信网段。
+Dockerfile 采用三阶段构建：
 
-### 常用操作
+1. Node 20 构建 Web 静态载荷；
+2. Python 3.12 用 in-tree build backend 构建包含 Web 与许可证通知的 Wheel；
+3. 非 root 的 Python 3.12 runtime 安装该 Wheel，并从包内读取 Web 载荷。
 
-```bash
-docker logs -f tianshu         # 查看日志
-docker stop tianshu            # 停止
-docker rm tianshu              # 删除容器
-docker build -t tianshu . && \
-docker rm -f tianshu && \
-  docker run -d --name tianshu -p 127.0.0.1:8000:8000 \
-    -v tianshu-data:/data --env-file .env tianshu   # 重新构建并运行
-```
+请使用 `scripts/docker.sh`，它会验证 trusted-local 的回环发布地址并把准确的容器网关传给
+鉴权边界。不要用裸 `docker run` 绕过该边界，也不要将此镜像作为官方发行物对外发布。
+
+本轮开源前检查已经在本地真实构建并启动该镜像，确认 runtime 使用非 root
+`10001:10001`，health/API/Web 均可访问。这只能证明当前本地 Docker 路径可运行，不会
+把它提升为官方容器、registry 制品或跨平台支持。
 
 ---
 
@@ -135,11 +118,12 @@ docker rm -f tianshu && \
 | `TIANSHU_AUTH_BOOTSTRAP_TOKEN_HASH` | 空 | `sha256:<64 hex>`；服务端不保存明文 token |
 | `TIANSHU_API_TOKEN` | 空 | CLI/MCP Bearer token，仅放客户端环境变量 |
 | `TIANSHU_WORKSPACE_DIR` | `.` | Agent 工作目录 |
-| `TIANSHU_STATIC_DIR` | `/app/static` | 前端静态文件目录 |
+| `TIANSHU_STATIC_DIR` | 空（使用包内 Web 载荷） | 显式覆盖前端静态文件目录 |
 | `TIANSHU_AGENT_MAX_ITERATIONS` | `20` | Agent 最大迭代次数 |
 | `TIANSHU_AGENT_TIMEOUT_SECONDS` | `300` | Agent 执行超时（秒） |
 
-Docker 容器中 `TIANSHU_DB_PATH`、`TIANSHU_WORKSPACE_DIR`、`TIANSHU_STATIC_DIR` 已通过 Dockerfile ENV 预设，无需手动指定。
+Docker 容器中 `TIANSHU_DB_PATH`、持久目录与 `TIANSHU_WORKSPACE_DIR` 已通过 Dockerfile
+预设；Web 静态文件来自安装的 Wheel。
 
 `secure-remote` 的 CLI 推荐先设置 `TIANSHU_API_URL`，再运行 `tianshu auth login`。
 登录时 PAT 只用于换取一次会话；后续 access token 到期会自动刷新一次，会话文件位于
@@ -148,11 +132,29 @@ Docker 容器中 `TIANSHU_DB_PATH`、`TIANSHU_WORKSPACE_DIR`、`TIANSHU_STATIC_D
 
 ---
 
-## CLI 使用
+## 任务调度边界
+
+长程任务可以立即执行或定时执行一次。当前单节点运行身份模型不能安全支持长程任务的
+cron / interval 周期运行，因此 Web、API 与调度工具都会拒绝该组合；需要周期执行时请
+改用普通任务。
+
+---
+
+## 4. 本地 Wheel 与发布边界
+
+本轮已经从当前代码构建出 Wheel 和 sdist，并通过制品清单、许可证通知和 Python
+依赖安全检查。**没有**执行用户明确排除的“Ubuntu 全新 HOME 安装 exact Wheel 并完成
+核心黄金路径”，因此不能把本地构建成功写成该环境已通过，也不能据此发布 PyPI、
+GHCR、tag 或 release。完整复验步骤见
+[Lean Developer Preview](lean-developer-preview.md)。
+
+---
+
+## 5. CLI 使用
 
 ```bash
-# 安装 CLI 依赖
-pip install -e ".[cli]"
+# CLI 是基础安装的一部分
+pip install -e .
 
 # 查看可用命令
 tianshu --help

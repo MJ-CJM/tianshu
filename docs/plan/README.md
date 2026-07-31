@@ -1,6 +1,12 @@
 # 天枢（Tianshu）分阶段实施计划
 
-> 本目录将 [`../design/architecture.md`](../design/architecture.md) 的架构设计转化为可直接执行的分阶段实施计划（**路线图**）。具体特性如何一步步落地，见 [`../superpowers/INDEX.md`](../superpowers/INDEX.md)。
+> **历史路线图：** 本目录把早期架构拆成 Phase 0–3，不是当前完成度或发布承诺。
+> 当前实现和延期边界以 [当前实现与支持边界](../CURRENT-STATE.md) 与
+> [能力事实矩阵](../launch/capability-matrix.md) 为准。特别是 PostgreSQL、K8s、
+> Temporal 和多副本仍未进入当前支持范围。
+
+本目录将早期 [`../design/architecture.md`](../design/architecture.md) 架构方案转化为
+分阶段实施计划。具体特性当时如何拆解，见 [`../superpowers/INDEX.md`](../superpowers/INDEX.md)。
 
 ---
 
@@ -15,8 +21,8 @@
 
 ## 阅读指南
 
-1. **先读架构设计**：`docs/design/architecture.md` 是设计真相来源，本目录只做实施拆分
-2. **每个 Phase 独立可交付**：完成后系统可独立运行，无需等待后续 Phase
+1. **先读当前状态**：当前能力与边界以 `docs/CURRENT-STATE.md` 和能力事实矩阵为准
+2. **Phase 是历史拆分**：完成某个 checklist 不能替代当前源码和回归证据
 3. **Step 顺序即建议执行顺序**：无依赖的 Step 可并行开发
 4. **验收条件即完成标准**：每个 Step 的 checklist 全部通过才算完成
 

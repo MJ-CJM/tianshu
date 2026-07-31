@@ -14,9 +14,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../components/layout/AppLayout", () => ({ default: () => <Outlet /> }));
 vi.mock("../pages/ControlCenterPage", () => ({ default: () => <h1>中枢总览</h1> }));
 vi.mock("../pages/RoyalStudyPage", () => ({ default: () => <h1>御书房</h1> }));
+vi.mock("../pages/TaskListPage", () => ({ default: () => <h1>御书房</h1> }));
 vi.mock("../pages/OnboardingPage", () => ({ default: () => <h1>初启中枢</h1> }));
 vi.mock("../pages/EvolutionCenterPage", () => ({ default: () => <h1>演化中心</h1> }));
 vi.mock("../pages/UniversePage", () => ({ default: () => <h1>位面</h1> }));
+vi.mock("../pages/NotFoundPage", () => ({ default: () => <h1>未找到页面</h1> }));
 const onboardingApi = vi.hoisted(() => ({ getOnboardingState: vi.fn() }));
 vi.mock("../api/onboarding", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/onboarding")>()),
@@ -169,6 +171,12 @@ describe("desktop application routes", () => {
     expect(await screen.findByRole("heading", { name: "御书房" })).toBeInTheDocument();
   });
 
+  it("keeps the legacy all-tasks route compatible with the workspace", async () => {
+    renderAppRoutes("/edicts");
+
+    expect(await screen.findByRole("heading", { name: "御书房" })).toBeInTheDocument();
+  });
+
   it("routes Evolution Center separately without replacing Universes", async () => {
     const evolution = renderAppRoutes("/evolution");
     expect(await screen.findByRole("heading", { name: "演化中心" })).toBeInTheDocument();
@@ -178,11 +186,19 @@ describe("desktop application routes", () => {
     expect(await screen.findByRole("heading", { name: "位面" })).toBeInTheDocument();
   });
 
+  it("renders a clear not-found page for unknown routes", async () => {
+    renderAppRoutes("/does-not-exist");
+
+    expect(await screen.findByRole("heading", { name: "未找到页面" })).toBeInTheDocument();
+    expect(screen.getByText("/does-not-exist:POP")).toBeInTheDocument();
+  });
+
   it("loads every page module through a route-level lazy boundary", () => {
     const source = readFileSync(resolve(process.cwd(), "src/router/AppRoutes.tsx"), "utf8");
     const pageModules = [
       "ControlCenterPage",
       "RoyalStudyPage",
+      "TaskListPage",
       "EdictCreatePage",
       "EdictDetailPage",
       "SchedulerPage",
@@ -202,6 +218,8 @@ describe("desktop application routes", () => {
       "DagBattleMapPage",
       "OnboardingPage",
       "EvolutionCenterPage",
+      "KeqingManagementPage",
+      "NotFoundPage",
     ];
 
     expect(source).not.toMatch(/import\s+\w+\s+from\s+["']\.\.\/pages\//);

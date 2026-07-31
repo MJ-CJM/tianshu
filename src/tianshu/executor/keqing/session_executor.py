@@ -418,7 +418,9 @@ class KeqingSessionExecutor:
                 workspace_root=work,
             )
             if result.all_passed:
-                logger.info("[keqing-session] edict %s 验收通过(第 %d 轮)", edict.id, round_index + 1)
+                logger.info(
+                    "[keqing-session] edict %s 验收通过(第 %d 轮)", edict.id, round_index + 1
+                )
                 return True, None
             if round_index == max_rounds - 1:
                 break

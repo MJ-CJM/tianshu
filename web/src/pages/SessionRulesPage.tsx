@@ -32,6 +32,7 @@ import {
 } from "../api/policy";
 import type { SessionRule, ToolInfo } from "../api/policy";
 import { useT } from "../i18n";
+import PageQueryError from "../components/states/PageQueryError";
 
 const { Text } = Typography;
 
@@ -57,6 +58,7 @@ export default function SessionRulesPage() {
   const t = useT();
   const [rules, setRules] = useState<SessionRule[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [scope, setScope] = useState<"edict" | "always" | "all">("all");
 
@@ -64,14 +66,18 @@ export default function SessionRulesPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [toolsLoading, setToolsLoading] = useState(false);
+  const [toolsError, setToolsError] = useState<unknown>(null);
   const [addSubmitting, setAddSubmitting] = useState(false);
   const [form] = Form.useForm();
 
   const load = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await fetchSessionRules(scope);
       setRules(data);
+    } catch (error) {
+      setLoadError(error);
     } finally {
       setLoading(false);
     }
@@ -80,9 +86,12 @@ export default function SessionRulesPage() {
   const loadTools = async () => {
     if (tools.length > 0) return;
     setToolsLoading(true);
+    setToolsError(null);
     try {
       const data = await fetchTools();
       setTools(data);
+    } catch (error) {
+      setToolsError(error);
     } finally {
       setToolsLoading(false);
     }
@@ -268,6 +277,9 @@ export default function SessionRulesPage() {
         style={{ marginBottom: 16 }}
       />
 
+      {loadError ? (
+        <PageQueryError error={loadError} onRetry={() => void load()} />
+      ) : (
       <Card size="small">
         <Space style={{ marginBottom: 16 }} wrap>
           <Select
@@ -305,6 +317,7 @@ export default function SessionRulesPage() {
           size="small"
         />
       </Card>
+      )}
 
       <Modal
         title={t("page.sessionRules.addModalTitle")}
@@ -318,6 +331,9 @@ export default function SessionRulesPage() {
         okText={t("action.create")}
         cancelText={t("common.cancel")}
       >
+        {toolsError ? (
+          <PageQueryError error={toolsError} onRetry={() => void loadTools()} />
+        ) : null}
         <Form
           form={form}
           layout="vertical"

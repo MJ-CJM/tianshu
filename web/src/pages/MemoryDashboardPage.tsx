@@ -42,6 +42,7 @@ import { useMemoryStats, useCompactMemory, useTriggerReflection } from "../hooks
 import type { MemoryEntry, EdictMemorialGroup, MemorialBrief } from "../api/types";
 import PageContainer from "../components/common/PageContainer";
 import { useT } from "../i18n";
+import PageQueryError from "../components/states/PageQueryError";
 
 const { Text, Paragraph } = Typography;
 
@@ -74,11 +75,13 @@ function MemorySummaryTab({ persona }: { persona: string }) {
   const [searchResults, setSearchResults] = useState<MemoryEntry[] | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
-  const { data: memories, isLoading } = usePersonaMemory(persona);
+  const memoriesQuery = usePersonaMemory(persona);
+  const { data: memories, isLoading } = memoriesQuery;
   const deleteMutation = useDeleteMemory();
   const batchDeleteMutation = useBatchDeleteMemory();
   const recallMutation = useRecallMemory();
-  const { data: policies } = useMemoryPolicies();
+  const policiesQuery = useMemoryPolicies();
+  const { data: policies } = policiesQuery;
 
   const handleSearch = () => {
     if (!searchQuery.trim()) {
@@ -89,6 +92,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
       { persona_id: persona, query: searchQuery, include_shared: true, limit: 30 },
       {
         onSuccess: (data) => setSearchResults(data),
+        onError: () => notification.error({ message: t("memory.search.failed") }),
       },
     );
   };
@@ -111,6 +115,19 @@ function MemorySummaryTab({ persona }: { persona: string }) {
   };
 
   const displayData = searchResults ?? memories ?? [];
+  const queryError = memoriesQuery.error ?? policiesQuery.error;
+
+  if (queryError) {
+    return (
+      <PageQueryError
+        error={queryError}
+        onRetry={() => {
+          void memoriesQuery.refetch();
+          void policiesQuery.refetch();
+        }}
+      />
+    );
+  }
 
   const columns: ColumnsType<MemoryEntry> = [
     {
@@ -398,7 +415,17 @@ function MemorialBubble({ memorial }: { memorial: MemorialBrief }) {
 
 function ConversationHistoryTab({ persona }: { persona: string }) {
   const t = useT();
-  const { data: groups, isLoading } = usePersonaMemorials(persona);
+  const groupsQuery = usePersonaMemorials(persona);
+  const { data: groups, isLoading } = groupsQuery;
+
+  if (groupsQuery.error) {
+    return (
+      <PageQueryError
+        error={groupsQuery.error}
+        onRetry={() => void groupsQuery.refetch()}
+      />
+    );
+  }
 
   if (isLoading) {
     return (
@@ -442,10 +469,20 @@ function ConversationHistoryTab({ persona }: { persona: string }) {
 
 function MemoryMaintenanceTab({ persona }: { persona: string }) {
   const t = useT();
-  const { data: stats } = useMemoryStats();
+  const statsQuery = useMemoryStats();
+  const { data: stats } = statsQuery;
   const compactMutation = useCompactMemory();
   const reflectMutation = useTriggerReflection();
   const [maxAgeDays, setMaxAgeDays] = useState(7);
+
+  if (statsQuery.error) {
+    return (
+      <PageQueryError
+        error={statsQuery.error}
+        onRetry={() => void statsQuery.refetch()}
+      />
+    );
+  }
 
   const personaStats = stats?.[persona];
 

@@ -281,10 +281,10 @@ class EvidenceRepository:
         cls,
         connection: sqlite3.Connection,
         *,
-        submitter: str,
+        submitter: str | None,
         limit: int,
     ) -> list[ControlEvidenceSummaryV1]:
-        if not submitter.strip():
+        if submitter is not None and not submitter.strip():
             raise ValueError("submitter must not be blank")
         if type(limit) is not int or limit <= 0:
             raise ValueError("limit must be a positive integer")
@@ -293,11 +293,11 @@ class EvidenceRepository:
             SELECT bundle.*, COALESCE(NULLIF(edict.title, ''), edict.goal) AS edict_title
             FROM evidence_bundles AS bundle
             JOIN edicts AS edict ON edict.id = bundle.edict_id
-            WHERE edict.submitter = ?
+            WHERE (? IS NULL OR edict.submitter = ?)
             ORDER BY COALESCE(bundle.closed_at, bundle.created_at) DESC, bundle.bundle_id
             LIMIT ?
             """,
-            (submitter, limit),
+            (submitter, submitter, limit),
         ).fetchall()
         summaries: list[ControlEvidenceSummaryV1] = []
         for row in rows:
@@ -324,18 +324,18 @@ class EvidenceRepository:
     def count_for_submitter_current(
         connection: sqlite3.Connection,
         *,
-        submitter: str,
+        submitter: str | None,
     ) -> int:
-        if not submitter.strip():
+        if submitter is not None and not submitter.strip():
             raise ValueError("submitter must not be blank")
         row = connection.execute(
             """
             SELECT COUNT(*)
             FROM evidence_bundles AS bundle
             JOIN edicts AS edict ON edict.id = bundle.edict_id
-            WHERE edict.submitter = ?
+            WHERE (? IS NULL OR edict.submitter = ?)
             """,
-            (submitter,),
+            (submitter, submitter),
         ).fetchone()
         return int(row[0])
 

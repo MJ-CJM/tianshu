@@ -649,6 +649,95 @@ def test_secure_remote_protected_route_requires_auth_and_accepts_valid_token(
     assert authenticated.json()["principal"] == "user:owner"
 
 
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/api/estop/engage"),
+        ("PUT", "/api/configs/default"),
+        ("POST", "/api/credentials"),
+        ("PUT", "/api/model-providers/provider-1/key"),
+        ("PUT", "/api/personas/persona-1"),
+        ("DELETE", "/api/skills/skill-1"),
+        ("POST", "/api/evolution/candidates/candidate-1/promote"),
+        ("PUT", "/api/system-prompt/files/court/COURT.md"),
+        ("POST", "/api/universes/universe-1/switch"),
+    ],
+)
+def test_api_only_pat_cannot_mutate_global_governance_surfaces(
+    storage: Storage,
+    method: str,
+    path: str,
+) -> None:
+    settings = _secure_settings()
+    app = _boundary_app(storage, settings)
+    limited = app.state.auth_service.issue_pat(
+        Principal(
+            id="service:api-only",
+            kind=PrincipalKind.SERVICE,
+            display_name="API only",
+            scopes=frozenset({"api"}),
+        ),
+        label="api-only",
+        scopes=frozenset({"api"}),
+    )
+
+    with TestClient(
+        app,
+        base_url="https://tianshu.example.com",
+        client=("127.0.0.1", 41000),
+    ) as client:
+        response = client.request(
+            method,
+            path,
+            headers={"Authorization": f"Bearer {limited.raw_token}"},
+        )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/memory/persona-1",
+        "/api/memory-palace/search",
+        "/api/cost/records",
+        "/api/agent-config",
+        "/api/configs",
+        "/api/credentials",
+        "/api/model-providers",
+        "/api/system-prompt/files",
+    ],
+)
+def test_api_only_pat_cannot_read_private_or_global_configuration(
+    storage: Storage,
+    path: str,
+) -> None:
+    settings = _secure_settings()
+    app = _boundary_app(storage, settings)
+    limited = app.state.auth_service.issue_pat(
+        Principal(
+            id="service:api-only",
+            kind=PrincipalKind.SERVICE,
+            display_name="API only",
+            scopes=frozenset({"api"}),
+        ),
+        label="api-only",
+        scopes=frozenset({"api"}),
+    )
+    headers = {"Authorization": f"Bearer {limited.raw_token}"}
+
+    with TestClient(
+        app,
+        base_url="https://tianshu.example.com",
+        client=("127.0.0.1", 41000),
+    ) as client:
+        denied = client.get(path, headers=headers)
+        task_api = client.get("/api/edicts", headers=headers)
+
+    assert denied.status_code == 403
+    assert task_api.status_code == 200
+
+
 def test_secure_remote_rejects_container_boundary_override() -> None:
     values = _secure_settings().model_dump()
     values["trusted_local_container_boundary"] = True

@@ -8,6 +8,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from tianshu.app import create_app, lifespan
+from tianshu.models import TaskStatus
 
 
 @pytest.fixture
@@ -40,6 +41,7 @@ async def test_pause_active_edict(client):
     body = resp.json()
     assert body["success"] is True
     assert body["data"]["lifecycle_phase"] == "paused"
+    assert body["data"]["effective_after"] == "current_round"
 
 
 async def test_resume_paused_edict(client):
@@ -113,3 +115,74 @@ async def test_resume_winding_down_edict_returns_409(client):
     storage.update_edict_lifecycle_phase(eid, "winding_down")
     resp = await client.post(f"/api/edicts/{eid}/resume")
     assert resp.status_code == 409
+
+
+@pytest.mark.parametrize("action", ["pause", "resume"])
+async def test_completed_memorial_cannot_pause_or_resume(client, action):
+    eid = await _create_edict(client, idempotency_key=f"pause-resume-terminal-{action}")
+    storage = client._transport.app.state.storage
+    memorial = storage.get_memorial_by_edict(eid)
+    assert memorial is not None
+    memorial.status = TaskStatus.COMPLETED
+    storage.update_memorial(memorial)
+    if action == "resume":
+        storage.update_edict_lifecycle_phase(eid, "paused")
+
+    response = await client.post(f"/api/edicts/{eid}/{action}")
+
+    assert response.status_code == 409
+
+
+@pytest.mark.parametrize("action", ["pause", "resume"])
+async def test_non_open_edict_cannot_pause_or_resume(client, action):
+    eid = await _create_edict(client, idempotency_key=f"pause-resume-closed-{action}")
+    storage = client._transport.app.state.storage
+    storage.update_edict_status(eid, "cancelled")
+    if action == "resume":
+        storage.update_edict_lifecycle_phase(eid, "paused")
+
+    response = await client.post(f"/api/edicts/{eid}/{action}")
+
+    assert response.status_code == 409
+
+
+async def test_short_task_cannot_claim_pause_support(client):
+    with patch("tianshu.executor.agent.LLMClient"):
+        response = await client.post(
+            "/api/edicts",
+            json={
+                "idempotency_key": "pause-resume-short-task",
+                "goal": "one round",
+            },
+        )
+    assert response.status_code in (200, 202)
+    edict_id = response.json()["data"]["id"]
+
+    paused = await client.post(f"/api/edicts/{edict_id}/pause")
+    assert paused.status_code == 409
+
+
+async def test_outer_loop_defaults_to_checkpoint_and_one_recovery(client):
+    eid = await _create_edict(client, idempotency_key="pause-resume-safe-default")
+    edict = client._transport.app.state.storage.get_edict(eid)
+
+    assert edict.execution_profile == "checkpointed"
+    assert edict.runtime.retry_limit >= 1
+
+
+async def test_short_task_cannot_accept_outer_loop_steer(client):
+    with patch("tianshu.executor.agent.LLMClient"):
+        response = await client.post(
+            "/api/edicts",
+            json={
+                "idempotency_key": "steer-short-task",
+                "goal": "one round",
+            },
+        )
+    edict_id = response.json()["data"]["id"]
+
+    steered = await client.post(
+        f"/api/edicts/{edict_id}/steer",
+        json={"note": "do another round"},
+    )
+    assert steered.status_code == 409

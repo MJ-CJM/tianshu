@@ -10,7 +10,7 @@
 |---|---|---|
 | 真相源在哪 | **Markdown 文件**（`~/.tianshu/memory/`）是 Source of Truth | 人可读、可手改、git-friendly；不让 SQLite 成为唯一记忆源 |
 | SQLite 角色 | **派生索引**（可从 MD 重建） | 服务 Web/API 查询与 FTS5 全文检索；索引坏了 `sync_index` 重建 |
-| 写一致性 | **write-through**：写 MD 后同步刷 SQLite + FTS | MD 写成功即视为持久化；索引写失败不阻断 |
+| 写一致性 | **MD 先写 + 派生索引** | Markdown 写失败则整体失败；索引投影失败可由 sync 重建 |
 | 读路由分离 | Agent 读 MD + Drawer，Web/API 读 SQLite | 两条路径互不污染，Agent 执行永不经过 Web 索引 |
 | 最小存储单元 | **Drawer**（verbatim 原文片段，≤800 字符） | 不做即时摘要避免信息损耗，后续可选降维 |
 | 记忆隔离 | Wing（人格）私有，court wing 跨人格共享 | 隐私边界清晰；共享走显式 court 通道 |
@@ -34,7 +34,18 @@
 | auditor | `audit.completed` verdict∈{flag,block} 时写 ducha insight（court 可见） |
 | tools | `memory_search` / `memory_write` 工具是 Agent 主动读写记忆的入口 |
 
-## 5. 本目录子文档
+## 5. 当前一致性与删除语义
+
+- 每条新日志在 Markdown 中保存稳定 `entry_id`，多行内容用缩进续行；从 MD 重建 SQLite
+  时保留该 ID，不再每次生成新身份。
+- 删除先按稳定 ID 从 Markdown 真相源删除，再删 SQLite 索引。找不到对应 MD 行时 fail
+  closed，拒绝只删索引制造“页面看不见但真相源还在”的假删除。
+- `memory_write` 对 `MEMORY.md` 的 H2 section 使用确定性 section ID；add/replace/remove
+  都重新投影该 section 当前完整内容，避免旧索引残留。
+- 人格读取策略通过 `app_settings.memory_access_policies` 持久化，重启后继续生效。
+- 同步、删除和策略管理 API 属于 admin 管理面；普通任务归属不会自动授予全局记忆权限。
+
+## 6. 本目录子文档
 
 | 文档 | 主题 |
 |---|---|

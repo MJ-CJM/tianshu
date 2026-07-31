@@ -17,11 +17,15 @@
 
 | 接入点 | 时机 | 动作 |
 |---|---|---|
-| `LLM_OUTPUT` hook | 每次 LLM 调用返回后 | `CostTracker.accumulate`，本地累加，不写库 |
+| `LLMClient` usage observer | 每次有用量的 chat/chat_stream 完成后 | 按 edict/memorial/operation 归因；覆盖 Agent、Planner、Critic、Auditor、Rubric、会诊等 |
+| `LLM_OUTPUT` hook | 兼容旧 Agent/集成调用 | 进入同一 per-run tracker |
 | `BEFORE_ITERATION` hook | 每轮迭代前 | `check_budget`，超 `runtime.cost_budget_cny` 或 global/edict/submitter 预算 → `HookResult(block=True)` |
-| `execution.completed/failed` event | 执行结束 | `_finalize_cost`：一次性写 `cost_ledger` + 清理 tracker |
+| `execution.completed/failed/cancelled` event | 执行结束 | `_finalize_cost`：一次性写 `cost_ledger` + 清理 tracker |
 
-为什么分两轨：**实时熔断需要每轮可见的累加值**（hook），**落盘只需在结束时做一次**（event），避免每轮写库。tracker 是 per-edict 内存累加器，结束即 `pop` 释放。
+为什么分层：**实时熔断需要每轮可见的累加值**，**根执行落盘只需在终态做一次**，避免
+每轮写库。tracker 以 `(edict_id, memorial_id)` 为 run 身份；同一 Edict 的 follow-up 或
+调度 run 不再互相覆盖。没有业务上下文的平台 LLM 调用以 `__platform__` 直接记账，不污染
+某道任务预算。
 
 ## 3. 三维定价模型
 
@@ -81,7 +85,10 @@ provider 自定义字段（非 NULL）
 
 ## 5. 成本归因
 
-落 `cost_ledger` 时，`provider_name` 取 `tracker.last_provider_name`（最后一次调用的 provider），而非硬编码 `default` —— 跨 provider 的 edict 用「最后归属」简化，不做逐调用精确分摊。归因维度：edict / memorial / provider / model / token 三类 / cost_cny。
+落 `cost_ledger` 时，同一 run 只有一个 provider/model 则保留真实名称；观察到多个时写
+`multiple`，不再用最后一次调用冒充整个 run。归因维度：edict / memorial / provider /
+model / prompt、completion、total、cache-read tokens / cost_cny。V23 已把
+`cache_read_tokens` 作为正式列持久化并进入汇总。
 
 按 persona 的成本归因经由 memorial → persona_id 间接关联（memorial 记 `persona_id`），不在 cost_ledger 单列。
 
@@ -89,6 +96,7 @@ provider 自定义字段（非 NULL）
 
 - Anthropic `cache_creation_input_tokens`（写缓存费）单独 4 维建模 —— 当前按 miss 价计入
 - 多币种（仅 CNY）、model 级配价（仅 provider 级）、价格历史/审计
-- 跨 provider edict 的逐调用精确成本分摊（用 last_provider_name 简化）
+- 跨 provider/model run 的逐调用明细分摊（当前聚合标签为 `multiple`）
+- 把本地估算当作供应商正式账单；实际精度仍取决于 provider 用量字段和配价
 
 **相关实现**：[../../impl/llm/](../../impl/llm/)

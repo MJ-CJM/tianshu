@@ -1,6 +1,10 @@
 # 外部凭证运维手册
 
 > Spec: [2026-04-22-external-network-capability-expansion-design.md](../superpowers/specs/2026-04-22-external-network-capability-expansion-design.md) §4
+>
+> 当前边界：凭证、provider/config、记忆和全局成本 API 需要 `admin`。Keqing 实验执行器
+> 目前只使用 CLI 自管凭证；Keqing credential gateway 未接入生产 executor，不能把本页的
+> 网络凭证托管能力解释为 Keqing raw-key 隔离。
 
 ## 生成主密钥
 
@@ -9,13 +13,14 @@ from cryptography.fernet import Fernet
 print(Fernet.generate_key().decode())
 ```
 
-写入 `.env` 或部署配置：
+写入仅部署者可读的 secret source（本地开发可用权限受限的 `.env`）：
 
 ```
 TIANSHU_SECRET_MASTER_KEY=<generated-key>
 ```
 
-**⚠️ 丢失主密钥 = 所有已存凭证不可恢复**。务必备份到密钥管理器 (1Password / AWS Secrets Manager / etc)。
+**⚠️ 丢失主密钥 = 所有已存凭证不可恢复**。务必备份到独立密钥管理器。不要把真实值提交
+到 Git、镜像层、示例配置或日志。
 
 ## 添加凭证
 

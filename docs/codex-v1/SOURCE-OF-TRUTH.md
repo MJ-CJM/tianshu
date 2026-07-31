@@ -1,11 +1,15 @@
 # 事实源与冲突解决规则
 
+> **历史规则快照（2026-07-12）：** 本文只解释 `codex-v1` 交接包内部冲突。
+> 当前工作树的事实源顺序见 [当前实现与支持边界](../CURRENT-STATE.md#事实源优先级)；
+> 本文的旧分支、迁移尾号和 Gate 状态不得覆盖当前源码与回归结果。
+
 ## 权威顺序
 
 遇到冲突时按以下顺序裁定：
 
 1. 当前代码、测试、真实 migration ledger、`git status` 和运行证据；
-2. 本目录最新 [STATUS.md](./STATUS.md)，但恢复开发前仍须刷新；
+2. 本目录最新 [STATUS.md](./archive/STATUS.md)，但恢复开发前仍须刷新；
 3. [plans/01-rebaselined-execution.md](./plans/01-rebaselined-execution.md)：顺序、切片、Gate、审批边界；
 4. 当前 active brief 和 recon 修订；
 5. G0–G5 phase plan：具体接口、文件、测试和故障矩阵；

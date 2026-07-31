@@ -1,82 +1,59 @@
 # 技能系统（Skills）— 实现现状
 
-**相关设计**：[../../design/skills/](../../design/skills/)
+**设计**：[../../design/skills/](../../design/skills/)
 
-覆盖 `src/tianshu/skills/` + `tools/skill_tools.py`。大量 ported from hermes-agent（见 `guard.py` / `fuzzy_match.py` / `curator.py` 头部注释）。
+## 1. 代码地图
 
-## 1. 关键类 / 文件路径
+| 路径 | 当前职责 |
+|---|---|
+| `skills/loader.py` | builtin/user/workspace 加载、缓存、热重载和底层文件原语 |
+| `skills/install_service.py` | Skill 候选提案、证据与 gate |
+| `skills/installer.py` | 包快照、渲染、路径与内容安全 |
+| `skills/guard.py` / `validator.py` | 威胁扫描、信任策略、名称/frontmatter 校验 |
+| `skills/metrics.py` | 使用、效果、来源、状态和 Pin |
+| `skills/reviewer.py` | 历史复盘逻辑；生产在 LLM 前 fail fast |
+| `skills/curator.py` | dry-run 预览和历史整理逻辑；生产写入前 fail fast |
+| `tools/skill_tools.py` | 生产注册 `skill_list`、`skill_view`；兼容 manage handler 不公开 |
+| `gateway/skills_api.py` | live 目录读取、候选提案/gate/stage、Pin |
+| `evolution/promotion.py` | Skill candidate 的 canary、晋升和回滚权威 |
 
-| 文件 | 关键类 / 函数 | 职责 |
-|---|---|---|
-| `skills/loader.py` | `SkillsLoader` / `SkillsWatcher` | 三层加载、渐进注入、三层缓存、热重载 |
-| `skills/fuzzy_match.py` | `fuzzy_find` / `fuzzy_replace` / `FuzzyMatchResult` | 8 策略模糊匹配（patch 用） |
-| `skills/guard.py` | `SkillsGuard` / `THREAT_PATTERNS` / `TrustLevel` / `INSTALL_POLICY` | 安全扫描 + 信任矩阵 |
-| `skills/reviewer.py` | `SkillReviewHandler` | `AGENT_END` 执行后复盘学习 |
-| `skills/curator.py` | `SkillCurator` / `CuratePlan` / `CurateResult` | 周期策展（修撰）：合并/归档/迭代 |
-| `skills/curator_lifecycle.py` | `apply_automatic_transitions` | 纯函数 active→stale→archived 迁移 |
-| `skills/metrics.py` | `SkillMetrics` / `SkillMetricsStore` | `skill_metrics` 表评分 + lifecycle |
-| `skills/validator.py` | `SkillValidator` | frontmatter / 命名校验 |
-| `tools/skill_tools.py` | `_skill_list` / `_skill_view` / `_skill_manage` / `register_skill_tools` | Agent 技能工具 |
-| `skills/builtin/` | `file-ops/` `shell/` | 内建技能 |
+## 2. 生产 Agent 工具
 
-## 2. Agent 工具
-
-`register_skill_tools(registry, skills, metrics_store, guard_agent_created, event_bus)` 注册三个工具：
+`register_skill_tools(...)` 默认只注册：
 
 | 工具 | tier | 能力 |
 |---|---|---|
-| `skill_list` | T0_READONLY | 列技能（name+description+source+status），可 query 过滤、按 dormant 排除 |
-| `skill_view` | T0_READONLY | 看全文，`increment_usage` + 加入 `_active_skills` |
-| `skill_manage` | T1_WORKSPACE（side_effect） | create/edit/patch/delete/activate/write_file/remove_file |
+| `skill_list` | T0_READONLY | 列出可用 Skill，可按名称过滤 |
+| `skill_view` | T0_READONLY | 读取全文，并记录本轮使用 |
 
-`skill_manage` 名校验 `_NAME_RE = ^[a-z0-9][a-z0-9._-]{0,63}$`，内容上限 256KB，create 打 `created_by='agent'` + emit `skill.learned`，write_file 经 Guard（AGENT_CREATED）。`_active_skills` 是模块级集合，用于本轮执行的成功/失败归因。
+`skill_manage` 的 handler 为兼容测试保留，但默认不进入 `ToolRegistry`。Prompt 的 Skill
+索引也不再提示 Agent 调用必然失败的 create/write_file。
 
-## 3. 核心流程
+## 3. HTTP 与 Web
 
-### 渐进注入
+- `GET /api/skills`、`GET /api/skills/{name}`：读取当前 live；
+- `POST /api/skills`、`PUT /api/skills/{name}`：返回 candidate，不改 live；
+- candidate gate / stage：验证并准备，stage 返回 `live_changed=false`；
+- delete / archive：治理删除未接通，固定 409；
+- Pin：真实更新 metrics，可用；
+- Web：一个统一 Skill 目录，显示人工与 Agent 来源，内容只读，仅 Agent Skill 可 Pin。
 
-```text
-PromptBuilder Layer 7
-  ├→ load_index(metrics_store)   → "- name: desc [low success rate]?" 索引
-  └→ load_always()               → always=true 技能全文拼接
-Agent 看 index → skill_view(name) → 全文
-```
+## 4. 自动后台边界
 
-### 执行后学习
+`AgentConfigState.skill_review_enabled` 和 `skill_curator_enabled` 均默认 `False`。Reviewer
+和非 dry-run Curator 还各有独立的 `governed_writes_available` 闸；当前生产装配传
+`False`，所以旧持久配置也不会造成无效 LLM 消费。显式 Curator dry-run 仍可预览。
 
-```text
-AGENT_END → SkillReviewHandler.on_agent_end
-  → _should_review (COMPLETED + iter>=3 + interval)
-  → _run_review: LLM JSON → create(validator→create_skill) / update(patch_skill)
-```
+## 5. Loader 与安全原语
 
-### 周期策展（修撰）
+Loader 的 `create_skill`、`save_skill`、`patch_skill`、resource write 和 archive/restore
+仍是内部原语，并不等于公开 API 能绕过治理。它们使用原子替换并失效缓存；资源路径拒绝
+绝对路径、`..`、symlink 逃逸和非白名单顶层目录。候选安装还经过 Validator、Guard、
+包快照和证据检查。
 
-```text
-SkillCurator.run(trigger_source)
-  → gate(idle + lock)
-  → apply_automatic_transitions (纯函数生命周期)
-  → _llm_plan (≥2 候选): consolidations/archivals → _apply_plan (确定性)
-  → _iterate_pass (低成功率单条改进)
-  → _write_report + emit curate.*
-```
+## 6. 当前非保证
 
-## 4. 缓存与热重载
-
-`SkillsLoader`：L1 `_l1_cache`(OrderedDict, ≤8) / L2 `_l2_metadata`+`_l2_stats`(mtime_ns,size) / L3 磁盘扫描。写操作 `_atomic_write` 后失效缓存。`SkillsWatcher` 用 watchdog 监听三层目录，`SKILL.md` 变动 → 1s debounce → `invalidate_cache` + `load_all`。
-
-## 5. 扩展点
-
-- **新威胁模式**：`guard.THREAT_PATTERNS` 增 `GuardPattern`（用 `_p` 辅助）
-- **新信任策略**：`guard.INSTALL_POLICY` 调整 (safe,caution,dangerous) 动作
-- **新模糊策略**：`fuzzy_match._STRATEGIES` 追加策略函数
-- **新 curator 动作**：扩 `CuratePlan` + `_apply_plan`
-- **换 watcher 后端**：`SkillsWatcher` 当前绑 watchdog，可替换
-
-## 6. 注意点（与旧 impl 文档纠偏）
-
-- 工具实际是 `skill_list` / `skill_view` / `skill_manage`（无 `skill_propose` / `skill_install` / `skill_uninstall`）
-- `FuzzyMatchResult` 字段为 `(start, end, strategy)`，无 `confidence`
-- `SkillMetrics` 用 `usage_count` / `success_count` / `failure_count`（无 `avg_latency_ms`）
-- 缓存内部名为 `_l1_cache` / `_l2_metadata` / `_l2_stats`（非 `_index_snapshot` / `_scan_layer`）
-- 删除是归档（`.archive/`），builtin 不可删
+- 不保证 Web 直接创建或编辑 live Skill；
+- 不保证 Agent 自动学习、reviewer 或 curator 会自动激活内容；
+- 不保证 delete/archive 已接通治理回滚；
+- 不把 candidate created/staged 当作 live activated。

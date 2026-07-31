@@ -9,6 +9,7 @@ from tianshu.application.edict_detail import EdictDetailNotFound, EdictDetailUna
 from tianshu.config import TianshuSettings
 from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
 from tianshu.gateway.edicts_api import edicts_router
+from tianshu.models import Edict
 from tianshu.models.principal import Principal
 from tianshu.storage import Storage
 
@@ -55,6 +56,13 @@ def _app(tmp_path) -> tuple[FastAPI, Storage, _DetailService]:
     settings = _settings()
     storage = Storage(str(tmp_path / "edict-detail.db"))
     storage.init_db()
+    storage.save_edict(
+        Edict(
+            id="edict-1",
+            goal="detail",
+            submitter="user:owner",
+        )
+    )
     service = _DetailService()
     app = FastAPI()
     app.state.settings = settings

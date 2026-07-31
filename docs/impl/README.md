@@ -1,166 +1,152 @@
-# 实现总览（HEAD @ feat_phase8）
+# 实现总览
 
-本目录每份文档描述 **当前代码** 的一个横切面。设计意图与稳定契约见 `../design/`。
+> 本目录解释当前源码“在哪里、怎么连起来”。功能是否属于发布承诺，以
+> [`../CURRENT-STATE.md`](../CURRENT-STATE.md) 和
+> [`../launch/capability-matrix.md`](../launch/capability-matrix.md) 为准。历史分支名、
+> 旧行号和阶段报告不作为实现身份。
 
-## 启动序列（FastAPI lifespan → bootstrap/ 装配）
+## 1. 当前运行边界
 
-装配逻辑已从单体 `lifespan()` 拆分为 `src/tianshu/bootstrap/` 包的 wiring 函数序列
-（`wiring_storage / wiring_tools / wiring_skills / wiring_memory / wiring_persona /
-wiring_llm / wiring_executor / wiring_channels / wiring_scheduler / wiring_universe`
-等，`app.py` 的 `lifespan()` 只保留 ~40 行顺序编排）。下列实例化顺序不变，
-每步对应的 wiring 文件见 `bootstrap/` 内同名模块：
+- FastAPI 装配入口：`src/tianshu/app.py`。
+- 具体依赖装配：`src/tianshu/bootstrap/wiring_*.py`。
+- 控制面持久化：单进程、single-node SQLite；当前 migration ledger 为 V1–V24。
+- 正式根执行路径：managed Native，使用 durable outbox、RunState、attempt lease、
+  heartbeat 与 fencing token。
+- Web：`web/src/router/AppRoutes.tsx`；默认侧栏为五个用户目的地。
+- 外部 Keqing CLI、位面/eval 等路由保留实验兼容，不进入默认黄金路径。
 
-1. `Storage` → `storage.init_db()`（SQLite，WAL 模式，线程锁）
-2. `EventBus`（持久化事件到 `events` 表）
-3. `HookRegistry`（生命周期钩点注册中心）
-4. `ToolRegistry` ← `register_builtins` + `register_memory_tools` + `register_skill_tools`
-5. `SkillsLoader`（builtin / workspace / user 三层）+ `SkillMetricsStore`
-6. `PersonaLoader`（git 模板 + runtime 目录）
-7. `DrawerStore` + `MemoryConfig` → Memory Palace 初始化
-8. `PromptBuilder`（8 层注入）
-9. `ConfigManager`（LLM + Agent 配置状态）+ `ProviderManager`
-10. `Agent`（主 ReAct 循环）
-11. `WorkerPool` + `LaneManager`（并发与 lane 隔离）
-12. `Auditor`、`ChannelRegistry`、`Notifier`、`CompositeSessionRuleStore`
-13. `Executor` → 注入 agent / persona_loader / dag_scheduler / lane_manager
-14. `DAGScheduler`（拓扑调度）
-15. `ApprovalManager`、`PolicyEngine` + `PolicyHook`（注册到 `BEFORE_TOOL_CALL`，priority=5）
-16. `MemoryManager` → `ensure_memory_dirs()`，订阅 `BEFORE_AGENT_START` / `AGENT_END`
-17. `CostManager`（`BEFORE_ITERATION` / `LLM_OUTPUT`）、`ConsultationSession`、`PerformanceEvaluator`
-18. `OfficialSelector`、`Planner`、`Scheduler`
-19. **EventBus 订阅链**（见下）
-20. `PluginApi` + `PluginLoader.discover()`
-21. `SkillReviewHandler`（`AGENT_END` priority=200）
-22. `DigestGenerator` + 24h 循环任务
-23. `SkillsWatcher`（watchdog 可选）
-24. `scheduler.start()`
+## 2. 启动装配
 
-## EventBus 订阅链
+`lifespan()` 按 wiring 函数装配，关键依赖顺序如下：
 
-来自 `src/tianshu/app.py` 第 336–346 行：
+1. Storage、migration ledger、EventBus、HookRegistry；
+2. ToolRegistry、Skills、Persona、Memory/Drawer、PromptBuilder；
+3. ConfigManager、ProviderManager、LLM usage observer；
+4. Agent、Workspace、Worker/Lane、Executor、DAG；
+5. Decision/Approval/Policy、Auditor、Notifier、Evidence、Cost；
+6. RunDispatcher/Reconciler、Planner、ScheduledRunPreparer、Scheduler；
+7. Channels、plugins、profile/skill/universe system jobs；
+8. Scheduler 恢复持久 job 后才进入 ready。
 
-| event | handler | priority |
-|---|---|---|
-| `edict.submitted` | `scheduler.handle_submitted` | 默认 100 |
-| `edict.scheduled` | `planner.handle_scheduled` | 50 |
-| `plan.completed` | `executor.handle_plan_completed` | 100 |
-| `execution.completed` | `auditor.handle_execution_completed` | 默认 |
-| `execution.completed` | `cost_manager.handle_execution_completed` | 150 |
-| `execution.completed` | `memory_manager.handle_execution_completed` | 200 |
-| `execution.failed` | `notifier.handle_execution_failed` | 默认 |
-| `execution.failed` | `cost_manager.handle_execution_failed` | 150 |
-| `audit.completed` | `notifier.handle_audit_completed` | 默认 |
-| `audit.completed` | `memory_manager.handle_audit_completed` | 200 |
-| `cost.budget_exceeded` | `notifier.handle_execution_failed` | 默认 |
+`/health/live` 只回答进程是否存活；`/health/ready` 还检查 Storage、迁移、scheduler
+恢复和常驻后台任务。`/health` 仅是旧 liveness 兼容。
 
-另有 `plan.pending_review`（审批模式）由 Planner 发出、Executor 按需处理。
+## 3. 任务与执行
 
-## 模块树
+```text
+API / tool / channel
+  -> Edict + SUBMITTED Memorial + submission/outbox（应用服务事务提交）
+  -> OutboxDispatcher
+  -> Scheduler
+  -> ScheduledRunPreparer
+  -> schedule-run + runnable Memorial + attempt/outbox（调度事务提交）
+  -> RunReconciler
+  -> RunDispatcher 赢得 lease，持续 heartbeat
+  -> managed planning
+  -> Native Executor: single Agent / DAG / outer loop
+  -> fenced terminal completion
+  -> audit / evidence / cost / memory / notification
+```
 
-`src/tianshu/` 一级：
+### 普通任务
 
-| 目录 / 文件 | 定位 | 详见 |
-|---|---|---|
-| `app.py` | FastAPI lifespan 入口 | 本文 |
-| `gateway/`, `gateway.py` | HTTP/WS 路由 | — |
-| `storage/` | SQLite 单一真相源（`_base` + 15 领域 Mixin + facade） | `storage-and-events.md` |
-| `bus/` | EventBus 发布-订阅 | `bus/README.md` |
-| `models/` | 数据契约（Edict/Memorial/Decree/Event/Plan/…） | — |
-| `executor/` | Agent 循环 + DAG + Hook + Policy | `executor.md` |
-| `planner/` | LLM 规划 / passthrough | `executor.md` |
-| `scheduler/` | Cron / 一次性调度 | `executor.md` |
-| `persona/` | 人格加载、选择、Prompt 构建 | `persona.md` |
-| `skills/` | Skills 渐进加载 + guard + fuzzy | `skills.md` |
-| `memory/` | Memory Palace + Markdown 后端 | `memory.md` |
-| `llm.py` | LLMClient（chat / chat_stream / cache_control / fallback） | `llm-and-cost.md` |
-| `config_manager.py` | LLM + Agent 配置状态 | `llm-and-cost.md` |
-| `providers/` | LiteLLM 适配 + 配额 | `llm-and-cost.md` |
-| `cost/` | 成本账本、预算、熔断 | `llm-and-cost.md` |
-| `tools/` | 内建工具 + policy + skill/memory 工具 | `executor.md` / `skills.md` |
-| `secrets/` | 凭证加密托管 + 按 host 注入 | `secrets/README.md` |
-| `auditor/` | 规则引擎 + 审计复核 | `auditor/README.md` |
-| `notifier/` | 渲染 + 多通道（飞书/钉钉/邮件/WS） | — |
-| `consultation/` | 多人格咨询会话 | `consultation/README.md` |
-| `plugins/` | PluginApi + manifest loader | `plugins/README.md` |
-| `dag/` | 图模型与算法 | `executor.md` |
-| `web/`, `web.py` | 静态前端挂载 | — |
-| `cli/` | 管理 CLI | — |
+支持立即、once、cron 和 interval。每次周期触发建立独立 schedule-run/Memorial/attempt，
+以游标 CAS 和 deterministic identity 防止重放重复创建根执行；single-node 不宣称分布式
+exactly-once。
 
-## SQLite 表（共 38+ 张业务表，含 FTS）
+### 长程任务
 
-由 `Storage.init_db()` 创建：
+outer loop 或 `checkpointed/background` 只允许 immediate/once，并要求
+`concurrency_policy=skip`。深度任务新建时落为 checkpointed，恢复时先读 durable
+attempt/continuation，再兼容旧 outer-loop checkpoint。
 
-**业务核心**
-- `edicts`（goal/context/status/priority/schedule_json/assigned_persona_id/planner_persona_id/plan_review 等）
-- `memorials`（edict_id FK，status/result/usage_json/audit_json/timeline_json/dag_node_id/persona_id/attempt）
-- `events`（edict_id, memorial_id, event_type, payload_json）
-- `decrees`（memorial_id, action, comment, amended_goal, actor）
+- pause：当前轮边界生效；checkpointed/background 先保存 checkpoint；
+- resume：恢复 active，进程重启后由 durable attempt 恢复；
+- steer：先持久化，下一轮 actor 吸收，只有 checkpoint 成功才确认删除；
+- terminal：actor 的明确 failed/cancelled 不让 critic 改写；
+- checkpoint：最终 Memorial 终态和监督收口持久化后才清理。
 
-**DAG 执行**
-- `dag_executions`（edict_id, plan_json, status, root_memorial_id, max_concurrency）
-- `dag_nodes`（dag_execution_id + node_id 联合主键；depends_on_json、checkpoint_json、memorial_id）
+### Edict 删除
 
-**Memory Palace**
-- `memory_entries`（persona_id, edict_id, category, content, confidence, access_level, expires_at）
-- `memory_fts` + `memory_fts_config` / `_data` / `_docsize` / `_idx`（FTS5 虚表及其辅表）
+`DELETE /api/edicts/{id}` 是 archive/tombstone：有未结束运行时 `409`；成功时列表隐藏并
+取消 scheduler job，保留 Edict、事件、决策和证据。它不是物理抹除。
 
-**Drawer 独立库**：`~/.tianshu/memory/drawers.sqlite3`（`drawers` + `drawers_fts`，见 `memory.md`）
+## 4. Scheduler
 
-**成本**
-- `cost_ledger`（edict_id, memorial_id, provider_name, model, prompt/completion/total_tokens, cost_cny）
-- `cost_budgets`（scope, budget_cny, spent_cny, period, reset_at）
+`src/tianshu/scheduler/scheduler.py` 与
+`src/tianshu/application/scheduled_runs.py` 共同实现：
 
-**配置 / 元数据**
-- `llm_configs`（name 主键；ConfigManager 多配置）
-- `providers`（name 主键；model/api_base/capabilities/rpm_limit/tpm_limit/priority）
-- `scheduler_jobs`（job_id, edict_id, schedule_type, cron_expr, next_run）
-- `session_rules`（Policy 会话级规则存储）
-- `departments`、`personas`（部门与人格元数据，由 PersonaLoader 同步）
-- `plugins`（name, version, manifest_json, sha256）
-- `skill_metrics`（skill_name, used_count, …）
+- create/list/reschedule/pause/resume/cancel/run-now/run history；
+- IANA timezone，持久化 UTC；
+- `misfire_policy=coalesce`，只补最近错过槽位；
+- job 状态 `active/paused/completed/failed/cancelled`；
+- `run-now` 要求 Idempotency-Key，不改变原 schedule；
+- 启动立即把上个进程残留的 system-job `running` 台账标为 `failed`；
+- once 正常触发标 `completed`，不再误标 cancelled。
 
-## 人格目录（7 部门）
+详见 [`scheduling/`](scheduling/)。
 
-`personas/` 为 git 跟踪的模板，`~/.tianshu/personas/{id}/` 为运行时覆盖。每个部门含 `SOUL.md` + `ROLE.md` + `MEMORY.md`；`court/` 独有 `COURT.md`（共享上下文）。
+## 5. 任务归属和管理面
 
-| id | 隐喻 | 职能（代码中的角色） |
-|---|---|---|
-| `neige` | 内阁 | 战略规划 Planner 人格、跨部门协调 |
-| `bingbu` | 兵部 | Default executor（`DEFAULT_EXECUTOR_ID = "bingbu"`，见 `persona/model.py:10`） |
-| `ducha` | 都察院 | 审计、Code Reviewer |
-| `tongzheng` | 通政司 | 渲染、通知、咨询 session 主持 |
-| `wenyuan` | 文渊阁 | 文档与知识管理 |
-| `hubu` | 户部 | 成本审查、配额裁决 |
-| `court` | 朝廷共享 | 所有 persona 共享的 `COURT.md` 上下文（Layer 2） |
+`src/tianshu/authz.py` 和 `gateway/ownership.py` 统一使用 `Edict.submitter`：
 
-详见 `persona.md`。
+- 普通 principal 仅能访问自己的 Edict、Memorial、Scheduler job、DAG、Decision 和
+  Evidence；
+- 越权资源返回 `404`，不泄露是否存在；
+- `admin` 可跨提交者读取/控制；
+- `submitter IS NULL` 的旧行对普通 PAT fail closed；
+- SystemAudit、全局 audit/network、Worker、配置、记忆和全局成本是 admin 管理面。
 
-## 前端页面 ↔ 后端路由
+## 6. SQLite V23/V24
 
-| 页面 | 主要后端路由（`/api` 前缀） |
+迁移由 `storage/migration_ledger.py` 以
+`schema_migrations(version,name,checksum,applied_at)` 管理。callback 不拥有事务控制权；
+旧库只有在物理形状与权威 schema 语义等价时才可 adoption。
+
+- V23 `0023_cost_cache_read_tokens`：`cost_ledger.cache_read_tokens`；
+- V24 `0024_notification_channel_progress`：
+  `internal_notification_deliveries.accepted_channels_json`。
+
+通知 worker 每成功一个渠道就持久化一次 acceptance；后续 retry 跳过已成功渠道。全部渠道
+accepted 后才标 delivered。accepted 只证明 adapter/provider 接受，不证明用户阅读。
+
+详见 [`storage/`](storage/) 和 [`interfaces/`](interfaces/)。
+
+## 7. LLM、成本与记忆
+
+`LLMClient` 的 process-local usage observer 覆盖 Agent、Planner、Critic、Auditor、
+Rubric 和会诊等调用。业务调用按 `(edict_id, memorial_id)` 聚合；取消也结算；多
+provider/model 记为 `multiple`，cache-read tokens 持久化。无业务上下文的调用归
+`__platform__`。
+
+Markdown 是记忆真相源。新日志保存稳定 entry ID，多行可无损重建；删除先删 Markdown，
+找不到真相源行时拒绝 index-only 删除。access policies 存在 app settings，重启保留。
+
+详见 [`llm/`](llm/) 和 [`memory/`](memory/)。
+
+## 8. Web 与实验路由
+
+默认侧栏是中枢、御书房、朝堂、百司、天工院〔实验〕、内府六个一级入口。御书房包含全部敕令、
+颁发敕令、钦天监、都察院；朝堂包含吏部、廷议、内阁；百司包含翰林院、鸿胪寺、
+通政司；天工院包含演化司〔实验〕、诸界台〔实验〕、考功司〔试行〕、客卿馆〔实验〕；
+内府包含藏兵阁、权印司、户部账房。颁发敕令隐藏专家参数；钦天监页面暴露完整管理与
+run history；未知 URL 有三语 404；查询/路由错误可重试；DAG 到终态停止轮询。
+
+`/keqing`、`/evolution`、`/universes`、`/evals` 在天工院中可达，`/session-rules` 在
+内府的权印司中可达。Keqing 状态只报告 self-managed CLI credential；凭证网关固定
+unavailable，开启请求返回 `409`。
+
+## 9. 子系统索引
+
+| 文档 | 实现范围 |
 |---|---|
-| `EdictCreatePage` / `EdictDetailPage` | `POST /edicts`, `GET /edicts/{id}`, `GET /edicts/{id}/events`, `PATCH /edicts/{id}`, `DELETE /edicts/{id}` |
-| `RoyalStudyPage`（御书房，合并页双 Tab；`EdictListPage`/`ApprovalQueuePage` 已退役） | `GET /edicts`（status=open 或分页查询）, `POST /edicts/latest-memorials`（批量最新奏折）, `GET /approvals/pending_tool_calls`, `POST /approvals/tool_decision`, `POST /decrees`, `DELETE /edicts/{id}` |
-| `MemoryDashboardPage` | `GET /memory/{persona_id}`, `POST /memory/recall`, `POST /memory-palace/search`, `POST /memory-palace/l1` |
-| `PersonaDashboardPage` / `PersonaDetailPage` | `GET /personas`（详情页由列表本地过滤,无单条 GET 路由）, `POST /personas`, `PUT/DELETE /personas/{id}`, `GET /personas/{id}/metrics`, `GET /personas/{id}/profile` |
-| `AuditDashboardPage` | `GET /audit/stats`, `GET /audit/recent` |
-| `CostDashboardPage` | `GET /costs/summary`, `GET /costs/budgets` |
-| `SchedulerPage` | `GET /scheduler/jobs`, `DELETE /scheduler/jobs/{id}` |
-| `AuditDashboardPage`（都察院运维 Tab：EventBus/Workers/Hooks，原 `OpsMonitorPage` 死页壳已删） | `GET /event-bus/stats`, `GET /event-bus/recent`, `GET /hooks/registry`, `GET /workers/status`, `GET /notifications/channels` |
-| `ConsultationPage` | `POST /consultation`, `GET /consultation/{id}` |
-| `SessionRulesPage` | `GET/POST /session_rules` |
-| `SystemManagementPage` | `GET/POST /config`, `GET/POST /llm_configs`, `/providers/*`, `/plugins/*` |
-
-## 配置与数据位置
-
-| 路径 | 用途 |
-|---|---|
-| `~/.tianshu/tianshu.db` | 主 SQLite（38+ 表） |
-| `~/.tianshu/memory/drawers.sqlite3` | Drawer 独立库 |
-| `~/.tianshu/memory/{persona_id}/MEMORY.md` + `logs/` | 持久记忆 |
-| `~/.tianshu/personas/{id}/` | 运行时人格覆盖（`SOUL.md`, `ROLE.md`） |
-| `~/.tianshu/skills/` | 用户级 skills |
-| `~/.tianshu/logs/` | 运行日志 |
-| `personas/` | git 跟踪的人格模板 |
-| `src/tianshu/skills/builtin/` | 内建 skills（`file-ops`、`shell`） |
-| `plugins/` | 顶层插件 manifest 目录 |
+| [`agent/`](agent/) | Agent harness |
+| [`auditor/`](auditor/) | 审计规则与复核 |
+| [`bus/`](bus/) | EventBus |
+| [`interfaces/`](interfaces/) | HTTP/WS、通知、IM、Web、CLI |
+| [`llm/`](llm/) | LLM 与成本 |
+| [`memory/`](memory/) | Markdown/SQLite/Drawer 记忆 |
+| [`scheduling/`](scheduling/) | Scheduler 与 Planner |
+| [`storage/`](storage/) | schema、ledger、领域 repositories |
+| [`tools/`](tools/) | 工具、Policy、MCP |
+| [`secrets/`](secrets/) | 密钥存储与迁移 |

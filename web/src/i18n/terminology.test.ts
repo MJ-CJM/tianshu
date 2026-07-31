@@ -120,4 +120,82 @@ describe("governance terminology contract", () => {
 
     expect(en.form.edict.field.reviewPolicy).toBe("Review Policy");
   });
+
+  it("describes an unknown route as missing or changed in all three locales", () => {
+    expect(en.notFoundPage.description).toBe(
+      "This address does not exist or has changed.",
+    );
+    expect(zhModern.notFoundPage.description).toBe(
+      "此地址不存在，或已经变更。",
+    );
+    expect(zhClassic.notFoundPage.description).toBe(
+      "此地址不存在，或已经变更。",
+    );
+  });
+
+  it("distinguishes an open task container from a running execution", () => {
+    expect(zhClassic.edictStatus.open).toBe("未结案");
+    expect(zhModern.edictStatus.open).toBe("未结案");
+    expect(en.edictStatus.open).toBe("Open");
+
+    expect(zhClassic.phase.running).toBe("运行中");
+    expect(zhModern.phase.running).toBe("运行中");
+    expect(en.phase.running).toBe("Running");
+  });
+
+  it("names Royal Study as the unified task workspace", () => {
+    expect(zhClassic.nav.tasks).toBe("御书房");
+    expect(zhModern.nav.tasks).toBe("任务工作台");
+    expect(en.nav.tasks).toBe("Task Workspace");
+    expect(zhClassic.phase.idle).toBe("待后续指令");
+    expect(zhModern.phase.idle).toBe("待后续指令");
+    expect(en.phase.idle).toBe("Awaiting Follow-up");
+  });
+
+  it("locks the themed classic navigation without renaming inner-administration pages", () => {
+    expect({
+      control: zhClassic.nav.menu.control,
+      tasks: zhClassic.nav.menu.tasks,
+      court: zhClassic.nav.menu.court,
+      offices: zhClassic.nav.menu.offices,
+      laboratory: zhClassic.nav.menu.laboratory,
+      settings: zhClassic.nav.menu.settings,
+    }).toEqual({
+      control: "中枢",
+      tasks: "御书房",
+      court: "朝堂",
+      offices: "百司",
+      laboratory: "天工院",
+      settings: "内府",
+    });
+
+    expect({
+      scheduler: zhClassic.nav.menu.scheduler,
+      persona: zhClassic.nav.menu.persona,
+      knowledge: zhClassic.nav.menu.knowledge,
+      evolution: zhClassic.nav.menu.evolution,
+      universe: zhClassic.nav.menu.universe,
+      evals: zhClassic.nav.menu.evals,
+      keqing: zhClassic.nav.menu.keqing,
+      system: zhClassic.nav.menu.system,
+      sessionRules: zhClassic.nav.menu.sessionRules,
+      tax: zhClassic.nav.menu.tax,
+    }).toEqual({
+      scheduler: "钦天监",
+      persona: "吏部",
+      knowledge: "翰林院",
+      evolution: "演化司",
+      universe: "诸界台",
+      evals: "考功司",
+      keqing: "客卿馆",
+      system: "藏兵阁",
+      sessionRules: "权印司",
+      tax: "户部账房",
+    });
+    expect(zhClassic.nav.menu.maturity.trial).toBe("试行");
+    expect(zhClassic.maturity.beta).toBe("Beta");
+    expect(zhClassic.nav.control).toBe("中枢总览");
+    expect(zhClassic.nav.evolution).toBe("演化中心");
+    expect(zhClassic.nav.universe).toBe("位面");
+  });
 });

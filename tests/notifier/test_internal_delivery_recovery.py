@@ -271,7 +271,7 @@ def test_future_availability_does_not_rewrite_record_creation_time(tmp_path) -> 
     storage.close()
 
 
-async def test_event_handoff_is_durable_even_without_an_external_channel_registry(tmp_path) -> None:
+async def test_missing_channel_registry_is_not_marked_delivered(tmp_path) -> None:
     storage = _storage(tmp_path / "event-handoff.db")
     edict = Edict(
         id="edict-notification-handoff",
@@ -311,7 +311,72 @@ async def test_event_handoff_is_durable_even_without_an_external_channel_registr
         clock=lambda: retained.available_at,
     )
     assert await worker.drain_once() == 1
-    completed = outbox.get(delivery_id)
-    assert completed is not None
-    assert completed.status == "delivered"
+    retrying = outbox.get(delivery_id)
+    assert retrying is not None
+    assert retrying.status == "retry_wait"
+    assert retrying.last_error is not None
+    storage.close()
+
+
+async def test_low_priority_notification_uses_durable_outbox_and_is_delivered(tmp_path) -> None:
+    storage = _storage(tmp_path / "low-priority.db")
+    edict = Edict(
+        id="edict-low-priority",
+        goal="deliver low priority work without a fake digest",
+        priority="low",
+        dispatch=EdictDispatch(channels=["feishu"]),
+    )
+    memorial = Memorial(
+        id="memorial-low-priority",
+        edict_id=edict.id,
+        instruction=edict.goal,
+        status=TaskStatus.COMPLETED,
+        result="done",
+    )
+    storage.save_edict(edict)
+    storage.save_memorial(memorial)
+
+    class _Channel:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def send(self, _message, _rendered) -> bool:
+            self.calls += 1
+            return True
+
+    class _Registry:
+        def __init__(self, channel: _Channel) -> None:
+            self._channel = channel
+
+        def get(self, _name: str) -> _Channel:
+            return self._channel
+
+    channel = _Channel()
+    outbox = InternalDeliveryOutbox(storage.unit_of_work)
+    notifier = Notifier(storage=storage, channel_registry=_Registry(channel))
+    notifier.set_delivery_outbox(outbox)
+    event = make_event(
+        "audit.completed",
+        edict_id=edict.id,
+        memorial_id=memorial.id,
+        payload={"correlation_id": "low-priority-correlation"},
+    )
+
+    await notifier.handle_audit_completed(event)
+
+    delivery_id = hashlib.sha256(f"internal-notification:{event.event_id}".encode()).hexdigest()
+    retained = outbox.get(delivery_id)
+    assert retained is not None
+    assert retained.status == "pending"
+    worker = InternalDeliveryWorker(
+        outbox,
+        notifier.deliver_internal,
+        owner_id="low-priority-worker",
+        clock=lambda: retained.available_at,
+    )
+    assert await worker.drain_once() == 1
+    delivered = outbox.get(delivery_id)
+    assert delivered is not None
+    assert delivered.status == "delivered"
+    assert channel.calls == 1
     storage.close()

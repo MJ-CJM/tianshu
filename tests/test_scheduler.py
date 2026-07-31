@@ -230,16 +230,12 @@ class TestNextCronUtc:
         assert result.hour == 16
         assert result.minute == 20
 
-    def test_unknown_timezone_falls_back_to_utc(self, caplog):
-        """非法时区不崩，回退 UTC + warn。"""
-        import logging
-
+    def test_unknown_timezone_is_rejected(self):
+        """非法时区必须显式失败，不能静默改变用户计划。"""
         from tianshu.scheduler.scheduler import _next_cron_utc
 
-        caplog.set_level(logging.WARNING)
-        result = _next_cron_utc("20 16 * * *", "Bogus/Zone")
-        assert result.hour == 16  # 退化为 UTC 行为
-        assert any("Bogus/Zone" in r.message for r in caplog.records)
+        with pytest.raises(ValueError, match="Bogus/Zone"):
+            _next_cron_utc("20 16 * * *", "Bogus/Zone")
 
     def test_none_timezone_treated_as_utc(self):
         from tianshu.scheduler.scheduler import _next_cron_utc
@@ -350,6 +346,20 @@ class TestSchedulerJobControl:
 
         await scheduler.cancel(job_id)
 
+    async def test_failed_job_can_be_resumed_from_persisted_schedule(self, scheduler, storage):
+        edict = Edict(
+            goal="故障后恢复",
+            schedule=EdictSchedule(type="cron", cron="0 9 * * *"),
+        )
+        storage.save_edict(edict)
+        job_id = await scheduler.schedule(edict)
+        storage.set_scheduler_job_status(job_id, "failed")
+
+        assert await scheduler.resume(job_id) is True
+        assert storage.get_scheduler_job(job_id)["status"] == "active"
+
+        await scheduler.cancel(job_id)
+
     async def test_run_now_emits_without_changing_schedule(
         self,
         scheduler,
@@ -424,5 +434,97 @@ class TestSchedulerReadinessWindow:
         try:
             assert observed == [False], "任务恢复完成前不得 ready"
             assert scheduler.is_ready is True
+        finally:
+            await scheduler.stop()
+
+
+class TestManagedSchedulerRecovery:
+    @pytest.fixture
+    def event_bus(self):
+        return EventBus()
+
+    async def test_overdue_interval_coalesces_to_latest_slot(self, event_bus, storage):
+        now = datetime(2026, 7, 31, 8, 0, tzinfo=UTC)
+        edict = Edict(
+            goal="coalesce missed runs",
+            schedule=EdictSchedule(
+                type="interval",
+                interval_seconds=60,
+                misfire_policy="coalesce",
+            ),
+        )
+        storage.save_edict(edict)
+        scheduler = Scheduler(event_bus, storage, clock=lambda: now)
+        scheduled_at = now - timedelta(minutes=5, seconds=30)
+
+        coalesced = scheduler._coalesce_due_cursor(
+            {
+                "edict_id": edict.id,
+                "schedule_type": "interval",
+                "interval_seconds": 60,
+            },
+            scheduled_at,
+            now,
+        )
+
+        assert coalesced == now - timedelta(seconds=30)
+
+    async def test_managed_timer_failure_becomes_visible_failed_state(
+        self,
+        event_bus,
+        storage,
+    ):
+        now = datetime(2026, 7, 31, 8, 0, tzinfo=UTC)
+
+        class BrokenPreparer:
+            def prepare(self, **_kwargs):
+                raise RuntimeError("timer exploded")
+
+        edict = Edict(
+            goal="managed timer",
+            schedule=EdictSchedule(type="interval", interval_seconds=60),
+        )
+        storage.save_edict(edict)
+        storage.save_scheduler_job(
+            "broken-job",
+            edict.id,
+            "interval",
+            interval_seconds=60,
+            next_run=now,
+        )
+        scheduler = Scheduler(
+            event_bus,
+            storage,
+            scheduled_run_preparer=BrokenPreparer(),
+            clock=lambda: now,
+        )
+        scheduler._running = True
+        try:
+            await scheduler._restore_managed_jobs()
+            await asyncio.sleep(0.01)
+
+            assert storage.get_scheduler_job("broken-job")["status"] == "failed"
+            listed = await scheduler.list_jobs()
+            assert (
+                next(job for job in listed if job["job_id"] == "broken-job")["status"] == "failed"
+            )
+            assert storage.list_schedule_runs(source="broken-job")[0]["status"] == "failed"
+        finally:
+            await scheduler.stop()
+
+    async def test_start_recovers_all_prior_running_system_ledger(self, event_bus, storage):
+        run_id = storage.create_schedule_run(
+            source="system.prior",
+            kind="system",
+            status="running",
+        )
+        scheduler = Scheduler(event_bus, storage)
+
+        await scheduler.start()
+        try:
+            run = storage.list_schedule_runs(source="system.prior")[0]
+            assert run["id"] == run_id
+            assert run["status"] == "failed"
+            assert run["finished_at"] is not None
         finally:
             await scheduler.stop()

@@ -104,14 +104,45 @@ class TestEdictCRUD:
             storage.update_memorial(m)
 
         resp = await client.delete(f"/api/edicts/{edict_id}")
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["code"] == "governed_evolution_history_retained"
+        assert resp.status_code == 200
+        assert resp.json()["data"] == {"id": edict_id, "archived": True}
 
         resp = await client.get(f"/api/edicts/{edict_id}")
         assert resp.status_code == 200
+        assert resp.json()["data"]["status"] == "cancelled"
+        assert resp.json()["data"]["metadata"]["archived_at"]
+
+        listed = await client.get("/api/edicts")
+        assert edict_id not in {row["id"] for row in listed.json()["data"]}
         assert (
             storage._conn.execute(
                 "SELECT COUNT(*) FROM submission_idempotency WHERE edict_id = ?",
+                (edict_id,),
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            storage._conn.execute(
+                """
+                SELECT COUNT(*) FROM events
+                WHERE edict_id = ? AND event_type = 'edict.archived'
+                """,
+                (edict_id,),
+            ).fetchone()[0]
+            == 1
+        )
+
+        # DELETE is an idempotent tombstone operation: the record remains
+        # addressable for governance, without duplicating archive events.
+        repeated = await client.delete(f"/api/edicts/{edict_id}")
+        assert repeated.status_code == 200
+        assert repeated.json()["data"] == {"id": edict_id, "archived": True}
+        assert (
+            storage._conn.execute(
+                """
+                SELECT COUNT(*) FROM events
+                WHERE edict_id = ? AND event_type = 'edict.archived'
+                """,
                 (edict_id,),
             ).fetchone()[0]
             == 1

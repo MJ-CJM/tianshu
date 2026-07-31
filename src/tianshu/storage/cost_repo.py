@@ -18,8 +18,9 @@ class CostMixin:
             self._conn.execute(
                 """INSERT INTO cost_ledger
                    (id, edict_id, memorial_id, provider_name, model,
-                    prompt_tokens, completion_tokens, total_tokens, cost_cny, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    prompt_tokens, completion_tokens, total_tokens, cache_read_tokens,
+                    cost_cny, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     record.id,
                     record.edict_id,
@@ -29,6 +30,7 @@ class CostMixin:
                     record.prompt_tokens,
                     record.completion_tokens,
                     record.total_tokens,
+                    record.cache_read_tokens,
                     record.cost_cny,
                     record.created_at.isoformat(),
                 ),
@@ -58,6 +60,7 @@ class CostMixin:
                     COUNT(*) as total_records,
                     COALESCE(SUM(prompt_tokens), 0) as total_prompt_tokens,
                     COALESCE(SUM(completion_tokens), 0) as total_completion_tokens,
+                    COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
                     COALESCE(SUM(total_tokens), 0) as total_tokens,
                     COALESCE(SUM(cost_cny), 0.0) as total_cost_cny
                 FROM cost_ledger{where}""",
@@ -67,6 +70,7 @@ class CostMixin:
             "total_records": row["total_records"],
             "total_prompt_tokens": row["total_prompt_tokens"],
             "total_completion_tokens": row["total_completion_tokens"],
+            "total_cache_read_tokens": row["total_cache_read_tokens"],
             "total_tokens": row["total_tokens"],
             "total_cost_cny": row["total_cost_cny"],
         }
@@ -110,72 +114,153 @@ class CostMixin:
         return [dict(r) for r in rows], total
 
     def get_budget(self, scope: str) -> dict | None:
-        with self._lock:
+        with self._lock, self._conn:
             row = self._conn.execute(
                 "SELECT * FROM cost_budgets WHERE scope = ?", (scope,)
             ).fetchone()
             if not row:
                 return None
             data = dict(row)
-            # 周期滚动(迭代 3):daily/weekly 预算跨期后 spent 自动清零,
-            # 否则每日护栏会退化成永不复位的终身上限。month/monthly 暂不滚动
-            # (沿用既有 get_cost_summary 的月度语义,避免行为漂移)。
-            reset = self._rolled_period_start(data.get("period"), data.get("period_start"))
+            now = datetime.now(UTC)
+            reset = self._rolled_period_start(
+                data.get("period"),
+                data.get("period_start"),
+                data.get("reset_at"),
+                now=now,
+            )
             if reset is not None:
-                self._conn.execute(
-                    "UPDATE cost_budgets SET spent_cny = 0, period_start = ? WHERE scope = ?",
-                    (reset, scope),
+                reset_at = (
+                    None if self._is_reset_due(data.get("reset_at"), now) else data.get("reset_at")
                 )
-                self._conn.commit()
+                self._conn.execute(
+                    """UPDATE cost_budgets
+                       SET spent_cny = 0, period_start = ?, reset_at = ?
+                       WHERE scope = ?""",
+                    (reset, reset_at, scope),
+                )
                 data["spent_cny"] = 0.0
                 data["period_start"] = reset
+                data["reset_at"] = reset_at
         return data
 
-    @staticmethod
-    def _rolled_period_start(period: str | None, period_start: str | None) -> str | None:
+    @classmethod
+    def _rolled_period_start(
+        cls,
+        period: str | None,
+        period_start: str | None,
+        reset_at: str | None = None,
+        *,
+        now: datetime | None = None,
+    ) -> str | None:
         """返回需要写回的新周期起点;None = 无需滚动。"""
-        if period not in ("daily", "weekly"):
+        now = now or datetime.now(UTC)
+        cur_start = cls._current_period_start(period, now)
+        if cls._is_reset_due(reset_at, now):
+            return (cur_start or now).isoformat()
+        if cur_start is None:
             return None
-        now = datetime.now(UTC)
-        cur_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        if period == "weekly":
-            cur_start = cur_start - timedelta(days=now.weekday())
         cur_iso = cur_start.isoformat()
         if not period_start:
             return cur_iso  # 首次记账:落当期起点
-        try:
-            prev = datetime.fromisoformat(period_start)
-        except (ValueError, TypeError):
+        prev = cls._parse_budget_timestamp(period_start)
+        if prev is None:
             return cur_iso
         return cur_iso if prev < cur_start else None
+
+    @staticmethod
+    def _current_period_start(period: str | None, now: datetime) -> datetime | None:
+        if period not in ("daily", "weekly", "monthly"):
+            return None
+        start = now.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        if period == "weekly":
+            return start - timedelta(days=start.weekday())
+        if period == "monthly":
+            return start.replace(day=1)
+        return start
+
+    @staticmethod
+    def _parse_budget_timestamp(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except (ValueError, TypeError):
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+
+    @classmethod
+    def _is_reset_due(cls, reset_at: str | None, now: datetime) -> bool:
+        reset = cls._parse_budget_timestamp(reset_at)
+        return reset is not None and reset <= now
 
     def upsert_budget(
         self,
         scope: str,
         budget_cny: float,
         period: str = "monthly",
+        *,
+        reset_at: str | None = None,
     ) -> None:
-        now = datetime.now(UTC).isoformat()
+        now = datetime.now(UTC)
+        now_iso = now.isoformat()
+        period_start = self._current_period_start(period, now)
+        period_start_iso = (period_start or now).isoformat()
         with self._lock, self._conn:
             existing = self._conn.execute(
                 "SELECT id FROM cost_budgets WHERE scope = ?", (scope,)
             ).fetchone()
             if existing:
                 self._conn.execute(
-                    "UPDATE cost_budgets SET budget_cny = ?, period = ? WHERE scope = ?",
-                    (budget_cny, period, scope),
+                    """UPDATE cost_budgets
+                       SET budget_cny = ?, period = ?, reset_at = ?
+                       WHERE scope = ?""",
+                    (budget_cny, period, reset_at, scope),
                 )
             else:
                 self._conn.execute(
                     """INSERT INTO cost_budgets
-                       (id, scope, budget_cny, period, created_at, period_start)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (str(ULID()), scope, budget_cny, period, now, now),
+                       (id, scope, budget_cny, period, reset_at, created_at, period_start)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        str(ULID()),
+                        scope,
+                        budget_cny,
+                        period,
+                        reset_at,
+                        now_iso,
+                        period_start_iso,
+                    ),
                 )
 
     def update_budget_spent(self, scope: str, amount_cny: float) -> None:
         with self._lock, self._conn:
+            row = self._conn.execute(
+                "SELECT * FROM cost_budgets WHERE scope = ?", (scope,)
+            ).fetchone()
+            if row is None:
+                return
+            data = dict(row)
+            now = datetime.now(UTC)
+            reset = self._rolled_period_start(
+                data.get("period"),
+                data.get("period_start"),
+                data.get("reset_at"),
+                now=now,
+            )
+            if reset is None:
+                self._conn.execute(
+                    "UPDATE cost_budgets SET spent_cny = spent_cny + ? WHERE scope = ?",
+                    (amount_cny, scope),
+                )
+                return
+            reset_at = (
+                None if self._is_reset_due(data.get("reset_at"), now) else data.get("reset_at")
+            )
             self._conn.execute(
-                "UPDATE cost_budgets SET spent_cny = spent_cny + ? WHERE scope = ?",
-                (amount_cny, scope),
+                """UPDATE cost_budgets
+                   SET spent_cny = ?, period_start = ?, reset_at = ?
+                   WHERE scope = ?""",
+                (amount_cny, reset, reset_at, scope),
             )

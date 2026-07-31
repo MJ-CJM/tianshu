@@ -68,9 +68,7 @@ class FakePiHandle:
             self._round += 1
             for tool in spec.get("tools", []):
                 await self._emit({"type": "tool_execution_start", "toolName": tool})
-                await self._emit(
-                    {"type": "tool_execution_end", "toolName": tool, "isError": False}
-                )
+                await self._emit({"type": "tool_execution_end", "toolName": tool, "isError": False})
             await self._emit(
                 {
                     "type": "message_end",
@@ -135,7 +133,9 @@ def _outcome(name, passed, detail=""):
 
 
 async def _drive(handle, *, edict, budget_cny=None, timeout=30.0, llm=None, follow_up_rounds=3):
-    ex = KeqingSessionExecutor(execution_gateway=object(), llm=llm, follow_up_rounds=follow_up_rounds)
+    ex = KeqingSessionExecutor(
+        execution_gateway=object(), llm=llm, follow_up_rounds=follow_up_rounds
+    )
     return await ex._drive(  # noqa: SLF001 - drive loop is the unit under test
         edict, PiSessionAdapter(), handle, tmp_work(), budget_cny, timeout, None
     )
@@ -190,7 +190,8 @@ class TestAcceptanceLoop:
             calls["n"] += 1
             passed = calls["n"] >= 2  # 第一轮不过,第二轮过
             return ChecksResult(
-                all_passed=passed, outcomes=(_outcome("pytest", passed, "boom" if not passed else ""),)
+                all_passed=passed,
+                outcomes=(_outcome("pytest", passed, "boom" if not passed else ""),),
             )
 
         monkeypatch.setattr(se_mod, "run_checks", fake_run_checks)
@@ -198,9 +199,7 @@ class TestAcceptanceLoop:
             checks=[CheckSpec(kind="bash", name="pytest", command="pytest")],
             max_outer_iterations=3,
         )
-        handle = FakePiHandle(
-            [{"text": "attempt 1"}, {"text": "attempt 2 fixed"}]
-        )
+        handle = FakePiHandle([{"text": "attempt 1"}, {"text": "attempt 2 fixed"}])
         result = await _drive(handle, edict=_edict(acceptance=acc))
         assert result.status == TaskStatus.COMPLETED
         assert calls["n"] == 2  # 跑了两轮验收
@@ -213,7 +212,9 @@ class TestAcceptanceLoop:
 
         async def always_fail(specs, actor_output, llm, **kw):
             calls["n"] += 1
-            return ChecksResult(all_passed=False, outcomes=(_outcome("pytest", False, "still broken"),))
+            return ChecksResult(
+                all_passed=False, outcomes=(_outcome("pytest", False, "still broken"),)
+            )
 
         monkeypatch.setattr(se_mod, "run_checks", always_fail)
         acc = AcceptanceCriteria(

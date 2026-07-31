@@ -2,6 +2,43 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [Unreleased]
+
+> 当前仅是私有分支的本地收口，未接受 Candidate，也未授权 tag、Release、PyPI/GHCR
+> 或仓库公开。当前可用性与非保证以
+> [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md) 和
+> [`docs/launch/capability-matrix.md`](docs/launch/capability-matrix.md) 为准；下方旧版本
+> 条目保留当时的开发记录，不代表所有实验能力今天仍可 live 切换、安装或自动晋升。
+
+### Fixed
+
+- 长程任务补齐终态检查点清理、失败/取消收敛、暂停/继续与重启恢复边界；定时任务补齐
+  stale run 收敛、run-now/archive 竞态、时区/misfire 与周期长任务 fail-closed。
+- 成本预算按真实提交者记账，并支持日/周/月窗口滚动、`reset_at` 与跨期首笔消费。
+- 任务所有权、全局管理员面、通知逐通道进度、稳定记忆条目标识与插件 manifest-only
+  边界完成一致性修复。
+- Persona 外部导入不再复制或激活外部 Skill；预览只显示检测结果，旧式直接安装请求
+  返回 `409`，避免绕过 Skill Candidate/Guard/Gate/Promotion。
+
+### Changed
+
+- Desktop Web 调整为中枢、御书房、朝堂、百司、天工院〔实验〕、内府六个一级入口；御书房下含
+  全部敕令、颁发敕令、钦天监、都察院，朝堂下含吏部、廷议、内阁，百司下含翰林院、
+  鸿胪寺、通政司，天工院下含演化司〔实验〕、诸界台〔实验〕、考功司〔试行〕、
+  客卿馆〔实验〕，内府保留藏兵阁、权印司、户部账房。普通/长程/定时任务共用一个
+  简化模型，专家参数默认折叠。
+- 中枢将“当前执行中”和“未归档敕令”分开统计，增加待后续指令/已撤回分项，并将证据
+  明确为“累计证据束（含归档）”；普通主体统一按本人、管理员统一按全局读取整张快照，
+  通过前台 5 秒兜底轮询和相关 WebSocket 事件失效重拉保持更新。
+- Skills 合并为只读目录，仅保留真实可用的查看与 Pin；自动 reviewer/curator 默认关闭
+  并在 LLM 前 fail fast。
+- 插件只展示 manifest，安装/激活返回 `501`；Legacy Universe 只保留快照、分支、diff、
+  评估与推荐，switch/rollback/promote-code 固定 fail closed。
+- 当前设计、实现、使用、运维、发布边界与历史快照导航已同步更新。
+- 开源仓库卫生规则补齐本地环境、密钥、数据库 sidecar、测试报告、Agent 运行状态和
+  发行工作目录；本机 Claude 计划、运行标记、误生成安装日志、Vite 缓存，以及与当前
+  天枢无关的旧天气脚本、重复研究笔记和本地第三方 gstack 包不再跟踪。
+
 ## [0.4.2] - 2026-07(UI 视觉重塑「朱批」)
 
 墨为骨,朱为睛,纸为气:保持 Geist 级克制,朱砂只出现在「与主上朱笔有关」的地方。

@@ -18,14 +18,6 @@ export async function branchUniverse(
   return data;
 }
 
-export async function switchUniverse(id: string): Promise<ApiResponse<Universe>> {
-  const { data } = await apiClient.post<ApiResponse<Universe>>(
-    `/universes/${id}/switch`,
-    {},
-  );
-  return data;
-}
-
 export async function archiveUniverse(id: string): Promise<ApiResponse<Universe>> {
   const { data } = await apiClient.post<ApiResponse<Universe>>(
     `/universes/${id}/archive`,
@@ -89,13 +81,6 @@ export async function proposeCodeVariant(
 export async function proposeAutoCode(): Promise<ApiResponse<Record<string, unknown>>> {
   const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(
     "/universes/propose-auto",
-  );
-  return data;
-}
-
-export async function promoteCodeVariant(id: string): Promise<ApiResponse<Universe>> {
-  const { data } = await apiClient.post<ApiResponse<Universe>>(
-    `/universes/${id}/promote-code`, {},
   );
   return data;
 }

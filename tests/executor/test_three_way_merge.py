@@ -69,26 +69,38 @@ class TestMergeText:
 
 class TestResolveFile:
     def test_take_theirs(self):
-        content, conflict = resolve_file("f", base="A", ours="A", theirs="B", git_merge_file=_git_merge_file)
+        content, conflict = resolve_file(
+            "f", base="A", ours="A", theirs="B", git_merge_file=_git_merge_file
+        )
         assert content == "B" and conflict is None
 
     def test_keep_ours_returns_skip(self):
-        content, conflict = resolve_file("f", base="A", ours="B", theirs="A", git_merge_file=_git_merge_file)
+        content, conflict = resolve_file(
+            "f", base="A", ours="B", theirs="A", git_merge_file=_git_merge_file
+        )
         assert content is None and conflict is None
 
     def test_clean_merge_lands(self):
         content, conflict = resolve_file(
-            "f", base="l1\nl2\nl3\n", ours="l1x\nl2\nl3\n", theirs="l1\nl2\nl3x\n", git_merge_file=_git_merge_file
+            "f",
+            base="l1\nl2\nl3\n",
+            ours="l1x\nl2\nl3\n",
+            theirs="l1\nl2\nl3x\n",
+            git_merge_file=_git_merge_file,
         )
         assert conflict is None and "l1x" in content and "l3x" in content
 
     def test_overlap_returns_structured_conflict(self):
-        content, conflict = resolve_file("f", base="s\n", ours="o\n", theirs="t\n", git_merge_file=_git_merge_file)
+        content, conflict = resolve_file(
+            "f", base="s\n", ours="o\n", theirs="t\n", git_merge_file=_git_merge_file
+        )
         assert content is None
         assert isinstance(conflict, FileConflict)
         assert conflict.path == "f" and conflict.ours == "o\n" and conflict.theirs == "t\n"
 
     def test_add_add_asymmetric_is_conflict(self):
         # 双方都新增(base None)且内容不同 → 交人工裁决
-        content, conflict = resolve_file("f", base=None, ours="o\n", theirs="t\n", git_merge_file=_git_merge_file)
+        content, conflict = resolve_file(
+            "f", base=None, ours="o\n", theirs="t\n", git_merge_file=_git_merge_file
+        )
         assert content is None and isinstance(conflict, FileConflict)

@@ -59,14 +59,26 @@ class NotifyMixin:
                 (steer_id, edict_id, note, created_at),
             )
 
-    def list_and_clear_steers(self, edict_id: str) -> list[str]:
-        """取出该 edict 的待注入 steer 并删除(取即消费,不重复注入)。"""
-        with self._lock, self._conn:
+    def list_steers(self, edict_id: str) -> list[dict[str, str]]:
+        """Read pending steer instructions without acknowledging them."""
+
+        with self._lock:
             rows = self._conn.execute(
                 "SELECT id, note FROM pending_steers WHERE edict_id = ? ORDER BY created_at ASC",
                 (edict_id,),
             ).fetchall()
-            notes = [r["note"] for r in rows]
-            if rows:
-                self._conn.execute("DELETE FROM pending_steers WHERE edict_id = ?", (edict_id,))
-        return notes
+        return [{"id": str(row["id"]), "note": str(row["note"])} for row in rows]
+
+    def list_and_clear_steers(self, edict_id: str) -> list[str]:
+        """Legacy immediate-consumption helper; new execution code uses checkpoint ack."""
+
+        rows = self.list_steers(edict_id)
+        ids = [row["id"] for row in rows]
+        if ids:
+            placeholders = ",".join("?" for _ in ids)
+            with self._lock, self._conn:
+                self._conn.execute(
+                    f"DELETE FROM pending_steers WHERE id IN ({placeholders})",
+                    ids,
+                )
+        return [row["note"] for row in rows]

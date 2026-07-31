@@ -34,6 +34,44 @@ if TYPE_CHECKING:
     from tianshu.storage import Storage
 
 ALL_AUTH_SCOPES = frozenset({"admin", "api", "mcp:read", "mcp:submit", "workspace:apply"})
+_ADMIN_ACCESS_PREFIXES = (
+    "/api/agent-config",
+    "/api/audit/network-events",
+    "/api/audit/stats",
+    "/api/config",
+    "/api/configs",
+    "/api/cost",
+    "/api/credentials",
+    "/api/memory",
+    "/api/memory-palace",
+    "/api/model-providers",
+    "/api/policy/session_rules",
+    "/api/system-prompt",
+    "/api/workers",
+)
+_ADMIN_MUTATION_PREFIXES = (
+    "/api/agent-config",
+    "/api/channels",
+    "/api/config",
+    "/api/configs",
+    "/api/cost/budget",
+    "/api/credentials",
+    "/api/departments",
+    "/api/estop",
+    "/api/evolution",
+    "/api/hongluisi/engine-preferences",
+    "/api/model-catalog",
+    "/api/model-providers",
+    "/api/personas",
+    "/api/plugins",
+    "/api/policy/session_rules",
+    "/api/providers",
+    "/api/skills",
+    "/api/system-prompt",
+    "/api/tongzheng",
+    "/api/tools",
+    "/api/universes",
+)
 # public（免认证可达）但仍需知道调用方是否已认证的路由：未认证只得摘要，
 # 已认证才拿到内部检查详情。解析失败一律当匿名处理，绝不因此拒绝请求。
 _AUTH_AWARE_PUBLIC_PATHS = frozenset({"/health/ready"})
@@ -830,6 +868,14 @@ class SecurityBoundaryMiddleware:
         if path.startswith("/mcp"):
             return frozenset({"mcp:read", "mcp:submit"})
         if path.startswith(("/api/auth/tokens", "/api/audit/system")):
+            return frozenset({"admin"})
+        if any(
+            path == prefix or path.startswith(f"{prefix}/") for prefix in _ADMIN_ACCESS_PREFIXES
+        ):
+            return frozenset({"admin"})
+        if method in {"POST", "PUT", "PATCH", "DELETE"} and any(
+            path == prefix or path.startswith(f"{prefix}/") for prefix in _ADMIN_MUTATION_PREFIXES
+        ):
             return frozenset({"admin"})
         return frozenset({"api"})
 

@@ -1,6 +1,9 @@
 # MCP 集成 — 服务器配置、自动发现与启动
 
-> 设计意图：把外部 MCP（Model Context Protocol）服务器的工具无缝接入 ToolRegistry，统一受 tier + 治理管线约束。
+> 当前实现边界：MCP 工具接入 ToolRegistry 后仍走 tier + 治理管线，但这不是“所有 MCP
+> 传输都安全开放”。`secure-remote` 下 remote `streamable_http` MCP 明确拒绝；
+> `stdio` 必须有显式非空 `tools.include`。公开支持边界见
+> [安全威胁模型](../../security/lean-preview-threat-model.md)。
 
 ## 1. 配置来源与合并
 
@@ -28,14 +31,22 @@
 | `enabled` | 是否启用 |
 | `default_tier` | 工具默认 tier（0–4，默认 2 = T2_NETWORK） |
 | `tool_overrides` | per-tool tier 覆盖 |
-| `tools`（include/exclude） | 工具白/黑名单（include 为空 = 全开） |
+| `tools`（include/exclude） | 工具白/黑名单；stdio 的 include 必须显式非空，否则不准入 |
 | `timeout` / `connect_timeout` | 调用 / 连接超时 |
 
 transport 字段一致性由 `model_validator` 校验（stdio 必须有 command，streamable_http 必须有 url）。
 
 ## 3. 自动发现与启动
 
-`MCPManager.start()`：
+`MCPManager.start()` 先做 Lean admission，再启动通过的 server：
+
+- disabled server 不启动；
+- `secure-remote + streamable_http` 拒绝，reason=`trusted_egress_unavailable`；
+- `stdio + tools.include=[]` 拒绝，reason=`approved_tools_required`；
+- 准入拒绝写入 SystemAudit，但“拒绝路径已验证”不等于远程 MCP 安全已实现。
+
+对通过准入的 server：
+
 - **并行启动**所有 enabled server（`asyncio.gather`），避免慢 server（如 npx 首次拉包）拖延整体
 - **degrade 模式**：单个 server 启动失败 / 未连接不影响其他，跳过并记日志
 - 连接后 `_register_session_tools` 把发现的工具注册进 ToolRegistry
@@ -53,6 +64,13 @@ handler（`_make_handler`）把 MCP 调用结果的 content text 拼接为 `Tool
 
 ## 5. 治理一致性
 
-MCP 工具注册后与内建工具**完全同构**——同样受 PolicyEngine / tier / winding_down / 禁用列表约束。这是关键判断：外部工具不开后门，统一走治理管线。
+MCP 工具注册后与内建工具走同一 PolicyEngine / tier / winding_down / 禁用列表。当前
+证明范围只到这里：
+
+- `tools.include` 约束注册名，不持久绑定 executable realpath/digest、argv、env、cwd、
+  actor/reason/expiry 或 discovered-tool drift；
+- trusted-local 的 stdio 子进程不是 OS 安全沙箱；
+- secure-remote 缺少受验证 sandbox/egress 时 fail closed，不静默回退宿主；
+- 不能因为配置模型中存在 URL/streamable_http 字段，就宣称 remote MCP 可对公网开放。
 
 **相关实现**：[../../impl/tools/](../../impl/tools/)

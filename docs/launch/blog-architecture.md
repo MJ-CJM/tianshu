@@ -23,26 +23,42 @@ Native 路径的已注册工具调用经过 tier、策略规则和人工裁决�
 
 这些机制组成 defense-in-depth，但不是绝对安全承诺：
 
-- 本地 API、WebSocket 和 MCP 尚无统一身份认证，只适合可信本地环境；
-- pending Decision 目前驻留于进程内，不保证重启后继续等待；
+- HTTP、WebSocket 与 MCP 已共用认证上下文；secure-remote 普通主体按任务 owner 隔离，
+  admin 才能读取全局审计与平台配置，但正式支持范围仍是 trusted-local；
+- Decision 请求和裁决结果已经持久化；受支持的 managed continuation 能从持久状态
+  恢复，但不把任意旧版/外部等待协程都提升为耐重启保证；
 - 成本门禁依据 provider 已上报用量，是 best-effort，可能在越过阈值后才停止；
 - clean-env、独立目录与本地子进程都不是容器或 OS 安全沙箱。
 
-影子快照使用独立 `GIT_DIR`，不会把快照仓写进用户项目的 `.git`。当前快照发生在客卿运行后：若快照成功生成，可以检查或恢复相应文件状态，但它不是执行前恢复点，也不能替代受治理的 staging/apply 协议。
+影子快照使用独立 `GIT_DIR`，不会把快照仓写进用户项目的 `.git`。当可信 Git 可用且
+治理工作区准备成功时，客卿运行前恢复点会被强制建立；运行后仍可产生用于检查的快照。
+这不等于可靠的事前动作拦截、Provider 侧硬成本上限或受治理的 staging/apply 协议。
 
 ## 三、“成长”先产生候选，“进化”必须有证据门
 
-v0.4.2 已有三类成长载体：记忆与画像积累、技能候选修撰、Universe 行为/代码快照。Universe 可以做 snapshot、branch、diff 和人工切换；平台评估可以用独立端口和数据库配置的本地子进程比较历史样本。
+v0.4.2 已有三类成长载体：记忆与画像积累、受治理技能候选、Universe 行为/代码快照。
+当前 Lean Core 已实现 evidence-bound 技能候选 Gate、持久 assignment/effective overlay
+和受控回滚；Legacy Universe 可以做 snapshot、branch、diff、评估与推荐，但不能切换
+live 行为或部署代码。
 
-它们当前都是实验能力：评估子进程仍共享宿主 OS 权限与网络；`route_for_memorial` 当前只选 champion；评估报告不会自动变成可信晋升决定。真实 challenger 路由、统一晋升门禁、回滚证明和收益评测属于 G4。
+它们仍是实验能力：评估子进程共享宿主 OS 权限与网络；代码候选不会自动晋升；当前
+实现的 Lean 技能路径不能外推成任意代码变体或 external executor 的统一 G4。OpenHands、
+executor compatibility、ROI、成本校准与 full G4 仍需外部证据。
 
 因此“持续成长”描述候选与证据的累积，“自进化闭环已成立”必须等 G4 的端到端证据。默认关闭演化只是必要条件，不是安全证明。
 
 ## 四、与 Claude Code/Codex 的双向连接并不对称
 
-第一条路径是本地 MCP：MCP host 可以向天枢提交 Edict、查询状态和读取受支持结果。它在 v0.4.2 不是经过统一鉴权的公共服务。
+第一条路径是本地 MCP：MCP host 可以在共用认证上下文中向天枢提交 Edict、查询状态和
+读取受支持结果。remote MCP 与 open stdio MCP 的正式开放面保持 disabled；它不是公共
+互联网服务。
 
-第二条路径是 Keqing：天枢可以启动 Claude Code/Codex CLI。当前 adapter 为 `contained + experimental`，只保证独立工作目录、clean-env、外围 timeout 与事后结果归一；已捕获工具事件可交给外围链路。它不保证 CLI 内部事件完整性、事前工具拦截、硬成本上限、运行前恢复点、网络隔离、耐重启或受治理的 apply/merge。
+第二条路径是 Keqing：天枢可以启动 Claude Code/Codex CLI。当前 adapter 为
+`contained + experimental`，默认关闭且不占默认导航；凭据由外部 CLI self-managed，
+生产 credential gateway 不可启用。它保证独立工作目录、clean-env、外围 timeout、
+事后结果归一，以及在可信 Git 与治理工作区条件满足时建立运行前恢复点；不保证 CLI
+内部事件完整性、可靠的事前工具拦截、Provider 侧硬成本上限、网络隔离、耐重启或受治理
+的 apply/merge。
 
 把这两条路径分开描述很重要：MCP 接入天枢不等于天枢能看见外部 CLI 的内部工具流。G4 的目标是让 Native 与至少一个 external managed adapter 遵守同一可验证契约。
 
@@ -54,6 +70,9 @@ v0.4.2 已有三类成长载体：记忆与画像积累、技能候选修撰、U
 
 ## 尾声
 
-天枢选择的差异化方向是“治理 × 可验证成长”。v0.4.2 已提供一个有限但可运行的本地基础，同时把持久治理、生产 Web、managed external executor 与真实演化门禁放在后续 Gate。开源竞争力最终来自这些边界能否被第三方复验，而不是把路线图写成现成功能。
+天枢选择的差异化方向是“治理 × 可验证成长”。v0.4.2 已提供有限但可运行的本地主链、
+持久治理和 desktop Web，并把 external managed executor、full G4、官方发行与跨平台
+外部复验留在后续 Gate。开源竞争力最终来自这些边界能否被第三方复验，而不是把路线图
+写成现成功能。
 
 代码、测试、设计和 ADR 均在仓库中；公开承诺从[能力事实矩阵](capability-matrix.md)开始阅读。

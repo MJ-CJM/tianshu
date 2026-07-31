@@ -35,8 +35,7 @@ class AuditRulesConfig:
     - ``review_temperature`` / ``review_max_tokens``
       —— 对应 ``reviewer.LLMReviewer`` 调用 LLM 时的 ``temperature`` / ``max_tokens``
       (现状:0.1 / 512)。
-    - ``risk_keywords`` —— 预留的风险关键词表,供后续「命中即 flag」的扫描规则使用;
-      默认空表即无副作用。
+    - ``risk_keywords`` —— 结果文本的「命中即 flag」扫描词表;默认空表即无副作用。
     """
 
     check_token_budget: bool = True

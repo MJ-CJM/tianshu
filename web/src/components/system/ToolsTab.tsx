@@ -5,12 +5,23 @@ import type { ToolInfo } from "../../api/types";
 import { useT } from "../../i18n";
 import { monoStyle } from "./shared";
 import { isApiProblem } from "../../api/client";
+import PageQueryError from "../states/PageQueryError";
 
 export default function ToolsTab() {
   const t = useT();
-  const { data: tools, isLoading } = useTools();
+  const toolsQuery = useTools();
+  const { data: tools, isLoading } = toolsQuery;
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const setEnabledMutation = useSetToolEnabled();
+
+  if (toolsQuery.error) {
+    return (
+      <PageQueryError
+        error={toolsQuery.error}
+        onRetry={() => void toolsQuery.refetch()}
+      />
+    );
+  }
 
   const handleToggle = (name: string, enabled: boolean) => {
     setEnabledMutation.mutate(

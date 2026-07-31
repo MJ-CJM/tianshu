@@ -48,7 +48,9 @@ class MergeOutcome:
     conflict: bool = False
 
 
-def merge_text(base: str, ours: str, theirs: str, *, git_merge_file: GitMergeFileRunner) -> MergeOutcome:
+def merge_text(
+    base: str, ours: str, theirs: str, *, git_merge_file: GitMergeFileRunner
+) -> MergeOutcome:
     """双改场景:经注入的 git merge-file 运行器做三方文本合并。
 
     运行器不碰任何真实仓库对象库(在临时区跑)。冲突时不返回带冲突标记的内容

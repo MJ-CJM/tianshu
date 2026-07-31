@@ -3945,6 +3945,63 @@ def _legacy_assignment_cleanup_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+# --- V23: retain cache-read usage in the canonical cost ledger ---
+
+_COST_CACHE_READ_VERSION = _LEGACY_ASSIGNMENT_CLEANUP_VERSION + 1
+_COST_CACHE_READ_NAME = f"{_COST_CACHE_READ_VERSION:04d}_cost_cache_read_tokens"
+_COST_CACHE_READ_STATEMENTS = (
+    """
+    ALTER TABLE cost_ledger
+    ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0
+    CHECK (cache_read_tokens >= 0)
+    """,
+)
+_COST_CACHE_READ_CHECKSUM = hashlib.sha256(
+    (
+        _COST_CACHE_READ_NAME
+        + "\n"
+        + "\n".join(" ".join(statement.split()) for statement in _COST_CACHE_READ_STATEMENTS)
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _cost_cache_read_upgrade(conn: MigrationConnection) -> None:
+    for statement in _COST_CACHE_READ_STATEMENTS:
+        conn.execute(statement)
+
+
+# --- V24: retain per-channel notification acceptance progress ---
+
+_NOTIFICATION_CHANNEL_PROGRESS_VERSION = _COST_CACHE_READ_VERSION + 1
+_NOTIFICATION_CHANNEL_PROGRESS_NAME = (
+    f"{_NOTIFICATION_CHANNEL_PROGRESS_VERSION:04d}_notification_channel_progress"
+)
+_NOTIFICATION_CHANNEL_PROGRESS_STATEMENTS = (
+    """
+    ALTER TABLE internal_notification_deliveries
+    ADD COLUMN accepted_channels_json TEXT NOT NULL DEFAULT '[]'
+    CHECK (
+        json_valid(accepted_channels_json)
+        AND json_type(accepted_channels_json) = 'array'
+    )
+    """,
+)
+_NOTIFICATION_CHANNEL_PROGRESS_CHECKSUM = hashlib.sha256(
+    (
+        _NOTIFICATION_CHANNEL_PROGRESS_NAME
+        + "\n"
+        + "\n".join(
+            " ".join(statement.split()) for statement in _NOTIFICATION_CHANNEL_PROGRESS_STATEMENTS
+        )
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _notification_channel_progress_upgrade(conn: MigrationConnection) -> None:
+    for statement in _NOTIFICATION_CHANNEL_PROGRESS_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
     Migration(
         version=_EVOLUTION_CANDIDATE_MIGRATION_VERSION,
@@ -3975,6 +4032,18 @@ MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
         name=_LEGACY_ASSIGNMENT_CLEANUP_NAME,
         checksum=_LEGACY_ASSIGNMENT_CLEANUP_CHECKSUM,
         upgrade=_legacy_assignment_cleanup_upgrade,
+    ),
+    Migration(
+        version=_COST_CACHE_READ_VERSION,
+        name=_COST_CACHE_READ_NAME,
+        checksum=_COST_CACHE_READ_CHECKSUM,
+        upgrade=_cost_cache_read_upgrade,
+    ),
+    Migration(
+        version=_NOTIFICATION_CHANNEL_PROGRESS_VERSION,
+        name=_NOTIFICATION_CHANNEL_PROGRESS_NAME,
+        checksum=_NOTIFICATION_CHANNEL_PROGRESS_CHECKSUM,
+        upgrade=_notification_channel_progress_upgrade,
     ),
 )
 

@@ -1,5 +1,10 @@
 # 前景主导的技能自学习系统 — 设计文档
 
+> **历史设计，当前边界已收紧：** reviewer/curator 现在默认关闭，并在调用 LLM 前
+> fail fast；Web 与 Persona 导入都不会直接写 live Skill。当前事实见
+> [`../../design/skills/README.md`](../../design/skills/README.md) 与
+> [`../../CURRENT-STATE.md`](../../CURRENT-STATE.md)。
+
 | 项 | 值 |
 |---|---|
 | 日期 | 2026-06-06 |

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from tianshu.executor.orchestrator.loop import _inject_steer
+from tianshu.executor.orchestrator.loop import _inject_steer, _save_checkpoint
 from tianshu.executor.orchestrator.state import OuterLoopState
 
 
@@ -32,6 +32,11 @@ class TestInjectSteer:
         state = OuterLoopState(edict_id="e1")
         new_state = _inject_steer(ctx, edict, state)
         assert new_state.steer_note == "记得测试"
+        assert new_state.steer_ids == ("s1",)
+        assert storage.list_steers("e1") == [{"id": "s1", "note": "记得测试"}]
+
+        _save_checkpoint(ctx, new_state)
+        assert storage.list_steers("e1") == []
 
     def test_inject_clears_when_no_pending(self, storage):
         ctx = SimpleNamespace(storage=storage)
@@ -40,6 +45,7 @@ class TestInjectSteer:
         state = OuterLoopState(edict_id="e1", steer_note="旧的")
         new_state = _inject_steer(ctx, edict, state)
         assert new_state.steer_note is None
+        assert new_state.steer_ids == ()
 
     def test_multiple_steers_joined(self, storage):
         storage.save_steer("s1", "e1", "第一条", "2026-01-01T00:00:00+00:00")
@@ -47,6 +53,24 @@ class TestInjectSteer:
         ctx = SimpleNamespace(storage=storage)
         new_state = _inject_steer(ctx, SimpleNamespace(id="e1"), OuterLoopState(edict_id="e1"))
         assert new_state.steer_note == "第一条\n第二条"
+
+    def test_crash_before_checkpoint_keeps_steer_pending(self, storage):
+        storage.save_steer("s1", "e1", "不能丢", "2026-01-01T00:00:00+00:00")
+        ctx = SimpleNamespace(storage=storage)
+
+        first_attempt = _inject_steer(
+            ctx,
+            SimpleNamespace(id="e1"),
+            OuterLoopState(edict_id="e1"),
+        )
+        restarted_attempt = _inject_steer(
+            ctx,
+            SimpleNamespace(id="e1"),
+            OuterLoopState(edict_id="e1"),
+        )
+
+        assert first_attempt.steer_note == restarted_attempt.steer_note == "不能丢"
+        assert storage.list_steers("e1") == [{"id": "s1", "note": "不能丢"}]
 
 
 class TestActorOverrideInjection:

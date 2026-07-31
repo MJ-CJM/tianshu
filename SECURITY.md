@@ -56,3 +56,12 @@ Python 3.12 是首个正式支持目标；最终黄金批次实际在本机
 更细的威胁/控制映射见
 [Lean Preview 威胁模型](docs/security/lean-preview-threat-model.md)，逐项成熟度见
 [能力事实矩阵](docs/launch/capability-matrix.md)。
+
+## 依赖安全门
+
+CI 对默认 Python 依赖执行 OSV 审计，并在 PR 上执行 GitHub dependency review；Web
+生产依赖执行 high/critical 审计。例外必须在
+[`security/npm-audit-allowlist.json`](security/npm-audit-allowlist.json) 中绑定 advisory、
+包的准确版本、理由和到期日，不能通过整体降低严重度阈值绕过。当前唯一例外是
+React Router 的 RSC server-action advisory；本项目是未启用 RSC/server actions 的
+client-only Vite SPA。例外不表示漏洞已修复，必须在到期前复核并在上游修复版本可用后删除。

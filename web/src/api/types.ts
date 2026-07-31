@@ -22,10 +22,13 @@ export interface UsageSummary {
 export type EdictStatus = "open" | "completed" | "cancelled";
 
 export interface EdictSchedule {
-  type: "immediate" | "once" | "cron";
+  type: "immediate" | "once" | "cron" | "interval";
   at: string | null;
   cron: string | null;
+  interval_seconds?: number | null;
   timezone: string;
+  concurrency_policy?: "skip" | "allow";
+  misfire_policy?: "coalesce";
 }
 
 export interface EdictPolicyProfile {
@@ -52,7 +55,7 @@ export interface EdictRuntime {
   /** 迭代 3.5：执行 backend（native | keqing:claude-code | keqing:codex） */
   executor?: string;
   executor_model?: string | null;
-  /** 对话模式：成功后保持进行（人工结案），继续批示持续可用 */
+  /** 对话模式：成功后保持未结案，继续批示持续可用 */
   conversation?: boolean;
 }
 
@@ -82,8 +85,27 @@ export interface TimelineItem {
 export interface SchedulerJob {
   job_id: string;
   edict_id: string;
-  schedule_type: string;
+  title: string;
+  schedule_type: "once" | "cron" | "interval";
+  status: "active" | "paused" | "failed" | "completed";
   next_run: string | null;
+  cron_expr: string | null;
+  interval_seconds: number | null;
+  timezone: string;
+  last_run: SchedulerRun | null;
+}
+
+export interface SchedulerRun {
+  id: string;
+  source: string;
+  kind: string;
+  status: string;
+  edict_id: string | null;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+  execution_status?: TaskStatus | null;
+  completed_at?: string | null;
 }
 
 export interface Edict {
@@ -198,7 +220,15 @@ export interface EdictCreateRequest {
   title?: string;
   context?: string;
   idempotency_key?: string;
-  schedule?: { type: string; cron?: string; at?: string };
+  schedule?: {
+    type: "immediate" | "once" | "cron" | "interval";
+    cron?: string;
+    at?: string;
+    interval_seconds?: number;
+    timezone?: string;
+    concurrency_policy?: "skip" | "allow";
+    misfire_policy?: "coalesce";
+  };
   priority?: string;
   review_policy?: string;
   constraints?: string[];
@@ -430,6 +460,7 @@ export interface AuditStatsSummary {
   total_memorials: number;
   total_prompt_tokens: number;
   total_completion_tokens: number;
+  total_cache_read_tokens: number;
   total_tokens: number;
   audit_pass: number;
   audit_flag: number;
@@ -648,7 +679,9 @@ export interface PluginInfo {
   name: string;
   version: string;
   manifest: Record<string, unknown>;
-  status: string;
+  status: "manifest_only";
+  capability_status: "manifest_only";
+  loaded: false;
   sha256: string | null;
   installed_at: string;
   updated_at: string | null;
@@ -735,10 +768,9 @@ export interface PersonaCreateRequest {
   /** Optional role-template seed (see persona-templates endpoints). */
   template_id?: string;
   template_lang?: "zh" | "en";
-  /** 从外部(openclaw/hermes)导入作种子:SOUL/ROLE 裸正文 + 技能源目录。 */
+  /** 从外部(openclaw/hermes)导入作种子：只写入 SOUL/ROLE。 */
   imported_soul?: string;
   imported_role?: string;
-  import_skill_paths?: string[];
 }
 
 // --- 从外部 coding agent 导入配置作百官种子(openclaw/hermes) ---

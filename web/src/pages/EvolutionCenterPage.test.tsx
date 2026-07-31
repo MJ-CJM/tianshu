@@ -140,6 +140,13 @@ describe("authoritative Evolution Center snapshot", () => {
     renderPage();
 
     expect(screen.getByRole("heading", { name: "演化中心" })).toBeInTheDocument();
+    expect(screen.getAllByText("实验")).toHaveLength(2);
+    expect(
+      screen.getByText("查看并治理 Skill 候选之门禁、灰度分流、晋升与回滚证据。"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("非 Skill 激活仍闭；系统不会自行晋升候选。"),
+    ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "正在加载" })).toBeInTheDocument();
     expect(evolutionSource.calls).toBe(1);
   });
@@ -150,7 +157,9 @@ describe("authoritative Evolution Center snapshot", () => {
 
     expect(await screen.findByText("S5 受治理演化尚未启用；当前没有候选、分流或门禁结果。")).toBeInTheDocument();
     expect(screen.getByText("s5_governed_evolution_not_enabled")).toBeInTheDocument();
-    expect(screen.queryByText(/Canary|灰度|真实流量/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Canary 已启用|自动晋升|真实流量/),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
@@ -158,7 +167,15 @@ describe("authoritative Evolution Center snapshot", () => {
     evolutionSource.result = ENABLED_EMPTY;
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "暂无数据" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "已启用，尚无候选" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "演化服务已就绪；待建立受治理 Skill 候选，此处即呈门禁、分流与回滚状态。",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "暂无数据" })).not.toBeInTheDocument();
     expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 

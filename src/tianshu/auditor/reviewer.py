@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import logging
 
+from tianshu.auditor.rules_config import AuditRulesConfig
 from tianshu.config_manager import ConfigManager
-from tianshu.llm import LLMClient
+from tianshu.llm import LLMClient, LLMUsageContext
 from tianshu.models.common import AuditResult
 from tianshu.models.edict import Edict
 from tianshu.models.memorial import Memorial
@@ -27,8 +28,13 @@ Respond in JSON: {"verdict": "pass"|"flag"|"block", "reasons": ["..."]}
 class LLMReviewer:
     """Layer 2: LLM-based review for items flagged by rules engine."""
 
-    def __init__(self, config_manager: ConfigManager) -> None:
+    def __init__(
+        self,
+        config_manager: ConfigManager,
+        rules_config: AuditRulesConfig | None = None,
+    ) -> None:
         self._config_manager = config_manager
+        self._rules_config = rules_config or AuditRulesConfig()
 
     async def review(
         self,
@@ -49,8 +55,8 @@ class LLMReviewer:
             api_key=state.api_key,
             api_base=state.api_base,
             max_retries=1,
-            temperature=0.1,
-            max_tokens=512,
+            temperature=self._rules_config.review_temperature,
+            max_tokens=self._rules_config.review_max_tokens,
         )
 
         user_msg = (
@@ -64,7 +70,12 @@ class LLMReviewer:
                 [
                     {"role": "system", "content": _REVIEW_PROMPT},
                     {"role": "user", "content": user_msg},
-                ]
+                ],
+                usage_context=LLMUsageContext(
+                    edict_id=edict.id,
+                    memorial_id=memorial.id,
+                    operation="audit_review",
+                ),
             )
             if response.content:
                 data = json.loads(response.content)

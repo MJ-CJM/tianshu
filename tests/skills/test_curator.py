@@ -66,6 +66,7 @@ def _live(loader, name) -> bool:
 def _make_curator(env, payload, **cfg):
     loader, ms, db, tmp = env
     llm = _FakeLLM(payload)
+    cfg.setdefault("skill_curator_enabled", True)
     curator = SkillCurator(
         llm_client=llm,
         loader=loader,
@@ -73,6 +74,7 @@ def _make_curator(env, payload, **cfg):
         storage=db,
         config_manager=_FakeConfig(**cfg),
         runtime_dir=tmp / "runtime",
+        governed_writes_available=True,
     )
     return curator, llm
 
@@ -205,3 +207,47 @@ async def test_disabled_returns_skipped(env):
 
     assert result.skipped == "disabled"
     assert llm.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_unwired_non_dry_run_skips_before_llm(env):
+    loader, ms, db, tmp = env
+    _add_agent_skill(loader, ms, "x")
+    _add_agent_skill(loader, ms, "y")
+    llm = _FakeLLM({"consolidations": [], "archivals": []})
+    curator = SkillCurator(
+        llm_client=llm,
+        loader=loader,
+        metrics_store=ms,
+        storage=db,
+        config_manager=_FakeConfig(skill_curator_enabled=True),
+        runtime_dir=tmp / "runtime",
+    )
+
+    result = await curator.run(trigger_source="test", dry_run=False)
+
+    assert result.skipped == "governed_skill_service_required"
+    assert llm.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_explicit_dry_run_can_preview_while_automatic_curator_is_disabled(env):
+    loader, ms, db, tmp = env
+    _add_agent_skill(loader, ms, "x")
+    _add_agent_skill(loader, ms, "y")
+    llm = _FakeLLM({"consolidations": [], "archivals": []})
+    curator = SkillCurator(
+        llm_client=llm,
+        loader=loader,
+        metrics_store=ms,
+        storage=db,
+        config_manager=_FakeConfig(skill_curator_enabled=False),
+        runtime_dir=tmp / "runtime",
+    )
+
+    result = await curator.run(trigger_source="manual", dry_run=True)
+
+    assert result.skipped is None
+    assert result.dry_run is True
+    assert result.plan is not None
+    assert llm.calls == 1

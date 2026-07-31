@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class Auditor:
-    """Subscribes to execution.completed, runs audit, emits audit.completed."""
+    """Audits terminal execution events and emits ``audit.completed``."""
 
     def __init__(
         self,
@@ -31,15 +31,13 @@ class Auditor:
     ) -> None:
         self._bus = event_bus
         self._storage = storage
-        # 审计规则外部配置(YAML 可调)。默认 None → 内置默认,既有调用不破。
-        # TODO(制度补全 D13): 目前仅作为 seam 存储。真正接入需把 self._rules_config
-        #   下发给两处消费方:①RulesEngine(rules.py)按 check_* 开关门控三条规则、
-        #   并用 risk_keywords 做命中扫描;②LLMReviewer(reviewer.py)用
-        #   review_temperature / review_max_tokens 覆盖 LLMClient 调用参数。
-        #   二者均在本次改动范围之外,故此处仅留接入点。参见 rules_config.AuditRulesConfig。
         self._rules_config = rules_config if rules_config is not None else AuditRulesConfig()
-        self._rules = RulesEngine()
-        self._reviewer = LLMReviewer(config_manager)
+        self._rules = RulesEngine(self._rules_config)
+        self._reviewer = LLMReviewer(config_manager, self._rules_config)
+
+    @property
+    def rules_config(self) -> AuditRulesConfig:
+        return self._rules_config
 
     async def audit(self, edict: Edict, memorial: Memorial) -> AuditResult:
         logger.debug("[AUDIT] Edict %s: start audit, policy=%s", edict.id, edict.review_policy)
@@ -55,12 +53,24 @@ class Auditor:
             edict.id,
             result.verdict,
             result.reasons,
-            result.verdict == "flag" and edict.review_policy != "never",
+            result.llm_reviewed,
         )
         return result
 
     async def handle_execution_completed(self, event: EventEnvelope) -> None:
         """EventBus handler for execution.completed."""
+        await self._handle_terminal_execution(event, execution_failed=False)
+
+    async def handle_execution_failed(self, event: EventEnvelope) -> None:
+        """EventBus handler for execution.failed."""
+        await self._handle_terminal_execution(event, execution_failed=True)
+
+    async def _handle_terminal_execution(
+        self,
+        event: EventEnvelope,
+        *,
+        execution_failed: bool,
+    ) -> None:
         edict_id = event.edict_id
         memorial_id = event.memorial_id
         if not edict_id or not memorial_id:
@@ -76,24 +86,26 @@ class Auditor:
             )
             return
 
-        # Set AUDITING status
-        if memorial.status == TaskStatus.COMPLETED:
+        execution_failed = execution_failed or memorial.status == TaskStatus.FAILED
+
+        # A successful result enters the visible auditing phase.  Preserve a
+        # failed terminal state while auditing so a reviewer pass can never
+        # accidentally turn an executor failure into a successful execution.
+        if not execution_failed and memorial.status == TaskStatus.COMPLETED:
             memorial.status = TaskStatus.AUDITING
             self._storage.update_memorial(memorial)
 
-        # Skip audit if policy is "never"
-        if edict.review_policy == "never":
-            audit_result = AuditResult(verdict="pass", rules_checked=0)
-        elif (
-            edict.review_policy == "always"
+        should_audit = (
+            edict.review_policy in {"always", "on_flag"}
             or edict.review_policy == "on_failure"
-            and memorial.status == TaskStatus.FAILED
-            or edict.review_policy == "on_flag"
-        ):
+            and execution_failed
+        )
+        if should_audit:
             audit_result = await self.audit(edict, memorial)
         else:
             audit_result = AuditResult(verdict="pass", rules_checked=0)
 
+        audit_result.execution_failed = execution_failed
         memorial.audit = audit_result
 
         # "always" policy: force human review regardless of audit verdict
@@ -108,7 +120,7 @@ class Auditor:
             memorial.status = TaskStatus.NEEDS_REVIEW
         else:
             memorial.review_status = "not_required"
-            memorial.status = TaskStatus.COMPLETED
+            memorial.status = TaskStatus.FAILED if execution_failed else TaskStatus.COMPLETED
 
         self._storage.update_memorial(memorial)
 
@@ -121,6 +133,7 @@ class Auditor:
         # 保持 OPEN 由人工结案，follow_up 回放多轮上下文，等同与百官连续对话。
         if (
             memorial.status == TaskStatus.COMPLETED
+            and not execution_failed
             and memorial.review_status == "not_required"
             and edict.status == EdictStatus.OPEN
             and edict.schedule.type not in ("cron", "interval")

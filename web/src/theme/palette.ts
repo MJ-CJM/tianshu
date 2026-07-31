@@ -123,7 +123,8 @@ export const palettes: Record<ThemeMode, Palette> = {
     accentSoft: "rgba(217, 108, 82, 0.16)",
     accentTextOn: "#1B120E",
     info: "#7FA7C4",
-    success: "#82B091",
+    // Raised one step for WCAG AA on AntD's derived dark success-tag fill.
+    success: "#91C49F",
     warning: "#C9A85C",
     error: "#D08079",
     surface: "#1E1C19",
@@ -133,7 +134,7 @@ export const palettes: Record<ThemeMode, Palette> = {
     blocked: "#D08079",
     status: {
       running: "#7FA7C4",
-      completed: "#82B091",
+      completed: "#91C49F",
       failed: "#D08079",
       submitted: "#C9A85C",
       scheduled: "#C9A85C",

@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import sqlite3
+from datetime import UTC, datetime, timedelta
+
+import pytest
+
 from tianshu.models import Edict, Memorial, TaskStatus
+from tianshu.storage import EdictArchiveConflict
 
 
 def test_delete_edict_cleans_legacy_evolution_assignment(storage):
@@ -58,3 +64,92 @@ def test_delete_falls_back_to_archive_when_evidence_retained(storage):
     assert storage.get_edict(edict.id) is not None  # 详情仍可达
     listed, total = storage.list_edicts()
     assert all(e.id != edict.id for e in listed)  # 列表隐藏
+
+
+def test_tombstone_atomically_cancels_schedules_and_preserves_one_event(storage):
+    edict = Edict(goal="scheduled archive")
+    storage.save_edict(edict)
+    storage.save_scheduler_job(
+        "job-active",
+        edict.id,
+        "once",
+        next_run=datetime.now(UTC) + timedelta(hours=1),
+    )
+    storage.save_scheduler_job(
+        "job-paused",
+        edict.id,
+        "once",
+        next_run=datetime.now(UTC) + timedelta(hours=2),
+    )
+    storage.set_scheduler_job_status("job-paused", "paused")
+
+    assert set(storage.tombstone_edict(edict.id)) == {"job-active", "job-paused"}
+    assert storage.tombstone_edict(edict.id) == []
+
+    archived = storage.get_edict(edict.id)
+    assert archived is not None
+    assert archived.status.value == "cancelled"
+    assert archived.runtime.lifecycle_phase == "complete"
+    assert archived.metadata["archived_at"]
+    assert storage.get_scheduler_job("job-active")["status"] == "cancelled"
+    assert storage.get_scheduler_job("job-active")["next_run"] is None
+    assert storage.get_scheduler_job("job-paused")["status"] == "cancelled"
+    assert (
+        storage._conn.execute(
+            "SELECT COUNT(*) FROM events WHERE edict_id = ? AND event_type = 'edict.archived'",
+            (edict.id,),
+        ).fetchone()[0]
+        == 1
+    )
+
+
+def test_tombstone_rechecks_unfinished_work_inside_transaction(storage):
+    edict = Edict(goal="still auditing")
+    storage.save_edict(edict)
+    storage.save_memorial(
+        Memorial(
+            edict_id=edict.id,
+            status=TaskStatus.AUDITING,
+            instruction="reviewing",
+        )
+    )
+
+    with pytest.raises(EdictArchiveConflict):
+        storage.tombstone_edict(edict.id)
+
+    current = storage.get_edict(edict.id)
+    assert current is not None
+    assert current.status.value == "open"
+    assert "archived_at" not in current.metadata
+
+
+def test_tombstone_rolls_back_every_projection_when_event_write_fails(storage):
+    edict = Edict(goal="atomic archive")
+    storage.save_edict(edict)
+    storage.save_scheduler_job(
+        "job-1",
+        edict.id,
+        "once",
+        next_run=datetime.now(UTC) + timedelta(hours=1),
+    )
+    with storage._conn:
+        storage._conn.execute(
+            """
+            CREATE TRIGGER reject_archive_event
+            BEFORE INSERT ON events
+            WHEN NEW.event_type = 'edict.archived'
+            BEGIN
+                SELECT RAISE(ABORT, 'injected archive event failure');
+            END
+            """
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="injected archive event failure"):
+        storage.tombstone_edict(edict.id)
+
+    current = storage.get_edict(edict.id)
+    assert current is not None
+    assert current.status.value == "open"
+    assert current.runtime.lifecycle_phase == "active"
+    assert "archived_at" not in current.metadata
+    assert storage.get_scheduler_job("job-1")["status"] == "active"

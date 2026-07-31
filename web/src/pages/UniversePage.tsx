@@ -1,5 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Card, Input, Modal, Space, Table, Tag, Tree, message } from "antd";
+import {
+  Button,
+  Card,
+  Input,
+  Modal,
+  Space,
+  Table,
+  Tag,
+  Tree,
+  Typography,
+  message,
+} from "antd";
 import { ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type { DataNode } from "antd/es/tree";
@@ -12,14 +23,16 @@ import {
   getUniverseStatus,
   listEvalRuns,
   listUniverses,
-  promoteCodeVariant,
   proposeAutoCode,
   proposeCodeVariant,
   restoreUniverse,
-  switchUniverse,
   triggerEvolve,
 } from "../api/universe";
 import type { Universe, VariantEvalRun } from "../api/types";
+import {
+  CapabilityBoundary,
+  MaturityBadge,
+} from "../components/capabilities/CapabilityMaturity";
 import PageContainer from "../components/common/PageContainer";
 import { useT } from "../i18n";
 
@@ -72,7 +85,9 @@ export default function UniversePage() {
   // 代码演化 modal state
   const [proposeOpen, setProposeOpen] = useState(false);
   const [proposing, setProposing] = useState(false);
-  const [proposeTargetPath, setProposeTargetPath] = useState("src/tianshu/planner/");
+  const [proposeTargetPath, setProposeTargetPath] = useState(
+    "src/tianshu/persona/selector.py",
+  );
   const [proposeHypothesis, setProposeHypothesis] = useState("");
 
   // 代码Diff modal state
@@ -88,11 +103,6 @@ export default function UniversePage() {
   const [evalLoading, setEvalLoading] = useState(false);
   // 请求序号守卫：防止快速切换位面时，旧位面的慢响应覆盖新位面已展示的评估记录
   const evalReqRef = useRef(0);
-
-  // 晋升裁决 modal state
-  const [promoteReviewOpen, setPromoteReviewOpen] = useState(false);
-  const [promoteTarget, setPromoteTarget] = useState<Universe | null>(null);
-  const [promoting, setPromoting] = useState(false);
 
   // 自主提案
   const [autoProposing, setAutoProposing] = useState(false);
@@ -148,14 +158,6 @@ export default function UniversePage() {
         }
       },
     });
-  };
-
-  const onSwitch = async (u: Universe) => {
-    const res = await switchUniverse(u.id);
-    if (res.success) {
-      void message.success(`已切换到「${u.name}」`);
-      void load();
-    }
   };
 
   const onArchive = async (u: Universe) => {
@@ -290,29 +292,6 @@ export default function UniversePage() {
     });
   };
 
-  const onOpenPromoteReview = async (u: Universe) => {
-    setPromoteTarget(u);
-    setPromoteReviewOpen(true);
-    await Promise.all([loadDiff(u), loadEvalRuns(u)]);
-  };
-
-  const onConfirmPromote = async () => {
-    if (!promoteTarget) return;
-    setPromoting(true);
-    try {
-      const res = await promoteCodeVariant(promoteTarget.id);
-      if (res.success) {
-        void message.success("已晋升为冠军并暂存部署指针(重启为受控步骤)");
-        setPromoteReviewOpen(false);
-        void load();
-      } else {
-        void message.error("晋升失败");
-      }
-    } finally {
-      setPromoting(false);
-    }
-  };
-
   const onProposeAuto = async () => {
     setAutoProposing(true);
     try {
@@ -414,13 +393,6 @@ export default function UniversePage() {
                 <>
                   <Button size="small" onClick={() => void onShowDiff(u)}>代码Diff</Button>
                   <Button size="small" onClick={() => void onShowEvalRuns(u)}>评估记录</Button>
-                  <Button
-                    size="small"
-                    type="primary"
-                    onClick={() => void onOpenPromoteReview(u)}
-                  >
-                    晋升代码
-                  </Button>
                   <Button size="small" danger onClick={() => void onArchive(u)}>归档</Button>
                   <Button size="small" danger onClick={() => onDelete(u)}>删除</Button>
                 </>
@@ -440,15 +412,6 @@ export default function UniversePage() {
           <Space>
             {u.status !== "archived" && (
               <Button size="small" onClick={() => onBranch(u)}>分支</Button>
-            )}
-            {u.status === "challenger" && (
-              <Button
-                size="small"
-                type="primary"
-                onClick={() => void onSwitch(u)}
-              >
-                切换/回滚
-              </Button>
             )}
             {u.status === "challenger" && (
               <Button size="small" danger onClick={() => void onArchive(u)}>
@@ -475,6 +438,7 @@ export default function UniversePage() {
   return (
     <PageContainer
       title={t("nav.universe")}
+      titleBadge={<MaturityBadge maturity="experimental" />}
       extra={
         <Space>
           {!enabled && (
@@ -510,21 +474,34 @@ export default function UniversePage() {
         </Space>
       }
     >
+      <CapabilityBoundary
+        maturity="experimental"
+        canDo={t("universe.capabilityCanDo")}
+        boundary={t("universe.capabilityBoundary")}
+      />
+
       {rows.length > 0 && (
         <Card size="small" title="位面谱系" style={{ marginBottom: 16 }}>
           <Tree treeData={buildLineage(rows)} defaultExpandAll showLine />
         </Card>
       )}
 
-      <Table<Universe>
-        rowKey="id"
-        dataSource={rows}
-        loading={loading}
-        pagination={false}
-        columns={columns}
-        size="middle"
-        locale={{ emptyText: enabled ? "暂无位面" : "平行位面未开启，点击「开启平行位面」按钮开始" }}
-      />
+      {!loading && rows.length === 0 ? (
+        <Card size="small" style={{ textAlign: "center" }}>
+          <Typography.Text>
+            {enabled ? "暂无位面" : "平行位面未开启，点击「开启平行位面」按钮开始"}
+          </Typography.Text>
+        </Card>
+      ) : (
+        <Table<Universe>
+          rowKey="id"
+          dataSource={rows}
+          loading={loading}
+          pagination={false}
+          columns={columns}
+          size="middle"
+        />
+      )}
 
       {/* 代码演化 Modal */}
       <Modal
@@ -542,7 +519,7 @@ export default function UniversePage() {
             <Input
               value={proposeTargetPath}
               onChange={(e) => setProposeTargetPath(e.target.value)}
-              placeholder="例如：src/tianshu/planner/"
+              placeholder="请选择具体 .py 文件，例如：src/tianshu/persona/selector.py"
             />
           </div>
           <div>
@@ -593,64 +570,6 @@ export default function UniversePage() {
         />
       </Modal>
 
-      {/* 晋升裁决 Modal：diff + 评估记录(含基线/delta) 同屏，确认后才真正晋升 */}
-      <Modal
-        title={`晋升裁决:${promoteTarget?.name ?? ""}`}
-        open={promoteReviewOpen}
-        onCancel={() => setPromoteReviewOpen(false)}
-        width={960}
-        footer={[
-          <Button key="cancel" onClick={() => setPromoteReviewOpen(false)}>取消</Button>,
-          <Button
-            key="ok"
-            type="primary"
-            danger
-            loading={promoting}
-            onClick={() => void onConfirmPromote()}
-          >
-            确认晋升
-          </Button>,
-        ]}
-      >
-        <h4>代码改动(相对 fork 起点)</h4>
-        <pre style={{ maxHeight: 320, overflow: "auto", background: "var(--ts-color-bg-code)", padding: 12 }}>
-          {diffContent || "(无改动或加载中)"}
-        </pre>
-        <h4>评估记录(变体 vs 冠军基线,同评估集)</h4>
-        <Table<VariantEvalRun>
-          size="small"
-          rowKey="id"
-          pagination={false}
-          dataSource={evalRuns}
-          loading={evalLoading}
-          columns={[
-            { title: "时间", dataIndex: "created_at", width: 180 },
-            {
-              title: "门禁",
-              dataIndex: "gate_passed",
-              width: 70,
-              render: (v: boolean) => (v ? <Tag color="green">过</Tag> : <Tag color="red">毙</Tag>),
-            },
-            { title: "变体分", width: 90, render: (_, r) => r.fitness?.score ?? "—" },
-            { title: "基线分", width: 90, render: (_, r) => r.baseline?.score ?? "—" },
-            {
-              title: "delta",
-              width: 90,
-              render: (_, r) => {
-                const v = r.fitness?.score;
-                const b = r.baseline?.score;
-                if (typeof v !== "number" || typeof b !== "number") return "—";
-                const d = v - b;
-                return <span style={{ color: d >= 0 ? "var(--ts-color-success)" : "var(--ts-color-error)" }}>{d.toFixed(4)}</span>;
-              },
-            },
-            { title: "备注", render: (_, r) => (r.fitness?.truncated ? "预算截断" : "") },
-          ]}
-        />
-        <p style={{ marginTop: 12, color: "var(--ts-color-text-secondary)" }}>
-          晋升将翻转冠军并暂存部署指针;重启是单独受控步骤,健康检查失败会自动回滚。
-        </p>
-      </Modal>
     </PageContainer>
   );
 }

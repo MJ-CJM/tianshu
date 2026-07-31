@@ -8,7 +8,9 @@
 
 > 异步 AI 执行平台。白天下旨，夜间办差，早上递折子。
 >
-> 本文是 **WHY + WHAT**（架构意图与稳定契约）。**HOW + WHERE**（当前代码真相）见 `docs/impl/`。
+> 本文是 **WHY + WHAT** 的长期架构叙事，后半部分包含阶段历史和未完成方向，不是当前
+> 能力清单。当前支持边界先看 [`../CURRENT-STATE.md`](../CURRENT-STATE.md)，
+> **HOW + WHERE** 再看 [`../impl/`](../impl/)；两者与本文冲突时以当前状态和源码为准。
 
 ---
 
@@ -26,14 +28,14 @@
 一句话闭环：
 
 ```
-下旨 → 排期 → 办差 → 稽核 → 递折 → 批红
+下旨 → 排期 → 办差 → 稽核 → 递折 → 裁决
 ```
 
 ### 1.2 设计原则
 
 1. **先闭环，后扩展** — 从单 Agent + 工具调用起步，按需拆模块，抵制过早抽象
 2. **先契约，后模块** — 先定义数据模型、状态机、事件、权限边界，再设计"部院"
-3. **默认可审计** — 每次提交 / 执行 / 审计 / 通知 / 批红都有结构化记录
+3. **默认可审计** — 每次提交 / 执行 / 审计 / 通知 / 裁决都有结构化记录
 4. **显式治理优先于隐式智能** — 预算、审批、权限、重试、人工复核不交给 LLM 猜测
 5. **外层古风，内层现代** — 命名服务叙事，不干扰工程实现
 
@@ -43,7 +45,7 @@
 |---|---|
 | 诏令 | `Edict` |
 | 奏折 | `Memorial` |
-| 批红 | `Decree` |
+| 裁决 | `Decision`；`Decree` 为旧接口兼容模型 |
 | 御案台 | `Gateway` |
 | 内阁 | `Planner` |
 | 兵部 | `Executor` |
@@ -67,7 +69,8 @@
 
 ### 1.5 官员映射（Persona）
 
-每个部院配置专属人格（Agent Persona），以人格化方式承接治理职责。详见 `agent-persona.md` 与 `docs/impl/persona.md`。
+每个部院配置专属人格（Agent Persona），以人格化方式承接治理职责。详见
+[人格设计](./persona/README.md)与[实现现状](../impl/persona/README.md)。
 
 | 部院 | 官员 id | 隐喻 |
 |---|---|---|
@@ -127,7 +130,7 @@
            └───────────────────────────────────────────────────────────┘
 
                                    ┌──────────┐
-                                   │ Storage  │  SQLite（38+ 表 + FTS5）
+                                   │ Storage  │  SQLite（V1–V24 ledger + FTS5）
                                    │  WAL     │  + ~/.tianshu/memory/drawers.sqlite3
                                    └──────────┘
 ```
@@ -139,46 +142,51 @@
 ```
 Consultation（可选，多人格会诊，产出结构化目标）
   ↓
-POST /edicts  →  EventBus.emit(edict.submitted)
+POST /edicts  →  事务提交 Edict + Memorial + durable ingress
   ↓
-Scheduler.handle_submitted
-  ├→ immediate: EventBus.emit(edict.scheduled)
-  └→ cron/at:   写 scheduler_jobs，到期触发
+Reconciler → RunDispatcher claim attempt lease + heartbeat/fencing
   ↓
-Planner.handle_scheduled
+managed Planner
   ├→ 直接指派：passthrough plan（assigned_persona_id 非空）
   └→ 内阁决策：LLM + planner persona 产出 JSON plan
   ↓
-EventBus.emit(plan.completed / plan.pending_review)
+plan review? → durable Decision + suspend → resolved 后 continuation recovery
   ↓
-Executor.handle_plan_completed
+managed Executor
   ├→ 单任务：Worker.execute → Agent loop
   └→ 多任务：DAGScheduler 拓扑排序 → WorkerPool.submit(子 memorial)
+  └→ acceptance：checkpointed outer loop
   ↓
 Agent.execute (ReAct 循环)
   [BEFORE_AGENT_START] MemoryManager L2 recall 注入
   while not done:
     [BEFORE_ITERATION] CostManager budget check
     LLMClient.chat(messages, tools)
-    [LLM_OUTPUT] CostManager 记账
+    LLM usage observer → CostManager per-run 记账
     for tool_call:
       [BEFORE_TOOL_CALL] PolicyHook(p=5) + ApprovalManager(p=10)
       tool.execute → [AFTER_TOOL_CALL]
     state = state.next_turn(messages)   # LoopState 不可变更新
-  [AGENT_END] MemoryManager 写记忆 + SkillReviewHandler 学习
+  [AGENT_END] MemoryManager 写记忆 + ProfileTrigger；SkillReviewHandler 默认 fail-fast
   ↓
-EventBus.emit(execution.completed)
+fenced terminal completion → execution.completed/failed/cancelled
   ↓
 Auditor → audit.completed → MemoryManager 写 ducha insight
-Notifier → 渲染 + 多通道推送 + WS 实时流
+Notifier → V24 durable per-channel delivery + WS 实时流
 ```
 
-### 3.2 审批与批红
+定时任务先写 `scheduler_jobs` 持久 cursor。每个 once/cron/interval 槽位由
+`ScheduledRunPreparer` 事务性绑定 schedule-run、Memorial、attempt、outbox 并 CAS 推进
+cursor，再进入同一个 dispatcher 链。长任务只允许 immediate/once，不支持周期重复。
+
+### 3.2 审批与裁决
 
 任何 tool call 命中 `PolicyEngine` 的审批规则（例如 T3 写操作）：
-1. `PolicyHook` → `ApprovalManager.request_approval` → memorial 挂起
-2. 用户 `POST /approvals/decide` → `Decree` 持久化 + `EventBus.emit(decree.approved/rejected)`
-3. `ApprovalManager` 唤醒等待的 coroutine → Agent 继续 / 放弃
+
+1. `PolicyHook` 创建 durable Decision 并 suspend 当前 attempt；
+2. 用户提交带 expected version 的 resolve command，Decision 以 CAS 方式进入 resolved；
+3. `ContinuationRecoveryService` 投影决定并恢复后续 attempt；重启不依赖旧进程内
+   `asyncio.Event`。
 
 ### 3.3 反馈回路（记忆沉淀）
 
@@ -191,16 +199,16 @@ execution.completed → MemoryManager.on_agent_end
 
 | 能力 | 位置 | 介入点 | 详见 |
 |---|---|---|---|
-| **PromptBuilder 8 层** | `persona/prompt_builder.py` | Agent 启动构 system prompt | `impl/persona.md` §5 |
-| **Memory Palace L0–L3** | `memory/` | BEFORE_AGENT_START hook / prompt Layer 5.1 | `design/memory-palace.md`, `impl/memory.md` |
-| **Skills 渐进加载** | `skills/loader.py` | prompt Layer 7（索引 + always-on） | `impl/skills.md` |
-| **Guard 安全扫描** | `skills/guard.py` | `skill_install` / `skill_propose` | `impl/skills.md` §3 |
-| **Hook 系统（10 钩点）** | `kernel/hooks.py` | agent 生命周期 | `impl/executor.md` §4 |
-| **PolicyHook + Approval** | `executor/policy_hook.py`, `approvals.py` | BEFORE_TOOL_CALL | `impl/executor.md` §5 |
-| **3 层 Compaction** | `executor/compaction/` | 上下文溢出 / 阈值 / 每轮末尾 | `impl/executor.md` §3 |
-| **CostManager** | `cost/` | BEFORE_ITERATION / LLM_OUTPUT | `impl/llm-and-cost.md` §4 |
-| **Streaming** | `executor/streaming.py` | LLM chunk → WebSocket | `impl/executor.md` §6 |
-| **Anthropic Prompt Cache** | `llm.py` `_apply_prompt_caching` | chat / chat_stream | `impl/llm-and-cost.md` §1 |
+| **PromptBuilder 8 层** | `persona/prompt_builder.py` | Agent 启动构 system prompt | [Persona 实现](../impl/persona/README.md) |
+| **Memory Palace L0–L3** | `memory/` | BEFORE_AGENT_START hook / prompt Layer 5.1 | [Palace 设计](./memory/palace.md)、[Memory 实现](../impl/memory/README.md) |
+| **Skills 渐进加载** | `skills/loader.py` | prompt Layer 7（索引 + always-on） | [Skills 实现](../impl/skills/README.md) |
+| **Guard 安全扫描** | `skills/guard.py` | `SkillInstaller.validate_package()`；候选 promotion adapter 复验包 | [Skills 实现](../impl/skills/README.md) |
+| **Hook 系统（10 钩点）** | `kernel/hooks.py` | agent 生命周期 | [Agent 实现](../impl/agent/README.md) |
+| **PolicyHook + Approval** | `executor/policy_hook.py`, `approvals.py` | BEFORE_TOOL_CALL | [Agent 实现](../impl/agent/README.md) |
+| **3 层 Compaction** | `executor/compaction/` | 上下文溢出 / 阈值 / 每轮末尾 | [Agent 实现](../impl/agent/README.md) |
+| **CostManager** | `cost/` | BEFORE_ITERATION / LLM_OUTPUT | [LLM 实现](../impl/llm/README.md) |
+| **Streaming** | `executor/streaming.py` | LLM chunk → WebSocket | [Agent 实现](../impl/agent/README.md) |
+| **Anthropic Prompt Cache** | `llm.py` `_apply_prompt_caching` | chat / chat_stream | [LLM 实现](../impl/llm/README.md) |
 
 ## 五、演进简史
 
@@ -230,8 +238,8 @@ execution.completed → MemoryManager.on_agent_end
 
 ### feat_phase5：Memory Palace + Persona 运行时分离
 
-- **Memory Palace Phase 1**：Drawer / DrawerStore / MemoryStack L0–L3 / FTS5 BM25 + MemoryConfig 消融开关（详见 `memory-palace.md`）
-- **Persona runtime 分离**：`personas/{id}/` 为 git 模板，`~/.tianshu/personas/{id}/` 为运行时副本；UI 修改只落运行时，模板永不动（详见 `agent-persona.md` §运行时覆盖）
+- **Memory Palace Phase 1**：Drawer / DrawerStore / MemoryStack L0–L3 / FTS5 BM25 + MemoryConfig 消融开关（详见 [Memory Palace](./memory/palace.md)）
+- **Persona runtime 分离**：内建默认由 `src/tianshu/resources/personas/` 打包，运行时通过 `resources.overlay.packaged_defaults()` 取得只读视图；`~/.tianshu/personas/{id}/` 是可写 overlay，UI / API 修改只落 overlay（详见 [Persona 设计](./persona/README.md)）
 - `/memory/search` + `/memory/l1` API
 - PromptBuilder Layer 5.1 接入 L1 关键事实
 
@@ -244,9 +252,9 @@ execution.completed → MemoryManager.on_agent_end
 
 两轴共享 `court` wing 作为跨人格共识层。详见：
 
-- `docs/design/memory-palace.md` §7 Court 共享 + §7.5 Emperor 分身
-- `docs/design/agent-persona.md` §8.5–§8.6
-- `docs/impl/persona.md` `ProfileSynthesizer`
+- [Memory Palace](./memory/palace.md)中的 Court 共享与 Emperor 分身
+- [Persona 官员与路由](./persona/officials.md)中的 court 共享
+- [画像合成设计](./persona/profile.md)与[实现现状](../impl/persona/README.md)
 
 ## 六、扩展点与演进路线
 
@@ -258,27 +266,28 @@ execution.completed → MemoryManager.on_agent_end
 
 **规划中**：
 - Memory Palace Phase 2+：Closet / Tunnel / 向量后端
-- Consultation session：多人格并行会诊模式（当前仅单人格）
-- 插件 marketplace：基于 `PluginApi` 的第三方能力分发
+- Consultation session 的进一步评测与产品化（当前已支持多人格并行与汇聚）
+- 插件 marketplace：须先完成签名、依赖锁定、权限隔离、加载/卸载与回滚设计；当前仅
+  manifest-only 目录
 - 跨实例 federation：多进程 / 多机部署时的记忆 + 事件同步
 
 ## 七、文档索引
 
 ### design/（WHY + WHAT）
-- `architecture.md` — 本文，全局架构
-- `agent-persona.md` — 人格五维模型 + 运行时分离
-- `memory-palace.md` — Memory Palace 隐喻与 L0–L3 语义
-- `project-analysis.md` — 早期分析（历史参考）
-- `reference-projects.md` — Claude Code / Hermes / NanoBot / DeepAgents 等借鉴源
+- [architecture.md](./architecture.md) — 本文，全局架构
+- [persona/README.md](./persona/README.md) — 人格模型 + 运行时 overlay
+- [memory/palace.md](./memory/palace.md) — Memory Palace 隐喻与 L0–L3 语义
+- [project-analysis.md](./project-analysis.md) — 早期分析（历史参考）
+- [reference-projects.md](../reference/reference-projects.md) — Claude Code / Hermes / NanoBot / DeepAgents 等借鉴源
 
 ### impl/（HOW + WHERE，按模块索引当前代码）
-- `overview.md` — 启动序列、38+ 张表、模块树、前端↔后端路由
-- `executor.md` — 17 文件：Agent / Hook / Policy / DAG / Compaction / Worker
-- `skills.md` — Loader / Guard / FuzzyMatch / Metrics / Reviewer / Validator
-- `memory.md` — 14 文件：Drawer / Stack / Markdown / Chunker / Compactor / Reflect
-- `persona.md` — 模板/运行时 / Loader / Selector / PromptBuilder 8 层
-- `llm-and-cost.md` — LLMClient / ConfigManager / ProviderManager / CostManager
-- `storage-and-events.md` — 38+ 表 / EventBus / 事件流
+- [README.md](../impl/README.md) — 实现文档总索引
+- [agent/README.md](../impl/agent/README.md) — Agent / Hook / Policy / DAG / Compaction / Worker
+- [skills/README.md](../impl/skills/README.md) — Loader / Guard / FuzzyMatch / Metrics / Reviewer / Validator
+- [memory/README.md](../impl/memory/README.md) — Drawer / Stack / Markdown / Chunker / Compactor / Reflect
+- [persona/README.md](../impl/persona/README.md) — 打包默认 / runtime overlay / Loader / Selector / PromptBuilder
+- [llm/README.md](../impl/llm/README.md) — LLMClient / ConfigManager / ProviderManager / CostManager
+- [storage/README.md](../impl/storage/README.md)与[bus/README.md](../impl/bus/README.md) — 数据表 / EventBus / outbox 事件流
 
 ### 进行中计划（`docs/superpowers/plans/`）
 - 2026-04-02 Phase 1 Agent loop redesign（CC 借鉴，已落地）

@@ -448,6 +448,7 @@ async def test_skill_mutations_without_governed_service_leave_workspaces_unchang
         registry,
         SkillsLoader(builtin_dir=builtin, workspace_dir=source),
         guard_agent_created=False,
+        include_unavailable_manage_tool=True,
     )
 
     with bind_execution_context(_execution_context(bound)), bind_workspace(bound):
@@ -541,6 +542,7 @@ async def test_skill_overlay_rejects_symlinked_write_paths(
         registry,
         SkillsLoader(builtin_dir=builtin, workspace_dir=source),
         guard_agent_created=False,
+        include_unavailable_manage_tool=True,
     )
 
     with bind_execution_context(_execution_context(bound)), bind_workspace(bound):
@@ -570,6 +572,7 @@ async def test_skill_overlay_delete_rejects_symlinked_writable_root(tmp_path: Pa
         registry,
         SkillsLoader(builtin_dir=builtin, workspace_dir=source),
         guard_agent_created=False,
+        include_unavailable_manage_tool=True,
     )
 
     with bind_execution_context(_execution_context(bound)), bind_workspace(bound):

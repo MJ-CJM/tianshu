@@ -48,6 +48,9 @@ handler 必须是 `async`、返回 `ToolResult`；`execute` 会先按 `parameter
 
 最小端到端 — 加一个 stdio server：
 
+> 当前只允许可信本地的窄 stdio 配置。`tools.include` 必须是非空白名单；空列表会在
+> 准入阶段 fail closed，而不是“全开”。`secure-remote` 下的 remote MCP 也保持禁用。
+
 ```yaml
 # ~/.tianshu/mcp_servers.yaml
 mcp_servers:
@@ -59,13 +62,17 @@ mcp_servers:
     tool_overrides:
       delete_file: 3           # 个别危险工具单独提级
     tools:
-      include: []              # 空 = 全开；可填白名单
+      include: ["read_file"]   # stdio 必须显式列出允许暴露的工具
       exclude: ["dangerous_op"]
     env:
       TOKEN: "${MY_TOKEN}"     # ${VAR} 从环境变量插值，缺失保留字面量
 ```
 
-streamable_http server 改填 `transport: streamable_http` + `url` + `headers`。`default_tier == 0` 视为只读、`side_effect=False`；其余 tier 保守置 `side_effect=True`。配置 schema 见 `tools/mcp/config.py`（`MCPServerConfig`），机制见 [../design/tools/mcp.md](../design/tools/mcp.md)。
+streamable_http server 的配置形状是 `transport: streamable_http` + `url` + `headers`，
+但当前 `secure-remote` 准入会拒绝它，不能据此宣称 remote MCP 可用。
+`default_tier == 0` 视为只读、`side_effect=False`；其余 tier 保守置
+`side_effect=True`。配置 schema 见 `tools/mcp/config.py`（`MCPServerConfig`），机制见
+[../design/tools/mcp.md](../design/tools/mcp.md)。
 
 ## 3. 加 LLM Provider
 
@@ -93,13 +100,17 @@ provider_manager.register(ProviderInfo(
 
 注册落 `providers` 表（`save_provider`）。日常的多模型配置走 `ConfigManager` + `sync_from_config` 自动同步，直接 `register` 适合插件/程序化注入。详见 [../design/llm/client.md](../design/llm/client.md)、[../impl/llm/README.md](../impl/llm/README.md)。
 
-## 4. 写插件（Plugin）
+## 4. 登记插件清单（实验）
 
-插件用一份 `manifest.json` 声明身份，经 `PluginApi` 统一门面把上面各类能力注册进内核，无需改装配代码。
+当前插件入口只支持登记 `manifest.json` 元数据，**不会安装、加载或执行插件代码**。
+它适合维护本地扩展目录，不是端到端插件安装教程。
 
-- 落点：仓库根 `plugins/<name>/manifest.json`（`PluginLoader` 扫描发现）；门面 `plugins/api.py`。
+- 落点：`settings.plugins_dir/<name>/manifest.json`；
+- `PluginLoader` 启动时只读解析；
+- Web/API 始终显示 `manifest_only`、`loaded=false`；
+- `POST /api/plugins/install` 与激活接口会明确返回 `501`。
 
-最小端到端 — 清单 + 能力注入：
+最小清单：
 
 ```json
 // plugins/wordcount/manifest.json
@@ -113,16 +124,11 @@ provider_manager.register(ProviderInfo(
 }
 ```
 
-```python
-# 插件入口在自身加载逻辑里，用注入的 PluginApi 注册能力
-def setup(api):  # api: PluginApi
-    api.register_tool("word_count", word_count, schema)     # → ToolRegistry
-    api.register_channel(MyChannel())                       # → ChannelRegistry
-    api.register_provider(my_provider_info)                 # → ProviderManager
-    api.register_hook(HookType.AFTER_TOOL_CALL, my_handler, priority=100)
-```
-
-`app.py` lifespan 启动时 `PluginLoader(plugins_dir).discover()` 解析每个清单并 `register_plugin` 登记落库（**只读清单、不执行插件代码**）。把 `type` 映射到 `entry_point` 真正注入能力，由插件入口或装配处的分派完成。注册的工具/渠道与内建能力等价，同受治理链约束。详见 [../design/plugins/README.md](../design/plugins/README.md)、[../impl/plugins/README.md](../impl/plugins/README.md)。
+`entry_point`、`permissions` 和 `sha256` 目前只是声明，不会被执行或验证。若要开发受信任
+的内建扩展，请在源码装配中显式调用 `PluginApi.register_*`，并为该能力单独补齐治理与
+测试；不要把 manifest 发现当作加载证明。详见
+[设计边界](../design/plugins/README.md) 与
+[实现现状](../impl/plugins/README.md)。
 
 ## 5. 扩展通知渠道（Channel）
 
@@ -148,4 +154,8 @@ class WebhookChannel(NotificationChannel):
 channel_registry.register(WebhookChannel(), rpm=10)  # rpm = 每分钟上限
 ```
 
-`send_all` / `send_to` 会按 `name` 调度并跳过限速渠道；异常被吞为 `False` 不影响其他渠道。详见 [../design/interfaces/channels.md](../design/interfaces/channels.md)、[../impl/interfaces/README.md](../impl/interfaces/README.md)。
+`send_all` / `send_to` 会按 `name` 调度并跳过限速渠道；异常转成该渠道失败，不影响其他
+渠道。durable outbox 会保存每次投递已成功的渠道，部分成功后只重试剩余渠道，避免向
+成功渠道重复发送。详见
+[../design/interfaces/channels.md](../design/interfaces/channels.md)、
+[../impl/interfaces/README.md](../impl/interfaces/README.md)。

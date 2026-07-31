@@ -11,6 +11,7 @@ from typing import Protocol, cast
 
 from tianshu.models import Edict, EventEnvelope, Memorial, TaskStatus
 from tianshu.models.canonical import JsonValue, canonical_json_bytes, canonical_sha256
+from tianshu.models.edict import validate_edict_long_running_schedule
 from tianshu.models.governance_contract import RequestedGovernanceContractV1
 from tianshu.models.principal import AuthContext
 from tianshu.security.sensitive_payload import redact_sensitive_mapping
@@ -115,6 +116,7 @@ class EdictApplicationService:
                 unit_of_work.commit()
                 return result
 
+            validate_edict_long_running_schedule(command.edict)
             edict = _edict_for_submission(command)
             memorial = Memorial(
                 edict_id=edict.id,

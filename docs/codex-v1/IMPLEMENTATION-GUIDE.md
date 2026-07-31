@@ -32,7 +32,7 @@ G2 后半受控并行；真实 Control Center、Edict Detail 和 Evolution write
 
 ## S0：当前恢复任务
 
-以 [DEVELOPMENT-HANDOFF](./DEVELOPMENT-HANDOFF.md) 为准。不要重复实现；先验证暂停前
+以 [DEVELOPMENT-HANDOFF](./archive/DEVELOPMENT-HANDOFF.md) 为准。不要重复实现；先验证暂停前
 WIP 修复，再完成 Commit A、Commit B、单一 full Gate 和 G1.4b3 report。
 
 ## S1/G1.5 切片

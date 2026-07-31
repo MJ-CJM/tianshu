@@ -61,9 +61,7 @@ def build_evolution_edict(
         CheckSpec(
             kind="rubric",
             name="hypothesis_fit",
-            rubric=(
-                f"改动是否切实实现/验证了以下假设,且未引入无关变更?假设:{hypothesis}"
-            ),
+            rubric=(f"改动是否切实实现/验证了以下假设,且未引入无关变更?假设:{hypothesis}"),
             pass_threshold=0.8,
         ),
     ]

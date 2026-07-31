@@ -94,22 +94,17 @@ def get_keqing_status(request: Request):
     客卿=外臣:本页展示的是「外聘人才」的能力与治理状态,**不含**人格/京察/自进化
     (那是百官品类)。不读/不存 raw 凭证明文,凭证栏只报来源。
     """
-    cm = request.app.state.config_manager
-    gateway_enabled = bool(getattr(cm.agent_config, "keqing_gateway_enabled", False))
+    # The scoped credential proxy is an internal prototype and is not connected
+    # to any production executor. Report only the effective, runnable mode.
+    gateway_enabled = False
     backends = []
     for name in list_adapters():
         binary = _BACKEND_BINARY.get(name, name)
         installed_version = _detect_installed_version(binary)
         pinned = _pinned_version(name)
-        drift = (
-            installed_version is not None
-            and pinned is not None
-            and installed_version != pinned
-        )
-        # 客卿=外臣,自管凭证(自己 pi /login 或本地 CLI 配置);天枢**不管**客卿凭证——
-        # 唯一例外是开启凭证网关(天枢托管 scoped token)。故凭证来源只两态:
-        # 客卿自管(默认,天枢不碰)/ 网关托管(天枢注入 scoped token)。
-        credential_status = "gateway" if gateway_enabled else "self-managed"
+        drift = installed_version is not None and pinned is not None and installed_version != pinned
+        # Production execution currently supports self-managed CLI credentials only.
+        credential_status = "self-managed"
         backends.append(
             {
                 "id": f"keqing:{name}",

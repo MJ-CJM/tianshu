@@ -170,10 +170,10 @@ class RunStateRepository:
         self,
         connection: sqlite3.Connection,
         *,
-        submitter: str,
+        submitter: str | None,
         limit: int,
     ) -> list[ControlRunSummaryV1]:
-        if not submitter.strip():
+        if submitter is not None and not submitter.strip():
             raise ValueError("submitter must not be blank")
         if type(limit) is not int or limit <= 0:
             raise ValueError("limit must be a positive integer")
@@ -182,12 +182,13 @@ class RunStateRepository:
             SELECT state.*, COALESCE(NULLIF(edict.title, ''), edict.goal) AS edict_title
             FROM run_states AS state
             JOIN edicts AS edict ON edict.id = state.edict_id
-            WHERE edict.submitter = ?
+            WHERE (? IS NULL OR edict.submitter = ?)
+              AND json_extract(edict.metadata_json, '$.archived_at') IS NULL
               AND state.phase NOT IN ('completed', 'failed')
             ORDER BY state.updated_at DESC, state.memorial_id
             LIMIT ?
             """,
-            (submitter, limit),
+            (submitter, submitter, limit),
         ).fetchall()
         summaries: list[ControlRunSummaryV1] = []
         for row in rows:
@@ -207,19 +208,20 @@ class RunStateRepository:
     def count_active_for_submitter(
         connection: sqlite3.Connection,
         *,
-        submitter: str,
+        submitter: str | None,
     ) -> int:
-        if not submitter.strip():
+        if submitter is not None and not submitter.strip():
             raise ValueError("submitter must not be blank")
         row = connection.execute(
             """
             SELECT COUNT(*)
             FROM run_states AS state
             JOIN edicts AS edict ON edict.id = state.edict_id
-            WHERE edict.submitter = ?
+            WHERE (? IS NULL OR edict.submitter = ?)
+              AND json_extract(edict.metadata_json, '$.archived_at') IS NULL
               AND state.phase NOT IN ('completed', 'failed')
             """,
-            (submitter,),
+            (submitter, submitter),
         ).fetchone()
         return int(row[0])
 

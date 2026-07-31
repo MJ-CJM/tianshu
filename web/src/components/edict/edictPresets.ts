@@ -24,7 +24,7 @@ export const EDICT_PRESETS: EdictPreset[] = [
     icon: "⚡",
     longTask: false,
     assignMode: "auto",
-    fields: { review_policy: "always", executor: "native", priority: "normal" },
+    fields: { review_policy: "on_failure", executor: "native", priority: "normal" },
   },
   {
     key: "analysis",
@@ -34,7 +34,7 @@ export const EDICT_PRESETS: EdictPreset[] = [
     fields: {
       review_policy: "on_flag",
       executor: "native",
-      execution_profile: "foreground",
+      execution_profile: "checkpointed",
       max_outer_iterations: 5,
       on_exhaustion: "escalate",
       on_critic_unavailable: "skip",
@@ -66,7 +66,7 @@ export const EDICT_PRESETS: EdictPreset[] = [
     fields: {
       review_policy: "on_flag",
       executor: "native",
-      execution_profile: "background",
+      execution_profile: "checkpointed",
       max_outer_iterations: 15,
       min_outer_iterations: 4,
       critic_strictness: "strict",
@@ -76,13 +76,6 @@ export const EDICT_PRESETS: EdictPreset[] = [
       on_critic_unavailable: "skip",
       same_issue_threshold: 3,
     },
-  },
-  {
-    key: "keqing",
-    icon: "🤝",
-    longTask: false,
-    assignMode: "auto",
-    fields: { review_policy: "always", executor: "keqing:claude-code", priority: "normal" },
   },
 ];
 

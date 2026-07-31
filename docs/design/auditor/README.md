@@ -6,7 +6,8 @@
 
 ## 1. 触发时机与事件流
 
-Auditor 是 `execution.completed` 的订阅者，不是执行器主动调用——它挂在事件总线上，执行一结束就被动触发：
+Auditor 同时订阅 `execution.completed` 和 `execution.failed`。成功进入可见的 AUDITING
+阶段；失败保持 FAILED，再按 policy 判断是否审计：
 
 ```text
 执行完成 → emit execution.completed
@@ -23,6 +24,11 @@ Auditor 内部：
       → Notifier.handle_audit_completed        (按裁决决定是否外发)
       → MemoryManager.handle_audit_completed    (priority=200)
       → _update_universe_fitness               (priority=250，喂位面适应度)
+
+执行失败 → emit execution.failed
+  → Auditor.handle_execution_failed
+  → 保留 FAILED，按 on_failure/on_flag/always 审计
+  → audit.completed（不得把 executor failure 改写为成功）
 ```
 
 关键设计点：
@@ -40,6 +46,7 @@ Auditor 内部：
 | Token 预算 | `edict.runtime.token_budget` 存在且 `memorial.usage.total_tokens` 超额 | 加一条 reason |
 | 执行错误 | `memorial.error` 非空 | 加一条 reason |
 | 空结果 | 既无 `result` 也无 `error` | 加一条 reason |
+| 风险关键词 | `AuditRulesConfig.risk_keywords` 命中结果 | 加一条 reason |
 
 裁决规则极简：**无 reason → `pass`；有任何 reason → `flag`**（当前实现里 error 分支与默认分支都返回 `flag`，RulesEngine 自身不产 `block`——`block` 只来自第二层 LLM）。
 
@@ -52,7 +59,9 @@ Auditor 内部：
 `LLMReviewer.review(edict, memorial, rule_reasons)`：
 
 - 用一段固定 system prompt 要求 LLM 以 JSON 回 `{"verdict": "pass"|"flag"|"block", "reasons": [...]}`；user 消息带 `goal`、截断到 2000 字的 `result`、第一层的 `rule_reasons`。
-- LLM 配置（model/key/base）取自 `ConfigManager.state`；`max_retries=1`、`temperature=0.1`、`max_tokens=512`——低温、短输出、单次重试，定位是「轻量判官」。
+- LLM 配置（model/key/base）取自 `ConfigManager.state`；temperature/max tokens 取实际
+  `AuditRulesConfig`。调用携带 edict/memorial/`audit_review` usage context，进入统一成本
+  账本。
 - **降级而非崩溃**：`state.enabled` 为假（未配 LLM）→ 直接回 `flag` + "LLM reviewer unavailable"；调用/解析异常 → 回 `flag` + "LLM review failed"。两种降级都 `llm_reviewed=False`，且裁决取 `flag`（保守地交人审），绝不把不确定当 `pass` 放过。
 
 第二层是唯一能把裁决升级到 `block`（明显错误/有害）或反过来洗白成 `pass`（规则误报但语义达标）的环节。
@@ -63,7 +72,7 @@ Auditor 内部：
 
 | verdict | 含义 | memorial 状态机 |
 |---|---|---|
-| `pass` | 结果达标 | `review_status=not_required`，`status=COMPLETED` |
+| `pass` | 审计未发现问题 | 原执行成功才 `COMPLETED`；原执行失败仍 `FAILED` |
 | `flag` | 有疑点，需人看 | `review_status=pending`，`status=NEEDS_REVIEW` |
 | `block` | 明显错误/有害 | `status=FAILED`，`error="Blocked by audit: ..."` |
 

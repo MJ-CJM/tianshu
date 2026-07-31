@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from tianshu.auditor.rules_config import AuditRulesConfig
 from tianshu.models import ApiResponse
 from tianshu.storage import Storage
 
@@ -51,29 +53,41 @@ def get_network_events(
 @audit_router.get("/audit/rules")
 def get_audit_rules(request: Request):
     """Get configured audit rules and review policies."""
+    auditor = getattr(request.app.state, "auditor", None)
+    config = getattr(auditor, "rules_config", AuditRulesConfig())
     rules = [
         {
             "id": "token_budget",
             "name": "Token 预算检查",
             "description": "检查 Token 用量是否超过敕令预算限制",
-            "enabled": True,
+            "enabled": config.check_token_budget,
             "severity": "flag",
         },
         {
             "id": "execution_error",
             "name": "执行错误检查",
             "description": "检查执行过程中是否有错误发生",
-            "enabled": True,
+            "enabled": config.check_execution_error,
             "severity": "flag",
         },
         {
             "id": "empty_result",
             "name": "空结果检查",
             "description": "检查执行结果是否为空（无结果且无错误）",
-            "enabled": True,
+            "enabled": config.check_empty_result,
             "severity": "flag",
         },
     ]
+    if config.risk_keywords:
+        rules.append(
+            {
+                "id": "risk_keywords",
+                "name": "风险关键词检查",
+                "description": f"检查结果是否命中 {len(config.risk_keywords)} 个已配置风险关键词",
+                "enabled": True,
+                "severity": "flag",
+            }
+        )
     review_policies = [
         {"value": "never", "label": "从不审计", "description": "跳过所有审计流程"},
         {"value": "on_failure", "label": "失败时审计", "description": "仅在执行失败时触发审计"},
@@ -135,15 +149,16 @@ async def create_session_rule(request: Request):
 
     body = await request.json()
     tool_name: str = body.get("tool_name", "").strip()
-    scope: str = body.get("scope", "always")
+    raw_scope = body.get("scope", "always")
     reason: str = body.get("reason", "").strip() or "手动添加"
     expires_days: int | None = body.get("expires_days")
     edict_id: str | None = body.get("edict_id")
 
     if not tool_name:
         raise HTTPException(status_code=422, detail="tool_name is required")
-    if scope not in ("edict", "always"):
+    if raw_scope not in ("edict", "always"):
         raise HTTPException(status_code=422, detail="scope must be 'edict' or 'always'")
+    scope: Literal["edict", "always"] = raw_scope
     if scope == "edict" and not edict_id:
         raise HTTPException(status_code=422, detail="edict_id is required for edict scope")
 

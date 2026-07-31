@@ -159,12 +159,19 @@ async def trigger_evolve(request: Request):
 
 @universes_router.post("/propose-code", response_model=ApiResponse)
 async def propose_code_variant(request: Request):
+    from tianshu.universe.code_mutator import _is_concrete_python_target
+
     evolver = request.app.state.universe_evolver
     body = await request.json()
     target_path = (body or {}).get("target_path")
     hypothesis = (body or {}).get("hypothesis")
     if not target_path or not hypothesis:
         raise HTTPException(status_code=400, detail="target_path and hypothesis required")
+    if not isinstance(target_path, str) or not _is_concrete_python_target(target_path):
+        raise HTTPException(
+            status_code=400,
+            detail="target_path must be a concrete repository-relative .py file",
+        )
     result = await evolver.propose_code_variant(
         target_path=target_path,
         hypothesis=hypothesis,

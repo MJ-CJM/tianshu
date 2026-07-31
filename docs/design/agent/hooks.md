@@ -18,7 +18,7 @@ Agent 主循环不应硬编码记账、审批、记忆、画像这些横切逻�
 | `before_tool_call` | PolicyHook(priority=5) + ApprovalManager(priority=10) | 工具治理与审批 |
 | `after_tool_call` | 预留/插件 | 工具结果处理 |
 | `before_compaction` | 预留/插件 | 压缩前 |
-| `agent_end` | MemoryManager / SkillReviewHandler / ProfileTrigger | 写记忆、skill 学习、画像合成触发 |
+| `agent_end` | MemoryManager / SkillReviewHandler / ProfileTrigger | 写记忆、画像合成触发；SkillReviewHandler 默认关闭且在 LLM 前 fail fast，不直接写 live Skill |
 | `session_end` | 预留/插件 | 会话结束 |
 
 ## 3. priority 与 HookResult 契约
@@ -32,7 +32,8 @@ Agent 主循环不应硬编码记账、审批、记忆、画像这些横切逻�
 ## 4. 超时与 fail-secure
 
 - 默认 `HOOK_TIMEOUT=5.0s` 硬超时。
-- `before_tool_call` 特殊放宽到 `310s`（`HOOK_TIMEOUTS`），因 PolicyHook 的 `wait_for_approval` 最多等 300s。
+- `before_tool_call` 特殊放宽到 `310s`（`HOOK_TIMEOUTS`），因 PolicyHook 的
+  `wait_for_tool_decision` 默认最多等 300s。
 - **fail-secure**：`_FAIL_SECURE_HOOKS = {BEFORE_TOOL_CALL}`。安全关键钩点超时或抛异常时**返回 block**（拦住工具），避免 fail-open 让工具绕过审批/policy；其余钩点超时仅记 warning 后继续。
 
 ## 5. 与 PolicyHook / ApprovalManager 的关系
@@ -40,7 +41,7 @@ Agent 主循环不应硬编码记账、审批、记忆、画像这些横切逻�
 | 组件 | 钩点 | priority | 行为 |
 |---|---|---|---|
 | `PolicyHook` | before_tool_call | 5 | 读 `PolicyEngine` 规则 + `SessionRuleStore` 会话级 allow/deny；命中禁止→block；命中需审批→转 ApprovalManager |
-| `ApprovalManager` | before_tool_call | 10 | 维护 `pending_tool_calls`，异步等待人工 Decree（`/approvals/decide`） |
+| `ApprovalManager` | before_tool_call | 10 | 兼容 no-op；持久化 Decision 的请求与等待由 `PolicyHook` 直接调用其服务接口 |
 
 二者共同把「工具能不能跑」从硬编码变成可配置、可审批、可审计的治理链。
 

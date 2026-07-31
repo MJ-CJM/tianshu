@@ -36,7 +36,7 @@ AGENT_END 路径复用 MemoryManager 的 persona 解析（优先 `context["perso
 
 ## 5. TemplateLibrary 模板库
 
-`TemplateLibrary` 扫描 vendored 模板树 `templates/persona/{lang}/{category}/*.md`（`lang ∈ {zh, en}`），由 `scripts/sync_persona_templates.py` 同步。每个模板是带 frontmatter（name/description/emoji/color）的单 md 文件。
+模板源码 vendored 在 `src/tianshu/resources/persona_templates/{lang}/{category}/*.md`（`lang ∈ {zh, en}`），由 `scripts/sync_persona_templates.py` 同步。运行时由 `packaged_defaults().persona_templates_dir()` 提供只读视图，`TemplateLibrary` 扫描该视图；每个模板是带 frontmatter（name/description/emoji/color）的单 md 文件。
 
 **核心映射 `split_template`**：把一个模板文件拆成天枢的两文件身份模型——
 - 以「核心使命 / 职责 / mission / responsibilities」等标题（`_MISSION_MARKERS`）为分割点；

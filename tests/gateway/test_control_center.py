@@ -105,6 +105,19 @@ def test_source_failure_is_a_correlated_503_not_an_empty_success(tmp_path) -> No
         storage.close()
 
 
+def test_snapshot_contract_serializes_workspace_totals(tmp_path) -> None:
+    app, storage = _app(tmp_path, SnapshotService())
+    try:
+        with _client(app) as client:
+            response = client.get("/api/control", headers=HEADERS)
+        assert response.status_code == 200
+        assert response.json()["data"]["unarchived_edict_total"] == 0
+        assert response.json()["data"]["awaiting_follow_up_total"] == 0
+        assert response.json()["data"]["cancelled_edict_total"] == 0
+    finally:
+        storage.close()
+
+
 def test_composition_root_registers_the_control_center_route() -> None:
     app = create_app(TianshuSettings(_env_file=None))
     assert any(route.path == "/api/control" for route in app.routes)

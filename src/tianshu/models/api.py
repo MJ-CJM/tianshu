@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.common import EdictStatus
-from tianshu.models.edict import PolicyProfilePayload
+from tianshu.models.edict import EdictSchedule, PolicyProfilePayload
 from tianshu.models.governance_contract import (
     RequestedGovernanceContractV1,
     acceptance_policy_from_legacy,
@@ -31,7 +31,7 @@ class EdictRuntimeRequest(BaseModel):
     executor_model: str | None = Field(default=None, min_length=1)
     conversation: bool | None = Field(
         default=None,
-        description="对话模式：成功后保持进行（人工结案），继续批示持续可用",
+        description="对话模式：成功后保持未结案，继续批示持续可用",
     )
     fetch_engine_override: str | None = Field(
         default=None,
@@ -59,6 +59,7 @@ class EdictCreateRequest(BaseModel):
     submitter: str | None = None
     priority: Literal["urgent", "normal", "low"] | None = None
     review_policy: Literal["never", "on_failure", "on_flag", "always"] | None = None
+    schedule: EdictSchedule = Field(default_factory=EdictSchedule)
     constraints: list[str] | None = None
     output_format: str | None = None
     runtime: EdictRuntimeRequest | None = None

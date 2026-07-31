@@ -117,7 +117,9 @@ class TestPlan:
 
     def test_plan_serialization(self):
         t = PlanTask(task_id="t1", description="test", estimated_tokens=1000)
-        p = Plan(tasks=[t])
+        p = Plan(tasks=[t], planning_mode="fallback", fallback_reason="llm_disabled")
         data = p.model_dump()
         restored = Plan(**data)
         assert restored.tasks[0].estimated_tokens == 1000
+        assert restored.planning_mode == "fallback"
+        assert restored.fallback_reason == "llm_disabled"

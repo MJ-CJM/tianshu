@@ -5,8 +5,11 @@ from __future__ import annotations
 from typing import Literal, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict
 
 from tianshu.application.edicts import validate_idempotency_key
+from tianshu.application.scheduled_runs import ScheduledFireConflict
+from tianshu.authz import can_access_submitter, has_global_task_access, scoped_submitter
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.executor import Executor
 from tianshu.executor.lanes import LaneManager
@@ -17,9 +20,16 @@ from tianshu.gateway.decisions_api import (
     raise_decision_service_error,
     require_owned_decision,
 )
+from tianshu.gateway.ownership import (
+    require_owned_dag,
+    require_owned_edict,
+    require_owned_memorial,
+    require_owned_scheduler_job,
+)
 from tianshu.governance.decision_service import DecisionServiceError
 from tianshu.models import ApiResponse, DecreeCreateRequest, TaskStatus, ToolDecisionRequest
 from tianshu.models.decision import DecisionKind
+from tianshu.models.edict import EdictSchedule
 from tianshu.scheduler.scheduler import Scheduler
 from tianshu.storage import Storage
 
@@ -37,8 +47,12 @@ def list_memorials(
     offset: int = Query(default=0, ge=0),
 ):
     storage: Storage = request.app.state.storage
+    auth = get_auth_context(request)
     memorials, total = storage.list_memorials(
-        status=status.value if status else None, limit=limit, offset=offset
+        status=status.value if status else None,
+        limit=limit,
+        offset=offset,
+        submitter=scoped_submitter(auth),
     )
     return ApiResponse(
         success=True,
@@ -49,10 +63,7 @@ def list_memorials(
 
 @execution_router.get("/memorials/{memorial_id}")
 def get_memorial(memorial_id: str, request: Request):
-    storage: Storage = request.app.state.storage
-    memorial = storage.get_memorial(memorial_id)
-    if not memorial:
-        raise HTTPException(status_code=404, detail=f"Memorial '{memorial_id}' not found")
+    memorial = require_owned_memorial(request, memorial_id)
     return ApiResponse(success=True, data=memorial.model_dump(mode="json"))
 
 
@@ -63,14 +74,101 @@ def get_memorial(memorial_id: str, request: Request):
 async def list_scheduler_jobs(request: Request):
     scheduler: Scheduler = request.app.state.scheduler
     jobs = await scheduler.list_jobs()
+    context = get_auth_context(request)
+    if not has_global_task_access(context):
+        storage: Storage = request.app.state.storage
+        jobs = [
+            job
+            for job in jobs
+            if (
+                (edict := storage.get_edict(str(job["edict_id"]))) is not None
+                and can_access_submitter(context, edict.submitter)
+            )
+        ]
     return ApiResponse(success=True, data=jobs)
 
 
 @execution_router.delete("/scheduler/jobs/{job_id}", response_model=ApiResponse)
 async def cancel_scheduler_job(job_id: str, request: Request):
     scheduler: Scheduler = request.app.state.scheduler
-    await scheduler.cancel(job_id)
+    require_owned_scheduler_job(request, job_id)
+    if not await scheduler.cancel(job_id):
+        raise HTTPException(status_code=409, detail="Scheduler job cannot be cancelled")
     return ApiResponse(success=True, data={"job_id": job_id})
+
+
+@execution_router.post("/scheduler/jobs/{job_id}/pause", response_model=ApiResponse)
+async def pause_scheduler_job(job_id: str, request: Request):
+    scheduler: Scheduler = request.app.state.scheduler
+    require_owned_scheduler_job(request, job_id)
+    if not await scheduler.pause(job_id):
+        raise HTTPException(status_code=409, detail="Scheduler job is not active")
+    return ApiResponse(success=True, data={"job_id": job_id, "status": "paused"})
+
+
+@execution_router.post("/scheduler/jobs/{job_id}/resume", response_model=ApiResponse)
+async def resume_scheduler_job(job_id: str, request: Request):
+    scheduler: Scheduler = request.app.state.scheduler
+    require_owned_scheduler_job(request, job_id)
+    if not await scheduler.resume(job_id):
+        raise HTTPException(status_code=409, detail="Scheduler job cannot be resumed")
+    return ApiResponse(success=True, data={"job_id": job_id, "status": "active"})
+
+
+@execution_router.post("/scheduler/jobs/{job_id}/run-now", response_model=ApiResponse)
+async def run_scheduler_job_now(job_id: str, request: Request):
+    scheduler: Scheduler = request.app.state.scheduler
+    require_owned_scheduler_job(request, job_id)
+    idempotency_key = request.headers.get("Idempotency-Key")
+    if idempotency_key is None:
+        raise HTTPException(422, {"code": "idempotency_key_required"})
+    try:
+        validate_idempotency_key(idempotency_key)
+        fired = await scheduler.run_now(job_id, idempotency_key=idempotency_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ScheduledFireConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not fired:
+        raise HTTPException(status_code=409, detail="Scheduler job cannot run now")
+    return ApiResponse(success=True, data={"job_id": job_id, "status": "queued"})
+
+
+class SchedulerJobUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schedule: EdictSchedule
+
+
+@execution_router.patch("/scheduler/jobs/{job_id}", response_model=ApiResponse)
+async def update_scheduler_job(
+    job_id: str,
+    body: SchedulerJobUpdateRequest,
+    request: Request,
+):
+    scheduler: Scheduler = request.app.state.scheduler
+    require_owned_scheduler_job(request, job_id)
+    try:
+        updated = await scheduler.reschedule(job_id, body.schedule)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not updated:
+        raise HTTPException(status_code=409, detail="Scheduler job cannot be updated")
+    return ApiResponse(success=True, data={"job_id": job_id})
+
+
+@execution_router.get("/scheduler/jobs/{job_id}/runs", response_model=ApiResponse)
+def list_scheduler_job_runs(
+    job_id: str,
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    scheduler: Scheduler = request.app.state.scheduler
+    require_owned_scheduler_job(request, job_id)
+    runs = scheduler.list_job_runs(job_id, limit=limit)
+    if runs is None:
+        raise HTTPException(status_code=404, detail=f"Scheduler job '{job_id}' not found")
+    return ApiResponse(success=True, data=runs)
 
 
 # --- Decree (approval) endpoints ---
@@ -115,8 +213,9 @@ async def list_pending_tool_calls(
 ):
     """Return restart-visible durable tool decisions awaited by PolicyHook."""
     approval_manager: ApprovalManager = request.app.state.approval_manager
+    context = get_auth_context(request)
     items = approval_manager.list_pending_tool_calls(
-        submitter=get_auth_context(request).principal.id,
+        submitter=None if has_global_task_access(context) else context.principal.id,
         limit=limit,
     )
     return ApiResponse(success=True, data={"items": items})
@@ -182,6 +281,7 @@ async def submit_tool_decision(body: ToolDecisionRequest, request: Request):
 @execution_router.get("/dag/by-edict/{edict_id}")
 def get_dag_by_edict(edict_id: str, request: Request):
     storage: Storage = request.app.state.storage
+    require_owned_edict(request, edict_id)
     dag = storage.get_dag_by_edict(edict_id)
     if not dag:
         raise HTTPException(status_code=404, detail=f"No DAG for edict '{edict_id}'")
@@ -190,15 +290,13 @@ def get_dag_by_edict(edict_id: str, request: Request):
 
 @execution_router.get("/dag/{dag_id}")
 def get_dag(dag_id: str, request: Request):
-    storage: Storage = request.app.state.storage
-    dag = storage.get_dag_execution(dag_id)
-    if not dag:
-        raise HTTPException(status_code=404, detail=f"DAG '{dag_id}' not found")
+    dag = require_owned_dag(request, dag_id)
     return ApiResponse(success=True, data=dag.model_dump(mode="json"))
 
 
 @execution_router.post("/dag/{dag_id}/cancel", response_model=ApiResponse)
 async def cancel_dag(dag_id: str, request: Request):
+    require_owned_dag(request, dag_id)
     executor: Executor = request.app.state.executor
     try:
         cancelled = await executor.cancel_dag(dag_id)
@@ -209,6 +307,7 @@ async def cancel_dag(dag_id: str, request: Request):
 
 @execution_router.post("/dag/{dag_id}/retry", response_model=ApiResponse)
 async def retry_dag(dag_id: str, request: Request):
+    require_owned_dag(request, dag_id)
     executor: Executor = request.app.state.executor
     idempotency_key = request.headers.get("Idempotency-Key")
     if idempotency_key is None:
@@ -271,7 +370,12 @@ def list_memorials_by_persona(
     offset: int = Query(default=0, ge=0),
 ):
     storage: Storage = request.app.state.storage
-    grouped, total = storage.list_memorials_by_persona(persona_id, limit=limit, offset=offset)
+    grouped, total = storage.list_memorials_by_persona(
+        persona_id,
+        limit=limit,
+        offset=offset,
+        submitter=scoped_submitter(get_auth_context(request)),
+    )
     return ApiResponse(
         success=True,
         data=grouped,
@@ -286,24 +390,42 @@ def list_memorials_by_persona(
 def get_planner_stats(request: Request):
     """Get planning statistics: total edicts, passthrough count, DAG count, avg tasks."""
     storage: Storage = request.app.state.storage
+    submitter = scoped_submitter(get_auth_context(request))
+    edict_where = " WHERE e.submitter = ?" if submitter is not None else ""
+    params = (submitter,) if submitter is not None else ()
     with storage._lock:
-        total_edicts = storage._conn.execute("SELECT COUNT(*) FROM edicts").fetchone()[0]
-        dag_count = storage._conn.execute("SELECT COUNT(*) FROM dag_executions").fetchone()[0]
+        total_edicts = storage._conn.execute(
+            f"SELECT COUNT(*) FROM edicts AS e{edict_where}",
+            params,
+        ).fetchone()[0]
+        dag_count = storage._conn.execute(
+            "SELECT COUNT(*) FROM dag_executions AS d "
+            f"JOIN edicts AS e ON e.id = d.edict_id{edict_where}",
+            params,
+        ).fetchone()[0]
         avg_tasks_row = storage._conn.execute(
-            "SELECT AVG(node_count) FROM (SELECT dag_execution_id, COUNT(*) AS node_count FROM dag_nodes GROUP BY dag_execution_id)"
+            "SELECT AVG(node_count) FROM ("
+            "SELECT dn.dag_execution_id, COUNT(*) AS node_count "
+            "FROM dag_nodes AS dn "
+            "JOIN dag_executions AS d ON d.id = dn.dag_execution_id "
+            "JOIN edicts AS e ON e.id = d.edict_id"
+            f"{edict_where} GROUP BY dn.dag_execution_id)",
+            params,
         ).fetchone()
         avg_tasks = round(avg_tasks_row[0], 1) if avg_tasks_row[0] else 0
 
         # Recent planning history: edicts + whether they have DAGs
         recent_rows = storage._conn.execute(
-            """SELECT e.id, e.title, e.goal, e.assigned_persona_id, e.planner_persona_id,
+            f"""SELECT e.id, e.title, e.goal, e.assigned_persona_id, e.planner_persona_id,
                       e.created_at,
                       d.id AS dag_id,
                       (SELECT COUNT(*) FROM dag_nodes dn WHERE dn.dag_execution_id = d.id) AS node_count
                FROM edicts e
                LEFT JOIN dag_executions d ON d.edict_id = e.id
+               {edict_where}
                ORDER BY e.created_at DESC
                LIMIT 20""",
+            params,
         ).fetchall()
 
     passthrough_count = total_edicts - dag_count

@@ -18,6 +18,7 @@ class TestPlanner:
 
     @pytest.fixture
     def planner(self, event_bus, storage, config_manager):
+        config_manager.update(enabled=False)
         return Planner(
             event_bus=event_bus,
             storage=storage,
@@ -30,6 +31,16 @@ class TestPlanner:
         assert len(plan.tasks) == 1
         assert plan.tasks[0].task_id == "main"
         assert plan.tasks[0].description == edict.goal
+        assert plan.planning_mode == "fallback"
+        assert plan.fallback_reason == "llm_disabled"
+
+    async def test_direct_assignment_is_not_reported_as_degradation(self, planner):
+        edict = Edict(goal="direct task", assigned_persona_id="bingbu")
+
+        plan = await planner.plan(edict)
+
+        assert plan.planning_mode == "direct"
+        assert plan.fallback_reason is None
 
     async def test_handle_scheduled(self, planner, event_bus, storage, config_manager):
         handler = AsyncMock()

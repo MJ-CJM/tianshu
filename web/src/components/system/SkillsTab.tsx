@@ -1,86 +1,58 @@
 import { useState } from "react";
 import {
+  Alert,
+  Button,
   Table,
   Tag,
-  Button,
   Drawer,
   Input,
   Space,
   Spin,
-  Modal,
-  Form,
-  Popconfirm,
   Typography,
+  Tooltip,
   notification,
   theme,
 } from "antd";
-import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import {
-  useSkills,
-  useSkillDetail,
-  useUpdateSkill,
-  useCreateSkill,
-  useDeleteSkill,
-} from "../../hooks/useSystem";
+import { PushpinFilled, PushpinOutlined } from "@ant-design/icons";
+import { useSkills, useSkillDetail } from "../../hooks/useSystem";
+import { pinSkill } from "../../api/system";
 import type { SkillInfo } from "../../api/types";
 import { useT } from "../../i18n";
 import { monoStyle } from "./shared";
+import PageQueryError from "../states/PageQueryError";
 
 export default function SkillsTab() {
   const t = useT();
   const { token } = theme.useToken();
-  const { data: skills, isLoading } = useSkills();
-  // 技能库只展示原本加载进来的技能；agent 生成的归"习得技能" tab
-  const loadedSkills = (skills ?? []).filter((s) => s.created_by !== "agent");
+  const skillsQuery = useSkills();
+  const { data: skills, isLoading } = skillsQuery;
+  const loadedSkills = skills ?? [];
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createForm] = Form.useForm();
 
-  const { data: detail, isLoading: detailLoading } =
-    useSkillDetail(selectedSkill);
-  const [editContent, setEditContent] = useState<string>("");
-  const [dirty, setDirty] = useState(false);
+  const detailQuery = useSkillDetail(selectedSkill);
+  const { data: detail, isLoading: detailLoading } = detailQuery;
 
-  const updateMutation = useUpdateSkill();
-  const createMutation = useCreateSkill();
-  const deleteMutation = useDeleteSkill();
+  if (skillsQuery.error) {
+    return (
+      <PageQueryError
+        error={skillsQuery.error}
+        onRetry={() => void skillsQuery.refetch()}
+      />
+    );
+  }
 
   const handleOpenDetail = (name: string) => {
     setSelectedSkill(name);
-    setDirty(false);
   };
 
-  const handleContentChange = (val: string) => {
-    setEditContent(val);
-    setDirty(true);
-  };
-
-  const handleSave = () => {
-    if (!selectedSkill) return;
-    updateMutation.mutate(
-      { name: selectedSkill, content: editContent },
-      {
-        onSuccess: () => {
-          notification.success({ message: t("system.toast.skillSaved") });
-          setDirty(false);
-        },
-      },
-    );
-  };
-
-  const handleCreate = () => {
-    createForm.validateFields().then((values) => {
-      createMutation.mutate(
-        { name: values.name, content: values.content || "" },
-        {
-          onSuccess: () => {
-            notification.success({ message: t("system.toast.skillCreated", { name: values.name }) });
-            setCreateOpen(false);
-            createForm.resetFields();
-          },
-        },
-      );
+  const handlePin = async (name: string, currentPinned: boolean) => {
+    await pinSkill(name, !currentPinned);
+    notification.success({
+      message: !currentPinned
+        ? t("skillsPage.toast.pinned", { name })
+        : t("skillsPage.toast.unpinned", { name }),
     });
+    await skillsQuery.refetch();
   };
 
   // Compute char budget stats
@@ -109,7 +81,10 @@ export default function SkillsTab() {
       dataIndex: "source",
       key: "source",
       width: 100,
-      render: (source: string) => {
+      render: (source: string, record: SkillInfo) => {
+        if (record.created_by === "agent") {
+          return <Tag color="volcano">{t("skillsPage.badge.autoCurated")}</Tag>;
+        }
         const colorMap: Record<string, string> = {
           builtin: "blue",
           user: "cyan",
@@ -138,49 +113,45 @@ export default function SkillsTab() {
       key: "actions",
       width: 80,
       render: (_: unknown, record: SkillInfo) =>
-        record.source === "workspace" || record.source === "user" ? (
-          <Popconfirm
-            title={t("system.skills.confirmDelete")}
-            onConfirm={() =>
-              deleteMutation.mutate(record.name, {
-                onSuccess: () =>
-                  notification.success({
-                    message: t("system.toast.skillDeleted", { name: record.name }),
-                  }),
-              })
+        record.created_by === "agent" ? (
+          <Tooltip
+            title={
+              record.pinned ? t("skillsPage.action.unpin") : t("skillsPage.action.pin")
             }
           >
             <Button
               size="small"
-              danger
-              icon={<DeleteOutlined />}
               type="text"
+              aria-label={
+                record.pinned ? t("skillsPage.action.unpin") : t("skillsPage.action.pin")
+              }
+              icon={record.pinned ? <PushpinFilled /> : <PushpinOutlined />}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handlePin(record.name, record.pinned ?? false);
+              }}
             />
-          </Popconfirm>
+          </Tooltip>
         ) : null,
     },
   ];
 
   return (
     <>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message={t("system.skills.catalogReadOnly")}
+      />
       <div
         style={{
           marginBottom: 16,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
         }}
       >
         <Typography.Text style={{ color: token.colorTextSecondary }}>
           {t("system.skills.charsLoaded", { n: totalChars.toLocaleString() })}
         </Typography.Text>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => setCreateOpen(true)}
-        >
-          {t("system.skills.newSkill")}
-        </Button>
       </div>
 
       <Table
@@ -202,18 +173,13 @@ export default function SkillsTab() {
         open={!!selectedSkill}
         onClose={() => setSelectedSkill(null)}
         width={640}
-        extra={
-          <Button
-            type="primary"
-            disabled={!dirty}
-            loading={updateMutation.isPending}
-            onClick={handleSave}
-          >
-            {t("button.save")}
-          </Button>
-        }
       >
-        {detailLoading ? (
+        {detailQuery.error ? (
+          <PageQueryError
+            error={detailQuery.error}
+            onRetry={() => void detailQuery.refetch()}
+          />
+        ) : detailLoading ? (
           <Spin />
         ) : detail ? (
           <div>
@@ -245,11 +211,8 @@ export default function SkillsTab() {
               </Typography.Paragraph>
             )}
             <Input.TextArea
-              value={dirty ? editContent : detail.content}
-              onChange={(e) => handleContentChange(e.target.value)}
-              onFocus={() => {
-                if (!dirty) setEditContent(detail.content);
-              }}
+              value={detail.content}
+              readOnly
               autoSize={{ minRows: 20, maxRows: 40 }}
               style={monoStyle}
             />
@@ -258,43 +221,6 @@ export default function SkillsTab() {
           <Typography.Text type="secondary">{t("system.skills.notFound")}</Typography.Text>
         )}
       </Drawer>
-
-      {/* Create Skill Modal */}
-      <Modal
-        title={t("system.skills.createTitle")}
-        open={createOpen}
-        onOk={handleCreate}
-        onCancel={() => {
-          setCreateOpen(false);
-          createForm.resetFields();
-        }}
-        confirmLoading={createMutation.isPending}
-        okText={t("action.create")}
-        cancelText={t("common.cancel")}
-      >
-        <Form form={createForm} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item
-            name="name"
-            label={t("system.skills.form.name")}
-            rules={[
-              { required: true, message: t("system.skills.form.nameRequired") },
-              {
-                pattern: /^[a-zA-Z0-9_-]+$/,
-                message: t("system.skills.form.namePattern"),
-              },
-            ]}
-          >
-            <Input placeholder={t("system.skills.form.namePlaceholder")} />
-          </Form.Item>
-          <Form.Item name="content" label={t("system.skills.form.content")}>
-            <Input.TextArea
-              rows={12}
-              placeholder={t("system.skills.form.contentPlaceholder")}
-              style={monoStyle}
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
     </>
   );
 }

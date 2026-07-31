@@ -18,6 +18,7 @@ def _cost_record(edict_id: str, cost: float):
         prompt_tokens=1,
         completion_tokens=1,
         total_tokens=2,
+        cache_read_tokens=0,
         cost_cny=cost,
         created_at=datetime.now(UTC),
     )

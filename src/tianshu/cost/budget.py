@@ -21,21 +21,19 @@ class BudgetChecker:
 
     def check_global(self) -> BudgetStatus | None:
         """Check the global budget, return status or None if no budget set."""
-        row = self._storage.get_budget("global")
-        if not row:
-            return None
-        return self._to_status(row)
+        return self.check_scope("global")
 
     def check_edict(self, edict_id: str) -> BudgetStatus | None:
         """Check edict-specific budget."""
-        row = self._storage.get_budget(f"edict:{edict_id}")
-        if not row:
-            return None
-        return self._to_status(row)
+        return self.check_scope(f"edict:{edict_id}")
 
     def check_submitter(self, submitter: str) -> BudgetStatus | None:
         """Check submitter-specific budget."""
-        row = self._storage.get_budget(f"submitter:{submitter}")
+        return self.check_scope(f"submitter:{submitter}")
+
+    def check_scope(self, scope: str) -> BudgetStatus | None:
+        """Return the current status for any persisted budget scope."""
+        row = self._storage.get_budget(scope)
         if not row:
             return None
         return self._to_status(row)
@@ -80,4 +78,6 @@ class BudgetChecker:
             remaining_cny=max(0.0, budget - spent),
             period=row.get("period", "monthly"),
             exceeded=spent >= budget,
+            reset_at=row.get("reset_at"),
+            period_start=row.get("period_start"),
         )

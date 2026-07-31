@@ -15,7 +15,6 @@ export default function AcceptanceConfigSection({
   assignMode,
 }: AcceptanceConfigSectionProps) {
   const t = useT();
-  const form = Form.useFormInstance();
   const { data: personas } = usePersonas();
 
   const criticPersonas = personas ?? [];
@@ -44,92 +43,6 @@ export default function AcceptanceConfigSection({
 
       {longTaskEnabled && (
         <>
-          <Form.Item label={t("form.edict.field.templatePreset")} tooltip={t("form.edict.tooltip.templatePreset")}>
-            <Space wrap>
-              <Button
-                size="small"
-                onClick={() => {
-                  form.setFieldsValue({
-                    execution_profile: "foreground",
-                    max_outer_iterations: 5,
-                    on_exhaustion: "escalate",
-                    on_critic_unavailable: "skip",
-                    same_issue_threshold: 2,
-                    critic_persona_ids: defaultCriticPersonaIds,
-                  });
-                }}
-              >
-                {t("form.edict.template.analysis")}
-              </Button>
-              <Button
-                size="small"
-                onClick={() => {
-                  form.setFieldsValue({
-                    execution_profile: "foreground",
-                    max_outer_iterations: 10,
-                    min_outer_iterations: 3,
-                    critic_strictness: "balanced",
-                    on_exhaustion: "best_effort",
-                    on_critic_unavailable: "skip",
-                    same_issue_threshold: 3,
-                    critic_persona_ids: defaultCriticPersonaIds,
-                  });
-                }}
-              >
-                {t("form.edict.template.creative")}
-              </Button>
-              <Button
-                size="small"
-                onClick={() => {
-                  form.setFieldsValue({
-                    execution_profile: "checkpointed",
-                    max_outer_iterations: 8,
-                    deadline_hours: 1,
-                    deadline_minutes: 0,
-                    on_exhaustion: "escalate",
-                    on_critic_unavailable: "escalate",
-                    same_issue_threshold: 2,
-                    critic_persona_ids: defaultCriticPersonaIds,
-                  });
-                }}
-              >
-                {t("form.edict.template.coding")}
-              </Button>
-              <Button
-                size="small"
-                onClick={() => {
-                  form.setFieldsValue({
-                    execution_profile: "background",
-                    max_outer_iterations: 15,
-                    min_outer_iterations: 4,
-                    critic_strictness: "strict",
-                    deadline_hours: 2,
-                    deadline_minutes: 0,
-                    on_exhaustion: "best_effort",
-                    on_critic_unavailable: "skip",
-                    same_issue_threshold: 3,
-                    critic_persona_ids: defaultCriticPersonaIds,
-                  });
-                }}
-              >
-                {t("form.edict.template.research")}
-              </Button>
-            </Space>
-          </Form.Item>
-
-          <Form.Item
-            name="execution_profile"
-            label={t("form.edict.field.executionProfile")}
-            tooltip={t("form.edict.tooltip.executionProfile")}
-            initialValue="foreground"
-          >
-            <Radio.Group>
-              <Radio value="foreground">{t("executionProfile.foreground")}</Radio>
-              <Radio value="checkpointed">{t("executionProfile.checkpointed")}</Radio>
-              <Radio value="background">{t("executionProfile.background")}</Radio>
-            </Radio.Group>
-          </Form.Item>
-
           <Form.Item
             name="max_outer_iterations"
             label={t("form.edict.field.maxOuterIterations")}

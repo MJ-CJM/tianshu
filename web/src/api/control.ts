@@ -44,12 +44,15 @@ export interface ControlCenterSnapshotV1 {
   generated_at: string;
   readiness: "ready" | "degraded";
   active_run_total: number;
+  unarchived_edict_total: number;
+  awaiting_follow_up_total: number;
+  cancelled_edict_total: number;
   pending_decision_total: number;
   evidence_total: number;
   active_runs: ControlRunSummaryV1[];
   pending_decisions: ControlDecisionSummaryV1[];
   recent_evidence: ControlEvidenceSummaryV1[];
-  evolution_status: "not_enabled";
+  evolution_status: "not_enabled" | "enabled" | "degraded";
 }
 
 interface ControlCenterResponse {

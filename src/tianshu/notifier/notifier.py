@@ -150,8 +150,11 @@ class Notifier:
         )
 
     async def _dispatch_external(self, event, memorial, message: dict) -> None:
-        """通知三级制外发(迭代 5,D2):urgent 穿透免打扰 / normal 免打扰时段攒起来
-        醒后补推 / low 不即时外发入 digest。WS 广播不受影响(前端可见,不打扰手机)。"""
+        """通知三级制外发：urgent 穿透免打扰，normal 在免打扰后补推。
+
+        low 当前没有可恢复的 digest 消费链，因此与 urgent 一样进入真实
+        外发链路；生产环境的所有优先级都先写 durable outbox。
+        """
         edict_id = event.edict_id
         if not edict_id:
             return
@@ -159,6 +162,7 @@ class Notifier:
         if not edict or not edict.dispatch or not edict.dispatch.channels:
             return
 
+        priority = getattr(edict, "priority", "normal")
         if self._delivery_outbox is not None:
             self._enqueue_internal_delivery(event, edict)
             return
@@ -171,10 +175,7 @@ class Notifier:
         # retained internal delivery outbox above and never reaches this path.
         if not quiet:
             await self._flush_pending()
-        priority = getattr(edict, "priority", "normal")
         channels = list(edict.dispatch.channels)
-        if priority == "low":
-            return  # 低优先不即时外发,digest 兜底
         if priority == "normal" and quiet:
             self._save_pending(edict_id, getattr(memorial, "id", None), message, channels)
             return
@@ -213,26 +214,51 @@ class Notifier:
             target += timedelta(days=1)
         return target.astimezone(UTC)
 
-    async def deliver_internal(self, record: InternalDeliveryRecord) -> None:
-        """Reach the internal channel-dispatch boundary; provider success is not claimed."""
+    async def deliver_internal(
+        self,
+        record: InternalDeliveryRecord,
+    ) -> InternalDeliveryRecord:
+        """Deliver unaccepted channels and durably retain each acceptance."""
         if record.memorial_id is None or record.edict_id is None:
-            return
+            return record
         memorial = self._storage.get_memorial(record.memorial_id)
         edict = self._storage.get_edict(record.edict_id)
         if memorial is None or edict is None:
             raise RuntimeError("internal notification subject is unavailable")
         if not edict.dispatch or not edict.dispatch.channels:
-            return
-        if getattr(edict, "priority", "normal") == "low":
-            return
+            return record
         if not self._channel_registry:
-            return
+            raise RuntimeError("notification channel registry is unavailable")
+        if self._delivery_outbox is None:
+            raise RuntimeError("internal delivery outbox is unavailable")
         message = {
             "type": record.event_type,
             "edict_id": record.edict_id,
             **render_status(memorial),
         }
-        await self._do_dispatch_channels(memorial, message, list(edict.dispatch.channels))
+        channels = list(edict.dispatch.channels)
+        current = record
+        failed: list[str] = []
+        for channel in channels:
+            if channel in current.accepted_channels:
+                continue
+            results = await self._do_dispatch_channels(memorial, message, [channel])
+            if results.get(channel) is not True:
+                failed.append(channel)
+                continue
+            updated = self._delivery_outbox.mark_channel_accepted(
+                current,
+                channel=channel,
+                now=datetime.now(UTC),
+            )
+            if updated is None:
+                raise RuntimeError(
+                    "internal notification lease was lost before channel acceptance was recorded"
+                )
+            current = updated
+        if failed:
+            raise RuntimeError(f"notification channels rejected delivery: {', '.join(failed)}")
+        return current
 
     async def _do_dispatch_channels(
         self,
@@ -251,7 +277,7 @@ class Notifier:
                 renderer = renderers.get(ch_name, render_feishu)
                 rendered = redact_text(renderer(memorial))
                 channel = (
-                    self._channel_registry.get(ch_name)  # type: ignore[union-attr]
+                    self._channel_registry.get(ch_name)  # type: ignore[attr-defined]
                     if self._channel_registry is not None
                     else None
                 )

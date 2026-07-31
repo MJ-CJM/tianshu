@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
+_POLICIES_SETTING_KEY = "memory_access_policies"
 
 
 class MemoryAccessPolicy:
@@ -83,12 +84,57 @@ class MemoryAccessControl:
     def __init__(self, storage: Storage | None = None) -> None:
         self._storage = storage
         self._policies: dict[str, MemoryAccessPolicy] = dict(DEFAULT_POLICIES)
+        self._load_policies()
+
+    def _load_policies(self) -> None:
+        if self._storage is None:
+            return
+        raw = self._storage.get_app_setting(_POLICIES_SETTING_KEY)
+        if not isinstance(raw, dict):
+            return
+
+        def _string_list(value: object) -> list[str]:
+            if not isinstance(value, list):
+                return []
+            return [item for item in value if isinstance(item, str)]
+
+        for persona_id, value in raw.items():
+            if not isinstance(persona_id, str) or not isinstance(value, dict):
+                continue
+            share_level = value.get("share_level", "private")
+            if share_level not in {"private", "shared", "court"}:
+                share_level = "private"
+            self._policies[persona_id] = MemoryAccessPolicy(
+                persona_id=persona_id,
+                can_read=_string_list(value.get("can_read")),
+                can_write=_string_list(value.get("can_write")),
+                share_level=share_level,
+            )
+
+    def _persist_policies(self) -> None:
+        if self._storage is None:
+            return
+        self._storage.set_app_setting(
+            _POLICIES_SETTING_KEY,
+            {
+                persona_id: {
+                    "can_read": policy.can_read,
+                    "can_write": policy.can_write,
+                    "share_level": policy.share_level,
+                }
+                for persona_id, policy in self._policies.items()
+            },
+        )
 
     def get_policy(self, persona_id: str) -> MemoryAccessPolicy:
         return self._policies.get(persona_id, MemoryAccessPolicy(persona_id))
 
     def set_policy(self, policy: MemoryAccessPolicy) -> None:
         self._policies[policy.persona_id] = policy
+        self._persist_policies()
+
+    def list_policies(self) -> dict[str, MemoryAccessPolicy]:
+        return dict(self._policies)
 
     def filter_readable(
         self,

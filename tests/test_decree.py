@@ -8,7 +8,7 @@ from tianshu.application.edicts import EdictApplicationService
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.governance.decision_service import DecisionService
-from tianshu.models import Decree, Edict, Memorial, TaskStatus, UsageSummary
+from tianshu.models import AuditResult, Decree, Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.models.principal import AuthContext, Principal
 
 
@@ -71,6 +71,34 @@ class TestApprovalManager:
         loaded = storage.get_memorial(memorial.id)
         assert loaded.status == TaskStatus.COMPLETED
         assert loaded.review_status == "approved"
+
+    async def test_approve_failed_execution_review_preserves_failed_terminal_truth(
+        self,
+        manager,
+        storage,
+    ):
+        edict = Edict(goal="test")
+        storage.save_edict(edict)
+        memorial = Memorial(
+            edict_id=edict.id,
+            status=TaskStatus.NEEDS_REVIEW,
+            review_status="pending",
+            error="executor crashed",
+            audit=AuditResult(
+                verdict="flag",
+                reasons=["review the failed output"],
+                execution_failed=True,
+            ),
+        )
+        storage.save_memorial(memorial)
+
+        decree = Decree(memorial_id=memorial.id, action="approve", comment="Reviewed")
+        await manager.submit_decree(decree)
+
+        loaded = storage.get_memorial(memorial.id)
+        assert loaded.status == TaskStatus.FAILED
+        assert loaded.review_status == "approved"
+        assert loaded.error == "executor crashed"
 
     async def test_reject(self, manager, storage):
         edict = Edict(goal="test")
