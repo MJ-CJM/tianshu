@@ -1,0 +1,167 @@
+/* DAG 节点 · 官牌（plaque）
+ *
+ * 设计宪法同 GlowCard:墨为骨,朱为睛,纸为气。
+ * - 牌面是纸(bg-container),状态色只做左侧牌脊与极淡底染;
+ * - 执行官落款用朱印(accent)——全图唯一的朱砂,视线自然落在"谁在办差";
+ * - 办理中沿用"未燃尽的香"呼吸,但以节点状态色为焰。
+ */
+
+.plaque {
+  --status-color: var(--ts-status-cancelled);
+  position: relative;
+  min-width: 200px;
+  max-width: 264px;
+  padding: 10px 14px 9px 16px;
+  border: 1px solid var(--ts-color-border);
+  border-radius: 10px;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--status-color) 7%, transparent),
+      transparent 62%
+    ),
+    var(--ts-color-bg-container);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+/* 牌脊:左侧一道状态色,如奏折签条 */
+.plaque::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--status-color);
+}
+
+/* 预演牌:虚线描边——尚未用印,只是沙盘推演 */
+.preview {
+  border-style: dashed;
+}
+
+/* 办理中:状态色呼吸,一炷未燃尽的香 */
+.running {
+  animation: plaqueBreath 3.2s ease-in-out infinite;
+}
+
+@keyframes plaqueBreath {
+  0%,
+  100% {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-color) 20%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .running {
+    animation: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-color) 16%, transparent);
+  }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+
+.statusIcon {
+  font-size: 13px;
+  color: var(--status-color);
+  display: inline-flex;
+}
+
+.statusText {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--status-color);
+  font-weight: 600;
+}
+
+.nodeId {
+  margin-left: auto;
+  font-family: var(--ts-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  color: var(--ts-color-text-secondary);
+  opacity: 0.75;
+}
+
+.desc {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ts-color-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.cancelled .desc {
+  text-decoration: line-through;
+  color: var(--ts-color-text-secondary);
+}
+
+/* 落款行:虚线上分隔,如奏折末的花押 */
+.official {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--ts-color-border);
+}
+
+/* 朱印:执行官之印 */
+.seal {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  background: var(--ts-color-accent);
+  color: var(--ts-color-accent-text-on);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  flex: none;
+  user-select: none;
+}
+
+/* 待定之印:空印,未用朱 */
+.sealEmpty {
+  background: transparent;
+  border: 1px dashed var(--ts-color-border-hover);
+  color: var(--ts-color-text-secondary);
+}
+
+.officialName {
+  font-size: 12px;
+  color: var(--ts-color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.officialDept {
+  font-size: 11px;
+  color: var(--ts-color-text-secondary);
+  white-space: nowrap;
+}
+
+.error {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--ts-color-error);
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

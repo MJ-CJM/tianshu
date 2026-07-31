@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import litellm
@@ -18,6 +19,42 @@ from tianshu.models import UsageSummary
 from tianshu.observability import genai_span, record_usage
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class LLMUsageContext:
+    """Optional business attribution for one model call."""
+
+    edict_id: str | None = None
+    memorial_id: str | None = None
+    operation: str = "unspecified"
+
+
+UsageObserver = Callable[[UsageSummary, LLMUsageContext | None, str | None, str], None]
+_usage_observer: UsageObserver | None = None
+
+
+def set_usage_observer(observer: UsageObserver | None) -> None:
+    """Install the process-local usage sink used by the application cost ledger."""
+
+    global _usage_observer
+    _usage_observer = observer
+
+
+def _observe_usage(
+    usage: UsageSummary,
+    context: LLMUsageContext | None,
+    provider_name: str | None,
+    model: str,
+) -> None:
+    observer = _usage_observer
+    if observer is None or usage.total_tokens <= 0:
+        return
+    try:
+        observer(usage, context, provider_name, model)
+    except Exception:
+        # Cost telemetry must never turn a successful model response into a task failure.
+        logger.exception("LLM usage observer failed")
 
 
 @dataclass
@@ -308,6 +345,8 @@ class LLMClient:
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
+        *,
+        usage_context: LLMUsageContext | None = None,
     ) -> LLMResponse:
         if self._model == "mock/tianshu-demo":
             # 精确 opt-in 的确定性零网络 demo；在任何 LiteLLM/Router 调用之前分派。
@@ -318,23 +357,25 @@ class LLMClient:
         if self._router is not None and self._router_model_name:
             # Router 路径:重试/降级/冷却由 Router 全权负责(llm_router.py 配置),
             # 外层不再叠加 tenacity,避免重试次数相乘。
-            return await self._chat_once(messages, tools)
+            return await self._chat_once(messages, tools, usage_context=usage_context)
         async for attempt in AsyncRetrying(
             wait=wait_exponential(min=1, max=4),
-            stop=stop_after_attempt(3),
+            stop=stop_after_attempt(max(1, self._max_retries + 1)),
             retry=retry_if_exception_type(
                 (litellm.RateLimitError, litellm.Timeout, litellm.ServiceUnavailableError)
             ),
             reraise=True,
         ):
             with attempt:
-                return await self._chat_once(messages, tools)
+                return await self._chat_once(messages, tools, usage_context=usage_context)
         raise AssertionError("unreachable: AsyncRetrying(reraise=True)")
 
     async def _chat_once(
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
+        *,
+        usage_context: LLMUsageContext | None = None,
     ) -> LLMResponse:
         model, api_base = self._resolve_model()
         messages = _apply_prompt_caching(messages, model, self._prompt_caching)
@@ -414,14 +455,17 @@ class LLMClient:
             ]
 
         logger.debug(
-            "[LLM] response: model=%s, tokens=%d/%d/%d, tool_calls=%d, has_reasoning=%s",
+            "[LLM] response: model=%s, actual=%s, tokens=%d/%d/%d, tool_calls=%d, has_reasoning=%s",
             model,
+            # Router fallback 后实际落地的模型——排查时以此为准，别信配置名
+            usage.actual_model or model,
             usage.prompt_tokens,
             usage.completion_tokens,
             usage.total_tokens,
             len(tool_calls or []),
             bool(getattr(message, "reasoning_content", None)),
         )
+        _observe_usage(usage, usage_context, self._provider_name, model)
         return LLMResponse(
             content=message.content,
             tool_calls=tool_calls,
@@ -434,6 +478,8 @@ class LLMClient:
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
+        *,
+        usage_context: LLMUsageContext | None = None,
     ):
         """Streaming chat — yields LLMResponse chunks. Final chunk has full usage."""
         if self._model == "mock/tianshu-demo":
@@ -546,6 +592,7 @@ class LLMClient:
                 if tc["name"]
             ]
 
+        _observe_usage(usage, usage_context, self._provider_name, model)
         yield LLMResponse(
             content=collected_content or None,
             tool_calls=final_tool_calls or None,

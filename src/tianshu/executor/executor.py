@@ -92,7 +92,7 @@ class Executor:
         self._dag_scheduler = None  # set via set_dag_scheduler()
         self._lane_manager = None  # set via set_lane_manager()
         self._persona_loader = None  # set via set_persona_loader()
-        self._cabinet_dispatcher = None  # set via set_cabinet_dispatcher()
+        self._official_selector = None  # set via set_official_selector()
         self._universe_manager = None  # set via set_universe_manager()
         self._running_tasks: set[asyncio.Task] = set()
         self._orchestrator_ctx = None  # set via set_orchestrator_context()
@@ -164,9 +164,9 @@ class Executor:
     def set_persona_loader(self, persona_loader: object) -> None:
         self._persona_loader = persona_loader
 
-    def set_cabinet_dispatcher(self, dispatcher: object) -> None:
-        """内阁派官器（persona/dispatcher.py）；未装配时保持默认执行官兜底。"""
-        self._cabinet_dispatcher = dispatcher
+    def set_official_selector(self, selector: object) -> None:
+        """官员拣选器（persona/selector.py）；规划失败时按旨意关键词就地选官。"""
+        self._official_selector = selector
 
     def set_universe_manager(self, manager: object) -> None:
         self._universe_manager = manager
@@ -936,6 +936,14 @@ class Executor:
                             self._storage.update_memorial(memorial)
                         except Exception:
                             logger.exception("Failed to update memorial %s", memorial.id)
+                        else:
+                            try:
+                                self._storage.finalize_outer_loop_terminal(edict.id)
+                            except Exception:
+                                logger.exception(
+                                    "Failed to finalize outer-loop state for edict %s",
+                                    edict.id,
+                                )
 
         event_type = {
             TaskStatus.COMPLETED: "execution.completed",
@@ -1033,27 +1041,35 @@ class Executor:
             )
             return
 
-        # Set persona_id: 显式指派 > 规划分派 > 内阁派官 > 默认执行官
+        # Set persona_id: 显式指派 > 规划分派 > selector 兜底 > 默认执行官
+        # 派官是规划的产物（规划 prompt 已含名册与 assigned_official 契约）；
+        # 只有规划失败（passthrough 落 DEFAULT_EXECUTOR_ID 这类无效 id）时才
+        # 需要兜底——此时 LLM 大概率不可用，故用 selector 关键词就地选官，零 LLM。
         if not memorial.persona_id:
             plan_persona = None
             if plan and plan.tasks:
                 plan_persona = plan.tasks[0].assigned_official
             persona_id = edict.assigned_persona_id or plan_persona
-            # 内阁派官：未显式指派、规划也只给出默认兜底（或没给）时，由内阁
-            # 按百官名册拣选（对齐「执行方式：内阁决策」语义）；失败静默落默认。
             if (
-                self._cabinet_dispatcher is not None
+                self._official_selector is not None
                 and not edict.assigned_persona_id
-                and persona_id in (None, "", DEFAULT_EXECUTOR_ID)
+                and (
+                    not persona_id
+                    or self._persona_loader is None
+                    or self._persona_loader.get(persona_id) is None
+                )
             ):
-                dispatched = await self._cabinet_dispatcher.dispatch(edict)
-                if dispatched is not None:
-                    persona_id, dispatch_reason = dispatched
+                try:
+                    fallback = self._official_selector.select_for_task(edict.goal or "")
+                except Exception:  # noqa: BLE001 - 兜底选官绝不阻断执行
+                    fallback = None
+                if fallback is not None:
+                    persona_id = fallback.id
                     self._storage.append_event(
                         edict.id,
                         memorial.id,
-                        "cabinet.dispatched",
-                        {"persona_id": persona_id, "reason": dispatch_reason},
+                        "official.selected",
+                        {"persona_id": persona_id, "source": "selector_fallback"},
                     )
             memorial.persona_id = persona_id or DEFAULT_EXECUTOR_ID
         logger.debug(

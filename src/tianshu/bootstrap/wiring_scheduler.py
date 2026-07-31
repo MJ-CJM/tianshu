@@ -142,6 +142,7 @@ def wire_consultation(app: FastAPI, settings: TianshuSettings) -> None:
         provider_manager=provider_manager,
         execution_gateway=app.state.execution_gateway,
         workspace_root=Path(settings.workspace_dir).resolve(),
+        cost_manager=app.state.cost_manager,
     )
     executor.set_orchestrator_context(orch_ctx)
     app.state.orchestrator_ctx = orch_ctx
@@ -172,6 +173,7 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         prompt_builder=prompt_builder,
         tool_registry=tools,
         approval_manager=app.state.approval_manager,
+        provider_manager=app.state.provider_manager,
     )
     app.state.planner = planner
 
@@ -271,6 +273,11 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         consumer_name="auditor.execution_completed.v1",
     )
     event_bus.on(
+        "execution.failed",
+        auditor.handle_execution_failed,
+        consumer_name="auditor.execution_failed.v1",
+    )
+    event_bus.on(
         "execution.completed",
         cost_manager.handle_execution_completed,
         consumer_name="cost.execution_completed.v1",
@@ -366,7 +373,7 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
 
 
 def wire_plugins(app: FastAPI, settings: TianshuSettings) -> None:
-    """创建 PluginApi，发现并注册本地插件，接上 hook 执行事件写入。"""
+    """创建扩展门面，登记本地 manifest，并接上 hook 执行事件写入。"""
     storage = app.state.storage
     tools = app.state.tool_registry
     hook_registry = app.state.hook_registry
@@ -385,7 +392,7 @@ def wire_plugins(app: FastAPI, settings: TianshuSettings) -> None:
     )
     app.state.plugin_api = plugin_api
 
-    # Discover and register local plugins
+    # Discovery is metadata-only. Entry points are deliberately not imported or executed.
     plugins_dir = Path(settings.plugins_dir).expanduser()
     plugin_loader = PluginLoader(plugins_dir)
     for manifest in plugin_loader.discover():

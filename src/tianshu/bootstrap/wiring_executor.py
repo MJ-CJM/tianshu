@@ -75,12 +75,13 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
     )
     executor.set_agent(agent)
     executor.set_persona_loader(persona_loader)
-    # 内阁派官：未指派官员的敕令由内阁按名册拣选（走 edict_parse 便宜槽位）
-    from tianshu.persona.dispatcher import CabinetDispatcher
+    # 规划失败兜底：selector 按旨意关键词就地选官（派官正途在规划 prompt 的
+    # assigned_official 契约里，此处只兜 passthrough 场景，零 LLM 成本）。
+    # 就地构造：app.state.official_selector 在 wire_persona_quality 才装配
+    # （晚于本函数）；OfficialSelector 无状态，仅包一层 persona_loader。
+    from tianshu.persona.selector import OfficialSelector
 
-    executor.set_cabinet_dispatcher(
-        CabinetDispatcher(persona_loader, app.state.provider_manager)
-    )
+    executor.set_official_selector(OfficialSelector(persona_loader))
     app.state.executor = executor
 
     # --- DAGScheduler ---
@@ -188,7 +189,6 @@ def wire_hook_registrations(app: FastAPI, settings: TianshuSettings) -> None:
         HookType.BEFORE_AGENT_START, memory_manager.on_before_agent_start, priority=50
     )
     hook_registry.register(HookType.BEFORE_ITERATION, cost_manager.on_before_iteration, priority=10)
-    hook_registry.register(HookType.LLM_OUTPUT, cost_manager.on_llm_output, priority=50)
     hook_registry.register(HookType.AGENT_END, memory_manager.on_agent_end, priority=100)
     hook_registry.register(
         HookType.BEFORE_TOOL_CALL, approval_manager.on_before_tool_call, priority=10
@@ -201,6 +201,7 @@ def wire_hook_registrations(app: FastAPI, settings: TianshuSettings) -> None:
         config_manager,
         skill_validator,
         metrics_store=metrics_store,
+        governed_writes_available=False,
     )
     hook_registry.register(HookType.AGENT_END, skill_reviewer.on_agent_end, priority=200)
     skill_reviewer.attach_event_bus(event_bus)

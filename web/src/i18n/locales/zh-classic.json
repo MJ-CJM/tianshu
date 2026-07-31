@@ -1291,7 +1291,9 @@
     "dag": {
       "battleEmpty": "暂无 DAG 数据",
       "cancelConfirm": "确定取消整个 DAG 执行？",
-      "retryConfirm": "重试失败的节点？"
+      "retryConfirm": "重试失败的节点？",
+      "previewBadge": "沙盘预演",
+      "previewHint": "依廷议方略所推之阵图，开拔后自转实时军情"
     },
     "worker": {
       "completed": "已完成",

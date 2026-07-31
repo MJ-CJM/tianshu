@@ -1,7 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Tooltip, Typography } from 'antd';
-import SemanticTag from '../common/SemanticTag';
+import { Tooltip } from 'antd';
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
@@ -10,19 +9,22 @@ import {
   MinusCircleOutlined,
   SyncOutlined,
 } from '@ant-design/icons';
-
-const { Text } = Typography;
+import styles from './DagNode.module.css';
 
 type DAGNodeStatus = 'pending' | 'ready' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 interface DagNodeData {
   label: string;
   status: DAGNodeStatus;
+  nodeId?: string;
   assignedOfficial?: string;
+  officialName?: string;
+  officialDept?: string;
   error?: string;
+  preview?: boolean;
 }
 
-// 语义色走 CSS 变量,底色用 color-mix 淡染,浅/深主题都成立
+// 语义色走 CSS 变量,注入 .plaque 的 --status-color,浅/深主题都成立
 const STATUS_CONFIG: Record<DAGNodeStatus, { color: string; icon: React.ReactNode }> = {
   pending: { color: 'var(--ts-status-cancelled)', icon: <ClockCircleOutlined /> },
   ready: { color: 'var(--ts-status-running)', icon: <SyncOutlined spin /> },
@@ -32,53 +34,61 @@ const STATUS_CONFIG: Record<DAGNodeStatus, { color: string; icon: React.ReactNod
   cancelled: { color: 'var(--ts-status-cancelled)', icon: <MinusCircleOutlined /> },
 };
 
+const HANDLE_STYLE: React.CSSProperties = {
+  width: 8,
+  height: 8,
+  background: 'var(--ts-color-bg-container)',
+  border: '1.5px solid var(--ts-color-border-hover)',
+};
+
 function DagNodeComponent({ data }: NodeProps) {
   const nodeData = data as unknown as DagNodeData;
-  const config = STATUS_CONFIG[nodeData.status] || STATUS_CONFIG.pending;
+  const status = nodeData.status || 'pending';
+  const config = STATUS_CONFIG[status] || STATUS_CONFIG.pending;
+  const officialLabel = nodeData.officialName || nodeData.assignedOfficial;
+
+  const classNames = [
+    styles.plaque,
+    status === 'running' ? styles.running : '',
+    status === 'cancelled' ? styles.cancelled : '',
+    nodeData.preview ? styles.preview : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
-    <div
-      style={{
-        padding: '8px 12px',
-        borderRadius: 8,
-        border: `2px solid color-mix(in srgb, ${config.color} 55%, transparent)`,
-        background: `color-mix(in srgb, ${config.color} 9%, var(--ts-color-bg-container))`,
-        minWidth: 180,
-        maxWidth: 260,
-      }}
-    >
-      <Handle type="target" position={Position.Top} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-        <span style={{ color: config.color, fontSize: 16 }}>{config.icon}</span>
-        <SemanticTag colorVar={config.color} style={{ margin: 0, fontSize: 11 }}>
-          {nodeData.status}
-        </SemanticTag>
+    <div className={classNames} style={{ '--status-color': config.color } as React.CSSProperties}>
+      <Handle type="target" position={Position.Top} style={HANDLE_STYLE} />
+      <div className={styles.header}>
+        <span className={styles.statusIcon}>{config.icon}</span>
+        <span className={styles.statusText}>{status}</span>
+        {nodeData.nodeId && <span className={styles.nodeId}>{nodeData.nodeId}</span>}
       </div>
       <Tooltip title={nodeData.label}>
-        <Text
-          style={{
-            fontSize: 13,
-            display: 'block',
-            textDecoration: nodeData.status === 'cancelled' ? 'line-through' : undefined,
-          }}
-          ellipsis
-        >
-          {nodeData.label}
-        </Text>
+        <div className={styles.desc}>{nodeData.label}</div>
       </Tooltip>
-      {nodeData.assignedOfficial && (
-        <Text type="secondary" style={{ fontSize: 11 }}>
-          {nodeData.assignedOfficial}
-        </Text>
-      )}
+      <div className={styles.official}>
+        {officialLabel ? (
+          <>
+            <span className={styles.seal}>{officialLabel.charAt(0)}</span>
+            <span className={styles.officialName}>{officialLabel}</span>
+            {nodeData.officialDept && (
+              <span className={styles.officialDept}>· {nodeData.officialDept}</span>
+            )}
+          </>
+        ) : (
+          <>
+            <span className={`${styles.seal} ${styles.sealEmpty}`}>?</span>
+            <span className={styles.officialDept}>—</span>
+          </>
+        )}
+      </div>
       {nodeData.error && (
         <Tooltip title={nodeData.error}>
-          <Text type="danger" style={{ fontSize: 11, display: 'block' }} ellipsis>
-            {nodeData.error}
-          </Text>
+          <span className={styles.error}>{nodeData.error}</span>
         </Tooltip>
       )}
-      <Handle type="source" position={Position.Bottom} />
+      <Handle type="source" position={Position.Bottom} style={HANDLE_STYLE} />
     </div>
   );
 }

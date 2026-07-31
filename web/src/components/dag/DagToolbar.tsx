@@ -8,8 +8,8 @@ import { useT } from "../../i18n";
 interface DagToolbarProps {
   dagId: string;
   status: string;
-  onCancel: () => void;
-  onRetry: () => void;
+  onCancel?: () => void;
+  onRetry?: () => void;
   cancelLoading?: boolean;
   retryLoading?: boolean;
 }
@@ -31,8 +31,8 @@ export default function DagToolbar({
   retryLoading,
 }: DagToolbarProps) {
   const t = useT();
-  const canCancel = status === 'running' || status === 'pending';
-  const canRetry = status === 'failed' || status === 'cancelled';
+  const canCancel = !!onCancel && (status === 'running' || status === 'pending');
+  const canRetry = !!onRetry && (status === 'failed' || status === 'cancelled');
 
   return (
     <div

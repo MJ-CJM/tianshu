@@ -7,7 +7,7 @@ import logging
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import cast
+from typing import Literal, cast
 
 from ulid import ULID
 
@@ -15,7 +15,7 @@ from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.application.run_execution import ManagedPlanningResult
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager
-from tianshu.llm import LLMClient
+from tianshu.llm import LLMClient, LLMUsageContext
 from tianshu.models.canonical import JsonValue, canonical_sha256
 from tianshu.models.common import TaskStatus
 from tianshu.models.decision import DecisionKind, DecisionRecordV1, DecisionStatus
@@ -59,6 +59,7 @@ class Planner:
         tool_registry: object | None = None,
         approval_manager: object | None = None,
         clock: Callable[[], datetime] | None = None,
+        provider_manager: object | None = None,
     ) -> None:
         self._bus = event_bus
         self._storage = storage
@@ -69,6 +70,7 @@ class Planner:
         self._tool_registry = tool_registry
         self._approval_manager = approval_manager
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._provider_manager = provider_manager
 
     def persist_plan_revision(
         self,
@@ -179,7 +181,7 @@ class Planner:
             unit_of_work.commit()
         return revision
 
-    async def plan(self, edict: Edict) -> Plan:
+    async def plan(self, edict: Edict, *, memorial_id: str | None = None) -> Plan:
         """Generate a plan via LLM, or return a single-task passthrough plan."""
         # 用户直接指派 → 跳过 LLM 规划，直通该 persona
         if edict.assigned_persona_id:
@@ -188,77 +190,70 @@ class Planner:
                 edict.id,
                 edict.assigned_persona_id,
             )
-            return self._passthrough_plan(edict, persona_id=edict.assigned_persona_id)
+            return self._passthrough_plan(
+                edict,
+                persona_id=edict.assigned_persona_id,
+                planning_mode="direct",
+            )
 
         # 内阁决策模式 → 总是尝试 LLM 规划
+        # 规划官解析：显式指定 > 内阁默认（内阁决策由内阁官员主持） > 无人格裸规划
+        planner_persona = self._resolve_planner_persona(edict)
 
         state = self._config_manager.state
         config_source = "global"
-        if edict.planner_persona_id and self._persona_loader:
-            persona = self._persona_loader.get(edict.planner_persona_id)
-            if persona and persona.llm_config_name:
-                named_config = self._config_manager.get_config(persona.llm_config_name)
-                if named_config and named_config.enabled:
-                    state = named_config
-                    config_source = f"persona:{edict.planner_persona_id}({persona.llm_config_name})"
-                else:
-                    logger.warning(
-                        "Edict %s: planner persona %s config '%s' not found or disabled, using global",
-                        edict.id,
-                        edict.planner_persona_id,
-                        persona.llm_config_name,
-                    )
+        planner_config_name: str | None = None
+        if planner_persona is not None and getattr(planner_persona, "llm_config_name", None):
+            named_config = self._config_manager.get_config(planner_persona.llm_config_name)
+            if named_config and named_config.enabled:
+                state = named_config
+                planner_config_name = planner_persona.llm_config_name
+                config_source = f"persona:{planner_persona.id}({planner_persona.llm_config_name})"
             else:
                 logger.warning(
-                    "Edict %s: planner persona %s has no llm_config_name",
+                    "Edict %s: planner persona %s config '%s' not found or disabled, using global",
                     edict.id,
-                    edict.planner_persona_id,
+                    planner_persona.id,
+                    planner_persona.llm_config_name,
                 )
 
         if not state.enabled:
             logger.warning(
                 "Edict %s: LLM config disabled (%s), using passthrough", edict.id, config_source
             )
-            return self._passthrough_plan(edict)
+            return self._passthrough_plan(edict, fallback_reason="llm_disabled")
 
+        planner_persona_id = planner_persona.id if planner_persona is not None else None
         logger.debug(
             "[PLAN] Edict %s: start planning, planner_persona=%s",
             edict.id,
-            edict.planner_persona_id,
+            planner_persona_id,
         )
         logger.info(
-            "Edict %s: LLM planning with config=%s model=%s",
+            "Edict %s: LLM planning with config=%s model=%s planner_persona=%s",
             edict.id,
             config_source,
             state.model,
+            planner_persona_id,
         )
 
-        llm = LLMClient(
-            model=state.model,
-            api_key=state.api_key,
-            api_base=state.api_base,
-            max_retries=state.max_retries,
-            temperature=0.3,
-            top_p=state.top_p,
-            max_tokens=2048,
-        )
+        llm = self._build_llm(state, planner_config_name)
 
         # 1. 构建规划官人格上下文
         persona_context = ""
-        if self._prompt_builder and edict.planner_persona_id and self._persona_loader:
-            planner_persona = self._persona_loader.get(edict.planner_persona_id)
-            if planner_persona:
-                try:
-                    persona_context = await self._prompt_builder.build(
-                        edict,
-                        persona=planner_persona,
-                        skills_char_budget=5000,
-                    )
-                except Exception:
-                    logger.warning("Failed to build planner persona context, using base prompt")
+        if self._prompt_builder and planner_persona is not None:
+            try:
+                persona_context = await self._prompt_builder.build(
+                    edict,
+                    persona=planner_persona,
+                    skills_char_budget=5000,
+                )
+            except Exception:
+                logger.warning("Failed to build planner persona context, using base prompt")
 
         # 2. 构建可用官员名册
         officials_roster = ""
+        executors: list = []
         if self._selector:
             from tianshu.persona.selector import OfficialSelector
 
@@ -280,8 +275,10 @@ class Planner:
             len(tool_names) if tools_list else 0,
         )
 
-        # 4. 组装最终 system prompt
-        system_prompt = build_planning_prompt(persona_context, officials_roster, tools_list)
+        # 4. 组装最终 system prompt（示例 assigned_official 与真实名册对齐）
+        system_prompt = build_planning_prompt(
+            persona_context, officials_roster, tools_list, example_personas=executors
+        )
 
         user_msg = PLANNING_USER_TEMPLATE.format(
             goal=edict.goal,
@@ -296,7 +293,14 @@ class Planner:
         ]
 
         try:
-            response = await llm.chat(messages)
+            response = await llm.chat(
+                messages,
+                usage_context=LLMUsageContext(
+                    edict_id=edict.id,
+                    memorial_id=memorial_id,
+                    operation="planner",
+                ),
+            )
 
             # deepseek-reasoner 等推理模型可能把内容放在 reasoning_content 而非 content
             raw = response.content or ""
@@ -306,7 +310,7 @@ class Planner:
 
             if not raw.strip():
                 logger.warning("Edict %s: LLM returned empty response, using passthrough", edict.id)
-                return self._passthrough_plan(edict)
+                return self._passthrough_plan(edict, fallback_reason="empty_response")
 
             plan_data = self._extract_json(raw)
             if plan_data is None:
@@ -316,7 +320,7 @@ class Planner:
                     len(raw),
                     raw,
                 )
-                return self._passthrough_plan(edict)
+                return self._passthrough_plan(edict, fallback_reason="invalid_response")
 
             logger.debug(
                 "[PLAN] Edict %s: LLM response len=%d, parsed=%s",
@@ -328,7 +332,7 @@ class Planner:
             tasks = [PlanTask(**t) for t in plan_data.get("tasks", [])]
             if not tasks:
                 logger.warning("Edict %s: LLM plan has no tasks, using passthrough", edict.id)
-                return self._passthrough_plan(edict)
+                return self._passthrough_plan(edict, fallback_reason="empty_plan")
 
             self._validate_assignments(tasks)
             logger.info(
@@ -339,11 +343,53 @@ class Planner:
             return Plan(
                 tasks=tasks,
                 priority_order=plan_data.get("priority_order", []),
+                planner_persona_id=planner_persona_id,
             )
         except Exception:
             logger.exception("Edict %s: LLM planning failed, using passthrough", edict.id)
 
-        return self._passthrough_plan(edict)
+        return self._passthrough_plan(edict, fallback_reason="llm_error")
+
+    def _resolve_planner_persona(self, edict: Edict) -> object | None:
+        """解析主持规划的官员：显式指定优先；内阁决策模式默认取内阁（neige）官员。
+
+        select("plan") 偏好 neige 但名册无内阁官员时会兜到别部——此处只认
+        真正的内阁人选，否则维持无人格规划（回退现状）。
+        """
+        if edict.planner_persona_id:
+            if self._persona_loader:
+                persona = self._persona_loader.get(edict.planner_persona_id)
+                if persona is not None:
+                    return persona
+            logger.warning(
+                "Edict %s: planner persona %s not found, using cabinet default",
+                edict.id,
+                edict.planner_persona_id,
+            )
+        if self._selector is not None and hasattr(self._selector, "select"):
+            persona = self._selector.select("plan")
+            if persona is not None and getattr(persona, "department", None) == "neige":
+                return persona
+        return None
+
+    def _build_llm(self, state: object, config_name: str | None) -> LLMClient:
+        """规划用 LLM 客户端。
+
+        有 ProviderManager 时走统一入口（继承 Router 兜底 / 计价 / litellm 前缀）；
+        否则直连——规划失败会静默 passthrough，兜底能力是这条链路的第一优先级。
+        """
+        if self._provider_manager is not None:
+            client = self._provider_manager.get_client(config_name_override=config_name)  # type: ignore[attr-defined]
+            return client.with_params(temperature=0.3, max_tokens=2048)
+        return LLMClient(
+            model=state.model,  # type: ignore[attr-defined]
+            api_key=state.api_key,  # type: ignore[attr-defined]
+            api_base=state.api_base,  # type: ignore[attr-defined]
+            max_retries=state.max_retries,  # type: ignore[attr-defined]
+            temperature=0.3,
+            top_p=state.top_p,  # type: ignore[attr-defined]
+            max_tokens=2048,
+        )
 
     async def handle_scheduled(self, event: EventEnvelope) -> None:
         """EventBus handler for edict.scheduled."""
@@ -367,9 +413,13 @@ class Planner:
                 memorial.status = TaskStatus.PLANNING
                 self._storage.update_memorial(memorial)
 
-        plan = await self.plan(edict)
+        plan = await self.plan(edict, memorial_id=memorial_id)
 
+        # planner_persona_id 在 Plan 上 exclude=True（不进 durable 证据），
+        # 前端观测走 payload 根部
         payload: dict = {"plan": plan.model_dump()}
+        if plan.planner_persona_id:
+            payload["planner_persona_id"] = plan.planner_persona_id
         memorial_id = event.memorial_id
 
         if edict.plan_review and len(plan.tasks) > 0:
@@ -526,7 +576,7 @@ class Planner:
         if memorial.status in {TaskStatus.SUBMITTED, TaskStatus.SCHEDULED}:
             memorial.status = TaskStatus.PLANNING
             self._storage.update_memorial(memorial)
-        plan = await self.plan(edict)
+        plan = await self.plan(edict, memorial_id=memorial.id)
         if not edict.plan_review or not plan.tasks:
             self.persist_plan_revision(
                 memorial_id=memorial.id,
@@ -535,6 +585,12 @@ class Planner:
                 reason_code="initial_plan",
                 reason_summary="initial plan created",
             )
+            # UI 投影：managed 路径不走事件总线（bus 上的 plan.completed 会被
+            # legacy 采纳器消费），只写 events 表供前端展示计划与 DAG 预演。
+            ui_payload: dict = {"plan": plan.model_dump()}
+            if plan.planner_persona_id:
+                ui_payload["planner_persona_id"] = plan.planner_persona_id
+            self._storage.append_event(edict.id, memorial.id, "plan.completed", ui_payload)
             return ManagedPlanningResult(plan=plan)
         if self._approval_manager is None:
             raise RuntimeError("durable plan review requires ApprovalManager")
@@ -585,14 +641,26 @@ class Planner:
             raise RuntimeError("plan review approval authority is missing or invalid")
         return Plan.model_validate(persisted_plan)
 
-    def _passthrough_plan(self, edict: Edict, persona_id: str = DEFAULT_EXECUTOR_ID) -> Plan:
+    def _passthrough_plan(
+        self,
+        edict: Edict,
+        persona_id: str = DEFAULT_EXECUTOR_ID,
+        *,
+        planning_mode: Literal["direct", "fallback"] = "fallback",
+        fallback_reason: str | None = None,
+    ) -> Plan:
         """Single-task plan that passes the entire goal to the executor."""
         task = PlanTask(
             task_id="main",
             description=edict.goal,
             assigned_official=persona_id,
         )
-        return Plan(tasks=[task], priority_order=["main"])
+        return Plan(
+            tasks=[task],
+            priority_order=["main"],
+            planning_mode=planning_mode,
+            fallback_reason=fallback_reason,
+        )
 
     @staticmethod
     def _extract_json(text: str) -> dict | None:
@@ -627,7 +695,13 @@ class Planner:
         """Validate LLM-assigned officials, fallback via selector for invalid ones."""
         valid_ids: set[str] = set()
         if self._persona_loader:
-            valid_ids = {p.id for p in self._persona_loader._personas.values()}
+            # 与「可用执行官」名册同口径排除内阁——规划注入 neige 人格上下文后
+            # LLM 可能照抄自己的 id，内阁只规划不办差
+            valid_ids = {
+                p.id
+                for p in self._persona_loader._personas.values()
+                if getattr(p, "department", None) != "neige"
+            }
 
         for t in tasks:
             if t.assigned_official and t.assigned_official in valid_ids:

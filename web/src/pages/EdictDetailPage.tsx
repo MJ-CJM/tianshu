@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, Input, Modal, Typography, Tag, Space, Popconfirm, Collapse, Descriptions, Table, message, theme, Tooltip } from "antd";
 import { ArrowLeftOutlined, SendOutlined, CheckOutlined, ClockCircleOutlined, EditOutlined, StopOutlined, DeploymentUnitOutlined, BulbOutlined, PauseCircleOutlined, PlayCircleOutlined, LikeOutlined, DislikeOutlined } from "@ant-design/icons";
 import { useEdictDetail } from "../hooks/useEdictDetail";
@@ -22,6 +23,7 @@ import type { FollowUpOverrideValue } from "../components/edict/FollowUpOverride
 import { PolicyTimeline } from "../components/policy/PolicyTimeline";
 import EdictDurableGovernance from "../components/governance/EdictDurableGovernance";
 import { useDagByEdict } from "../hooks/useDag";
+import DagBattleMap from "../components/dag/DagBattleMap";
 import { formatTime, truncateId } from "../utils/format";
 import {
   EDICT_STATUS_COLORS,
@@ -29,7 +31,7 @@ import {
   useEdictStatusLabels,
 } from "../utils/constants";
 import { useT } from "../i18n";
-import type { UsageSummary } from "../api/types";
+import type { DAGExecution, UsageSummary } from "../api/types";
 
 export default function EdictDetailPage() {
   const { edictId } = useParams<{ edictId: string }>();
@@ -71,10 +73,22 @@ export default function EdictDetailPage() {
     return null;
   }, [events]);
 
+  const planPayload = useMemo(
+    () => planEvent?.payload?.plan as Record<string, unknown> | undefined,
+    [planEvent],
+  );
   const planTasks = useMemo(() => {
-    const plan = planEvent?.payload?.plan as Record<string, unknown> | undefined;
-    return (plan?.tasks as Array<Record<string, unknown>>) ?? [];
-  }, [planEvent]);
+    return (planPayload?.tasks as Array<Record<string, unknown>>) ?? [];
+  }, [planPayload]);
+  const planFallbackReason = useMemo(() => {
+    if (planPayload?.planning_mode !== "fallback") return null;
+    const reason = String(planPayload.fallback_reason ?? "unknown");
+    return ["llm_disabled", "empty_response", "invalid_response", "empty_plan", "llm_error"].includes(
+      reason,
+    )
+      ? reason
+      : "unknown";
+  }, [planPayload]);
 
   const isPendingPlanReview = useMemo(() => {
     const hasPending = events.some((e) => e.event_type === "plan.pending_review");
@@ -84,6 +98,54 @@ export default function EdictDetailPage() {
     );
     return hasPending && !hasResolution;
   }, [events, planEvent]);
+
+  // DAG 规划预演:多任务计划在执行开始前(尚无真实 DAGExecution)由 plan 合成沙盘,
+  // 执行开始后 by-edict 轮询拿到真实记录,无缝切换为实时战况。
+  const previewExecution = useMemo<DAGExecution | null>(() => {
+    if (!edictId || planTasks.length <= 1) return null;
+    const previewId = `preview-${edictId}`;
+    return {
+      id: previewId,
+      edict_id: edictId,
+      plan_json: "",
+      status: "preview",
+      root_memorial_id: null,
+      max_concurrency: 1,
+      created_at: "",
+      completed_at: null,
+      nodes: planTasks.map((task) => ({
+        node_id: String(task.task_id ?? ""),
+        dag_execution_id: previewId,
+        description: String(task.description ?? ""),
+        depends_on: (task.depends_on as string[]) ?? [],
+        status: "pending" as const,
+        assigned_official: (task.assigned_official as string | null) ?? null,
+        assigned_worker: null,
+        tools_required: (task.tools_required as string[]) ?? [],
+        memorial_id: null,
+        started_at: null,
+        completed_at: null,
+        error: null,
+      })),
+    };
+  }, [edictId, planTasks]);
+
+  const inlineDag = hasDag ? dagExecution! : previewExecution;
+  const inlineDagIsPreview = !hasDag && !!previewExecution;
+
+  // 预演 → 实时的切换保障:by-edict 404 后轮询即停,而 WS 断线期间的 dag.*
+  // 事件会丢——多任务计划执行活跃时主动重询,拿到真实 DAGExecution 即停。
+  const queryClient = useQueryClient();
+  const awaitingRealDag = inlineDagIsPreview && memorials.some((m) =>
+    ["running", "submitted", "scheduled", "planning", "auditing"].includes(m.status),
+  );
+  useEffect(() => {
+    if (!awaitingRealDag || !edictId) return;
+    const timer = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ["dag", "by-edict", edictId] });
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [awaitingRealDag, edictId, queryClient]);
 
   const [feedbackSent, setFeedbackSent] = useState<Record<string, number>>({});
 
@@ -172,7 +234,7 @@ export default function EdictDetailPage() {
     try {
       await pauseEdict(edictId);
       refetch();
-      message.success(t("toast.edictPaused"));
+      message.success(t("toast.edictPauseRequested"));
     } catch (err: unknown) {
       const detail = isApiProblem(err) ? err.message : null;
       message.error(detail ? `${t("toast.pauseFailed")}：${detail}` : t("toast.pauseFailed"));
@@ -384,9 +446,12 @@ export default function EdictDetailPage() {
               label: t("page.edictDetail.details.plannerPersona"),
               children: edict.planner_persona_id ? (
                 <Tag color="purple">{edict.planner_persona_id}</Tag>
+              ) : (planEvent?.payload?.planner_persona_id ? (
+                // 内阁决策默认规划官:实际主持规划的内阁官员(事件 payload 透出)
+                <Tag color="purple">{String(planEvent.payload.planner_persona_id)}</Tag>
               ) : (
                 t("page.edictDetail.details.globalConfig")
-              ),
+              )),
             }] : []),
           ]}
         />
@@ -403,9 +468,6 @@ export default function EdictDetailPage() {
           >
             <Space size="small" wrap>
               <Tag color="purple" style={{ fontWeight: 600 }}>{t("page.edictDetail.details.longTaskTag")}</Tag>
-              <Tag color="blue">
-                profile: {edict.execution_profile ?? "foreground"}
-              </Tag>
               <Tag>
                 {t("page.edictDetail.details.maxOuterRounds", { n: edict.acceptance.max_outer_iterations ?? 5 })}
               </Tag>
@@ -552,10 +614,22 @@ export default function EdictDetailPage() {
               {!isPendingPlanReview && planEvent.event_type === "plan.completed" && (
                 <Tag color="success">{t("page.edictDetail.planExecuted")}</Tag>
               )}
+              {planFallbackReason && (
+                <Tag color="warning">{t("page.edictDetail.planFallbackTag")}</Tag>
+              )}
             </Space>
           }
           style={{ marginBottom: 24, borderLeft: "3px solid var(--ts-status-planning)" }}
         >
+          {planFallbackReason && (
+            <Alert
+              type="warning"
+              showIcon
+              message={t("page.edictDetail.planFallbackMessage")}
+              description={t(`page.edictDetail.planFallbackReason.${planFallbackReason}`)}
+              style={{ marginBottom: 12 }}
+            />
+          )}
           <Table
             size="small"
             pagination={false}
@@ -591,6 +665,19 @@ export default function EdictDetailPage() {
             ]}
           />
 
+          {inlineDag && (
+            <div
+              style={{
+                height: 360,
+                marginTop: 16,
+                border: "1px solid var(--ts-color-border)",
+                borderRadius: 10,
+                overflow: "hidden",
+              }}
+            >
+              <DagBattleMap execution={inlineDag} preview={inlineDagIsPreview} />
+            </div>
+          )}
         </GlowCard>
       )}
 
@@ -634,7 +721,10 @@ export default function EdictDetailPage() {
 
       {hasUsage && <UsageDisplay usage={aggregatedUsage} />}
 
-      {edictId && hasActiveMemorial && <SteerPanel edictId={edictId} />}
+      {edictId &&
+        edict.acceptance &&
+        edict.runtime.lifecycle_phase === "active" &&
+        hasActiveMemorial && <SteerPanel edictId={edictId} />}
 
       {canFollowUp && (
         <GlowCard title={t("page.edictDetail.followupTitle")} style={{ marginBottom: 24 }}>
@@ -670,16 +760,16 @@ export default function EdictDetailPage() {
             </div>
             {edict.status === "open" && (
               <Space size="small" wrap>
-                {edict.runtime.lifecycle_phase === "active" && (
+                {edict.acceptance && edict.runtime.lifecycle_phase === "active" && (
                   <Button
                     size="small"
                     icon={<PauseCircleOutlined />}
                     onClick={handlePause}
                   >
-                    {t("button.pause")}
+                    {t("button.pauseAfterRound")}
                   </Button>
                 )}
-                {edict.runtime.lifecycle_phase === "paused" && (
+                {edict.acceptance && edict.runtime.lifecycle_phase === "paused" && (
                   <Button
                     size="small"
                     type="primary"
@@ -728,12 +818,12 @@ export default function EdictDetailPage() {
 
       {!canFollowUp && edict.status === "open" && (
         <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 12, marginBottom: 24 }}>
-          {edict.runtime.lifecycle_phase === "active" && (
+          {edict.acceptance && edict.runtime.lifecycle_phase === "active" && (
             <Button icon={<PauseCircleOutlined />} onClick={handlePause}>
-              {t("button.pause")}
+              {t("button.pauseAfterRound")}
             </Button>
           )}
-          {edict.runtime.lifecycle_phase === "paused" && (
+          {edict.acceptance && edict.runtime.lifecycle_phase === "paused" && (
             <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleResume}>
               {t("button.resume")}
             </Button>

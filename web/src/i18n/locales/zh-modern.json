@@ -1291,7 +1291,9 @@
     "dag": {
       "battleEmpty": "暂无 DAG 数据",
       "cancelConfirm": "确定取消整个 DAG 执行？",
-      "retryConfirm": "重试失败的节点？"
+      "retryConfirm": "重试失败的节点？",
+      "previewBadge": "规划预演",
+      "previewHint": "由规划结果推演的沙盘，执行开始后自动转为实时状态"
     },
     "worker": {
       "completed": "已完成",

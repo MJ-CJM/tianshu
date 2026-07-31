@@ -1291,7 +1291,9 @@
     "dag": {
       "battleEmpty": "No DAG data",
       "cancelConfirm": "Cancel the entire DAG execution?",
-      "retryConfirm": "Retry failed nodes?"
+      "retryConfirm": "Retry failed nodes?",
+      "previewBadge": "Plan Preview",
+      "previewHint": "Sandbox derived from the plan; switches to live status once execution starts"
     },
     "worker": {
       "completed": "Completed",
