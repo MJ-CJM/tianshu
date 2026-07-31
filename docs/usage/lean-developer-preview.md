@@ -40,8 +40,8 @@ PyPI/GHCR、官方容器或对外宣发。
 - `external_pending`：Ubuntu 外部复验、VoiceOver、OpenHands、executor compatibility、
   ROI、cost calibration 和 full G4。
 - `deferred`：full G5；它不进入当前 Candidate 的外部复验队列。
-- `visual_status=user_approval_pending`：48 张保留基线覆盖前一版 6 路由；最新源码定义
-  7 路由、预期 56 张，重新生成和哈希更新等待明确浏览器自动化授权。
+- `visual_status=user_approval_pending`：最新源码已完成隔离网页功能点验，但 48 张保留
+  基线只覆盖前一版 6 路由；当前 7 路由、预期 56 张视觉图片尚未重新生成或更新哈希。
 
 逐项证据见[能力事实矩阵](../launch/capability-matrix.md)，安全细节见
 [SECURITY.md](../../SECURITY.md)，恢复条件见
@@ -207,6 +207,11 @@ Candidate；新 Candidate 必须绑定新的 final-source Gate、build provenanc
 标签允许叠加，定时、长程和实验性的客卿任务仍可发现；旧 `/edicts` 地址兼容跳转到
 御书房。深浅主题和收起控制保留。
 
+客卿馆的安装状态不是静态清单：后端每次请求都会读取本机 CLI 安装版本，页面进入时、
+停留期间每 15 秒以及窗口重新聚焦时都会同步。页面同时展示“已安装版本”和“已验证
+基线”；天枢不会自动执行 Pi 升级，检测到新版本时先提示待兼容验证，契约与离线 RPC
+检查通过后才更新验证基线。当前本地验证的 Pi 基线为 `0.83.0`。
+
 “中枢总览”现展示四张独特能力卡：长程治理、自进化、平行位面、客卿。自进化卡使用
 后端真实 `evolution_status` 投影（`not_enabled / enabled / degraded`），不再永久显示
 固定状态。当前非视觉 Web 自动化已覆盖首次引导、首个任务直达详情、六入口导航、天工院
@@ -214,5 +219,5 @@ Candidate；新 Candidate 必须绑定新的 final-source Gate、build provenanc
 
 保留的 48 张视觉基线和哈希覆盖前一版 6 路由产品壳，包含 Universes、Evals、Keqing
 的双视口、双主题和侧栏展开/收起组合。最新源码已将御书房加入矩阵，定义 7 路由、
-预期 56 张图片；重新生成和哈希更新尚未执行，等待明确浏览器自动化授权。因此
-`visual_status=user_approval_pending`，不得写成当前运行时 E2E 或视觉终审已通过。
+预期 56 张图片；本轮已完成隔离网页功能点验，但视觉图片和哈希尚未重新生成。因此
+`visual_status=user_approval_pending`，不得把功能点验写成视觉终审已通过。

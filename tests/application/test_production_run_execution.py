@@ -264,6 +264,46 @@ def test_terminal_completer_consumes_exact_authority_projection() -> None:
     assert runner.take_projection(_AUTHORITY) is None
 
 
+def test_pre_runner_failure_without_projection_is_fenced_immediately() -> None:
+    runner = ProductionRunRunner(
+        _Planner(ManagedPlanningResult(plan=_PLAN)),
+        _Executor(ManagedExecutionProjection(status=TaskStatus.COMPLETED)),
+    )
+    calls: list[object] = []
+
+    class _Fenced:
+        def complete(self, command: object) -> str:
+            calls.append(command)
+            return "event-1"
+
+    class _Attempts:
+        def complete(self, **kwargs: object) -> bool:
+            raise AssertionError("terminal completion must use fenced UoW")
+
+    failure = RedactedError(
+        code="run_assignment_unavailable",
+        message="governed evolution runtime is unavailable",
+        retryable=False,
+        details_hash=None,
+    )
+    outcome = AttemptOutcomeV1(
+        disposition=AttemptDisposition.FAILED,
+        completed_at=_NOW,
+        failure=failure,
+    )
+
+    completed = ProductionAttemptCompleter(_Fenced(), _Attempts(), runner)(
+        _AUTHORITY,
+        outcome,
+    )
+
+    assert completed is True
+    assert len(calls) == 1
+    command = calls[0]
+    assert command.error == failure.message
+    assert command.failure_reason == failure.code
+
+
 def test_suspended_completer_uses_attempt_ledger_without_terminal_projection() -> None:
     recorded: list[dict[str, object]] = []
 

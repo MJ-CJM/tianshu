@@ -181,7 +181,13 @@ class ProductionAttemptCompleter:
             return self._fenced_completion.retry_or_dead_letter(authority, outcome)
         projection = self._runner.take_projection(authority)
         if projection is None:
-            return False
+            if outcome.disposition is not AttemptDisposition.FAILED:
+                return False
+            projection = ManagedExecutionProjection(
+                status=TaskStatus.FAILED,
+                error=outcome.failure,
+                failure_reason=outcome.failure.code if outcome.failure is not None else None,
+            )
         status = (
             TaskStatus.COMPLETED
             if outcome.disposition is AttemptDisposition.SUCCEEDED

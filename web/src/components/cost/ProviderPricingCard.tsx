@@ -35,9 +35,11 @@ import type {
   ProviderPricingUpdate,
 } from "../../api/types";
 import { useT } from "../../i18n";
+import PageQueryError from "../states/PageQueryError";
 
 interface RowData extends ProviderInfo {
   effective: EffectivePricing | null;
+  pricingUnavailable: boolean;
 }
 
 const SOURCE_COLOR: Record<string, string> = {
@@ -55,6 +57,7 @@ export default function ProviderPricingCard() {
   const t = useT();
   const [rows, setRows] = useState<RowData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [editing, setEditing] = useState<RowData | null>(null);
   const [form, setForm] = useState<ProviderPricingUpdate>({});
   const [saving, setSaving] = useState(false);
@@ -63,19 +66,22 @@ export default function ProviderPricingCard() {
 
   const refresh = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const providers = await getProviders();
       const enriched = await Promise.all(
         providers.map(async (p) => {
           try {
             const eff = await getEffectivePricing(p.name);
-            return { ...p, effective: eff };
+            return { ...p, effective: eff, pricingUnavailable: false };
           } catch {
-            return { ...p, effective: null };
+            return { ...p, effective: null, pricingUnavailable: true };
           }
         }),
       );
       setRows(enriched);
+    } catch (error) {
+      setLoadError(error);
     } finally {
       setLoading(false);
     }
@@ -141,6 +147,9 @@ export default function ProviderPricingCard() {
       title: t("cost.pricing.source"),
       key: "source",
       render: (_: unknown, r: RowData) => {
+        if (r.pricingUnavailable) {
+          return <Tag color="red">{t("pageDataState.unavailableTitle")}</Tag>;
+        }
         if (r.effective?.billing === "subscription") {
           return <Tag color="purple">{t("cost.pricing.sourceLabel.subscription")}</Tag>;
         }
@@ -202,7 +211,9 @@ export default function ProviderPricingCard() {
       }
       style={{ marginTop: 16 }}
     >
-      {loading ? (
+      {loadError ? (
+        <PageQueryError error={loadError} onRetry={() => void refresh()} />
+      ) : loading ? (
         <Spin />
       ) : (
         <Table

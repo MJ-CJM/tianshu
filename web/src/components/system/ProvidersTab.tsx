@@ -38,6 +38,7 @@ import ModelProvidersSection from "./ModelProvidersSection";
 import ModelSelect from "./ModelSelect";
 import TaskSlotsSection from "./TaskSlotsSection";
 import { useT } from "../../i18n";
+import PageQueryError from "../states/PageQueryError";
 
 interface ConfigFormState extends LLMConfigUpdateRequest {
   api_key?: string;
@@ -222,11 +223,13 @@ function ConfigPanelBody({
 export default function ProvidersTab() {
   const t = useT();
   const { token } = theme.useToken();
-  const { data: providers, isLoading: providersLoading } = useProviders();
+  const providersQuery = useProviders();
+  const { data: providers, isLoading: providersLoading } = providersQuery;
   const deleteProviderMutation = useDeleteProvider();
 
   // LLM Config state
-  const { data: configsData, isLoading: configsLoading } = useConfigs();
+  const configsQuery = useConfigs();
+  const { data: configsData, isLoading: configsLoading } = configsQuery;
   const createMutation = useCreateConfig();
   const updateMutation = useUpdateNamedConfig();
   const deleteMutation = useDeleteConfig();
@@ -234,7 +237,8 @@ export default function ProvidersTab() {
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [addForm] = Form.useForm<LLMConfigCreateRequest>();
   const addProviderId = Form.useWatch("provider_id", addForm);
-  const { data: modelProviders } = useModelProviders();
+  const modelProvidersQuery = useModelProviders();
+  const { data: modelProviders } = modelProvidersQuery;
   const [forms, setForms] = useState<Record<string, ConfigFormState>>({});
 
   useEffect(() => {
@@ -323,6 +327,21 @@ export default function ProvidersTab() {
       onSuccess: () => notification.success({ message: t("system.toast.providerDeleted", { name }) }),
     });
   };
+
+  const queryError =
+    providersQuery.error ?? configsQuery.error ?? modelProvidersQuery.error;
+  if (queryError) {
+    return (
+      <PageQueryError
+        error={queryError}
+        onRetry={() => {
+          void providersQuery.refetch();
+          void configsQuery.refetch();
+          void modelProvidersQuery.refetch();
+        }}
+      />
+    );
+  }
 
   const configs = configsData?.configs ?? [];
   const activeName = configsData?.active_name ?? "";
@@ -518,6 +537,7 @@ export default function ProvidersTab() {
           >
             <Select
               allowClear
+              loading={modelProvidersQuery.isLoading}
               placeholder={t("system.providers.registry.providerSelectPlaceholder")}
               options={(modelProviders ?? []).map((p) => ({
                 value: p.id,

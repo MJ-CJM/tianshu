@@ -340,6 +340,11 @@
   },
   "audit": {
     "title": "Audit Center",
+    "label": {
+      "pass": "Passed",
+      "flag": "Needs review",
+      "block": "Blocked"
+    },
     "tab": {
       "stats": "Audit stats",
       "policy": "Policy Decisions",
@@ -566,7 +571,7 @@
       "title": "Task Detail",
       "notFound": "Task not found",
       "viewBattleMap": "View DAG",
-      "backToList": "Back",
+      "backToList": "Back to tasks",
       "planCardTitle": "Execution Plan",
       "planExecuted": "Executed",
       "planFallbackTag": "Fallback",
@@ -2585,8 +2590,8 @@
     "capabilityCanDo": "Inspect Claude Code, Codex, Pi, and OpenCode, then configure model and per-run budget defaults.",
     "capabilityBoundary": "Each CLI manages its own credentials; reliable pre-action interception and provider-side hard cost caps are not available.",
     "default": "default",
-    "pinned": "pinned",
-    "drift": "version drift",
+    "pinned": "verified",
+    "drift": "compatibility check needed",
     "installedYes": "installed",
     "installedNo": "not installed",
     "saved": "Saved",

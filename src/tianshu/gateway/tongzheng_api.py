@@ -408,6 +408,13 @@ async def _bring_instance_live(request: Request, instance_id: str) -> dict:
 
     返回 {"reloaded": bool, "reason": str}。bot_manager 缺失时降级（不抛）。
     """
+    app_settings = getattr(request.app.state, "settings", None)
+    if getattr(app_settings, "eval_mode", False):
+        return {
+            "reloaded": False,
+            "reason": "external connections disabled in eval mode",
+        }
+
     storage: Storage = request.app.state.storage
     bot_manager = getattr(request.app.state, "bot_manager", None)
     if bot_manager is None:

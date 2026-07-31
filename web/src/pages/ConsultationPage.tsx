@@ -116,6 +116,7 @@ export default function ConsultationPage() {
             >
               {t("consultation.submit")}
             </Button>
+            {createMutation.error && <PageQueryError error={createMutation.error} />}
           </Space>
         </GlowCard>
 
@@ -124,14 +125,15 @@ export default function ConsultationPage() {
           <Space wrap>
             <Typography.Text type="secondary">{t("consultation.history")}</Typography.Text>
             {history.map((id, i) => (
-              <Tag
+              <Button
                 key={id}
-                color={id === activeId ? "blue" : "default"}
-                style={{ cursor: "pointer" }}
+                size="small"
+                type={id === activeId ? "primary" : "default"}
+                aria-pressed={id === activeId}
                 onClick={() => setActiveId(id)}
               >
                 {t("consultation.round", { n: i + 1 })}
-              </Tag>
+              </Button>
             ))}
           </Space>
         )}

@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
-import { Row, Col, Card, InputNumber, Button, notification, theme } from "antd";
+import { Row, Col, Card, InputNumber, Button, Spin, notification, theme } from "antd";
 import { useAgentConfig, useUpdateAgentConfig } from "../../hooks/useConfig";
 import type { AgentConfigUpdateRequest } from "../../api/types";
 import { useT } from "../../i18n";
+import PageQueryError from "../states/PageQueryError";
 
 export default function GlobalConfigTab() {
   const t = useT();
   const { token } = theme.useToken();
-  const { data: agentConfigData } = useAgentConfig();
+  const agentConfigQuery = useAgentConfig();
+  const { data: agentConfigData } = agentConfigQuery;
   const updateAgentMutation = useUpdateAgentConfig();
   const [agentForm, setAgentForm] = useState<AgentConfigUpdateRequest>({});
 
@@ -72,6 +74,19 @@ export default function GlobalConfigTab() {
     fontSize: 13,
     color: token.colorTextTertiary,
   };
+
+  if (agentConfigQuery.error) {
+    return (
+      <PageQueryError
+        error={agentConfigQuery.error}
+        onRetry={() => void agentConfigQuery.refetch()}
+      />
+    );
+  }
+
+  if (agentConfigQuery.isLoading) {
+    return <Spin />;
+  }
 
   return (
     <Row gutter={16}>

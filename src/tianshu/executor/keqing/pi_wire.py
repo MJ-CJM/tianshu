@@ -15,7 +15,7 @@ from pydantic import BaseModel
 # 钉死的 pi 版本(@earendil-works/pi-coding-agent, bin 名 pi)。契约测试对此版本回归;
 # pi 升级时先跑契约套件验证 wire 兼容,绿了再更新此常量。会话档 spawn 时可探测
 # `pi --version` 与此比对(P2),不符则告警——让 pi 演进对天枢可见而非静默漂移。
-PINNED_PI_VERSION = "0.81.1"
+PINNED_PI_VERSION = "0.83.0"
 
 # --- AgentSessionEvent / AgentEvent 的 type 常量(pi docs/json.md) ---
 EVT_SESSION = "session"  # 首行 header,非事件

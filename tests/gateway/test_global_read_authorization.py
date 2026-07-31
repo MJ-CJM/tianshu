@@ -95,3 +95,48 @@ def test_global_operational_reads_reject_two_api_pats_and_allow_admin(
     assert all(response.status_code == 403 for response in denied)
     assert all(response.json()["error"]["code"] == "insufficient_scope" for response in denied)
     assert all(response.status_code == 200 for response in allowed)
+
+
+def test_session_rule_create_and_revoke_are_system_audited(storage: Storage) -> None:
+    app = _app(storage)
+    admin_headers = _issue_pat(app, "user:session-rule-admin", admin=True)
+
+    with TestClient(
+        app,
+        base_url=_BASE_URL,
+        client=("127.0.0.1", 41000),
+    ) as client:
+        created = client.post(
+            "/api/policy/session_rules",
+            headers=admin_headers,
+            json={
+                "tool_name": "web_search",
+                "scope": "always",
+                "reason": "session rule audit regression",
+            },
+        )
+        assert created.status_code == 201
+        rule_id = created.json()["data"]["rule_id"]
+
+        revoked = client.delete(
+            f"/api/policy/session_rules/{rule_id}",
+            headers=admin_headers,
+        )
+        assert revoked.status_code == 200
+
+    events = [
+        event
+        for event in storage.list_system_audit()
+        if event.action.startswith("policy.session_rule_")
+    ]
+    assert [event.action for event in events] == [
+        "policy.session_rule_created",
+        "policy.session_rule_revoked",
+    ]
+    actor_digest = hashlib.sha256(b"user:session-rule-admin").hexdigest()
+    subject_digest = hashlib.sha256(rule_id.encode()).hexdigest()
+    assert all(event.actor_digest == actor_digest for event in events)
+    assert all(event.subject_kind == "session_rule" for event in events)
+    assert all(event.subject_digest == subject_digest for event in events)
+    assert all(event.outcome == "succeeded" for event in events)
+    assert all(event.reason_code == "policy_allowed" for event in events)

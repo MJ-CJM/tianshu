@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -125,6 +127,62 @@ async def test_trigger_auto_propose_smoke(client):
     body = resp.json()
     assert body["success"] is True
     assert body["data"] == {"skipped": "disabled"}
+
+
+async def test_taiyi_report_get_is_read_only(client):
+    app = client._transport.app
+    generate = AsyncMock(side_effect=AssertionError("GET must not generate a report"))
+    app.state.diagnostician.report = generate
+
+    resp = await client.get("/api/universes/taiyi/report")
+
+    assert resp.status_code == 200
+    assert resp.json()["data"] == {
+        "status": "not_generated",
+        "report": None,
+        "generated_at": None,
+    }
+    generate.assert_not_awaited()
+
+
+async def test_taiyi_report_post_generates_and_get_reads_persisted_report(client):
+    app = client._transport.app
+    memorial = {
+        "type": "taiyi.memorial",
+        "title": "太医奏折",
+        "summary": "太医巡诊,察得 1 处可调之症,详列于后。",
+        "findings": [{"target": "src/tianshu/a.py", "hypothesis": "修正边界"}],
+        "count": 1,
+    }
+    generate = AsyncMock(return_value=memorial)
+    app.state.diagnostician.report = generate
+
+    created = await client.post("/api/universes/taiyi/report")
+
+    assert created.status_code == 200
+    created_state = created.json()["data"]
+    assert created_state["status"] == "ready"
+    assert created_state["report"] == memorial
+    assert created_state["generated_at"]
+    generate.assert_awaited_once_with()
+
+    fetched = await client.get("/api/universes/taiyi/report")
+    assert fetched.status_code == 200
+    assert fetched.json()["data"] == created_state
+    generate.assert_awaited_once_with()
+
+
+async def test_taiyi_report_post_is_blocked_in_eval_mode(client):
+    app = client._transport.app
+    app.state.settings.eval_mode = True
+    generate = AsyncMock(side_effect=AssertionError("eval mode must not call the model"))
+    app.state.diagnostician.report = generate
+
+    resp = await client.post("/api/universes/taiyi/report")
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "taiyi_generation_disabled_in_eval_mode"
+    generate.assert_not_awaited()
 
 
 async def test_diff_two_universes(client):

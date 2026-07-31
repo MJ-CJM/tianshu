@@ -50,6 +50,10 @@ export default function KeqingManagementPage() {
   const statusQuery = useQuery({
     queryKey: ["keqing-status"],
     queryFn: getKeqingStatus,
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
   });
   const configQuery = useQuery({
     queryKey: ["agent-config"],

@@ -119,7 +119,7 @@ async def compact_memory(request: Request):
     from datetime import UTC, datetime, timedelta
 
     cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
-    old_entries = [e for e in entries if e.created_at < cutoff.isoformat()]
+    old_entries = [e for e in entries if e.created_at < cutoff]
     if len(old_entries) <= 3:
         return ApiResponse(
             success=True,

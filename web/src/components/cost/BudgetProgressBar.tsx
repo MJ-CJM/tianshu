@@ -27,7 +27,11 @@ export default function BudgetProgressBar({ budget, loading }: Props) {
       return;
     }
     setBudgetMutation.mutate(
-      { scope: "global", budgetCny: newBudget },
+      {
+        scope: budget?.scope ?? "global",
+        budgetCny: newBudget,
+        period: budget?.period ?? "monthly",
+      },
       {
         onSuccess: () => {
           notification.success({ message: t("cost.budget.updated") });

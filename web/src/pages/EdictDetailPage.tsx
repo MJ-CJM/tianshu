@@ -324,7 +324,7 @@ export default function EdictDetailPage() {
           )}
           <Button
             icon={<ArrowLeftOutlined />}
-            onClick={() => navigate("/")}
+            onClick={() => navigate("/approvals")}
           >
             {t("page.edictDetail.backToList")}
           </Button>
@@ -760,7 +760,9 @@ export default function EdictDetailPage() {
             </div>
             {edict.status === "open" && (
               <Space size="small" wrap>
-                {edict.acceptance && edict.runtime.lifecycle_phase === "active" && (
+                {edict.acceptance &&
+                  edict.runtime.lifecycle_phase === "active" &&
+                  hasActiveMemorial && (
                   <Button
                     size="small"
                     icon={<PauseCircleOutlined />}
@@ -818,7 +820,9 @@ export default function EdictDetailPage() {
 
       {!canFollowUp && edict.status === "open" && (
         <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 12, marginBottom: 24 }}>
-          {edict.acceptance && edict.runtime.lifecycle_phase === "active" && (
+          {edict.acceptance &&
+            edict.runtime.lifecycle_phase === "active" &&
+            hasActiveMemorial && (
             <Button icon={<PauseCircleOutlined />} onClick={handlePause}>
               {t("button.pauseAfterRound")}
             </Button>

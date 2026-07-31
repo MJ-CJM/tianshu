@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from tianshu.auditor.rules_config import AuditRulesConfig
+from tianshu.gateway.auth import get_auth_context, hash_system_audit_identity
 from tianshu.models import ApiResponse
+from tianshu.models.system_audit import AppendSystemAuditRequest
 from tianshu.storage import Storage
-
-logger = logging.getLogger(__name__)
 
 audit_router = APIRouter(tags=["audit"])
 
@@ -136,6 +135,28 @@ async def list_session_rules(request: Request, scope: str = "all"):
     return ApiResponse(success=True, data={"rules": [_serialize(r) for r in rules]})
 
 
+def _session_rule_audit_request(
+    request: Request,
+    *,
+    rule_id: str,
+    action: Literal[
+        "policy.session_rule_created",
+        "policy.session_rule_revoked",
+    ],
+) -> AppendSystemAuditRequest:
+    context = get_auth_context(request)
+    return AppendSystemAuditRequest(
+        correlation_id=context.correlation_id,
+        actor_digest=hash_system_audit_identity(context.principal.id),
+        action=action,
+        outcome="succeeded",
+        reason_code="policy_allowed",
+        subject_kind="session_rule",
+        subject_digest=hash_system_audit_identity(rule_id),
+        metadata={},
+    )
+
+
 @audit_router.post("/policy/session_rules", response_model=ApiResponse, status_code=201)
 async def create_session_rule(request: Request):
     """Manually create a session rule (source='manual')."""
@@ -181,21 +202,13 @@ async def create_session_rule(request: Request):
     await store.create(rule)
 
     storage: Storage = request.app.state.storage
-    try:
-        storage.append_event(
-            edict_id or "",
-            None,
-            "policy.session_rule_created",
-            {
-                "rule_id": rule.rule_id,
-                "tool_name": tool_name,
-                "scope": scope,
-                "source": "manual",
-                "reason": reason,
-            },
+    storage.append_system_audit(
+        _session_rule_audit_request(
+            request,
+            rule_id=rule.rule_id,
+            action="policy.session_rule_created",
         )
-    except Exception:
-        logger.exception("failed to append policy.session_rule_created event")
+    )
 
     return ApiResponse(
         success=True,
@@ -216,15 +229,13 @@ async def revoke_session_rule(rule_id: str, request: Request):
         raise HTTPException(status_code=503, detail="SessionRuleStore not configured")
     await store.revoke(rule_id)
     storage: Storage = request.app.state.storage
-    try:
-        storage.append_event(
-            "",
-            None,
-            "policy.session_rule_revoked",
-            {"rule_id": rule_id, "source": "manual"},
+    storage.append_system_audit(
+        _session_rule_audit_request(
+            request,
+            rule_id=rule_id,
+            action="policy.session_rule_revoked",
         )
-    except Exception:
-        logger.exception("failed to append policy.session_rule_revoked event")
+    )
     return ApiResponse(success=True, data={"rule_id": rule_id, "revoked": True})
 
 

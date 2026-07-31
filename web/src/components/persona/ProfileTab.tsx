@@ -167,7 +167,16 @@ export default function ProfileTab({ personaId }: Props) {
       <Empty
         description={t("comp.profile.empty")}
         style={{ padding: 48 }}
-      />
+      >
+        <Button
+          type="primary"
+          icon={<ReloadOutlined spin={syncing} />}
+          loading={syncing}
+          onClick={handleSynthesize}
+        >
+          {t("comp.profile.synthesize")}
+        </Button>
+      </Empty>
     );
   }
 

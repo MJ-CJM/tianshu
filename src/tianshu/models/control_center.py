@@ -114,10 +114,7 @@ class ControlCenterSnapshotV1(_StrictModel):
             raise ValueError("pending_decision_total must cover pending_decisions")
         if self.evidence_total < len(self.recent_evidence):
             raise ValueError("evidence_total must cover recent_evidence")
-        if (
-            self.awaiting_follow_up_total + self.cancelled_edict_total
-            > self.unarchived_edict_total
-        ):
+        if self.awaiting_follow_up_total + self.cancelled_edict_total > self.unarchived_edict_total:
             raise ValueError("workspace breakdown must not exceed unarchived_edict_total")
         return self
 

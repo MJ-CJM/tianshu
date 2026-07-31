@@ -202,7 +202,9 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
 
     def reconcile_control_planes() -> int:
         evolution_count = app.state.evolution_reconciler.reconcile_once()
-        return evolution_count + plan_review_coordinator.reconcile_once()
+        plan_review_count = plan_review_coordinator.reconcile_once()
+        dead_letter_count = fenced_completion.reconcile_dead_lettered_roots()
+        return evolution_count + plan_review_count + dead_letter_count
 
     run_reconciler = RunReconciler(
         storage.attempt_repo,
@@ -218,6 +220,7 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
     scheduled_run_preparer = ScheduledRunPreparer(
         storage.unit_of_work,
         storage.attempt_repo,
+        app.state.challenger_router,
     )
     app.state.production_run_runner = production_runner
     app.state.fenced_run_completion = fenced_completion

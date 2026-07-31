@@ -36,6 +36,7 @@ import type {
 } from "../../api/types";
 import ModelSelect from "./ModelSelect";
 import { useT } from "../../i18n";
+import PageQueryError from "../states/PageQueryError";
 
 /** 「模型供应商」区块：目录状态 + provider 实例表 + 添加向导 / 录 key / 连通测试。 */
 
@@ -123,7 +124,8 @@ function AddProviderModal({
 }) {
   const t = useT();
   const { token } = theme.useToken();
-  const { data: profiles } = useModelProviderProfiles();
+  const profilesQuery = useModelProviderProfiles();
+  const { data: profiles } = profilesQuery;
   const createMutation = useCreateModelProvider();
   const [form] = Form.useForm<ModelProviderCreateRequest>();
   const profileId = Form.useWatch("profile_id", form);
@@ -171,9 +173,16 @@ function AddProviderModal({
         form.resetFields();
       }}
       confirmLoading={createMutation.isPending}
+      okButtonProps={{ disabled: Boolean(profilesQuery.error) }}
       okText={t("action.add")}
       cancelText={t("common.cancel")}
     >
+      {profilesQuery.error ? (
+        <PageQueryError
+          error={profilesQuery.error}
+          onRetry={() => void profilesQuery.refetch()}
+        />
+      ) : (
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
         <Form.Item
           name="profile_id"
@@ -260,6 +269,7 @@ function AddProviderModal({
           />
         </Form.Item>
       </Form>
+      )}
     </Modal>
   );
 }

@@ -12,7 +12,7 @@ import {
 import { fetchPolicyStats } from "../api/policy";
 import type { PolicyStats } from "../api/policy";
 import type { ColumnsType } from "antd/es/table";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuditStats } from "../hooks/useAudit";
 import { useAuditRules } from "../hooks/useOps";
@@ -380,9 +380,9 @@ function NetworkEventsTab() {
       width: 180,
       ellipsis: true,
       render: (v: string | null, r) => (
-        <a onClick={() => (window.location.href = `/edicts/${r.edict_id}`)}>
+        <Link to={`/edicts/${r.edict_id}`}>
           {v || truncateId(r.edict_id)}
-        </a>
+        </Link>
       ),
     },
     {
@@ -487,7 +487,6 @@ function NetworkEventsTab() {
 
 export default function AuditDashboardPage() {
   const t = useT();
-  const navigate = useNavigate();
   const statsQuery = useAuditStats();
   const { data: stats, isLoading, refetch } = statsQuery;
   const [searchParams, setSearchParams] = useSearchParams();
@@ -507,7 +506,7 @@ export default function AuditDashboardPage() {
       dataIndex: "edict_title",
       ellipsis: true,
       render: (title: string, record) => (
-        <a onClick={() => navigate(`/edicts/${record.edict_id}`)}>{title || truncateId(record.edict_id)}</a>
+        <Link to={`/edicts/${record.edict_id}`}>{title || truncateId(record.edict_id)}</Link>
       ),
     },
     {
@@ -571,7 +570,7 @@ export default function AuditDashboardPage() {
       dataIndex: "edict_title",
       ellipsis: true,
       render: (title: string, record) => (
-        <a onClick={() => navigate(`/edicts/${record.edict_id}`)}>{title || truncateId(record.edict_id)}</a>
+        <Link to={`/edicts/${record.edict_id}`}>{title || truncateId(record.edict_id)}</Link>
       ),
     },
     {

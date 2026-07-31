@@ -40,6 +40,8 @@ SYSTEM_AUDIT_METADATA_KEYS: dict[str, frozenset[str]] = {
     "mcp.config.created": frozenset(),
     "mcp.config.updated": frozenset(),
     "mcp.config.deleted": frozenset(),
+    "policy.session_rule_created": frozenset(),
+    "policy.session_rule_revoked": frozenset(),
     "secrets.master_key.rotated": frozenset(),
     "decision.request.denied": frozenset({"kind"}),
     "decision.resolve.denied": frozenset({"actual_version", "expected_version", "kind", "status"}),

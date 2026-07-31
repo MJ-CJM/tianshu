@@ -260,6 +260,53 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("Edict detail durable governance workspace", () => {
+  it("returns to the Royal Study and localizes the memorial audit verdict", async () => {
+    const detail = {
+      ...SNAPSHOT,
+      memorials: [
+        {
+          id: "memorial-audited",
+          edict_id: "edict-1",
+          instruction: "核验返回路径与审计文案",
+          status: "completed",
+          summary: null,
+          result: "已完成",
+          usage: {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+          },
+          error: null,
+          created_at: "2026-07-17T08:00:00Z",
+          started_at: "2026-07-17T08:00:00Z",
+          completed_at: "2026-07-17T08:01:00Z",
+          attempt: 1,
+          parent_memorial_id: null,
+          review_status: "not_required",
+          audit: {
+            verdict: "pass",
+            reasons: [],
+            rules_checked: 1,
+            llm_reviewed: false,
+          },
+          artifacts: [],
+          timeline: [],
+          persona_id: null,
+          dag_node_id: null,
+        },
+      ],
+    } as unknown as EdictDetailSnapshotV1;
+    detailHook.useEdictDetail.mockReturnValue(hookState("success-data", detail));
+    const user = userEvent.setup();
+
+    renderPage();
+
+    expect(screen.getAllByText("通过").length).toBeGreaterThan(0);
+    expect(screen.queryByText("audit.label.pass")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /返回御书房/ }));
+    expect(screen.getByLabelText("location")).toHaveTextContent("/approvals");
+  });
+
   it("keeps legacy event, tool, and memorial review records read-only and mutates only the composed decision", async () => {
     const legacyDetail = {
       ...SNAPSHOT,
@@ -389,7 +436,9 @@ describe("Edict detail durable governance workspace", () => {
       priority: "normal",
       governanceContract: REQUESTED_CONTRACT,
     }));
-    expect(screen.getByLabelText("location")).toHaveTextContent("/edicts/edict-replay");
+    await waitFor(() => {
+      expect(screen.getByLabelText("location")).toHaveTextContent("/edicts/edict-replay");
+    });
   });
 
   it("shows precise successful empty copy without invented counts", () => {
@@ -401,6 +450,53 @@ describe("Edict detail durable governance workspace", () => {
     expect(screen.getByText("尚无持久裁决实录。")).toBeInTheDocument();
     expect(screen.getByText("尚无可验凭据包。")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/可信度|置信度|88%/);
+  });
+
+  it("shows pause only while a long-task memorial is actually active", () => {
+    const completed = {
+      ...SNAPSHOT,
+      edict: {
+        ...SNAPSHOT.edict,
+        acceptance: { max_outer_iterations: 5 },
+      },
+      memorials: [
+        {
+          id: "memorial-completed",
+          edict_id: "edict-1",
+          instruction: "已完成的长任务",
+          status: "completed",
+          review_status: "not_required",
+          usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+          created_at: "2026-07-17T08:00:00Z",
+          started_at: "2026-07-17T08:00:00Z",
+          completed_at: "2026-07-17T08:01:00Z",
+          attempt: 1,
+          artifacts: [],
+          timeline: [],
+        },
+      ],
+    } as unknown as EdictDetailSnapshotV1;
+    detailHook.useEdictDetail.mockReturnValue(hookState("success-data", completed));
+    const rendered = renderPage();
+
+    expect(screen.queryByRole("button", { name: /本轮.*暂停/ })).not.toBeInTheDocument();
+
+    rendered.unmount();
+    const running = {
+      ...completed,
+      memorials: [
+        {
+          ...completed.memorials[0],
+          id: "memorial-running",
+          status: "running",
+          completed_at: null,
+        },
+      ],
+    } as unknown as EdictDetailSnapshotV1;
+    detailHook.useEdictDetail.mockReturnValue(hookState("success-data", running));
+    renderPage();
+
+    expect(screen.getByRole("button", { name: /本轮.*暂停/ })).toBeInTheDocument();
   });
 
   it("makes planner fallback visible with localized reasons", async () => {

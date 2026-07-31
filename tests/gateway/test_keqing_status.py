@@ -47,7 +47,7 @@ class TestStatusEndpoint:
     def test_pi_exposes_capabilities_and_pinned_version(self):
         data = _app().get("/keqing/status").json()["data"]
         pi = next(b for b in data["backends"] if b["backend"] == "pi")
-        assert pi["pinned_version"] == "0.81.1"
+        assert pi["pinned_version"] == "0.83.0"
         caps = pi["capabilities"]
         # 客卿=外臣:能力声明(不是人格)
         assert caps["session_resume"] is True and caps["usage_reporting"] == "full"
@@ -84,7 +84,7 @@ class TestStatusEndpoint:
 
 class TestVersionDetection:
     def test_pinned_version_only_for_pi(self):
-        assert _pinned_version("pi") == "0.81.1"
+        assert _pinned_version("pi") == "0.83.0"
         assert _pinned_version("codex") is None
 
     def test_detect_version_none_for_missing_binary(self):

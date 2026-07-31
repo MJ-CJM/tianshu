@@ -38,6 +38,33 @@ afterEach(() => {
 });
 
 describe("KeqingManagementPage data truth", () => {
+  it("keeps installed backend versions synchronized while the page stays open", async () => {
+    apiMocks.getKeqingStatus.mockResolvedValue({
+      backends: [],
+      gateway_enabled: false,
+    });
+    apiMocks.getAgentConfig.mockResolvedValue({});
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <KeqingManagementPage />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText("治理默认");
+    const statusQuery = client
+      .getQueryCache()
+      .find({ queryKey: ["keqing-status"] });
+    const statusOptions = statusQuery?.options as Record<string, unknown> | undefined;
+    expect(statusOptions?.refetchInterval).toBe(15_000);
+    expect(statusOptions?.refetchIntervalInBackground).toBe(false);
+    expect(statusOptions?.refetchOnMount).toBe("always");
+    expect(statusOptions?.refetchOnWindowFocus).toBe("always");
+  });
+
   it("does not expose the unwired credential gateway as a runnable control", async () => {
     apiMocks.getKeqingStatus.mockResolvedValue({
       backends: [],

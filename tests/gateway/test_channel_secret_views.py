@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from tianshu.gateway import tongzheng_api
 from tianshu.gateway.tongzheng_api import tongzheng_router
 
 
@@ -155,3 +159,44 @@ def test_explicit_empty_webhook_credentials_clear_existing_values(storage):
     runtime = storage.load_channel_instance_runtime("telegram-default")
     assert runtime is not None
     assert runtime["webhook_secret"] == ""
+
+
+def test_eval_mode_saves_and_enables_without_starting_external_channels(storage, monkeypatch):
+    storage.save_channel_instance(
+        instance_id="feishu-extra",
+        channel_type="feishu",
+        label="飞书",
+        enabled=False,
+        config={"app_id": "cli_test"},
+    )
+    runtime_settings = SimpleNamespace(validate_or_raise=lambda: None)
+    monkeypatch.setattr(
+        tongzheng_api,
+        "_settings_for_instance",
+        lambda _storage, _instance_id: runtime_settings,
+    )
+    bot_manager = SimpleNamespace(reload_instance=AsyncMock(return_value=True))
+    client = _client(storage)
+    client.app.state.settings = SimpleNamespace(eval_mode=True)
+    client.app.state.bot_manager = bot_manager
+
+    with client:
+        saved = client.put(
+            "/api/tongzheng/channels/telegram",
+            json={"connection_mode": "polling"},
+        )
+        enabled = client.patch(
+            "/api/tongzheng/instances/feishu-extra/enabled",
+            json={"enabled": True},
+        )
+
+    assert saved.status_code == 200
+    assert saved.json()["data"] == {
+        "reloaded": False,
+        "reason": "external connections disabled in eval mode",
+    }
+    assert enabled.status_code == 200
+    assert enabled.json()["data"]["enabled"] is True
+    assert storage.get_channel_instance("telegram-default")["enabled"] is True
+    assert storage.get_channel_instance("feishu-extra")["enabled"] is True
+    bot_manager.reload_instance.assert_not_awaited()

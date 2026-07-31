@@ -22,6 +22,7 @@ import {
 } from "../../hooks/useMCP";
 import type { MCPServerInfo } from "../../api/mcp";
 import CreateMCPServerModal from "./CreateMCPServerModal";
+import PageQueryError from "../states/PageQueryError";
 
 const STATUS_COLOR: Record<string, string> = {
   connected: "green",
@@ -161,9 +162,19 @@ function ServerCard({ server }: { server: MCPServerInfo }) {
 
 export default function MCPTab() {
   const t = useT();
-  const { data: servers, isLoading } = useMCPServers();
+  const serversQuery = useMCPServers();
+  const { data: servers, isLoading } = serversQuery;
   const reload = useReloadMCP();
   const [createOpen, setCreateOpen] = useState(false);
+
+  if (serversQuery.error) {
+    return (
+      <PageQueryError
+        error={serversQuery.error}
+        onRetry={() => void serversQuery.refetch()}
+      />
+    );
+  }
 
   if (isLoading) {
     return <Spin />;

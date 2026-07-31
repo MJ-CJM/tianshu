@@ -19,7 +19,9 @@ import {
   branchUniverse,
   deleteUniverse,
   enableParallelUniverse,
+  generateTaiyiReport,
   getCodeDiff,
+  getTaiyiReport,
   getUniverseStatus,
   listEvalRuns,
   listUniverses,
@@ -28,6 +30,7 @@ import {
   restoreUniverse,
   triggerEvolve,
 } from "../api/universe";
+import type { TaiyiReportState } from "../api/universe";
 import type { Universe, VariantEvalRun } from "../api/types";
 import {
   CapabilityBoundary,
@@ -81,6 +84,9 @@ export default function UniversePage() {
   const [enabled, setEnabled] = useState(false);
   const [enabling, setEnabling] = useState(false);
   const [evolving, setEvolving] = useState(false);
+  const [taiyiState, setTaiyiState] = useState<TaiyiReportState | null>(null);
+  const [taiyiLoading, setTaiyiLoading] = useState(false);
+  const [taiyiGenerating, setTaiyiGenerating] = useState(false);
 
   // 代码演化 modal state
   const [proposeOpen, setProposeOpen] = useState(false);
@@ -121,9 +127,35 @@ export default function UniversePage() {
     }
   };
 
+  const loadTaiyi = async () => {
+    setTaiyiLoading(true);
+    try {
+      const res = await getTaiyiReport();
+      if (res.success && res.data) setTaiyiState(res.data);
+    } finally {
+      setTaiyiLoading(false);
+    }
+  };
+
   useEffect(() => {
     void load();
+    void loadTaiyi();
   }, []);
+
+  const onGenerateTaiyi = async () => {
+    setTaiyiGenerating(true);
+    try {
+      const res = await generateTaiyiReport();
+      if (res.success && res.data) {
+        setTaiyiState(res.data);
+        void message.success("太医奏折已生成");
+      }
+    } catch {
+      void message.error("太医巡诊失败或当前环境禁止调用模型");
+    } finally {
+      setTaiyiGenerating(false);
+    }
+  };
 
   const onEnable = async () => {
     setEnabling(true);
@@ -468,7 +500,13 @@ export default function UniversePage() {
               </Button>
             </>
           )}
-          <Button icon={<ReloadOutlined />} onClick={() => void load()}>
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={() => {
+              void load();
+              void loadTaiyi();
+            }}
+          >
             {t("action.refresh")}
           </Button>
         </Space>
@@ -479,6 +517,44 @@ export default function UniversePage() {
         canDo={t("universe.capabilityCanDo")}
         boundary={t("universe.capabilityBoundary")}
       />
+
+      <Card
+        size="small"
+        title="太医奏折"
+        extra={
+          <Button loading={taiyiGenerating} onClick={() => void onGenerateTaiyi()}>
+            {taiyiState?.status === "ready" ? "重新巡诊" : "生成奏折"}
+          </Button>
+        }
+        style={{ marginBottom: 16 }}
+      >
+        {taiyiLoading && !taiyiState ? (
+          <Typography.Text type="secondary">正在读取最近奏折...</Typography.Text>
+        ) : taiyiState?.status === "ready" && taiyiState.report ? (
+          <Space direction="vertical" size="small">
+            <Typography.Text>{taiyiState.report.summary}</Typography.Text>
+            {taiyiState.report.findings.length > 0 && (
+              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                {taiyiState.report.findings.map((finding) => (
+                  <li key={`${finding.target}:${finding.hypothesis}`}>
+                    <code>{finding.target}</code>：{finding.hypothesis}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {taiyiState.generated_at && (
+              <Typography.Text type="secondary">
+                生成于 {new Date(taiyiState.generated_at).toLocaleString("zh-CN")}
+              </Typography.Text>
+            )}
+          </Space>
+        ) : (
+          <Space direction="vertical" size={0}>
+            <Typography.Text>尚未生成太医奏折</Typography.Text>
+            <Typography.Text type="secondary">仅点击“生成奏折”时才会调用模型。</Typography.Text>
+          </Space>
+        )}
+      </Card>
 
       {rows.length > 0 && (
         <Card size="small" title="位面谱系" style={{ marginBottom: 16 }}>

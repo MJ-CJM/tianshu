@@ -67,7 +67,17 @@ export default function SkillsTab() {
       dataIndex: "name",
       key: "name",
       render: (name: string) => (
-        <a onClick={() => handleOpenDetail(name)}>{name}</a>
+        <Button
+          type="link"
+          size="small"
+          style={{ padding: 0, height: "auto" }}
+          onClick={(event) => {
+            event.stopPropagation();
+            handleOpenDetail(name);
+          }}
+        >
+          {name}
+        </Button>
       ),
     },
     {

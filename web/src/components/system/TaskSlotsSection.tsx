@@ -1,10 +1,11 @@
-import { Select, Typography, notification, theme } from "antd";
+import { Select, Spin, Typography, notification, theme } from "antd";
 import {
   useAgentConfig,
   useConfigs,
   useUpdateAgentConfig,
 } from "../../hooks/useConfig";
 import { useT } from "../../i18n";
+import PageQueryError from "../states/PageQueryError";
 
 /** 「内部任务槽位」区块：按任务类型指派 LLM 配置；留空使用全局激活配置。 */
 
@@ -13,8 +14,10 @@ const SLOT_IDS = ["court", "memory", "synthesis", "edict_parse"] as const;
 export default function TaskSlotsSection() {
   const t = useT();
   const { token } = theme.useToken();
-  const { data: agentConfig } = useAgentConfig();
-  const { data: configsData } = useConfigs();
+  const agentConfigQuery = useAgentConfig();
+  const configsQuery = useConfigs();
+  const { data: agentConfig } = agentConfigQuery;
+  const { data: configsData } = configsQuery;
   const updateMutation = useUpdateAgentConfig();
 
   const configOptions = (configsData?.configs ?? []).map((c) => ({
@@ -40,6 +43,23 @@ export default function TaskSlotsSection() {
       },
     );
   };
+
+  const queryError = agentConfigQuery.error ?? configsQuery.error;
+  if (queryError) {
+    return (
+      <PageQueryError
+        error={queryError}
+        onRetry={() => {
+          void agentConfigQuery.refetch();
+          void configsQuery.refetch();
+        }}
+      />
+    );
+  }
+
+  if (agentConfigQuery.isLoading || configsQuery.isLoading) {
+    return <Spin />;
+  }
 
   return (
     <>

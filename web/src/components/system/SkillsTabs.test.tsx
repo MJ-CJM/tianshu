@@ -92,7 +92,10 @@ describe("Skills capability truth", () => {
     expect(screen.queryByText("新建技能")).not.toBeInTheDocument();
     expect(screen.getByText("learned-skill")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Pin|钉/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByText("manual-skill"));
+    const skillButton = screen.getByRole("button", { name: "manual-skill" });
+    skillButton.focus();
+    expect(skillButton).toHaveFocus();
+    fireEvent.click(skillButton);
     expect(screen.getByRole("textbox")).toHaveAttribute("readonly");
     expect(screen.queryByRole("button", { name: /保存/ })).not.toBeInTheDocument();
   });

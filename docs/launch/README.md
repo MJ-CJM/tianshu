@@ -6,9 +6,9 @@
 > 仅作 retained evidence，新 final-source Gate、provenance 与 demo 完成后才能重建 Candidate。
 > 当前 final source 已完成本地整库、Web、制品、安全审计和 legacy Docker 验证；用户
 > 明确排除的 Ubuntu 全新 HOME exact-Wheel 黄金路径未执行。最终六入口方案已获用户
-> 批准并完成本地实现验证。保留的 48 张视觉基线属于前一版 6 路由产品壳；最新源码
-> 定义 7 个路由、
-> 预期 56 张图片，重新生成和哈希更新尚未执行，需取得明确浏览器自动化授权。
+> 批准并完成本地实现验证。最新源码已在隔离 Demo/Eval 环境完成逐页、逐操作的网页
+> 功能点验和现场修复；保留的 48 张视觉基线仍属于前一版 6 路由产品壳，最新 7 路由
+> 预期 56 张图片尚未重新生成或更新哈希，因此视觉状态不随功能点验自动提升。
 
 > 天枢是一个可治理、可验证、持续成长的自进化 Agent OS。
 
@@ -30,7 +30,8 @@ release、上传 PyPI/GHCR、发布官方容器或对外宣发。
 | [能力事实矩阵](capability-matrix.md) | 默认值、支持面、保证、非保证、证据 | `implemented` truth index |
 | [Lean Preview 使用指南](../usage/lean-developer-preview.md) | source/exact Wheel、单一黄金 Demo、严格 verifier | procedure documented; current fresh-HOME Gate not run |
 | [本地门禁清单](checklist.md) | 本轮测试、制品、依赖审计、容器与待审批项 | local validation passed; Candidate not accepted |
-| [保留的视觉基线清单](../../web/e2e/__screenshots__/SHA256SUMS) | 48 张及哈希覆盖前一版 6 路由产品壳；最新源码定义 7 路由、预期 56 张，尚未重新生成或更新哈希 | 等待明确浏览器自动化授权；`visual_status=user_approval_pending` |
+| [Web 全功能点验与修复报告](web-functional-validation-2026-07-31.md) | 隔离浏览器点击路径、现场缺陷、修复复验、外部调用披露与未验证边界 | `validation_status=verified_local`; visual approval unchanged |
+| [保留的视觉基线清单](../../web/e2e/__screenshots__/SHA256SUMS) | 48 张及哈希覆盖前一版 6 路由产品壳；最新源码定义 7 路由、预期 56 张，尚未重新生成或更新哈希 | 本轮未重建视觉矩阵；`visual_status=user_approval_pending` |
 | [历史保留 Demo 报告](../cc-fable-v1/evidence/lean-preview/20260719T083725Z-01da3844dde7/demo-report.json) | 13 步、`fixture=false`、源码/Wheel/证据绑定；不复用为新 Candidate | retained local evidence |
 | [历史桌面 Web 报告](../cc-fable-v1/reports/s4-core-web-report.md) | 旧三张核心页自动化；不替代当前六入口视觉审批 | retained `automation_passed` |
 | [Lean Core evolution 报告](../cc-fable-v1/reports/s5-lean-evolution-report.md) | 技能候选、门禁、分流、回滚 | `implemented`; full G4 `external_pending` |

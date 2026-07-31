@@ -28,6 +28,7 @@ import {
 } from "../../api/tongzheng";
 import { useT, type TFunction } from "../../i18n";
 import { isApiProblem } from "../../api/client";
+import PageQueryError from "../states/PageQueryError";
 
 type ChannelType = "feishu" | "telegram";
 
@@ -472,16 +473,18 @@ export default function InstanceManager() {
     editing: InstanceView | null;
   }>({ open: false, channelType: "feishu", editing: null });
 
-  const { data: instances, isLoading } = useQuery({
+  const instancesQuery = useQuery({
     queryKey: ["tongzheng", "instances"],
     queryFn: listInstances,
     refetchInterval: 15_000,
   });
+  const { data: instances, isLoading } = instancesQuery;
 
-  const { data: personas } = useQuery({
+  const personasQuery = useQuery({
     queryKey: ["tongzheng", "personas"],
     queryFn: listPersonas,
   });
+  const { data: personas } = personasQuery;
 
   const enabledMutation = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
@@ -615,21 +618,36 @@ export default function InstanceManager() {
         </Space>
       }
     >
-      <Table
-        rowKey="instance_id"
-        loading={isLoading}
-        columns={columns}
-        dataSource={sorted}
-        pagination={false}
-        size="middle"
-      />
-      <InstanceForm
-        open={modal.open}
-        channelType={modal.channelType}
-        editing={modal.editing}
-        personas={personas ?? []}
-        onClose={() => setModal((m) => ({ ...m, open: false }))}
-      />
+      {instancesQuery.error ? (
+        <PageQueryError
+          error={instancesQuery.error}
+          onRetry={() => void instancesQuery.refetch()}
+        />
+      ) : (
+        <>
+          {personasQuery.error && (
+            <PageQueryError
+              error={personasQuery.error}
+              onRetry={() => void personasQuery.refetch()}
+            />
+          )}
+          <Table
+            rowKey="instance_id"
+            loading={isLoading}
+            columns={columns}
+            dataSource={sorted}
+            pagination={false}
+            size="middle"
+          />
+          <InstanceForm
+            open={modal.open}
+            channelType={modal.channelType}
+            editing={modal.editing}
+            personas={personas ?? []}
+            onClose={() => setModal((m) => ({ ...m, open: false }))}
+          />
+        </>
+      )}
     </Card>
   );
 }

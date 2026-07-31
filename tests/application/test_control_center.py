@@ -466,9 +466,7 @@ def test_snapshot_reports_workspace_counts_for_principal_and_admin_scope(
     assert owner_snapshot.active_run_total == 0
     assert owner_snapshot.pending_decision_total == 0
     assert owner_snapshot.evidence_total == 1
-    assert [item.edict_id for item in owner_snapshot.recent_evidence] == [
-        "edict-archived-evidence"
-    ]
+    assert [item.edict_id for item in owner_snapshot.recent_evidence] == ["edict-archived-evidence"]
 
     admin_snapshot = query.get_snapshot(_admin_auth())
     assert admin_snapshot.unarchived_edict_total == 4
@@ -477,12 +475,8 @@ def test_snapshot_reports_workspace_counts_for_principal_and_admin_scope(
     assert admin_snapshot.active_run_total == 1
     assert admin_snapshot.pending_decision_total == 1
     assert admin_snapshot.evidence_total == 1
-    assert [item.edict_id for item in admin_snapshot.active_runs] == [
-        "edict-other-active"
-    ]
-    assert [item.edict_id for item in admin_snapshot.pending_decisions] == [
-        "edict-other-active"
-    ]
+    assert [item.edict_id for item in admin_snapshot.active_runs] == ["edict-other-active"]
+    assert [item.edict_id for item in admin_snapshot.pending_decisions] == ["edict-other-active"]
 
 
 def test_snapshot_rejects_workspace_breakdown_larger_than_total() -> None:

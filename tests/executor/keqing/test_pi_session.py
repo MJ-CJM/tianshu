@@ -144,7 +144,7 @@ class TestParseEvent:
         assert ev.kind == KIND_UNKNOWN and ev.raw_type == "future_event_2028"
 
     def test_is_settled_accepts_settled_or_terminal_agent_end(self):
-        # 0.81.1 发 agent_settled;0.79.3 无此事件,以 agent_end(willRetry=False)为完成信号。
+        # 0.83.0 发 agent_settled;0.79.3 无此事件,以 agent_end(willRetry=False)为完成信号。
         a = PiSessionAdapter()
         assert a.is_settled(a.parse_event({"type": "agent_settled"}))
         assert a.is_settled(a.parse_event({"type": "agent_end", "willRetry": False}))

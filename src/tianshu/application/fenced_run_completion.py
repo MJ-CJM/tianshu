@@ -360,6 +360,91 @@ class FencedRunCompletion:
             unit_of_work.commit()
         return True
 
+    def reconcile_dead_lettered_roots(
+        self,
+        *,
+        limit: int = 100,
+        completed_at: datetime | None = None,
+    ) -> int:
+        """Project lease-expired dead letters onto their still-active roots."""
+        if type(limit) is not int or limit <= 0:
+            raise ValueError("limit must be a positive integer")
+        now = (completed_at or datetime.now(UTC)).astimezone(UTC)
+        changed = 0
+        with self._unit_of_work_factory() as unit_of_work:
+            connection = unit_of_work.connection
+            rows = connection.execute(
+                """
+                SELECT attempts.attempt_id, attempts.memorial_id,
+                       attempts.fencing_token, attempts.failure_json,
+                       memorials.edict_id
+                FROM execution_attempts AS attempts
+                JOIN memorials ON memorials.id=attempts.memorial_id
+                WHERE attempts.status='dead_letter'
+                  AND memorials.dag_node_id IS NULL
+                  AND memorials.status IN (
+                      'submitted','scheduled','planning','running','auditing','needs_review'
+                  )
+                ORDER BY attempts.updated_at, attempts.attempt_id
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            for row in rows:
+                try:
+                    failure = RedactedError.model_validate_json(str(row["failure_json"]))
+                except (TypeError, ValueError) as exc:
+                    raise AttemptConflict("dead-letter attempt failure is invalid") from exc
+                failure_reason = "attempt_budget_exhausted"
+                cursor = connection.execute(
+                    """
+                    UPDATE memorials
+                    SET status='failed', error=?, failure_reason=?, completed_at=?
+                    WHERE id=? AND edict_id=? AND dag_node_id IS NULL
+                      AND status IN (
+                          'submitted','scheduled','planning','running','auditing','needs_review'
+                      )
+                    """,
+                    (
+                        failure.message,
+                        failure_reason,
+                        now.isoformat(),
+                        row["memorial_id"],
+                        row["edict_id"],
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    continue
+                self._cas_existing_run_state(
+                    connection,
+                    memorial_id=str(row["memorial_id"]),
+                    edict_id=str(row["edict_id"]),
+                    phase=RunPhase.FAILED,
+                    updated_at=now,
+                )
+                finalize_outer_loop_terminal(connection, str(row["edict_id"]))
+                self._outbox_repository.add(
+                    connection,
+                    EventEnvelope(
+                        event_id=f"{row['attempt_id']}:execution.failed:dead-letter",
+                        event_type="execution.failed",
+                        edict_id=str(row["edict_id"]),
+                        memorial_id=str(row["memorial_id"]),
+                        timestamp=now,
+                        producer="run-reconciler",
+                        payload={
+                            "attempt_id": str(row["attempt_id"]),
+                            "fencing_token": int(row["fencing_token"]),
+                            "status": "failed",
+                            "error": failure.message,
+                            "failure_reason": failure_reason,
+                        },
+                    ),
+                )
+                changed += 1
+            unit_of_work.commit()
+        return changed
+
     def _cas_existing_run_state(
         self,
         connection,

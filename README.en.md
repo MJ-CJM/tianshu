@@ -49,11 +49,14 @@ The current product decision and release boundary remain separate:
 - `publication_status`: `not_authorized`
 
 The user approved the final six-destination structure, and it is implemented and verified locally.
-The retained 48 visual baselines and hashes cover the preceding six-route shell. The latest source
-adds the Task
-Workspace to a seven-route matrix intended to contain 56 images, but regeneration and hash updates
-have not run and remain pending explicit browser-automation authorization. `visual_status` remains
-`user_approval_pending`; `verified_local` does not mean a new Candidate is accepted.
+The latest source has also completed an isolated Demo/Eval browser walkthrough of the pages and
+their primary interactions, including repair-and-retest of issues found during that walkthrough.
+The retained 48 visual baselines and hashes still cover the preceding six-route shell. The Task
+Workspace expands the current matrix to seven routes and an expected 56 visual images, but those
+images and hashes have not been regenerated. `visual_status` therefore remains
+`user_approval_pending`; `verified_local` does not mean a new Candidate is accepted. See the
+[Web functional validation and repair report](docs/launch/web-functional-validation-2026-07-31.md)
+for the clicked paths, fixes, and remaining boundaries.
 
 The historical retained golden batch passed all 13 steps and strict verification, but it is not
 reused for a new Candidate. See the

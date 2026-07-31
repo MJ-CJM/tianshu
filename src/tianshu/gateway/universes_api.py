@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from tianshu.models import ApiResponse
 from tianshu.storage import Storage
 
 universes_router = APIRouter(prefix="/universes", tags=["universes"])
+
+_TAIYI_REPORT_SETTING_KEY = "taiyi.latest_report"
 
 
 # --- Universe (平行位面) endpoints ---
@@ -95,13 +99,45 @@ def _flags(request: Request):
     return flags
 
 
+def _taiyi_report_state(storage: Storage) -> dict:
+    stored = storage.get_app_setting(_TAIYI_REPORT_SETTING_KEY)
+    if not isinstance(stored, dict) or not isinstance(stored.get("report"), dict):
+        return {"status": "not_generated", "report": None, "generated_at": None}
+    return {
+        "status": "ready",
+        "report": stored["report"],
+        "generated_at": stored.get("generated_at"),
+    }
+
+
 @universes_router.get("/taiyi/report", response_model=ApiResponse)
-async def taiyi_report(request: Request):
-    """太医奏折(迭代 7):诊断双出口——面向用户的系统健康奏折(自进化关时也能看)。"""
+def taiyi_report(request: Request):
+    """只读最近一次太医奏折；页面读取与探测不得触发模型调用。"""
+    storage: Storage = request.app.state.storage
+    return ApiResponse(success=True, data=_taiyi_report_state(storage))
+
+
+@universes_router.post("/taiyi/report", response_model=ApiResponse)
+async def generate_taiyi_report(request: Request):
+    """由用户显式触发太医巡诊，并持久化报告供后续 GET 读取。"""
+    settings = getattr(request.app.state, "settings", None)
+    if getattr(settings, "eval_mode", False):
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "taiyi_generation_disabled_in_eval_mode"},
+        )
     diagnostician = getattr(request.app.state, "diagnostician", None)
     if diagnostician is None:
         raise HTTPException(status_code=503, detail="diagnostician not wired")
-    return ApiResponse(success=True, data=await diagnostician.report())
+    report = await diagnostician.report()
+    storage: Storage = request.app.state.storage
+    state = {
+        "status": "ready",
+        "report": report,
+        "generated_at": datetime.now(UTC).isoformat(),
+    }
+    storage.set_app_setting(_TAIYI_REPORT_SETTING_KEY, state)
+    return ApiResponse(success=True, data=state)
 
 
 @universes_router.get("/flags")

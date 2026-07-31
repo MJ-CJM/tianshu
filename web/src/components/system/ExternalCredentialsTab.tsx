@@ -33,6 +33,7 @@ import {
 import { isApiProblem } from "../../api/client";
 import { useT } from "../../i18n";
 import { monoStyle } from "./shared";
+import PageQueryError from "../states/PageQueryError";
 
 function problemMessage(error: unknown): string {
   if (isApiProblem(error)) return error.message;
@@ -48,6 +49,7 @@ export default function ExternalCredentialsTab() {
   );
   const [items, setItems] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [vaultUnavailable, setVaultUnavailable] = useState(false);
   const [form] = Form.useForm();
@@ -57,6 +59,7 @@ export default function ExternalCredentialsTab() {
 
   const reload = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await listCredentials(kind);
       setItems(data);
@@ -71,16 +74,14 @@ export default function ExternalCredentialsTab() {
           /vault.*unavailable|MASTER_KEY/i.test(detail))
       ) {
         setVaultUnavailable(true);
+        setLoadError(null);
       } else {
-        notification.error({
-          message: t("system.toast.credLoadFailed"),
-          description: detail,
-        });
+        setLoadError(e);
       }
     } finally {
       setLoading(false);
     }
-  }, [kind, t]);
+  }, [kind]);
 
   useEffect(() => {
     reload();
@@ -392,27 +393,31 @@ export default function ExternalCredentialsTab() {
         />
       )}
 
-      <Table
-        rowKey="id"
-        columns={kind === "edict_auth" ? edictColumns : providerColumns}
-        dataSource={items}
-        loading={loading}
-        pagination={false}
-        locale={{
-          emptyText: (
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={
-                <Typography.Text type="secondary">
-                  {kind === "edict_auth"
-                    ? t("system.externalCreds.edictEmpty")
-                    : t("system.externalCreds.engineEmpty")}
-                </Typography.Text>
-              }
-            />
-          ),
-        }}
-      />
+      {loadError ? (
+        <PageQueryError error={loadError} onRetry={() => void reload()} />
+      ) : (
+        <Table
+          rowKey="id"
+          columns={kind === "edict_auth" ? edictColumns : providerColumns}
+          dataSource={items}
+          loading={loading}
+          pagination={false}
+          locale={{
+            emptyText: (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                  <Typography.Text type="secondary">
+                    {kind === "edict_auth"
+                      ? t("system.externalCreds.edictEmpty")
+                      : t("system.externalCreds.engineEmpty")}
+                  </Typography.Text>
+                }
+              />
+            ),
+          }}
+        />
+      )}
 
       <Modal
         open={modalOpen}

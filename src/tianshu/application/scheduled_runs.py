@@ -22,6 +22,7 @@ from tianshu.storage.scheduler_repo import (
     load_scheduler_job,
 )
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
+from tianshu.universe.router import ChallengerRouter
 
 
 class ScheduledFireConflict(RuntimeError):
@@ -59,11 +60,13 @@ class ScheduledRunPreparer:
         self,
         unit_of_work_factory: Callable[[], SqliteUnitOfWork],
         attempt_repository: AttemptLeaseRepository,
+        challenger_router: ChallengerRouter,
         *,
         boundary_hook: Callable[[str], None] | None = None,
     ) -> None:
         self._unit_of_work_factory = unit_of_work_factory
         self._attempt_repository = attempt_repository
+        self._challenger_router = challenger_router
         self._boundary_hook = boundary_hook
 
     def prepare(
@@ -144,6 +147,12 @@ class ScheduledRunPreparer:
                         expected_fingerprint=replay_fingerprint,
                         expected_max_attempts=max_attempts,
                     )
+                    if result.memorial_id is not None:
+                        self._challenger_router.assign_current(
+                            unit_of_work,
+                            memorial_id=result.memorial_id,
+                            created_at=scheduled_at,
+                        )
                     unit_of_work.commit()
                     return result
 
@@ -209,6 +218,11 @@ class ScheduledRunPreparer:
                         scheduled_at=scheduled_at,
                         initial_memorial_id=initial_memorial_id,
                         schedule=schedule,
+                    )
+                    self._challenger_router.assign_current(
+                        unit_of_work,
+                        memorial_id=memorial_id,
+                        created_at=scheduled_at,
                     )
                     self._observe_boundary("after_memorial")
                     attempt = self._attempt_repository.enqueue_initial(
@@ -348,6 +362,11 @@ class ScheduledRunPreparer:
                         or attempt["max_attempts"] != max_attempts
                     ):
                         raise ScheduledFireConflict("stored manual fire conflicts with envelope")
+                    self._challenger_router.assign_current(
+                        unit_of_work,
+                        memorial_id=memorial_id,
+                        created_at=first_scheduled_at,
+                    )
                     unit_of_work.commit()
                     return PreparedFire(
                         fire_id=fire_id,
@@ -370,6 +389,11 @@ class ScheduledRunPreparer:
                         status=TaskStatus.SUBMITTED,
                         created_at=scheduled_at,
                     ),
+                )
+                self._challenger_router.assign_current(
+                    unit_of_work,
+                    memorial_id=memorial_id,
+                    created_at=scheduled_at,
                 )
                 self._attempt_repository.enqueue_initial(
                     connection,

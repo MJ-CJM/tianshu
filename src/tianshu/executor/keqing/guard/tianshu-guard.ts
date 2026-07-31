@@ -14,7 +14,7 @@
  * 配置来自天枢 PolicyCompiler 产物(guard_config.py 的 GuardConfig JSON),spawn 前写到
  * workspace 外受控路径,经环境变量 TIANSHU_GUARD_CONFIG 指向。
  *
- * ⚠️ 本文件运行在 pi 进程内(TypeScript),Python 测试覆盖不到——须真 pi 0.81.1 集成验证。
+ * ⚠️ 本文件运行在 pi 进程内(TypeScript),Python 测试覆盖不到——须真 pi 0.83.0 集成验证。
  * 硬保证不寄托于本 guard:网关(凭证/预算)、worktree(文件边界)、验收+三方合并三关卡兜底。
  */
 

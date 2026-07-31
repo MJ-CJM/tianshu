@@ -55,6 +55,7 @@
 - **我要知道当前到底能不能用** → [CURRENT-STATE.md](CURRENT-STATE.md)
 - **我要审批开源前状态** → [CURRENT-STATE.md](CURRENT-STATE.md) →
   [launch/final-approval-proposal.md](launch/final-approval-proposal.md) →
+  [launch/web-functional-validation-2026-07-31.md](launch/web-functional-validation-2026-07-31.md) →
   [launch/capability-matrix.md](launch/capability-matrix.md) →
   [launch/checklist.md](launch/checklist.md)
 - **我要做二次开发** → [usage/developer-guide.md](usage/developer-guide.md) → [impl/README.md](impl/README.md) → 对应 `impl/<子系统>/`

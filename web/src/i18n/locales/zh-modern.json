@@ -340,6 +340,11 @@
   },
   "audit": {
     "title": "审计中心",
+    "label": {
+      "pass": "通过",
+      "flag": "待复核",
+      "block": "阻断"
+    },
     "tab": {
       "stats": "审计统计",
       "policy": "Policy Decisions",
@@ -566,7 +571,7 @@
       "title": "任务详情",
       "notFound": "未找到该任务",
       "viewBattleMap": "查看 DAG",
-      "backToList": "返回列表",
+      "backToList": "返回任务列表",
       "planCardTitle": "规划方案",
       "planExecuted": "已执行",
       "planFallbackTag": "已降级",
@@ -2585,8 +2590,8 @@
     "capabilityCanDo": "检查 Claude Code、Codex、Pi、OpenCode，并配置模型与单次预算默认值。",
     "capabilityBoundary": "凭证由各 CLI 自管；可靠事前动作拦截和 Provider 侧硬成本上限尚未提供。",
     "default": "默认",
-    "pinned": "钉死",
-    "drift": "版本漂移",
+    "pinned": "已验证",
+    "drift": "待兼容验证",
     "installedYes": "已安装",
     "installedNo": "未安装",
     "saved": "已保存",

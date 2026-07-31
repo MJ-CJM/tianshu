@@ -182,7 +182,7 @@ def _is_canonical_pi_session(argv: Sequence[str]) -> bool:
 class PiSessionAdapter:
     """pi RPC 会话档适配器(实现 KeqingSessionAdapter Protocol)。
 
-    契约来自 pi 0.81.1 docs/rpc.md:LF-only JSONL、命令带 id、结算只认 agent_settled、
+    契约来自 pi 0.83.0 docs/rpc.md:LF-only JSONL、命令带 id、结算只认 agent_settled、
     follow_up 同会话回灌、get_session_stats 聚合成本。
     """
 
@@ -283,7 +283,7 @@ class PiSessionAdapter:
         return CanonicalAgentEvent(KIND_UNKNOWN, self.dialect, raw_type=etype)
 
     def is_settled(self, event: CanonicalAgentEvent) -> bool:
-        # pi 0.81.1 用 agent_settled(run_settled)作结算锚;0.79.3 无此事件,以
+        # pi 0.83.0 用 agent_settled(run_settled)作结算锚;0.79.3 无此事件,以
         # agent_end(will_retry=False)为完成信号。兼容两版本:任一即视为 settle,
         # 否则装 0.79.3 的用户会在 send prompt 后一直等 agent_settled 直到 session timeout。
         return event.kind == KIND_RUN_SETTLED or (

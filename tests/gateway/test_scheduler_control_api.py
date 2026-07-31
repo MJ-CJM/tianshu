@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -122,6 +123,113 @@ async def test_run_now_requires_replay_identity(scheduler_client):
         job_id,
         idempotency_key="scheduler-run-now-api",
     )
+
+
+async def test_run_now_recovers_expired_attempt_to_failed_terminal(scheduler_client, monkeypatch):
+    client, app = scheduler_client
+    edict = Edict(
+        goal="recover an interrupted immediate run",
+        runtime={"retry_limit": 0},
+        schedule=EdictSchedule(
+            type="once",
+            at=datetime.now(UTC) + timedelta(hours=2),
+        ),
+    )
+    app.state.storage.save_edict(edict)
+    job_id = await app.state.scheduler.schedule(edict)
+    dispatcher = app.state.run_dispatcher
+    dispatch = dispatcher.dispatch
+    monkeypatch.setattr(dispatcher, "dispatch", AsyncMock(return_value=False))
+    queued = await client.post(
+        f"/api/scheduler/jobs/{job_id}/run-now",
+        headers={"Idempotency-Key": "scheduler-run-now-expired-attempt"},
+    )
+    assert queued.status_code == 200
+
+    now = datetime.now(UTC)
+    storage = app.state.storage
+    with storage._lock:  # noqa: SLF001
+        attempt = storage._conn.execute(  # noqa: SLF001
+            "SELECT attempt_id, memorial_id FROM execution_attempts ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        assert attempt is not None
+    claimed = storage.attempt_repo.claim(
+        memorial_id=attempt["memorial_id"],
+        owner_id="interrupted-worker",
+        now=now,
+        lease_seconds=30,
+    )
+    assert claimed is not None
+    monkeypatch.setattr(dispatcher, "dispatch", dispatch)
+    with storage._lock, storage._conn:  # noqa: SLF001
+        storage._conn.execute(  # noqa: SLF001
+            """
+            UPDATE execution_attempts
+            SET heartbeat_at=?, lease_expires_at=?, updated_at=?
+            WHERE attempt_id=? AND status='claimed'
+            """,
+            (
+                (now - timedelta(seconds=31)).isoformat(),
+                (now - timedelta(seconds=1)).isoformat(),
+                now.isoformat(),
+                attempt["attempt_id"],
+            ),
+        )
+
+    for _ in range(3):
+        await app.state.run_reconciler.reconcile_once()
+
+    history = await client.get(f"/api/scheduler/jobs/{job_id}/runs")
+    assert history.status_code == 200
+    run = history.json()["data"][0]
+    assert run["execution_status"] == "failed"
+    assert run["completed_at"] is not None
+    assert run["error"] == "execution lease expired"
+    assert storage.get_memorial(attempt["memorial_id"]).status.value == "failed"
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT status FROM execution_attempts WHERE attempt_id=?",
+            (attempt["attempt_id"],),
+        ).fetchone()[0]
+        == "dead_letter"
+    )
+
+
+async def test_run_now_demo_execution_reaches_terminal_without_lease_expiry(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("TIANSHU_STARTUP_PROFILE", "demo")
+    monkeypatch.setenv("TIANSHU_EVAL_MODE", "1")
+    monkeypatch.setenv("TIANSHU_WORKSPACE_DIR", str(tmp_path / "workspace"))
+    app = create_app()
+    async with lifespan(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            edict = Edict(
+                goal="return the deterministic scheduler acceptance result",
+                runtime={"retry_limit": 0},
+                schedule=EdictSchedule(
+                    type="once",
+                    at=datetime.now(UTC) + timedelta(hours=2),
+                ),
+            )
+            app.state.storage.save_edict(edict)
+            job_id = await app.state.scheduler.schedule(edict)
+
+            queued = await client.post(
+                f"/api/scheduler/jobs/{job_id}/run-now",
+                headers={"Idempotency-Key": "scheduler-demo-golden-path"},
+            )
+            assert queued.status_code == 200
+            await app.state.run_dispatcher.wait_until_idle()
+
+            history = await client.get(f"/api/scheduler/jobs/{job_id}/runs")
+            assert history.status_code == 200
+            run = history.json()["data"][0]
+            assert run["execution_status"] == "completed"
+            assert run["completed_at"] is not None
+            assert run["error"] is None
 
 
 async def test_create_edict_accepts_user_schedule(scheduler_client):

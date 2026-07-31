@@ -45,10 +45,12 @@
 - `visual_status`: `user_approval_pending`
 - `publication_status`: `not_authorized`
 
-最终六入口方案已获用户批准并完成本地实现与验证。现有 48 张视觉基线及哈希保留自前一版
-6 路由产品壳；最新源码已把御书房加入视觉矩阵，定义 7 个路由、预期 56 张图片，但
-尚未重新生成或更新哈希。该浏览器自动化需取得明确授权后再执行，`visual_status`
-仍为 `user_approval_pending`；`verified_local` 不代表新的 Candidate 已被接受。
+最终六入口方案已获用户批准并完成本地实现与验证；最新源码也已在隔离 Demo/Eval 环境
+完成逐页、逐操作的网页功能点验与现场修复。现有 48 张视觉基线及哈希仍保留自前一版
+6 路由产品壳；御书房加入后的 7 路由、预期 56 张视觉图片尚未重新生成或更新哈希。
+因此 `visual_status` 仍为 `user_approval_pending`；`verified_local` 不代表新的 Candidate
+已被接受。逐项点击路径、现场修复与未验证边界见
+[Web 全功能点验与修复报告](docs/launch/web-functional-validation-2026-07-31.md)。
 
 历史保留的黄金批次通过全部 13 步和严格校验，但不复用为新 Candidate；详见
 [使用指南](docs/usage/lean-developer-preview.md)与

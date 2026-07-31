@@ -28,6 +28,7 @@ import {
 } from "../../hooks/useSystem";
 import { useT } from "../../i18n";
 import { monoStyle } from "./shared";
+import PageQueryError from "../states/PageQueryError";
 
 function PromptLayersCard({
   personaId,
@@ -41,9 +42,30 @@ function PromptLayersCard({
   onEditFile?: (personaId: string, filename: string) => void;
 }) {
   const t = useT();
-  const { data: layers, isLoading } = usePromptLayers(personaId);
+  const layersQuery = usePromptLayers(personaId);
+  const { data: layers, isLoading } = layersQuery;
 
-  if (!personaId || !layers) return null;
+  if (!personaId) return null;
+  if (layersQuery.error) {
+    return (
+      <div style={{ marginTop: 16 }}>
+        <PageQueryError
+          error={layersQuery.error}
+          onRetry={() => void layersQuery.refetch()}
+        />
+      </div>
+    );
+  }
+  if (!layers) {
+    return isLoading ? (
+      <Card
+        title={title ?? t("system.prompt.layeredAnalysis")}
+        size="small"
+        loading
+        style={{ marginTop: 16 }}
+      />
+    ) : null;
+  }
 
   // Map layer names to editable file targets
   const editableMap: Record<string, { pid: string; filename: string }> = {
@@ -116,14 +138,16 @@ function PromptLayersCard({
 export default function SystemPromptTab() {
   const t = useT();
   const { token } = theme.useToken();
-  const { data: personas } = usePersonas();
-  const { data: promptData } = usePromptFiles();
+  const personasQuery = usePersonas();
+  const promptFilesQuery = usePromptFiles();
+  const { data: personas } = personasQuery;
+  const { data: promptData } = promptFilesQuery;
   const [selectedPersona, setSelectedPersona] = useState<string | null>(null);
   const [editingFile, setEditingFile] = useState<{
     personaId: string;
     filename: string;
   } | null>(null);
-  const [editContent, setEditContent] = useState("");
+  const [editContent, setEditContent] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewPersona, setPreviewPersona] = useState<string | null>(null);
   const [selectedOfficer, setSelectedOfficer] = useState<string | null>(null);
@@ -145,15 +169,16 @@ export default function SystemPromptTab() {
 
   const activePersona = selectedPersona ?? displayIds[0] ?? null;
 
-  const { data: fileContent, isLoading: contentLoading } =
-    usePromptFileContent(
-      editingFile?.personaId ?? null,
-      editingFile?.filename ?? null,
-    );
+  const fileContentQuery = usePromptFileContent(
+    editingFile?.personaId ?? null,
+    editingFile?.filename ?? null,
+  );
+  const { data: fileContent, isLoading: contentLoading } = fileContentQuery;
   const updateMutation = useUpdatePromptFile();
-  const { data: previewData, isLoading: previewLoading } = usePromptPreview(
+  const previewQuery = usePromptPreview(
     previewOpen ? previewPersona : null,
   );
+  const { data: previewData, isLoading: previewLoading } = previewQuery;
 
   const personaFiles = (promptFiles ?? []).filter(
     (f) => f.persona_id === activePersona,
@@ -161,16 +186,16 @@ export default function SystemPromptTab() {
 
   const handleEdit = (personaId: string, filename: string) => {
     setEditingFile({ personaId, filename });
-    setEditContent("");
+    setEditContent(null);
   };
 
   const handleSave = () => {
-    if (!editingFile) return;
+    if (!editingFile || !fileContent) return;
     updateMutation.mutate(
       {
         personaId: editingFile.personaId,
         filename: editingFile.filename,
-        content: editContent,
+        content: editContent ?? fileContent.content,
       },
       {
         onSuccess: () => {
@@ -185,6 +210,22 @@ export default function SystemPromptTab() {
     setPreviewPersona(personaId);
     setPreviewOpen(true);
   };
+
+  const primaryError = personasQuery.error ?? promptFilesQuery.error;
+  if (primaryError) {
+    return (
+      <PageQueryError
+        error={primaryError}
+        onRetry={() => {
+          void personasQuery.refetch();
+          void promptFilesQuery.refetch();
+        }}
+      />
+    );
+  }
+  if (personasQuery.isLoading || promptFilesQuery.isLoading) {
+    return <Spin />;
+  }
 
   return (
     <>
@@ -319,23 +360,24 @@ export default function SystemPromptTab() {
           <Button
             type="primary"
             loading={updateMutation.isPending}
+            disabled={contentLoading || !fileContent}
             onClick={handleSave}
           >
             {t("button.save")}
           </Button>
         }
       >
-        {contentLoading ? (
+        {fileContentQuery.error ? (
+          <PageQueryError
+            error={fileContentQuery.error}
+            onRetry={() => void fileContentQuery.refetch()}
+          />
+        ) : contentLoading ? (
           <Spin />
         ) : (
           <Input.TextArea
-            value={editContent || fileContent?.content || ""}
+            value={editContent ?? fileContent?.content ?? ""}
             onChange={(e) => setEditContent(e.target.value)}
-            onFocus={() => {
-              if (!editContent && fileContent?.content) {
-                setEditContent(fileContent.content);
-              }
-            }}
             autoSize={{ minRows: 20, maxRows: 40 }}
             style={monoStyle}
           />
@@ -350,7 +392,12 @@ export default function SystemPromptTab() {
         footer={null}
         width={800}
       >
-        {previewLoading ? (
+        {previewQuery.error ? (
+          <PageQueryError
+            error={previewQuery.error}
+            onRetry={() => void previewQuery.refetch()}
+          />
+        ) : previewLoading ? (
           <Spin />
         ) : previewData?.prompt ? (
           <Input.TextArea

@@ -2,7 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
@@ -10,7 +10,9 @@ const apiMocks = vi.hoisted(() => ({
   branchUniverse: vi.fn(),
   deleteUniverse: vi.fn(),
   enableParallelUniverse: vi.fn(),
+  generateTaiyiReport: vi.fn(),
   getCodeDiff: vi.fn(),
+  getTaiyiReport: vi.fn(),
   getUniverseStatus: vi.fn(),
   listEvalRuns: vi.fn(),
   listUniverses: vi.fn(),
@@ -67,6 +69,24 @@ beforeEach(() => {
       },
     ],
   });
+  apiMocks.getTaiyiReport.mockResolvedValue({
+    success: true,
+    data: { status: "not_generated", report: null, generated_at: null },
+  });
+  apiMocks.generateTaiyiReport.mockResolvedValue({
+    success: true,
+    data: {
+      status: "ready",
+      generated_at: "2026-07-31T12:00:00Z",
+      report: {
+        type: "taiyi.memorial",
+        title: "太医奏折",
+        summary: "太医巡诊,未见沉疴。",
+        findings: [],
+        count: 0,
+      },
+    },
+  });
 });
 
 afterEach(() => {
@@ -94,5 +114,18 @@ describe("UniversePage capability truth", () => {
     expect(screen.getByPlaceholderText(/具体 \.py 文件/)).toHaveValue(
       "src/tianshu/persona/selector.py",
     );
+  });
+
+  it("reads the latest Taiyi report without generating until the user clicks", async () => {
+    render(<UniversePage />);
+
+    expect(await screen.findByText("尚未生成太医奏折")).toBeInTheDocument();
+    expect(apiMocks.getTaiyiReport).toHaveBeenCalledOnce();
+    expect(apiMocks.generateTaiyiReport).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "生成奏折" }));
+
+    await waitFor(() => expect(apiMocks.generateTaiyiReport).toHaveBeenCalledOnce());
+    expect(await screen.findByText("太医巡诊,未见沉疴。")).toBeInTheDocument();
   });
 });

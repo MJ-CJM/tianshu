@@ -283,7 +283,11 @@ def list_event_bus_handlers(request: Request):
     result = {}
     for event_type, entries in event_bus._handlers.items():
         result[event_type] = [
-            {"handler": e.handler.__qualname__, "priority": e.priority} for e in entries
+            {
+                "handler": getattr(e.handler, "__qualname__", type(e.handler).__qualname__),
+                "priority": e.priority,
+            }
+            for e in entries
         ]
     return ApiResponse(success=True, data=result)
 

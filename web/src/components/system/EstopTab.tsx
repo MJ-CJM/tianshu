@@ -4,18 +4,20 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { engageEstop, getEstop, resumeEstop } from "../../api/estop";
 import { useT } from "../../i18n";
+import PageDataState from "../states/PageDataState";
+import PageQueryError from "../states/PageQueryError";
 
 export default function EstopTab() {
   const t = useT();
   const qc = useQueryClient();
   const [reason, setReason] = useState("");
 
-  const { data } = useQuery({
+  const query = useQuery({
     queryKey: ["estop"],
     queryFn: getEstop,
     refetchInterval: 5000,
   });
-  const state = data?.data;
+  const state = query.data?.data;
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["estop"] });
 
@@ -38,6 +40,18 @@ export default function EstopTab() {
       message.error(t("estop.actionFailed"));
     }
   };
+
+  if (query.isLoading) {
+    return (
+      <PageDataState status="loading" data={null} isEmpty={() => false}>
+        {() => null}
+      </PageDataState>
+    );
+  }
+
+  if (query.error) {
+    return <PageQueryError error={query.error} onRetry={() => void query.refetch()} />;
+  }
 
   if (state && !state.available) {
     return <Alert type="info" showIcon message={t("estop.unavailable")} />;

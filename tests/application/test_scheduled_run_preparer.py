@@ -18,6 +18,7 @@ from tianshu.models import Edict, EdictRuntime, EdictSchedule, Memorial, TaskSta
 from tianshu.models.events import EventEnvelope
 from tianshu.storage import EdictArchiveConflict, Storage
 from tianshu.storage.outbox_repo import OutboxRepository
+from tianshu.universe.router import ChallengerRouter
 
 _NOW = datetime(2026, 7, 16, 8, tzinfo=UTC)
 
@@ -37,6 +38,7 @@ def _preparer(
     return ScheduledRunPreparer(
         storage.unit_of_work,
         storage.attempt_repo,
+        ChallengerRouter(storage),
         boundary_hook=boundary_hook,
     )
 
@@ -329,6 +331,48 @@ def test_manual_fire_replay_returns_first_envelope_when_retry_clock_differs(
 
         assert replay == first.model_copy(update={"deduplicated": True})
         assert storage.get_scheduler_job("job-1")["next_run"] == cursor.isoformat()
+    finally:
+        storage.close()
+
+
+@pytest.mark.parametrize("fire_kind", ["scheduled", "manual"])
+def test_new_scheduler_root_has_runtime_assignment_before_dispatch(
+    tmp_path: Path,
+    fire_kind: str,
+) -> None:
+    storage = _open(
+        tmp_path / f"{fire_kind}-assignment.db",
+        schedule=EdictSchedule(
+            type="interval",
+            interval_seconds=60,
+            concurrency_policy="allow",
+        ),
+    )
+    next_run = _NOW if fire_kind == "scheduled" else _NOW + timedelta(minutes=5)
+    storage.save_scheduler_job(
+        "job-1",
+        "edict-1",
+        "interval",
+        interval_seconds=60,
+        next_run=next_run,
+    )
+    try:
+        if fire_kind == "scheduled":
+            fire = _preparer(storage).prepare(job_id="job-1", scheduled_at=_NOW)
+        else:
+            fire = _preparer(storage).prepare_manual(
+                job_id="job-1",
+                idempotency_key="assignment-regression",
+                scheduled_at=_NOW,
+            )
+
+        assert fire.memorial_id is not None
+        assignment = storage._conn.execute(  # noqa: SLF001
+            "SELECT memorial_id FROM run_evolution_assignments WHERE memorial_id=?",
+            (fire.memorial_id,),
+        ).fetchone()
+        assert assignment is not None
+        assert assignment["memorial_id"] == fire.memorial_id
     finally:
         storage.close()
 

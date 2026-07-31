@@ -29,7 +29,7 @@ import {
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "dayjs";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { listSchedulerJobRuns } from "../api/scheduler";
 import type { EdictSchedule, SchedulerJob, SchedulerRun } from "../api/types";
 import {
@@ -239,9 +239,9 @@ export default function SchedulerPage() {
       title: t("scheduler.table.task"),
       dataIndex: "title",
       render: (_title: string, record) => (
-        <a onClick={() => navigate(`/edicts/${record.edict_id}`)}>
+        <Link to={`/edicts/${record.edict_id}`}>
           {record.title || <MonoText>{truncateId(record.edict_id)}</MonoText>}
-        </a>
+        </Link>
       ),
     },
     {
@@ -325,6 +325,7 @@ export default function SchedulerPage() {
             </Button>
           ) : null}
           <Dropdown
+            trigger={["click"]}
             menu={{
               items: [
                 {

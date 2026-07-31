@@ -1,6 +1,20 @@
 import apiClient from "./client";
 import type { ApiResponse, Universe, VariantEvalRun } from "./types";
 
+export interface TaiyiMemorial {
+  type: string;
+  title: string;
+  summary: string;
+  findings: Array<{ target: string; hypothesis: string }>;
+  count: number;
+}
+
+export interface TaiyiReportState {
+  status: "not_generated" | "ready";
+  report: TaiyiMemorial | null;
+  generated_at: string | null;
+}
+
 export async function listUniverses(): Promise<ApiResponse<Universe[]>> {
   const { data } = await apiClient.get<ApiResponse<Universe[]>>("/universes");
   return data;
@@ -41,6 +55,21 @@ export async function enableParallelUniverse(): Promise<ApiResponse<Universe>> {
 
 export async function getUniverseStatus(): Promise<ApiResponse<{ enabled: boolean }>> {
   const { data } = await apiClient.get<ApiResponse<{ enabled: boolean }>>("/universes/_status");
+  return data;
+}
+
+export async function getTaiyiReport(): Promise<ApiResponse<TaiyiReportState>> {
+  const { data } = await apiClient.get<ApiResponse<TaiyiReportState>>(
+    "/universes/taiyi/report",
+  );
+  return data;
+}
+
+export async function generateTaiyiReport(): Promise<ApiResponse<TaiyiReportState>> {
+  const { data } = await apiClient.post<ApiResponse<TaiyiReportState>>(
+    "/universes/taiyi/report",
+    {},
+  );
   return data;
 }
 

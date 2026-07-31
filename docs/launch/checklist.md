@@ -9,12 +9,14 @@
 
 ## 当前 final-source 本地验证（2026-07-31）
 
-- [x] Python：`4463 passed, 2 skipped`；另有 10 条用户明确排除的 Ubuntu fresh-HOME
+- [x] Python：`4475 passed, 2 skipped`；另有 10 条用户明确排除的 Ubuntu fresh-HOME
   exact-Wheel 黄金路径测试未执行
-- [x] Web 单测：57 个测试文件、`270 passed`；TypeScript 与 production build 通过；lint 为
+- [x] Web 单测：72 个测试文件、`299 passed`；TypeScript 与 production build 通过；lint 为
   `0 error / 29 warning`
-- [ ] 最新 7 路由源码的浏览器自动化尚未运行；预期视觉矩阵为 56 张，需取得明确浏览器
-  自动化授权后重新生成并更新哈希
+- [x] 最新源码已在隔离 Demo/Eval 环境完成逐页、逐操作的网页功能点验；定时立即运行、
+  审计、系统配置、实验页等现场缺陷均已修复并按原点击路径复验，详见
+  [Web 全功能点验与修复报告](web-functional-validation-2026-07-31.md)
+- [ ] 最新 7 路由的预期 56 张视觉截图与哈希尚未重新生成；功能点击通过不替代视觉终审
 - [x] Ruff、format、Mypy、import-linter 与 diff whitespace 检查通过
 - [x] Wheel/sdist、制品清单、许可证与仓库卫生检查：`19 passed`
 - [x] Python 默认依赖及 all-extras 审计无已知漏洞
@@ -33,7 +35,12 @@
 - [x] 保留前一版 6 路由产品壳的 48 张视觉基线与哈希；它们不代表最新御书房工作台
   已完成运行时 E2E 或视觉验证
 - [x] 仓库卫生：本地环境、密钥、运行数据、数据库 sidecar、缓存、浏览器报告、Agent
-  状态与发行工作目录均有可移植 ignore；误跟踪的本机文件和 Vite 缓存已移出索引
+  状态与发行工作目录均有可移植 ignore；当前未跟踪文件经审计均为应纳入的回归测试
+  或本轮验证文档
+- [x] `.gitignore` 追加 Web coverage/dist、Playwright MCP、根凭证 / session JSON、散落
+  日志与本地发行包、Claude history/debug 等防复发规则；公开证据与视觉基线未被误伤
+- [ ] 15 个历史 `.superpowers/sdd/*.md` 已被 ignore 规则命中但仍受 Git 跟踪；公开既有
+  历史前须选择清洁快照，或先把必要结论迁入正式 docs 后从发布索引移除
 - [x] Gitleaks v8.30.1 只读扫描 947 个提交、约 238 MB；12 个测试/示例假值已复核；
   另 1 个已删除第三方 gstack 包的 Supabase publishable key 进入公开历史门禁
 
@@ -56,8 +63,8 @@ Candidate 接受或外部发布授权。
 - [x] 最终六入口产品方案已获用户批准：`design_status=approved`
 - [x] 六入口导航、成熟度标签和中枢独特能力卡已本地实现：
   `implementation_status=verified_local`
-- [ ] 最新源码定义 7 路由、预期 56 张视觉基线；重新生成与哈希更新尚未运行，等待明确
-  浏览器自动化授权：`visual_status=user_approval_pending`
+- [ ] 最新源码定义 7 路由、预期 56 张视觉基线；功能点验已完成，但视觉截图与哈希尚未
+  重新生成：`visual_status=user_approval_pending`
 - [ ] VoiceOver 人工审计：`external_pending`
 - [ ] 当前 final source 的 Ubuntu + Python 3.12 全新 HOME exact-Wheel 黄金路径：
   本轮明确未执行，`external_pending`

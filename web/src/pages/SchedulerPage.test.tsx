@@ -117,6 +117,24 @@ describe("SchedulerPage", () => {
     expect(hooks.pause).toHaveBeenCalledWith("job-1");
   });
 
+  it("exposes the task as a link and opens more actions from the keyboard", async () => {
+    const user = userEvent.setup();
+    renderScheduler();
+
+    expect(screen.getByRole("link", { name: "每日巡检" })).toHaveAttribute(
+      "href",
+      "/edicts/edict-1",
+    );
+
+    const moreButton = screen.getByRole("button", { name: "更多操作" });
+    moreButton.focus();
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(screen.getByRole("menuitem", { name: /更改时刻$/ })).toBeVisible();
+    });
+  });
+
   it("shows resume for a paused schedule", () => {
     hooks.list.mockReturnValue({
       data: [{ ...ACTIVE_JOB, status: "paused" }],

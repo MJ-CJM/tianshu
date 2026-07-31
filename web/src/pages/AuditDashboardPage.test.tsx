@@ -15,6 +15,7 @@ const apiMocks = vi.hoisted(() => ({
   useAuditRules: vi.fn(),
   fetchPolicyStats: vi.fn(),
   getFailureDistribution: vi.fn(),
+  listNetworkEvents: vi.fn(),
   apiGet: vi.fn(),
 }));
 
@@ -29,6 +30,9 @@ vi.mock("../api/policy", () => ({
 }));
 vi.mock("../api/evals", () => ({
   getFailureDistribution: apiMocks.getFailureDistribution,
+}));
+vi.mock("../api/network_events", () => ({
+  listNetworkEvents: apiMocks.listNetworkEvents,
 }));
 vi.mock("../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api/client")>();
@@ -127,6 +131,7 @@ beforeEach(() => {
     error: null,
     metadata: null,
   });
+  apiMocks.listNetworkEvents.mockResolvedValue([]);
   apiMocks.apiGet.mockResolvedValue({ data: { data: [] } });
 });
 
@@ -156,6 +161,82 @@ describe("AuditDashboardPage truthful data states", () => {
     expect(within(totalTokensCard!).getByText("0")).toBeInTheDocument();
     expect(await screen.findByText("未有失事")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("renders usage and recent-audit task entries as real links", () => {
+    apiMocks.useAuditStats.mockReturnValue(
+      queryState({
+        data: {
+          ...emptyStats,
+          per_edict: [
+            {
+              edict_id: "edict-usage",
+              edict_title: "用量敕令",
+              priority: "normal",
+              token_budget: null,
+              memorial_count: 1,
+              prompt_tokens: 10,
+              completion_tokens: 5,
+              total_tokens: 15,
+            },
+          ],
+          recent_audits: [
+            {
+              memorial_id: "memorial-1",
+              edict_id: "edict-audit",
+              edict_title: "审计敕令",
+              verdict: "pass",
+              reasons: [],
+              rules_checked: 1,
+              llm_reviewed: false,
+              review_status: null,
+              completed_at: "2026-07-31T08:00:00Z",
+            },
+          ],
+        },
+      }),
+    );
+
+    renderPage();
+
+    expect(screen.getByRole("link", { name: "用量敕令" })).toHaveAttribute(
+      "href",
+      "/edicts/edict-usage",
+    );
+    expect(screen.getByRole("link", { name: "审计敕令" })).toHaveAttribute(
+      "href",
+      "/edicts/edict-audit",
+    );
+  });
+
+  it("renders network-event task entries as real links", async () => {
+    apiMocks.listNetworkEvents.mockResolvedValue([
+      {
+        event_id: "network-1",
+        created_at: "2026-07-31T08:00:00Z",
+        edict_id: "edict-network",
+        edict_title: "联网敕令",
+        tool: "web_fetch",
+        host: "example.com",
+        method: "GET",
+        http_status: 200,
+        bytes_out: 128,
+        credential_name: null,
+        cached: false,
+        is_error: false,
+        reason: null,
+        provider: null,
+        result_count: null,
+        truncated: false,
+      },
+    ]);
+
+    renderPage("/audit?tab=network");
+
+    expect(await screen.findByRole("link", { name: "联网敕令" })).toHaveAttribute(
+      "href",
+      "/edicts/edict-network",
+    );
   });
 
   it("shows rules loading instead of a successful empty table", () => {

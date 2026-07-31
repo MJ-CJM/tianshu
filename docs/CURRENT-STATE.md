@@ -42,7 +42,7 @@
 | 自进化（Evolution） | 实验、可发现 | 从天工院的演化司查看候选、Gate、分流、回滚和当前启用状态 | 状态由后端 `evolution_status` 真实投影；完整 G4 仍为 `external_pending` |
 | 平行位面（Universes / Code variant） | 实验、可发现 | 从天工院的诸界台创建快照/分支、diff、评估、归档和恢复 | switch、rollback、promote-code 固定 fail closed；代码候选只到 evaluated/recommended |
 | 评测（Evals） | Beta、导航标记“试行”、可发现 | 从天工院的考功司查看真实评测集、运行、分数、失败分布和历史差异 | 数据为空时展示真实启动方式，不生成示例成绩 |
-| Keqing 外部执行器 | 实验、可发现且默认关闭 | 从天工院的客卿馆查看本机 adapter 状态；自行启用后在隔离工作目录试用 | 不属于黄金路径；无硬成本上限、事前动作拦截或自动晋升保证 |
+| Keqing 外部执行器 | 实验、可发现且默认关闭 | 从天工院的客卿馆查看本机 adapter 状态；进入页面、每 15 秒及窗口重新聚焦时同步已安装 CLI 版本；当前本地 Pi `0.83.0` 已完成契约与离线 RPC 验证 | 不自动升级外部 CLI；新版本先标记“待兼容验证”，通过契约后才更新已验证基线；不属于黄金路径，且无 Provider 侧硬成本上限或自动晋升保证 |
 | remote/open stdio MCP | 延期、默认关闭 | 当前不作为正式开放能力 | 需要独立完成远程安全与 executable/argv/env/workdir 精确绑定后才可开放 |
 | Docker | 可本地试用 | 构建三阶段、非 root 的本地镜像并检查健康路由 | 不是官方发布制品；体积与运行时依赖锁定仍可优化 |
 | PyPI/GHCR/签名发布 | 未发布 | 无 | 需要新的发布授权、正式 provenance 与发布 Gate |
@@ -143,9 +143,10 @@ error、permission-denied 和 404 状态，不用 mock 数据掩盖失败。
   实验 / 暂未开放”。
 
 [最终产品方案](launch/final-approval-proposal.md)现记录已批准的六入口方案、实现结果与
-剩余 Gate；当前能力事实以本文为准。现有 48 张视觉基线和哈希保留自前一版 6 路由
-产品壳；最新源码定义 7 个路由、预期 56 张图片，尚未重新生成或更新哈希，需取得明确
-浏览器自动化授权后执行。`visual_status` 仍为 `user_approval_pending`。
+剩余 Gate；当前能力事实以本文为准。最新源码已完成隔离网页功能点验与现场修复，详见
+[Web 全功能点验与修复报告](launch/web-functional-validation-2026-07-31.md)。现有 48 张
+视觉基线和哈希仍保留自前一版 6 路由产品壳；最新 7 路由、预期 56 张图片尚未重新生成
+或更新哈希，故 `visual_status` 仍为 `user_approval_pending`。
 
 当前状态严格拆分如下：
 
@@ -158,11 +159,12 @@ error、permission-denied 和 404 状态，不用 mock 数据掩盖失败。
 
 本次实现收口取得以下当前工作树证据：
 
-- Python：`4463 passed, 2 skipped`；按用户要求排除 Ubuntu 全新 HOME 安装 exact
+- Python：`4475 passed, 2 skipped`；按用户要求排除 Ubuntu 全新 HOME 安装 exact
   Wheel 的黑盒测试；
-- Web 单元/组件：57 个测试文件、270 个测试通过；
-- Web 浏览器回归：最新 7 路由源码尚未运行浏览器自动化；前一版 6 路由的 48 张基线
-  仅作保留证据，不代表当前御书房工作台已完成运行时 E2E 或视觉验证；
+- Web 单元/组件：72 个测试文件、299 个测试通过；
+- Web 浏览器回归：最新源码已在隔离 Demo/Eval 环境完成逐页、逐操作的功能点验；定时
+  立即运行、审计、系统配置和实验页现场缺陷均已按原点击路径复验；前一版 6 路由的
+  48 张基线仅作保留视觉证据，不代表当前 7 路由视觉终审通过；
 - 静态检查：Ruff、格式检查、mypy、import-linter 与 Web typecheck 通过；Web lint 为
   0 error / 29 warning，主要是既有 React effect 与显式类型提示；
 - 供应链：Python all-extras 已知漏洞扫描通过；npm 仅保留有明确期限和边界的
@@ -174,9 +176,9 @@ error、permission-denied 和 404 状态，不用 mock 数据掩盖失败。
 - 构建：本地 wheel、sdist 与非 root Docker 运行检查通过，但都不是正式发布制品；
 - 视觉：保留的 48 张基线和哈希覆盖前一版中枢、任务详情、自进化、平行位面、评测和
   客卿 6 个路由；最新源码加入御书房后定义 7 个路由、预期 56 张，重新生成与哈希更新
-  尚未执行，待明确浏览器自动化授权；
+  尚未执行；本轮功能点验不替代视觉矩阵；
 - 未完成：Ubuntu 全新 HOME exact Wheel 路径（按用户要求不执行）、用户视觉/交互审批、
-  最新 7 路由浏览器自动化与视觉哈希更新、VoiceOver 人工检查、Web 主共享 chunk 的
+  最新 7 路由视觉截图与哈希更新、VoiceOver 人工检查、Web 主共享 chunk 的
   后续拆分、29 条非阻断 lint warning 清理、官方容器/PyPI/GHCR/签名发布。
 
 这些数字是 2026-07-31 当前工作树的本地验证快照，不是已发布版本或不可变 Release

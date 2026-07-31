@@ -324,7 +324,7 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
     personaId: string;
     filename: string;
   } | null>(null);
-  const [editContent, setEditContent] = useState("");
+  const [editContent, setEditContent] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const { data: fileContent, isLoading: contentLoading } = usePromptFileContent(
@@ -343,16 +343,16 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
 
   const handleEdit = (pid: string, filename: string) => {
     setEditingFile({ personaId: pid, filename });
-    setEditContent("");
+    setEditContent(null);
   };
 
   const handleSave = () => {
-    if (!editingFile) return;
+    if (!editingFile || !fileContent) return;
     updateMutation.mutate(
       {
         personaId: editingFile.personaId,
         filename: editingFile.filename,
-        content: editContent,
+        content: editContent ?? fileContent.content,
       },
       {
         onSuccess: () => {
@@ -501,6 +501,7 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
           <Button
             type="primary"
             loading={updateMutation.isPending}
+            disabled={contentLoading || !fileContent}
             onClick={handleSave}
           >
             {t("button.save")}
@@ -511,13 +512,8 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
           <Spin />
         ) : (
           <Input.TextArea
-            value={editContent || fileContent?.content || ""}
+            value={editContent ?? fileContent?.content ?? ""}
             onChange={(e) => setEditContent(e.target.value)}
-            onFocus={() => {
-              if (!editContent && fileContent?.content) {
-                setEditContent(fileContent.content);
-              }
-            }}
             autoSize={{ minRows: 20, maxRows: 40 }}
             style={monoStyle}
           />

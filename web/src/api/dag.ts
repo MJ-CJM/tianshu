@@ -23,7 +23,11 @@ export async function cancelDag(dagId: string): Promise<ApiResponse<{ dag_id: st
 }
 
 export async function retryDag(dagId: string, fromNodeIds?: string[]): Promise<ApiResponse<{ dag_id: string; reset_node_ids: string[] }>> {
-  const { data } = await apiClient.post(`/dag/${dagId}/retry`, { from_node_ids: fromNodeIds });
+  const { data } = await apiClient.post(
+    `/dag/${dagId}/retry`,
+    { from_node_ids: fromNodeIds },
+    { headers: { 'Idempotency-Key': crypto.randomUUID() } },
+  );
   return data;
 }
 

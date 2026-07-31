@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  Button,
   Card,
   Col,
   Empty,
@@ -252,7 +253,11 @@ export default function EvalsPage() {
       title: "ID",
       dataIndex: "id",
       width: 120,
-      render: (id: string) => <MonoText>{id.slice(0, 10)}…</MonoText>,
+      render: (id: string) => (
+        <Button type="link" size="small" onClick={() => setSelectedRunId(id)}>
+          <MonoText>{id.slice(0, 10)}…</MonoText>
+        </Button>
+      ),
     },
     {
       title: t("evals.evalSet"),
