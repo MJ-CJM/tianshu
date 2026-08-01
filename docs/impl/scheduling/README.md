@@ -50,7 +50,7 @@ lease 后执行，fencing token 阻止旧 owner 提交终态。这是 single-nod
 
 | API | 实现 |
 |---|---|
-| `GET /api/scheduler/jobs` | 返回 owner 可见的 active/paused/completed/failed job |
+| `GET /api/scheduler/jobs` | 返回 owner 可见且可管理的 once/cron/interval job（active/paused/completed/failed） |
 | `DELETE /api/scheduler/jobs/{id}` | 标 cancelled 并停止 live timer |
 | `POST .../{id}/pause` | active → paused |
 | `POST .../{id}/resume` | paused/failed 可在合法 envelope 下恢复 active |
@@ -59,7 +59,8 @@ lease 后执行，fencing token 阻止旧 owner 提交终态。这是 single-nod
 | `GET .../{id}/runs` | 返回 schedule 状态及关联 Memorial 的 execution status/error |
 
 所有 job API 先通过 `require_owned_scheduler_job`；普通 principal 不能查看或控制其他
-submitter 的 job。
+submitter 的 job。immediate 也会写入 `scheduler_jobs` 作为幂等与审计证据，但属于内部
+执行游标，不在钦天监或 `schedule_edict(action=list)` 的定时任务列表中展示。
 
 ## 5. 启动恢复和常驻任务
 

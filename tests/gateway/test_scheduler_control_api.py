@@ -38,6 +38,24 @@ async def _future_job(app) -> str:
     return await app.state.scheduler.schedule(edict)
 
 
+async def test_list_hides_internal_immediate_execution_rows(scheduler_client):
+    client, app = scheduler_client
+    edict = Edict(
+        goal="ordinary task",
+        title="立即执行任务",
+        schedule=EdictSchedule(type="immediate"),
+    )
+    app.state.storage.save_edict(edict)
+    app.state.storage.save_scheduler_job("immediate-job", edict.id, "immediate")
+    app.state.storage.complete_scheduler_job("immediate-job")
+
+    listed = await client.get("/api/scheduler/jobs")
+
+    assert listed.status_code == 200
+    assert all(job["job_id"] != "immediate-job" for job in listed.json()["data"])
+    assert app.state.storage.get_scheduler_job("immediate-job")["status"] == "completed"
+
+
 async def test_pause_resume_update_history_and_cancel(scheduler_client):
     client, app = scheduler_client
     job_id = await _future_job(app)

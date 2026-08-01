@@ -1,6 +1,6 @@
 # 天枢 · 文档导航
 
-天枢的长期定位是一个**可治理、可验证、持续成长的自进化 Agent OS**。用户可通过 Web、API、CLI、飞书或 Telegram 下达「诏令(Edict)」，系统把目标转成可调度、可审计、可裁决、可复盘的执行链路，并以明朝「六部」隐喻组织职责。
+天枢的长期定位是一个**可治理、可验证、持续成长的自进化 Agent OS**。用户可通过 Web、API、CLI、飞书或 Telegram 下达「敕令（Edict）」，系统把目标转成可调度、可审计、可裁决、可复盘的执行链路，并以明朝官署隐喻组织职责。
 
 > 先看 [CURRENT-STATE.md](CURRENT-STATE.md)：它是当前实现、验证快照、支持边界和发布
 > 状态的总入口。
@@ -10,6 +10,16 @@
 > 对公网生产部署承诺。不要把默认 `trusted-local` 服务暴露到不可信网络。稳定（有限
 > 边界）、实验与规划能力的唯一公开事实源是
 > [launch/capability-matrix.md](launch/capability-matrix.md)。
+
+## 从这里开始
+
+| 你想了解什么 | 先看 |
+|---|---|
+| 产品有哪些功能、页面怎么用 | [功能图鉴](usage/feature-tour.md)（[English](usage/feature-tour.en.md)） |
+| 当前哪些能力真的可用 | [当前实现与验证状态](CURRENT-STATE.md) |
+| 第一次安装和启动 | [快速开始](usage/getting-started.md) |
+| 日常下达和管理任务 | [使用指南](usage/user-guide.md) |
+| 每项能力的成熟度、保证与非保证 | [能力事实矩阵](launch/capability-matrix.md) |
 
 核心闭环：
 
@@ -34,23 +44,42 @@
   详见 [usage/getting-started.md](usage/getting-started.md)。
 - **consultation 会诊 (consultation)** — 监督升级到 L2 时触发 `ConsultationSession`，多名官员(Persona)协作给 actor 改进建议；L2 失败再降级到 L3 人工决策。详见 [design/agent/orchestrator.md](design/agent/orchestrator.md)、[reference/glossary.md](reference/glossary.md)。
 
-## 文档地图
+## 当前文档地图
 
 | 目录 | 面向 | 内容 |
 |---|---|---|
 | [design/](design/) | 想理解「为什么这样设计」 | 架构、领域模型、主链路；按功能子系统分目录的设计文档 |
-| [impl/](impl/) | 想看「代码怎么实现」 | 与 design 同构、一一对应的实现现状文档 |
+| [impl/](impl/) | 想看「代码怎么实现」 | 与主要 design 子系统同名对应的实现现状文档 |
 | [usage/](usage/) | 使用者 / 二次开发者 | 快速开始、使用指南、开发者扩展指南、前端开发 |
 | [ops/](ops/) | 部署 / 运维 | 凭证、飞书/Telegram 接入、多 Bot、MCP 配置 |
-| [launch/](launch/) | 发布审批者 | 当前能力事实、验证状态、非保证和发布门禁 |
 | [reference/](reference/) | 想了解借鉴与术语 | 借鉴融合的开源项目总览、六部隐喻术语表 |
-| [plan/](plan/) | 想了解路线图 | Phase 0–3 分阶段交付计划 |
-| [strategy/](strategy/) | 想了解竞争力与发展战略 | 2026-07 竞争力复盘、发展战略与迭代排期、当期迭代实施计划 |
-| [superpowers/](superpowers/) | 想追溯某个特性怎么落地 | 50+ 特性的设计 spec 与实现 plan（见 [INDEX](superpowers/INDEX.md)） |
-| [codex-v1/](codex-v1/) / [cc-fable-v1/](cc-fable-v1/) | 想追溯历史 | 交接包、阶段台账与绑定当时代码/环境的 Gate 证据；不是当前完成度事实源 |
+
+`assets/` 只存放 README 与文档引用的图片，不是独立阅读入口。
+
+## 发布、安全与决策
+
+| 目录 | 内容 |
+|---|---|
+| [launch/](launch/) | 当前能力事实、验证状态、非保证和发布门禁 |
+| [security/lean-preview-threat-model.md](security/lean-preview-threat-model.md) | 当前安全边界与威胁模型 |
+| [adr/](adr/) | 仍有效的架构决策；若有后续 ADR，以后者为准 |
+
+## 路线与历史资料
+
+以下目录保留决策过程、阶段计划和绑定当时代码/环境的证据，便于追溯；它们不是当前
+完成度事实源，也不会在本次整理中搬移或重写。
+
+| 目录 | 内容 |
+|---|---|
+| [plan/](plan/) | Phase 0–3 路线与阶段实施记录 |
+| [strategy/](strategy/) | 竞争力复盘、发展战略与当期迭代方案 |
+| [superpowers/](superpowers/) | 特性设计 spec 与实现 plan（见 [INDEX](superpowers/INDEX.md)） |
+| [audit/](audit/) | 带日期的专项审计快照，不替代当前源码复核 |
+| [codex-v1/](codex-v1/) / [cc-fable-v1/](cc-fable-v1/) | 历史交接包、阶段台账与不可变 Gate 证据 |
 
 ## 推荐阅读路径
 
+- **我想先看产品全貌** → [usage/feature-tour.md](usage/feature-tour.md)
 - **我要用起来** → [usage/getting-started.md](usage/getting-started.md) → [usage/user-guide.md](usage/user-guide.md)
 - **我要知道当前到底能不能用** → [CURRENT-STATE.md](CURRENT-STATE.md)
 - **我要审批开源前状态** → [CURRENT-STATE.md](CURRENT-STATE.md) →
@@ -65,7 +94,9 @@
 
 ## 设计 ↔ 实现的对应关系
 
-`design/` 与 `impl/` 按相同的功能子系统分目录、一一对应：前者讲「设计意图与当前设计」，后者讲「代码现状」。
+`design/` 与 `impl/` 的主要功能子系统使用同名目录：前者讲「设计意图与当前设计」，
+后者讲「代码现状」。少数设计总览没有独立实现目录，例如 `design/growth/` 是跨子系统的
+设计视图；因此不要把目录是否同名当成能力已实现的证据。
 
 ```text
 agent · persona · memory · skills · tools · llm · storage · scheduling · universe · interfaces

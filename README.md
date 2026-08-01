@@ -12,6 +12,155 @@
 
 </div>
 
+## 产品一览
+
+天枢把任务执行、协同决策、知识联络、实验成长和系统治理放进同一个可审计工作区。
+以下页面均来自当前真实实现；成熟度标记描述当前支持边界，不代表发布承诺。
+[查看完整功能图鉴 →](docs/usage/feature-tour.md) ·
+[查看当前实现与验证状态 →](docs/CURRENT-STATE.md)
+
+<p align="center">
+  <a href="docs/assets/features/control.jpg">
+    <img src="docs/assets/features/control.jpg" alt="天枢中枢总览" width="100%">
+  </a><br>
+  <a href="docs/usage/feature-tour.md#中枢总览"><b>中枢总览</b></a> · <code>可用</code><br>
+  <sub>以真实运行数、待裁决与证据闭环呈现治理态势，并直达四项独特能力。</sub>
+</p>
+
+### 任务与治理
+
+<table>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/task-workspace.jpg">
+        <img src="docs/assets/features/task-workspace.jpg" alt="天枢御书房任务工作区" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.md#御书房"><b>御书房</b></a> · <code>可用</code><br>
+      <sub>集中查看立即、定时、长程、对话与客卿任务，以及最近执行事实对应的进度。</sub>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/edict-create.jpg">
+        <img src="docs/assets/features/edict-create.jpg" alt="天枢颁发敕令表单" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.md#颁发敕令"><b>颁发敕令</b></a> · <code>可用</code><br>
+      <sub>选择任务类型、执行方式、承办官员与预算，在一个表单中下达任务。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/long-task-governance.jpg">
+        <img src="docs/assets/features/long-task-governance.jpg" alt="天枢长程任务治理" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.md#长程任务治理"><b>长程任务治理</b></a> · <code>可用·有限边界</code><br>
+      <sub>用验收条件、检查点、暂停与恢复、运行中指引和人工裁决管理长任务。</sub>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/scheduler.jpg">
+        <img src="docs/assets/features/scheduler.jpg" alt="天枢钦天监定时任务" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.md#钦天监"><b>钦天监</b></a> · <code>可用</code><br>
+      <sub>管理单次、Cron 与间隔排期，查看下次执行、状态和运行历史。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center" valign="top">
+      <a href="docs/assets/features/audit.jpg">
+        <img src="docs/assets/features/audit.jpg" alt="天枢都察院审计与追责" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.md#都察院"><b>都察院</b></a> · <code>可用</code><br>
+      <sub>汇总审计、失败归因、策略与网络记录，让任务行为和证据可追溯。</sub>
+    </td>
+  </tr>
+</table>
+
+### 协同与知识
+
+<table>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/officials.jpg">
+        <img src="docs/assets/features/officials.jpg" alt="天枢百官阁官员管理" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.md#百官阁"><b>百官阁</b></a> · <code>可用</code><br>
+      <sub>配置官员职责、部门、路由、委派、工具权限、技能与模型。</sub>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/consultation.jpg"><img src="docs/assets/features/consultation.jpg" alt="天枢廷议" width="49%"></a>
+      <a href="docs/assets/features/cabinet.jpg"><img src="docs/assets/features/cabinet.jpg" alt="天枢内阁只读视图" width="49%"></a><br>
+      <a href="docs/usage/feature-tour.md#廷议与内阁"><b>廷议与内阁</b></a> · <code>可用</code><br>
+      <sub>廷议组织多官员会商；内阁以只读视图呈现规划分派与协同历史。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center" valign="top">
+      <a href="docs/assets/features/memory.jpg"><img src="docs/assets/features/memory.jpg" alt="天枢翰林院知识与记忆" width="32%"></a>
+      <a href="docs/assets/features/external.jpg"><img src="docs/assets/features/external.jpg" alt="天枢鸿胪寺外部联络" width="32%"></a>
+      <a href="docs/assets/features/notifications.jpg"><img src="docs/assets/features/notifications.jpg" alt="天枢通政司消息与通知" width="32%"></a><br>
+      <a href="docs/usage/feature-tour.md#翰林院鸿胪寺与通政司"><b>翰林院与通政体系</b></a> · <code>可用·有限边界</code><br>
+      <sub>翰林院管理知识记忆，鸿胪寺承载外部联络，通政司统一消息与通知。</sub>
+    </td>
+  </tr>
+</table>
+
+### 天工院〔实验〕
+
+天工院以「位面」呈现实验空间；演化司、考功司与客卿馆分别承载演化治理、评测和外部 Agent 试验。
+
+<table>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/universes.jpg">
+        <img src="docs/assets/features/universes.jpg" alt="天枢位面实验能力" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.md#位面实验"><b>位面</b></a> · <code>实验</code><br>
+      <sub>通过位面谱系隔离实验分支、代码候选、评测、归档与恢复。</sub>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/evolution.jpg">
+        <img src="docs/assets/features/evolution.jpg" alt="天枢演化司实验能力" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.md#演化司实验"><b>演化司</b></a> · <code>实验</code><br>
+      <sub>以只读视图查看技能候选、证据门禁、灰度分流、晋升与回滚状态。</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/evals.jpg">
+        <img src="docs/assets/features/evals.jpg" alt="天枢考功司评测" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.md#考功司试行"><b>考功司</b></a> · <code>试行</code><br>
+      <sub>管理评测集并比较得分、成功率、失败分布与历史差异。</sub>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/keqing.jpg">
+        <img src="docs/assets/features/keqing.jpg" alt="天枢客卿馆实验能力" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.md#客卿馆实验"><b>客卿馆</b></a> · <code>实验</code><br>
+      <sub>从当前环境探测 Pi 等外部编码 Agent 的版本、能力、可用性与治理状态。</sub>
+    </td>
+  </tr>
+</table>
+
+### 系统与成本
+
+<table>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/system.jpg"><img src="docs/assets/features/system.jpg" alt="天枢藏兵阁系统管理" width="49%"></a>
+      <a href="docs/assets/features/session-rules.jpg"><img src="docs/assets/features/session-rules.jpg" alt="天枢权印司会话规则" width="49%"></a><br>
+      <a href="docs/usage/feature-tour.md#藏兵阁与权印司"><b>藏兵阁与权印司</b></a> · <code>可用·管理能力</code><br>
+      <sub>集中管理模型、工具、Skills、插件和凭证，并配置可复用的会话授权规则。</sub>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/cost.jpg">
+        <img src="docs/assets/features/cost.jpg" alt="天枢户部账房成本与预算" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.md#户部账房"><b>户部账房</b></a> · <code>可用·有限边界</code><br>
+      <sub>查看 Token、Provider 成本、缓存用量和预算，并维护价格口径。</sub>
+    </td>
+  </tr>
+</table>
+
 ## Lean Developer Preview Candidate
 
 天枢把「敕令（Edict）→ 裁决（Decision）→ 运行 → Evidence → 技能候选 → 门禁 →

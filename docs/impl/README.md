@@ -12,8 +12,9 @@
 - 控制面持久化：单进程、single-node SQLite；当前 migration ledger 为 V1–V24。
 - 正式根执行路径：managed Native，使用 durable outbox、RunState、attempt lease、
   heartbeat 与 fencing token。
-- Web：`web/src/router/AppRoutes.tsx`；默认侧栏为五个用户目的地。
-- 外部 Keqing CLI、位面/eval 等路由保留实验兼容，不进入默认黄金路径。
+- Web：`web/src/router/AppRoutes.tsx`；默认侧栏为六个一级入口。
+- Keqing CLI、位面与 eval 路由在“天工院〔实验〕”中可发现，并分别标记实验或试行；
+  它们仍不进入 Candidate 黄金路径。
 
 ## 2. 启动装配
 
@@ -143,10 +144,15 @@ unavailable，开启请求返回 `409`。
 | [`agent/`](agent/) | Agent harness |
 | [`auditor/`](auditor/) | 审计规则与复核 |
 | [`bus/`](bus/) | EventBus |
+| [`consultation/`](consultation/) | 多官员会诊与意见汇聚 |
 | [`interfaces/`](interfaces/) | HTTP/WS、通知、IM、Web、CLI |
 | [`llm/`](llm/) | LLM 与成本 |
 | [`memory/`](memory/) | Markdown/SQLite/Drawer 记忆 |
+| [`persona/`](persona/) | 官员、提示组装、路由与成长档案 |
+| [`plugins/`](plugins/) | manifest-only 实验插件目录 |
 | [`scheduling/`](scheduling/) | Scheduler 与 Planner |
+| [`skills/`](skills/) | Skill 加载、评估与学习边界 |
 | [`storage/`](storage/) | schema、ledger、领域 repositories |
 | [`tools/`](tools/) | 工具、Policy、MCP |
 | [`secrets/`](secrets/) | 密钥存储与迁移 |
+| [`universe/`](universe/) | 位面、代码候选与评测实现边界 |

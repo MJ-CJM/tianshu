@@ -154,7 +154,7 @@ class TestScheduler:
         assert len(jobs) == 0
 
     async def test_list_jobs(self, scheduler, storage):
-        # list_jobs 现在只列持久化任务（once/cron/interval）；immediate 不持久化。
+        # list_jobs 只列用户可管理的定时任务（once/cron/interval）。
         edict = Edict(
             goal="test",
             schedule=EdictSchedule(
@@ -168,6 +168,34 @@ class TestScheduler:
         assert len(jobs) == 1
         assert jobs[0]["edict_id"] == edict.id
         assert jobs[0]["status"] == "active"
+
+    async def test_list_jobs_hides_durable_immediate_execution_rows(self, scheduler, storage):
+        immediate = Edict(
+            goal="run now",
+            schedule=EdictSchedule(type="immediate"),
+        )
+        scheduled = Edict(
+            goal="run later",
+            schedule=EdictSchedule(
+                type="once",
+                at=datetime.now(UTC) + timedelta(hours=1),
+            ),
+        )
+        storage.save_edict(immediate)
+        storage.save_edict(scheduled)
+        storage.save_scheduler_job("immediate-job", immediate.id, "immediate")
+        storage.complete_scheduler_job("immediate-job")
+        storage.save_scheduler_job(
+            "scheduled-job",
+            scheduled.id,
+            "once",
+            next_run=scheduled.schedule.at,
+        )
+
+        jobs = await scheduler.list_jobs()
+
+        assert [job["job_id"] for job in jobs] == ["scheduled-job"]
+        assert storage.get_scheduler_job("immediate-job")["status"] == "completed"
 
     async def test_handle_submitted(self, scheduler, event_bus, storage):
         handler = AsyncMock()

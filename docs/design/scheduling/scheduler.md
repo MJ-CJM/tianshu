@@ -47,7 +47,7 @@
 | 取消/暂停/恢复 | `cancel` / `pause`（停 timer 留行）/ `resume`（按持久化 schedule 重建 timer） |
 | 修改时间 | `reschedule` 事务性更新 Edict schedule 与 job 游标；原 active job 修改后恢复 active |
 | 手动触发 | `run_now(job_id, idempotency_key)`：准备独立 run，不动原 schedule |
-| 列举 | `list_jobs()` 返回 active/paused/failed/completed，并附 timezone、title、last_run |
+| 列举 | `list_jobs()` 只返回 once/cron/interval 的 active/paused/failed/completed，并附 timezone、title、last_run；immediate 游标仅留作幂等与审计证据 |
 | 历史 | `list_job_runs()` 关联真实 Memorial 终态、完成时间和错误 |
 | 停机 | `stop()` cancel 所有 task |
 

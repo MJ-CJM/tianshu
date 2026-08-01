@@ -10,6 +10,156 @@
 
 </div>
 
+## Product tour
+
+Tianshu brings task execution, collaborative decision-making, knowledge and integrations,
+controlled experimentation, and system governance into one auditable workspace. Every page below
+comes from the current implementation; maturity labels describe the supported boundary, not a
+release promise. [Open the full feature guide →](docs/usage/feature-tour.en.md) ·
+[Current implementation and verification →](docs/CURRENT-STATE.md)
+
+<p align="center">
+  <a href="docs/assets/features/control.jpg">
+    <img src="docs/assets/features/control.jpg" alt="Tianshu Control Center" width="100%">
+  </a><br>
+  <a href="docs/usage/feature-tour.en.md#control-center"><b>Control Center</b></a> · <code>Available</code><br>
+  <sub>Shows governance posture through real run counts, pending decisions, evidence closure, and direct links to four differentiating capabilities.</sub>
+</p>
+
+### Tasks and governance
+
+<table>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/task-workspace.jpg">
+        <img src="docs/assets/features/task-workspace.jpg" alt="Tianshu Task Workspace" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.en.md#royal-study"><b>Task Workspace</b></a> · <code>Available</code><br>
+      <sub>Brings immediate, scheduled, long-running, conversational, and Keqing work into one view, with progress derived from recent execution facts.</sub>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/edict-create.jpg">
+        <img src="docs/assets/features/edict-create.jpg" alt="Tianshu New Task form" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.en.md#issue-an-edict"><b>New Task</b></a> · <code>Available</code><br>
+      <sub>Choose the task type, execution mode, assigned official, and budget in one form.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/long-task-governance.jpg">
+        <img src="docs/assets/features/long-task-governance.jpg" alt="Tianshu long-running task governance" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.en.md#long-running-task-governance"><b>Long-running Governance</b></a> · <code>Available · Bounded</code><br>
+      <sub>Govern long-running work with acceptance criteria, checkpoints, pause and resume, in-run guidance, and human decisions.</sub>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/scheduler.jpg">
+        <img src="docs/assets/features/scheduler.jpg" alt="Tianshu Scheduler" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.en.md#imperial-observatory"><b>Scheduler</b></a> · <code>Available</code><br>
+      <sub>Manage one-time, Cron, and interval schedules, including next-run state and execution history.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center" valign="top">
+      <a href="docs/assets/features/audit.jpg">
+        <img src="docs/assets/features/audit.jpg" alt="Tianshu Audit" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.en.md#censorate"><b>Audit</b></a> · <code>Available</code><br>
+      <sub>Brings audits, failure attribution, policies, and network records together so actions and evidence remain traceable.</sub>
+    </td>
+  </tr>
+</table>
+
+### Collaboration and knowledge
+
+<table>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/officials.jpg">
+        <img src="docs/assets/features/officials.jpg" alt="Tianshu Officials" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.en.md#officials"><b>Officials</b></a> · <code>Available</code><br>
+      <sub>Configure roles, departments, routing, delegation, tool permissions, skills, and models.</sub>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/consultation.jpg"><img src="docs/assets/features/consultation.jpg" alt="Tianshu Consultation" width="49%"></a>
+      <a href="docs/assets/features/cabinet.jpg"><img src="docs/assets/features/cabinet.jpg" alt="Tianshu Cabinet read-only view" width="49%"></a><br>
+      <a href="docs/usage/feature-tour.en.md#consultation-and-cabinet"><b>Consultation &amp; Cabinet</b></a> · <code>Available</code><br>
+      <sub>Consultation convenes multi-official review; Cabinet provides a read-only view of planning assignments and collaboration history.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center" valign="top">
+      <a href="docs/assets/features/memory.jpg"><img src="docs/assets/features/memory.jpg" alt="Tianshu Knowledge and Memory" width="32%"></a>
+      <a href="docs/assets/features/external.jpg"><img src="docs/assets/features/external.jpg" alt="Tianshu External connections" width="32%"></a>
+      <a href="docs/assets/features/notifications.jpg"><img src="docs/assets/features/notifications.jpg" alt="Tianshu Notifications" width="32%"></a><br>
+      <a href="docs/usage/feature-tour.en.md#academy-external-affairs-and-messaging"><b>Knowledge &amp; Communications</b></a> · <code>Available · Bounded</code><br>
+      <sub>Knowledge manages memory, External handles integrations, and Notifications centralizes messages and delivery.</sub>
+    </td>
+  </tr>
+</table>
+
+### Frontier Lab [Experimental]
+
+Frontier Lab is introduced through Universes; Evolution, Evals, and Keqing provide separate governance, evaluation, and external-agent views.
+
+<table>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/universes.jpg">
+        <img src="docs/assets/features/universes.jpg" alt="Tianshu Universes experimental capability" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.en.md#universes-experimental"><b>Universes</b></a> · <code>Experimental</code><br>
+      <sub>Uses universe lineages to isolate experimental branches, code candidates, evaluation, archival, and recovery.</sub>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/evolution.jpg">
+        <img src="docs/assets/features/evolution.jpg" alt="Tianshu Evolution experimental capability" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.en.md#evolution-experimental"><b>Evolution</b></a> · <code>Experimental</code><br>
+      <sub>Provides read-only visibility into skill candidates, evidence gates, canary routing, promotion, and rollback state.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/evals.jpg">
+        <img src="docs/assets/features/evals.jpg" alt="Tianshu Evals beta capability" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.en.md#evaluations-trial"><b>Evals</b></a> · <code>Beta</code><br>
+      <sub>Manage evaluation sets and compare scores, success rates, failure distribution, and historical deltas.</sub>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/keqing.jpg">
+        <img src="docs/assets/features/keqing.jpg" alt="Tianshu Keqing experimental capability" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.en.md#guest-agents-experimental"><b>Keqing</b></a> · <code>Experimental</code><br>
+      <sub>Probes the current environment for Pi and other external coding agents—their versions, capabilities, readiness, and governance state.</sub>
+    </td>
+  </tr>
+</table>
+
+### Administration and cost
+
+<table>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/system.jpg"><img src="docs/assets/features/system.jpg" alt="Tianshu System management" width="49%"></a>
+      <a href="docs/assets/features/session-rules.jpg"><img src="docs/assets/features/session-rules.jpg" alt="Tianshu Session Rules" width="49%"></a><br>
+      <a href="docs/usage/feature-tour.en.md#system-and-session-rules"><b>System &amp; Session Rules</b></a> · <code>Available · Administration</code><br>
+      <sub>Centralizes models, tools, skills, plugins, and credentials while keeping reusable session authorization rules explicit.</sub>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/assets/features/cost.jpg">
+        <img src="docs/assets/features/cost.jpg" alt="Tianshu Finance and budgets" width="100%">
+      </a><br>
+      <a href="docs/usage/feature-tour.en.md#cost-and-budgets"><b>Finance</b></a> · <code>Available · Bounded</code><br>
+      <sub>Tracks token and provider costs, cache usage, budgets, and pricing assumptions.</sub>
+    </td>
+  </tr>
+</table>
+
 ## Lean Developer Preview Candidate
 
 Tianshu is a governable, verifiable Agent OS designed to learn and evolve continuously. Its code

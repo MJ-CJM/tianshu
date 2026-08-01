@@ -1207,12 +1207,14 @@ class Scheduler:
         return True
 
     async def list_jobs(self) -> list[dict]:
-        """List persisted jobs (active + paused), merging live in-memory next_run."""
+        """List user-manageable scheduled jobs, merging live in-memory next_run."""
         rows = self._storage.list_scheduler_jobs(
             statuses=("active", "paused", "failed", "completed")
         )
         out: list[dict] = []
         for row in rows:
+            if row["schedule_type"] not in {"once", "cron", "interval"}:
+                continue
             jid = row["job_id"]
             mem = self._jobs.get(jid)
             next_run = mem.next_run.isoformat() if (mem and mem.next_run) else row.get("next_run")

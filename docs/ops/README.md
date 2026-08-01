@@ -10,6 +10,7 @@ single-node SQLite；历史方案不能替代这里的边界。
 | [runtime-boundaries.md](runtime-boundaries.md) | 源码/Wheel/Docker、trusted-local/secure-remote、MCP 与非承诺 |
 | [observability.md](observability.md) | Edict、run/attempt、SystemAudit、Scheduler/notification 排查 |
 | [credentials.md](credentials.md) | 凭证与密钥管理 |
+| [eval-harness.md](eval-harness.md) | 考功司评测集与 CLI 跑批 |
 | [feishu-setup.md](feishu-setup.md) | 飞书应用接入配置 |
 | [feishu-assistant-mode.md](feishu-assistant-mode.md) | 飞书助手模式操作指南 |
 | [telegram-setup.md](telegram-setup.md) | Telegram 机器人接入配置 |

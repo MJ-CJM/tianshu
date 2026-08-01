@@ -19,7 +19,7 @@
 ## 扩展人格（Persona）
 
 - 落点：通过人格管理页或 API 从内建模板 / 自定义内容创建；SOUL/ROLE 写入 `~/.tianshu/personas/{id}/`，元数据写入 SQLite。内建默认位于打包资源中，由 `packaged_defaults()` 只读解析，不要直接修改打包目录。
-- 路由：`OfficialSelector` 按部门关键词把诏令分派给官员；默认执行官 `bingbu`。
+- 路由：`OfficialSelector` 按部门关键词把敕令分派给官员；默认执行官 `bingbu`。
 - 详见 [../design/persona/officials.md](../design/persona/officials.md)、[../impl/persona/](../impl/persona/)。
 
 ## 改 Prompt 注入层

@@ -1,16 +1,16 @@
 # 长任务端到端走查
 
-一篇贯穿全程的实操手册：带验收契约下诏 → 看 L1/L2/L3 跳变 → L3 人工裁决 → 读监督报告 → 失败重跑。机制与设计意图见 [../design/agent/orchestrator.md](../design/agent/orchestrator.md)，通用流程见 [user-guide.md](user-guide.md)。
+一篇贯穿全程的实操手册：带验收契约颁发敕令 → 看 L1/L2/L3 跳变 → L3 人工裁决 → 读监督报告 → 失败重跑。机制与设计意图见 [../design/agent/orchestrator.md](../design/agent/orchestrator.md)，通用流程见 [user-guide.md](user-guide.md)。
 
 **相关实现**：[../impl/agent/](../impl/agent/)
 
-> 触发条件：只要 `Edict.acceptance` 非空，执行就从普通 ReAct 切换到 orchestrator outer loop。不配 `acceptance` 的诏令走普通单轮路径，本篇不适用。
+> 触发条件：只要 `Edict.acceptance` 非空，执行就从普通 ReAct 切换到 orchestrator outer loop。不配 `acceptance` 的敕令走普通单轮路径，本篇不适用。
 > 入口契约见 `AcceptanceCriteria`（`src/tianshu/models/acceptance.py`），HTTP 路由在 `gateway/edicts_api.py`。
 >
 > 调度边界：长任务支持 `immediate` 和 `once`；`cron` / `interval` 周期长任务在 Web、
 > API 和工具入口统一返回拒绝。周期运行请使用普通任务。
 
-## 1. 带 acceptance_criteria 下诏
+## 1. 带 acceptance_criteria 颁发敕令
 
 走 `POST /api/edicts`（`create_edict`），在请求体 `acceptance` 字段塞入验收契约。注意：CLI `tianshu edict submit` 只接受 `--goal/--context/--priority`，**不带** acceptance，要配验收契约请直接走 HTTP（curl / Web）。
 
@@ -53,7 +53,7 @@ curl -X POST http://localhost:8000/api/edicts \
 
 首次提交返回 `202` + edict 数据（`ApiResponse`，`data.id` 即 edict_id）；用相同
 `Idempotency-Key` 和相同请求体重放时返回 `200`，并复用原任务。`create_edict` 只在
-`body.acceptance is not None` 时把它挂到 `Edict`，所以不传该字段就是普通诏令。
+`body.acceptance is not None` 时把它挂到 `Edict`，所以不传该字段就是普通敕令。
 
 | 入口 | 怎么带验收契约 |
 |---|---|

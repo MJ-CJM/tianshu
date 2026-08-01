@@ -132,7 +132,7 @@ provider_manager.register(ProviderInfo(
 
 ## 5. 扩展通知渠道（Channel）
 
-渠道是诏令/事件的外发出口。继承抽象基类实现 `name` + `send`，注册进 `ChannelRegistry`（自带 per-channel 限速）。
+渠道是敕令/事件的外发出口。继承抽象基类实现 `name` + `send`，注册进 `ChannelRegistry`（自带 per-channel 限速）。
 
 - 落点：`notifier/channels/`，继承 `base.py` 的 `NotificationChannel`；注册中心 `notifier/channel_registry.py`。已有 `FeishuChannel` / `DingTalkChannel` / `EmailChannel` 可参照。
 

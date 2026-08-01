@@ -1,6 +1,6 @@
 # 天枢架构总览
 
-> 本目录按“总分”结构梳理当前项目的架构和核心设计：本文件是总览，其余按功能子系统拆分到同名目录（与 [`../impl/`](../impl/) 的实现文档一一对应）。内容以当前代码为准，主要参考 `src/tianshu/app.py` 的装配链路、`models/` 的领域契约、`executor/` 的执行路径和 `gateway/` 的接口面。
+> 本目录按“总分”结构梳理当前项目的架构和核心设计：本文件是总览，其余按功能子系统拆分。主要子系统与 [`../impl/`](../impl/) 使用同名目录；少数跨域设计（如 `growth/`）没有独立实现目录。内容以当前代码为准，主要参考 `src/tianshu/app.py` 的装配链路、`models/` 的领域契约、`executor/` 的执行路径和 `gateway/` 的接口面。
 
 ## 0. 文档状态与支持边界
 
@@ -165,9 +165,10 @@ ProfileTrigger 产生画像合成信号；SkillReviewHandler 虽保留 Hook 装�
 | [architecture.md](architecture.md) | 顶层架构、六部隐喻、设计原则、阶段规划 |
 | [project-analysis.md](project-analysis.md) | 项目背景、痛点与需求分析 |
 | [domain-model.md](domain-model.md) | 领域对象、状态机、SQLite 表、事件契约 |
+| [model-registry.md](model-registry.md) | 模型目录、能力探测、验证基线与选择边界 |
 | [runtime-flow.md](runtime-flow.md) | 启动装配、事件链、Scheduler/Planner/Executor 主流程 |
 
-按功能子系统（每个目录含设计意图与当前设计，与 [`../impl/<同名>`](../impl/) 实现文档一一对应）：
+按功能子系统（主要目录可跳转到 [`../impl/<同名>`](../impl/) 查看实现；是否可用仍以能力事实矩阵为准）：
 
 | 子系统 | 内容 |
 |---|---|
