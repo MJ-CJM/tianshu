@@ -257,17 +257,24 @@ work are in the [deferred roadmap](docs/cc-fable-v1/06-deferred-work-backlog.md)
 
 ## Brand and desktop shell
 
-The production desktop Web uses [`web/public/brand.png`](web/public/brand.png), whose SHA-256 is
-`3f2bb6cfdcac70092fce3a9b8b534c4a0627f444cb9db38a9651087688ace799`. The frozen motto is
-“成功只有一个——按照自己的方式，去度过人生。” and the five right-side labels are
-“彩蛋 / 通用 / English / 实时 / 通政”. The left navigation has six top-level destinations:
-Control Center, Task Workspace, Collaboration, Operations, Frontier Lab, and Administration. In
-the classic Chinese locale these are 中枢、御书房、朝堂、百司、天工院〔实验〕、内府. Their children
-map respectively to All Edicts / New Task / Scheduler / Audit; Personas / Consultation / Planning;
-Knowledge / External / Notifications; Evolution / Universes / Evals / Keqing; and System / Session
-Rules / Finance. Evolution, Universes, and Keqing are labelled Experimental; Evals is labelled
-Beta (`试行` in the classic Chinese locale). The Task Workspace combines all tasks, current
-progress, and items needing human intervention; `/edicts` remains only as a compatibility redirect.
+- **Brand asset**: the production desktop Web uses
+  [`web/public/brand.png`](web/public/brand.png), whose SHA-256 is
+  `3f2bb6cfdcac70092fce3a9b8b534c4a0627f444cb9db38a9651087688ace799`.
+- **Motto**: “成功只有一个——按照自己的方式，去度过人生。”
+- **Five right-side labels**: “彩蛋 / 通用 / English / 实时 / 通政”.
+- **Top-level navigation**: Control Center, Task Workspace, Collaboration, Operations,
+  Frontier Lab, and Administration (中枢、御书房、朝堂、百司、天工院〔实验〕、内府 in the
+  classic Chinese locale).
+- **Second-level structure**:
+  - Task Workspace — All Edicts, New Task, Scheduler, Audit;
+  - Collaboration — Personas, Consultation, Planning;
+  - Operations — Knowledge, External, Notifications;
+  - Frontier Lab — Evolution, Universes, Evals, Keqing (Evolution, Universes, and Keqing
+    are labelled Experimental; Evals is Beta, `试行` in the classic Chinese locale);
+  - Administration — System, Session Rules, Finance.
+- **Task entry**: the Task Workspace combines all tasks, current progress, and items
+  needing human intervention; `/edicts` remains only as a compatibility redirect.
+
 This product structure is implemented in the current version. The original
 [approval proposal](docs/launch/final-approval-proposal.md) remains a decision-process record;
 [Current implementation](docs/CURRENT-STATE.md) is authoritative for present status.

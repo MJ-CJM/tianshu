@@ -16,12 +16,12 @@
 
 ## 开发规则
 
-- **TDD：**先写能复现缺口的测试并确认 RED，再做最小实现，最后确认 GREEN 和相关回归。
-- **migration freeze：**既有 migration 的 version、名称、checksum 和 callback 不可改写；
+- **TDD**：先写能复现缺口的测试并确认 RED，再做最小实现，最后确认 GREEN 和相关回归。
+- **migration freeze**：既有 migration 的 version、名称、checksum 和 callback 不可改写；
   新迁移只允许在当前 ledger 尾部追加，并由对应 brief/测试明确授权。
-- **truth-first docs：**能力描述必须链接当前代码、自动化或不可变报告，并同时写清默认值、
+- **truth-first docs**：能力描述必须链接当前代码、自动化或不可变报告，并同时写清默认值、
   支持范围和非保证。不得把 `external_pending` 写成 passed。
-- **no-mock UI：**生产 desktop Web 不得以 mock 数字、复制其他页面数据或静态成功 badge
+- **no-mock UI**：生产 desktop Web 不得以 mock 数字、复制其他页面数据或静态成功 badge
   兜底；缺失、禁用、延期、权限和错误状态必须真实呈现。
 - 只做请求范围内的外科手术式改动；不要顺手清理历史文件、改变移动端或扩大发布面。
 

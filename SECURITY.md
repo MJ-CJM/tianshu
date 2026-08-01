@@ -20,22 +20,22 @@ Python 3.12 是首个正式支持目标；当前发布产物实际在本机
 
 ## 已实现的边界
 
-- **SystemAudit：**`implemented`。单节点 SQLite 内使用 canonical hash、前序 hash、
+- **SystemAudit**：`implemented`。单节点 SQLite 内使用 canonical hash、前序 hash、
   append-only trigger 和全链校验；它不是外部 WORM 服务。证据见
   [S2 Lean 报告](docs/cc-fable-v1/reports/s2-lean-security-report.md)。
-- **MCP persisted secret mappings：**`implemented`。持久 env/header mapping 使用密文；
+- **MCP persisted secret mappings**：`implemented`。持久 env/header mapping 使用密文；
   主密钥缺失、错误或密文损坏时 fail closed。证据见
   [威胁模型](docs/security/lean-preview-threat-model.md)。
-- **受管 Native 恢复：**`implemented`。持久 Decision、RunState、attempt lease/fencing、
+- **受管 Native 恢复**：`implemented`。持久 Decision、RunState、attempt lease/fencing、
   声明 effect 的 intent/receipt 与 Evidence Bundle v1 只在命名的单节点边界内生效。
-- **运行时纵深防护：**出站脱敏、bash 分段风险分级、clean-env 与分级急停降低风险，
+- **运行时纵深防护**：出站脱敏、bash 分段风险分级、clean-env 与分级急停降低风险，
   但不构成 OS/容器隔离，也不抵抗宿主机管理员。
 
 ## 默认关闭的 MCP 路径
 
-- **remote MCP：**`disabled`，完整开放安全为 `deferred`。在 `secure-remote` 下拒绝；
+- **remote MCP**：`disabled`，完整开放安全为 `deferred`。在 `secure-remote` 下拒绝；
   当前没有完整 SSRF、redirect/proxy、DNS pinning 或解析漂移保证。
-- **open stdio MCP：**`disabled`，完整准入与 executable drift binding 为 `deferred`。
+- **open stdio MCP**：`disabled`，完整准入与 executable drift binding 为 `deferred`。
   Lean 内部窄路径只接受显式非空 `tools.include`，这不等于把任意第三方 stdio server
   列为正式支持能力。
 

@@ -180,13 +180,13 @@
 天枢把「敕令（Edict）→ 裁决（Decision）→ 运行 → Evidence → 技能候选 → 门禁 →
 分流 → 回滚」组织成一条可复验的本地链路。当前代码与阶段证据覆盖以下能力：
 
-- **可治理：**受管 Native 路径使用持久 Decision、RunState、attempt lease/fencing 和
+- **可治理**：受管 Native 路径使用持久 Decision、RunState、attempt lease/fencing 和
   effect intent/receipt；已声明且进入账本的恢复边界可耐单节点重启。
-- **可验证：**SystemAudit 防篡改链、内容寻址 ArtifactStore 与 Evidence Bundle v1
+- **可验证**：SystemAudit 防篡改链、内容寻址 ArtifactStore 与 Evidence Bundle v1
   记录行为、裁决、产物和边界；严格 verifier 会重算 hash 并核对源码与 exact Wheel。
-- **持续成长：**技能候选经过证据绑定的门禁、真实 canary assignment 和 effective
+- **持续成长**：技能候选经过证据绑定的门禁、真实 canary assignment 和 effective
   overlay，再由受控回滚把新流量归零；完整的自进化闭环仍属实验能力。
-- **真实桌面产品：**默认导航为中枢、御书房、朝堂、百司、天工院〔实验〕、内府六个
+- **真实桌面产品**：默认导航为中枢、御书房、朝堂、百司、天工院〔实验〕、内府六个
   一级入口。
   御书房以“全部敕令 / 颁发敕令 / 钦天监 / 都察院”统一承载任务、定时调度与审计；
   朝堂包含吏部、廷议、内阁，百司包含翰林院、鸿胪寺、通政司。天工院集中展示演化司、
@@ -205,16 +205,16 @@
 
 ## 当前支持边界
 
-- **首个正式目标：**Ubuntu + Python 3.12，本地 desktop Web only；不提供移动端产品承诺。
-- **已有本地证据：**最近一次 exact-Wheel 完整验证运行于
+- **首个正式目标**：Ubuntu + Python 3.12，本地 desktop Web only；不提供移动端产品承诺。
+- **已有本地证据**：最近一次 exact-Wheel 完整验证运行于
   `Darwin/arm64/Python 3.12.12`。这证明本机验证环境，不替代尚待执行的 Ubuntu 外部复验。
-- **部署模型：**单机、单节点 SQLite。宿主机管理员可读取数据库、主密钥和进程内明文，
+- **部署模型**：单机、单节点 SQLite。宿主机管理员可读取数据库、主密钥和进程内明文，
   因而不在当前威胁模型的防护对象内。
-- **正式安装路径：**源码 checkout 与同一 checkout 构建的 exact Wheel。官方容器、PyPI、
+- **正式安装路径**：源码 checkout 与同一 checkout 构建的 exact Wheel。官方容器、PyPI、
   GHCR、签名和正式供应链 provenance 均为 `deferred`。
-- **MCP：**持久 env/header secret mapping 已密文落库；remote MCP 与 open stdio MCP
+- **MCP**：持久 env/header secret mapping 已密文落库；remote MCP 与 open stdio MCP
   在当前支持面内保持 `disabled`，完整开放安全工作为 `deferred`。
-- **演化边界：**managed OpenHands、执行器兼容套件、ROI 与 cost calibration 均为
+- **演化边界**：managed OpenHands、执行器兼容套件、ROI 与 cost calibration 均为
   `external_pending`；更完整的自动化演化门禁为 `deferred`。
 
 ## 本地安装与验证
@@ -252,15 +252,21 @@ TIANSHU_STATIC_DIR=src/tianshu/web/static uvicorn tianshu.app:create_app --facto
 
 ## 品牌与产品壳层
 
-生产 desktop Web 使用 [`web/public/brand.png`](web/public/brand.png)，SHA-256 为
-`3f2bb6cfdcac70092fce3a9b8b534c4a0627f444cb9db38a9651087688ace799`。完整格言是
-“成功只有一个——按照自己的方式，去度过人生。”；右上五项为
-“彩蛋 / 通用 / English / 实时 / 通政”。左侧导航为“中枢 / 御书房 / 朝堂 / 百司 /
-天工院〔实验〕 / 内府”六个一级入口。御书房包含全部敕令、颁发敕令、钦天监、都察院；朝堂
-包含吏部、廷议、内阁；百司包含翰林院、鸿胪寺、通政司；天工院包含演化司〔实验〕、
-诸界台〔实验〕、考功司〔试行〕、客卿馆〔实验〕；内府保留藏兵阁、权印司、户部账房。
-御书房统一承载全部任务、任务进度与待人工介入事项，`/edicts` 仅作兼容跳转。该产品
-结构已在当前版本落地；原
+- **品牌资产**：生产 desktop Web 使用 [`web/public/brand.png`](web/public/brand.png)，
+  SHA-256 为 `3f2bb6cfdcac70092fce3a9b8b534c4a0627f444cb9db38a9651087688ace799`。
+- **格言**：“成功只有一个——按照自己的方式，去度过人生。”
+- **右上五项**：“彩蛋 / 通用 / English / 实时 / 通政”。
+- **一级导航**：“中枢 / 御书房 / 朝堂 / 百司 / 天工院〔实验〕 / 内府”六个入口。
+- **二级结构**：
+  - 御书房——全部敕令、颁发敕令、钦天监、都察院；
+  - 朝堂——吏部、廷议、内阁；
+  - 百司——翰林院、鸿胪寺、通政司；
+  - 天工院——演化司〔实验〕、诸界台〔实验〕、考功司〔试行〕、客卿馆〔实验〕；
+  - 内府——藏兵阁、权印司、户部账房。
+- **任务入口**：御书房统一承载全部任务、任务进度与待人工介入事项，`/edicts` 仅作
+  兼容跳转。
+
+该产品结构已在当前版本落地；原
 [审批提案](docs/launch/final-approval-proposal.md)保留为决策过程记录，当前状态以
 [当前实现](docs/CURRENT-STATE.md)为准。
 
