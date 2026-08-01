@@ -114,7 +114,7 @@ def test_memory_backend_protocol():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_drawer.py -v`
+Run: `cd <repo> && python -m pytest tests/test_drawer.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'tianshu.memory.drawer'`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -209,7 +209,7 @@ class MemoryBackend(Protocol):
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_drawer.py -v`
+Run: `cd <repo> && python -m pytest tests/test_drawer.py -v`
 Expected: 4 passed
 
 - [ ] **Step 5: Commit**
@@ -294,7 +294,7 @@ def test_real_content_chunking():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_chunker.py -v`
+Run: `cd <repo> && python -m pytest tests/test_chunker.py -v`
 Expected: FAIL with `ModuleNotFoundError`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -361,7 +361,7 @@ def chunk_text(
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_chunker.py -v`
+Run: `cd <repo> && python -m pytest tests/test_chunker.py -v`
 Expected: 7 passed
 
 - [ ] **Step 5: Commit**
@@ -413,7 +413,7 @@ class MemoryConfig:
 
 - [ ] **Step 2: Verify import**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -c "from tianshu.memory.config import MemoryConfig; c = MemoryConfig(); print(f'enabled={c.enabled}, l1_max={c.l1_max_chars}')"`
+Run: `cd <repo> && python -c "from tianshu.memory.config import MemoryConfig; c = MemoryConfig(); print(f'enabled={c.enabled}, l1_max={c.l1_max_chars}')"`
 Expected: `enabled=True, l1_max=3200`
 
 - [ ] **Step 3: Commit**
@@ -529,7 +529,7 @@ async def test_get_l1(store):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_drawer_store.py -v`
+Run: `cd <repo> && python -m pytest tests/test_drawer_store.py -v`
 Expected: FAIL with `ModuleNotFoundError`
 
 - [ ] **Step 3: Write DrawerStore implementation**
@@ -787,7 +787,7 @@ class DrawerStore:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_drawer_store.py -v`
+Run: `cd <repo> && python -m pytest tests/test_drawer_store.py -v`
 Expected: 7 passed
 
 - [ ] **Step 5: Commit**
@@ -891,7 +891,7 @@ async def test_master_switch_off(mock_store):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_layers.py -v`
+Run: `cd <repo> && python -m pytest tests/test_layers.py -v`
 Expected: FAIL with `ModuleNotFoundError`
 
 - [ ] **Step 3: Write implementation**
@@ -980,7 +980,7 @@ class MemoryStack:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_layers.py -v`
+Run: `cd <repo> && python -m pytest tests/test_layers.py -v`
 Expected: 6 passed
 
 - [ ] **Step 5: Commit**
@@ -1093,7 +1093,7 @@ async def test_ablation_memory_off(store):
 
 - [ ] **Step 2: Run test to verify it passes** (this test should pass since it uses already-built components)
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_memory_palace_integration.py -v`
+Run: `cd <repo> && python -m pytest tests/test_memory_palace_integration.py -v`
 Expected: 2 passed
 
 - [ ] **Step 3: Add `retain_drawers()` to MemoryManager**
@@ -1429,7 +1429,7 @@ git commit -m "feat(memory): add /api/memory/search and /api/memory/l1 endpoints
 - [ ] **Step 1: Run all tests**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 python -m pytest tests/test_drawer.py tests/test_chunker.py tests/test_drawer_store.py tests/test_layers.py tests/test_memory_palace_integration.py -v
 ```
 

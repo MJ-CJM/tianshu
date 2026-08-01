@@ -6,7 +6,12 @@
 
 **Tianshu is a governable, verifiable Agent OS designed to learn and evolve continuously.**
 
-[中文](README.md) · [Current implementation](docs/CURRENT-STATE.md) · [Lean Preview guide](docs/usage/lean-developer-preview.md) · [Capability matrix](docs/launch/capability-matrix.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://github.com/MJ-CJM/tianshu/actions/workflows/ci.yml/badge.svg)](https://github.com/MJ-CJM/tianshu/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue.svg)](pyproject.toml)
+[![Version 0.5.0](https://img.shields.io/badge/version-0.5.0-informational.svg)](https://github.com/MJ-CJM/tianshu/releases)
+
+[中文](README.md) · [Current implementation](docs/CURRENT-STATE.md) · [Getting started](docs/usage/getting-started.en.md) · [Capability matrix](docs/launch/capability-matrix.md)
 
 </div>
 
@@ -160,16 +165,22 @@ Frontier Lab is introduced through Universes; Evolution, Evals, and Keqing provi
   </tr>
 </table>
 
-## Lean Developer Preview Candidate
+## Architecture overview
 
-Tianshu is a governable, verifiable Agent OS designed to learn and evolve continuously. Its code
-and retained phase evidence compose a local path from Edict through Decision, run, Evidence, skill
-candidate, evidence-bound gate, canary assignment, and rollback.
+Tianshu organizes each task as one auditable core loop: Edict → Scheduler → Planner → execution
+(Agent/DAG/Outer Loop) → Auditor → Notifier → growth through Memory/Profile/Skill. Edicts can be
+issued from the Web UI, API, CLI, Feishu, or Telegram, and the system turns each goal into a
+schedulable, auditable, decidable, and replayable execution chain. Long-running work does not rely
+on a single terminal LLM output; an outer loop repeats actor → checks → critic → completion audit
+until acceptance passes or the budget is exhausted. See the
+[documentation guide](docs/README.md) for the architecture, domain model, and per-subsystem
+design docs.
 
-> The previous Candidate JSON and aggregate report have been withdrawn fail-closed because they
-> relied on composite summaries and did not bind tracked raw Gate logs and build provenance. No
-> Candidate is currently accepted; a new final-source Gate, artifact provenance, and demo must be
-> recorded before the strict checker can rebuild one.
+## Capability maturity
+
+Tianshu composes a locally re-verifiable chain from Edict through Decision, run, Evidence, skill
+candidate, evidence-bound gate, canary assignment, and rollback. The current code and retained
+phase evidence cover the following capabilities:
 
 - **Governance:** managed Native runs use durable Decision and RunState authority, attempt
   leases/fencing, and declared effect intent/receipt records inside the documented boundary.
@@ -177,7 +188,8 @@ candidate, evidence-bound gate, canary assignment, and rollback.
   Bundle v1 bind behavior, decisions, artifacts, and limits. The strict verifier recomputes hashes
   and checks source/exact-Wheel provenance.
 - **Lean evolution:** a skill candidate reaches a real candidate overlay only after its evidence
-  gate, and rollback closes new candidate traffic. This is Lean Core evidence, not full G4.
+  gate, and rollback closes new candidate traffic; the full self-evolution loop remains
+  experimental.
 - **Desktop product:** the default navigation has six top-level destinations—Control Center
   (中枢), Task Workspace (御书房), Collaboration (朝堂), Operations (百司), Frontier Lab
   [Experimental] (天工院〔实验〕), and Administration (内府). The Task Workspace contains All Edicts, New Task,
@@ -191,31 +203,18 @@ candidate, evidence-bound gate, canary assignment, and rollback.
   cards present long-running governance, Evolution, Universes, and Keqing in the Control Center;
   Evolution renders the authoritative backend `evolution_status` instead of mock product data.
 
-The current product decision and release boundary remain separate:
-
-- `design_status`: `approved`
-- `implementation_status`: `verified_local`
-- `visual_status`: `user_approval_pending`
-- `publication_status`: `not_authorized`
-
-The user approved the final six-destination structure, and it is implemented and verified locally.
-The latest source has also completed an isolated Demo/Eval browser walkthrough of the pages and
-their primary interactions, including repair-and-retest of issues found during that walkthrough.
-The retained 48 visual baselines and hashes still cover the preceding six-route shell. The Task
-Workspace expands the current matrix to seven routes and an expected 56 visual images, but those
-images and hashes have not been regenerated. `visual_status` therefore remains
-`user_approval_pending`; `verified_local` does not mean a new Candidate is accepted. See the
+Each page and its primary interactions have been walked through and repaired locally; see the
 [Web functional validation and repair report](docs/launch/web-functional-validation-2026-07-31.md)
-for the clicked paths, fixes, and remaining boundaries.
-
-The historical retained golden batch passed all 13 steps and strict verification, but it is not
-reused for a new Candidate. See the
-[usage guide](docs/usage/lean-developer-preview.md) and its
-[immutable report](docs/cc-fable-v1/evidence/lean-preview/20260719T083725Z-01da3844dde7/demo-report.json).
+for the clicked paths and remaining boundaries. The complete historical verification runs and
+their immutable evidence are archived under [docs/cc-fable-v1/](docs/cc-fable-v1/).
+Per-capability maturity conclusions are in the
+[capability matrix](docs/launch/capability-matrix.md) and the
+[current implementation](docs/CURRENT-STATE.md).
 
 ## Supported boundary
 
-- The first official target is **Ubuntu + Python 3.12**, serving local desktop Web only.
+- The first official target is **Ubuntu + Python 3.12**, serving local desktop Web only; no
+  mobile product commitment is made.
 - The retained exact-Wheel batch was verified locally on `Darwin/arm64/Python 3.12.12`; it is not
   evidence that the Ubuntu external validation has already run.
 - Persistence is single-host, single-node SQLite. A host administrator can read the database,
@@ -223,23 +222,32 @@ reused for a new Candidate. See the
 - The official local installation paths are a source checkout and an exact Wheel built from that
   checkout. An official container, PyPI, GHCR, signing, and release provenance are `deferred`.
 - Persisted MCP env/header mappings are ciphertext. remote MCP and open stdio MCP remain
-  `disabled` in the Candidate support surface; their full admission work is `deferred`.
-- managed OpenHands, executor compatibility, ROI, cost calibration, and full G4 are
-  `external_pending`; full G5 is `deferred`.
-
-`publication_status`: `not_authorized`. This private-branch Candidate is not permission to push,
-tag, release, publish packages or images, make the repository public, or announce a final release.
+  `disabled` in the current support surface; their full admission work is `deferred`.
+- managed OpenHands, executor compatibility, ROI, and cost calibration are `external_pending`;
+  the fuller automated evolution gating is `deferred`.
 
 ## Install and verify locally
 
-Follow the [Lean Developer Preview guide](docs/usage/lean-developer-preview.md) for source and
-exact-Wheel installation, the one golden demo, and strict provenance verification. The legacy
-Dockerfile is not an official distribution path for this Candidate.
+```bash
+git clone https://github.com/MJ-CJM/tianshu.git
+cd tianshu
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -e .
+cp .env.example .env   # edit .env and set TIANSHU_LLM_API_KEY
+cd web && npm install && npm run build && cd ..
+TIANSHU_STATIC_DIR=src/tianshu/web/static uvicorn tianshu.app:create_app --factory --port 8000
+```
+
+Then open http://127.0.0.1:8000 for the Web UI. Building the frontend requires Node.js >= 20. See
+the [getting started guide](docs/usage/getting-started.en.md) for the development mode,
+environment variables, and deployment notes. For the strict re-verification path (exact-Wheel
+installation, the golden demo, and provenance verification), follow the
+[Lean Developer Preview guide](docs/usage/lean-developer-preview.md).
 
 ## Evidence states
 
 Public documentation keeps these states distinct: `implemented`, `disabled`, `deferred`,
-`experimental`, `external_pending`, and `user_approval_pending`. Start with the
+`experimental`, and `external_pending`. Start with the
 [current implementation](docs/CURRENT-STATE.md), then see the
 [capability matrix](docs/launch/capability-matrix.md) for each capability's default, supported
 scope, verified guarantee, explicit non-guarantees, and evidence. Recovery conditions for deferred
@@ -258,7 +266,7 @@ Knowledge / External / Notifications; Evolution / Universes / Evals / Keqing; an
 Rules / Finance. Evolution, Universes, and Keqing are labelled Experimental; Evals is labelled
 Beta (`试行` in the classic Chinese locale). The Task Workspace combines all tasks, current
 progress, and items needing human intervention; `/edicts` remains only as a compatibility redirect.
-This product structure is approved and implemented locally. The original
+This product structure is implemented in the current version. The original
 [approval proposal](docs/launch/final-approval-proposal.md) remains a decision-process record;
 [Current implementation](docs/CURRENT-STATE.md) is authoritative for present status.
 

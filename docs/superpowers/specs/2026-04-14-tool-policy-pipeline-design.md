@@ -3,7 +3,7 @@
 **Date**: 2026-04-14
 **Status**: Draft
 **Branch**: feat_phase3
-**参考来源**: `/Users/chenjiamin/ai-tools/claude-code/claude-code/docs/share` 的《拆解 Claude Code》系列，特别是 02 篇《工具引擎与权限管线》、04 篇《多 Agent 可扩展架构》的 Hooks 与 Policy 部分。
+**参考来源**: `~/ai-tools/claude-code/claude-code/docs/share` 的《拆解 Claude Code》系列，特别是 02 篇《工具引擎与权限管线》、04 篇《多 Agent 可扩展架构》的 Hooks 与 Policy 部分。
 
 ---
 

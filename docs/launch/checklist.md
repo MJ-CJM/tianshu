@@ -1,5 +1,7 @@
 # Lean Developer Preview Candidate · Local Gate Checklist
 
+> **历史流程档案：** 本文记录开源前内部发布流程的当时状态，其中的审批旗标与授权表述已随仓库公开而完成流转，不再具有效力。当前能力口径以 [docs/CURRENT-STATE.md](../CURRENT-STATE.md) 为准。
+
 > **当前版本：0.4.2。** 本清单只记录私有分支中的本地 Candidate；
 > `design_status`: `approved`；`implementation_status`: `verified_local`；
 > `visual_status`: `user_approval_pending`；`publication_status`: `not_authorized`。

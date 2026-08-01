@@ -7,7 +7,7 @@ backend-path = ["build_backend"]
 
 [project]
 name = "tianshu"
-version = "0.4.2"
+version = "0.5.0"
 description = "Tianshu - Async AI Execution Platform"
 readme = { file = "README.md", content-type = "text/markdown" }
 license = "MIT"
@@ -15,6 +15,7 @@ license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"]
 authors = [
     { name = "MJ-CJM" },
 ]
+keywords = ["ai-agent", "agent-os", "governance", "llm", "self-evolving", "fastapi", "multi-agent"]
 requires-python = ">=3.12"
 classifiers = [
     "Development Status :: 3 - Alpha",

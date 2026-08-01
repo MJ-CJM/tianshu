@@ -2,50 +2,13 @@
 
 > 天枢是一个可治理、可验证、持续成长的自进化 Agent OS。
 
-本指南覆盖当前两条正式本地安装路径：**源码安装（Source checkout）**与同一 checkout
-构建的 **exact Wheel**。Ubuntu + Python 3.12 是首个正式支持目标；最终保留批次实际在
-本地验证环境 `Darwin/arm64/Python 3.12.12` 完成，因此不能把该批次当作 Ubuntu 外部
-复验证据。产品面为 **desktop Web only**；mobile 产品为 `deferred`。
+## 1. 定位
 
-> 当前 final source 已完成本地 Python/Web 测试、Wheel/sdist 构建、依赖审计和 legacy
-> Docker 实建；本轮**没有执行** Ubuntu 全新 HOME exact-Wheel 核心黄金路径。下文第
-> 3–6 节是待执行的复验程序，不是当前 Candidate 已通过的声明。当前没有被接受的
-> Candidate。
-
-当前最终六入口方案已获用户批准并完成本地实现，状态必须分开读取：
-
-- `design_status=approved`
-- `implementation_status=verified_local`
-- `visual_status=user_approval_pending`
-- `publication_status=not_authorized`
-
-其中本地实现通过不等于视觉终审通过，也不授权公开仓库、push、tag、release、
-PyPI/GHCR、官方容器或对外宣发。
-
-## 1. 支持与信任边界
-
-- 运行模型：single-host、single-node SQLite；host administrator 可访问数据库、主密钥、
-  进程内明文、工作区和本地产物，不在当前防护对象内。
-- 身份边界：HTTP、WebSocket、MCP 共用认证上下文；`secure-remote` 普通主体只访问自己
-  的任务资源，管理员 scope 才可读取全局审计、成本、Worker 与平台配置。正式支持范围
-  仍是 trusted-local。
-- `implemented`：SystemAudit、MCP persisted secret ciphertext、durable governance、
-  Evidence Bundle v1，以及历史 retained 的三张核心 desktop Web 自动化和 Lean Core
-  evolution 黄金路径；当前六入口 Web 另有非视觉自动化，视觉仍待审批。
-- remote MCP：`disabled`；open stdio MCP：`disabled`。两者的 Candidate 正式开放面关闭。
-- `experimental`：Evolution（自进化）、Universes（平行位面）、Keqing（客卿）以及
-  Skill 候选学习扩展面；Evals（评测）为 `Beta`，古典中文导航显示“试行”，插件
-  manifest 目录为 Preview。
-- `deferred`：official container、PyPI、GHCR、签名、完整 provenance 与 mobile。
-- `external_pending`：Ubuntu 外部复验、VoiceOver、OpenHands、executor compatibility、
-  ROI、cost calibration 和 full G4。
-- `deferred`：full G5；它不进入当前 Candidate 的外部复验队列。
-- `visual_status=user_approval_pending`：最新源码已完成隔离网页功能点验，但 48 张保留
-  基线只覆盖前一版 6 路由；当前 7 路由、预期 56 张视觉图片尚未重新生成或更新哈希。
-
-逐项证据见[能力事实矩阵](../launch/capability-matrix.md)，安全细节见
-[SECURITY.md](../../SECURITY.md)，恢复条件见
-[延期路线图](../cc-fable-v1/06-deferred-work-backlog.md)。
+本文是 v0.4.2 批次（`20260719T083725Z-01da3844dde7`）wheel 的严格复验流程，面向想按
+哈希链（source commit → Wheel SHA-256 → 证据报告）复现验证的读者。历史阶段档案见
+[docs/cc-fable-v1/](../cc-fable-v1/)，能力现状见
+[能力事实矩阵](../launch/capability-matrix.md)。新用户请从
+[getting-started.md](getting-started.md) 开始。
 
 ## 2. 源码安装 / Source checkout
 
@@ -191,8 +154,8 @@ overlay、rollback receipt、source commit 和 Wheel SHA 全部一致。任何�
 清洁 SIGTERM、SQLite `quick_check=ok` 与 package resource digest 不变。它是本地
 Darwin/arm64/Python 3.12.12 证据。OpenHands、ROI、cost calibration 和 full G4 为
 `external_pending`；full G5 为 `deferred`。该批次也不是 Ubuntu 外部矩阵或正式发布证据。
-旧 Candidate 聚合产物已撤销，因此该批次仅作历史 retained evidence，不得复用为新
-Candidate；新 Candidate 必须绑定新的 final-source Gate、build provenance 与 demo。
+该批次为历史保留证据（retained evidence）；后续批次的证据须绑定各自的源码
+Gate、build provenance 与 demo，历史批次不跨批复用。
 
 ## 8. 桌面品牌事实
 
@@ -219,5 +182,5 @@ Candidate；新 Candidate 必须绑定新的 final-source Gate、build provenanc
 
 保留的 48 张视觉基线和哈希覆盖前一版 6 路由产品壳，包含 Universes、Evals、Keqing
 的双视口、双主题和侧栏展开/收起组合。最新源码已将御书房加入矩阵，定义 7 路由、
-预期 56 张图片；本轮已完成隔离网页功能点验，但视觉图片和哈希尚未重新生成。因此
-`visual_status=user_approval_pending`，不得把功能点验写成视觉终审已通过。
+预期 56 张图片；本轮已完成隔离网页功能点验，但视觉图片和哈希尚未重新生成——
+视觉终审属于已知待办，功能点验不等于视觉终审已通过。

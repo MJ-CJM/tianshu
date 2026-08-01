@@ -1762,7 +1762,7 @@ git commit -m "feat(feishu): FeishuBot 串接 ApprovalCardHandler"
 - [ ] **Step 1: 核对 `useWsPolicyToasts.ts` 现有清理逻辑**
 
 ```bash
-sed -n '49,75p' /Users/chenjiamin/tiangong/tianshu/web/src/hooks/useWsPolicyToasts.ts
+sed -n '49,75p' <repo>/web/src/hooks/useWsPolicyToasts.ts
 ```
 
 Expected：看到这段已存在的分支：

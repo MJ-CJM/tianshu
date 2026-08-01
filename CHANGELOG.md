@@ -2,13 +2,34 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+> 版本号从 0.2.8 直接跳至 0.4.0，是当时按 roadmap 迭代批次对齐版本号的历史原因。
+
 ## [Unreleased]
 
-> 当前仅是私有分支的本地收口，未接受 Candidate，也未授权 tag、Release、PyPI/GHCR
-> 或仓库公开。当前可用性与非保证以
-> [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md) 和
-> [`docs/launch/capability-matrix.md`](docs/launch/capability-matrix.md) 为准；下方旧版本
-> 条目保留当时的开发记录，不代表所有实验能力今天仍可 live 切换、安装或自动晋升。
+## [0.5.0] - 2026-08-01
+
+首个公开版本：仓库转公开与开源收口。当前可用性与边界以
+[`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md) 和
+[`docs/launch/capability-matrix.md`](docs/launch/capability-matrix.md) 为准；下方旧版本
+条目保留当时的开发记录，不代表所有实验能力今天仍可 live 切换、安装或自动晋升。
+
+### Added
+
+- 开源收口：README 中英双语新增可直接执行的 Quick Start、架构总览与徽章；新增
+  英文快速开始 `docs/usage/getting-started.en.md`；`.env.example` 关键警告补英文对照。
+- tag 触发的 GitHub Release workflow（构建 wheel + sdist + 校验和并附至 Release）。
+- `CONTRIBUTING.md` 新增贡献授权（DCO）条款；`SECURITY.md` 首选渠道改为 GitHub
+  私密漏洞报告。
+- `THIRD_PARTY_NOTICES.md` 补登 vendored skill 文档来源（mattpocock/skills、
+  Everything Claude Code，均为 MIT）。
+
+### Removed
+
+- 内部经营文档（战略决策台账、竞争力对标、发布叙事）与内部过程报告不随公开仓库
+  分发，移至维护者私有归档；发布证据原始日志同步移出，证据链以 manifest/provenance
+  中的哈希为权威（见 `docs/cc-fable-v1/evidence/README.md`）。
+- 面向公众文档中的内部发布审批流旗标（publication_status 等）整体退役，改为能力
+  成熟度表述；历史流程档案加免责头保留。
 
 ### Fixed
 
@@ -18,7 +39,7 @@
 - 任务所有权、全局管理员面、通知逐通道进度、稳定记忆条目标识与插件 manifest-only
   边界完成一致性修复。
 - Persona 外部导入不再复制或激活外部 Skill；预览只显示检测结果，旧式直接安装请求
-  返回 `409`，避免绕过 Skill Candidate/Guard/Gate/Promotion。
+  返回 `409`，避免绕过 Skill 候选审核与晋升管线。
 
 ### Changed
 

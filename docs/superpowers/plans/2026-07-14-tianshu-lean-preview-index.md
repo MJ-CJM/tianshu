@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Product position is exact: “天枢是一个可治理、可验证、持续成长的自进化 Agent OS。”
-- Execution worktree is `/Users/chenjiamin/tiangong/tianshu-worktree/tianshu`, branch `feat_cc_fable_v1`.
+- Execution worktree is `<repo>`, branch `feat_cc_fable_v1`.
 - Design baseline commit is `5ef4790772e1acafed09b5f4a68a158c74a51260`; require `git merge-base --is-ancestor 5ef4790 HEAD` before execution.
 - Preserve the pre-existing uncommitted `docs/cc-fable-v1/PROGRESS.md`; append to it only when a task explicitly records verified evidence. Never overwrite or discard its current content.
 - Current migration tail is v6 at design time. Every phase must compute `N = MIGRATIONS[-1].version` immediately before its first migration and append `N+1`; never copy the stale v3–v7 numbers from older plans.

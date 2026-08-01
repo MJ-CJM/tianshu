@@ -3,7 +3,7 @@
 - **日期**：2026-04-28
 - **作者**：mj-cjm
 - **状态**：Draft（待用户复核）
-- **方案路线**：薄壳子包 + 复用 hermes 协议层（参考 `/Users/chenjiamin/ai-example/hermes-agent`）
+- **方案路线**：薄壳子包 + 复用 hermes 协议层（参考 `~/ai-example/hermes-agent`）
 - **预计代码规模**：~1300 行（vs. hermes 同等功能 ~5000 行，因裁剪掉 28 个其它平台的兼容代码与富媒体细节）
 
 ---

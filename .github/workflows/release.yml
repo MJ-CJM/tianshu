@@ -1,0 +1,66 @@
+name: release
+
+# tag 触发的发布链路：复用 ci.yml release-wheel 验证过的构建顺序
+# （前端先构建 → wheel 清单断言 → sdist → wheel → 安装 smoke），
+# 通过后把 wheel + sdist + 校验和附到 GitHub Release。
+# 不发布 PyPI/GHCR（当前为 deferred；PyPI 名称另行确定后再加 Trusted Publishing）。
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen --extra dev
+      - name: Build frontend into the wheel payload
+        run: npm ci && npm run build
+        working-directory: web
+      - name: Wheel manifest assertions
+        run: uv run pytest tests/resources/test_wheel_manifest.py -q
+      - name: Build sdist and wheel, then smoke-test the install
+        run: |
+          set -euo pipefail
+          rm -rf dist build
+          uv build --sdist
+          uv build --wheel dist/*.tar.gz --out-dir dist/from-sdist
+          uv venv /tmp/sdist-smoke --python 3.12
+          VIRTUAL_ENV=/tmp/sdist-smoke uv pip install "$(ls dist/from-sdist/*.whl)[cli]"
+          /tmp/sdist-smoke/bin/python -c "import tianshu, tianshu.app; print('sdist wheel importable:', tianshu.__file__)"
+          /tmp/sdist-smoke/bin/tianshu doctor --format json > /dev/null
+      - name: Collect artifacts and checksums
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          cp dist/*.tar.gz release-assets/
+          cp dist/from-sdist/*.whl release-assets/
+          (cd release-assets && shasum -a 256 * > SHA256SUMS.txt)
+      - name: Create GitHub Release with artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "见 [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/CHANGELOG.md)。产物校验和见 SHA256SUMS.txt。" \
+            release-assets/*

@@ -190,7 +190,7 @@
 - [ ] **Step 4: 验证 migration 工作**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 rm -f /tmp/tianshu_test.db
 python -c "
 from tianshu.storage import Storage
@@ -299,7 +299,7 @@ def quarantine_corrupted(profile_path: Path) -> Path | None:
 - [ ] **Step 2: 快速 smoke 验证**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 python -c "
 from pathlib import Path
 import tempfile
@@ -436,7 +436,7 @@ def parse_profile(markdown: str) -> tuple[ProfileFrontmatter | None, str, str]:
 - [ ] **Step 2: 验证 roundtrip**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 python -c "
 from tianshu.persona.profile_schema import ProfileFrontmatter, parse_profile, AUTO_SECTION_MARKER
 fm = ProfileFrontmatter(persona_id='hubu', persona_name='户部', version=3)
@@ -607,7 +607,7 @@ class ProfileSynthesizer:
 检查 `src/tianshu/skills/metrics.py`。若没有 persona 维度,临时实现为返回 `list_all()` 并由 synthesizer 侧在 rule 聚合时用 `persona.skills_allowed` 过滤。
 
 ```bash
-grep -n "def list" /Users/chenjiamin/tiangong/tianshu/src/tianshu/skills/metrics.py
+grep -n "def list" <repo>/src/tianshu/skills/metrics.py
 ```
 
 若不存在 `list_for_persona`,在 `SkillMetricsStore` 补:
@@ -843,7 +843,7 @@ git commit -m "feat(persona): rule-based aggregation for task distribution + hea
 - [ ] **Step 2: 确认 LLMClient 接口名**
 
 ```bash
-grep -n "async def chat\|def chat_stream" /Users/chenjiamin/tiangong/tianshu/src/tianshu/llm.py | head -5
+grep -n "async def chat\|def chat_stream" <repo>/src/tianshu/llm.py | head -5
 ```
 
 若方法名是 `acomplete` / `complete` 而非 `chat`,调整 `_call_llm_json` 对应调用。返回 shape 若不是 `{"content": str}`,也要对齐。
@@ -1402,7 +1402,7 @@ event_bus.on(
 验证 HookType.AGENT_END 的事件字符串:
 
 ```bash
-grep -n "AGENT_END" /Users/chenjiamin/tiangong/tianshu/src/tianshu/executor/hooks.py
+grep -n "AGENT_END" <repo>/src/tianshu/executor/hooks.py
 ```
 
 根据结果调整 `event_bus.on(...)` 的 event_type 参数。
@@ -1426,7 +1426,7 @@ git commit -m "feat(persona): AGENT_END hook with N=20 throttle for profile synt
 - [ ] **Step 1: 在 Scheduler 里注册系统 cron**
 
 ```bash
-grep -n "def start\|def _start\|scheduler_jobs\|register\|schedule_system" /Users/chenjiamin/tiangong/tianshu/src/tianshu/scheduler/scheduler.py | head -20
+grep -n "def start\|def _start\|scheduler_jobs\|register\|schedule_system" <repo>/src/tianshu/scheduler/scheduler.py | head -20
 ```
 
 视现有 API 选择注册点。在 Scheduler `start()` 或 lifespan 里加:
@@ -1897,7 +1897,7 @@ git commit -m "feat(api): GET /personas/{id}/profile/history/{version}"
 - [ ] **Step 1: 找到现有 tab 位置**
 
 ```bash
-grep -rn "tabs\|Tabs" /Users/chenjiamin/tiangong/tianshu/web/src/pages/Personas.tsx | head -20
+grep -rn "tabs\|Tabs" <repo>/web/src/pages/Personas.tsx | head -20
 ```
 
 在 tab 列表里追加 `"成长档案"` tab。
@@ -2197,7 +2197,7 @@ git commit -m "docs(design): unified 宫殿共生成长 narrative across 3 docs"
 - [ ] **Step 1: 改主标题**
 
 ```bash
-grep -rn "六部奏章系统\|天枢" /Users/chenjiamin/tiangong/tianshu/web/src/App.tsx
+grep -rn "六部奏章系统\|天枢" <repo>/web/src/App.tsx
 ```
 
 定位后:
@@ -2215,7 +2215,7 @@ grep -rn "六部奏章系统\|天枢" /Users/chenjiamin/tiangong/tianshu/web/src
 找首页主 Dashboard 组件:
 
 ```bash
-grep -rn "Dashboard\|Home\|Welcome" /Users/chenjiamin/tiangong/tianshu/web/src/pages | head -10
+grep -rn "Dashboard\|Home\|Welcome" <repo>/web/src/pages | head -10
 ```
 
 在顶部欢迎区域插入两句话扩展版:
@@ -2255,7 +2255,7 @@ git commit -m "feat(web): unify 共生成长的宫殿 narrative in title + home"
 - [ ] **Step 1: 检查 README 存在**
 
 ```bash
-ls /Users/chenjiamin/tiangong/tianshu/README.md 2>/dev/null && echo EXIST
+ls <repo>/README.md 2>/dev/null && echo EXIST
 ```
 
 若存在,开头第一段换成两句话扩展版(见 Task 23 Step 2 同一段文本)。若不存在,本步骤跳过。
@@ -2445,7 +2445,7 @@ async def test_run_happy_path_persists(syn, tmp_runtime):
 - [ ] **Step 2: 运行**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 pytest tests/test_profile_synthesizer.py -v
 ```
 
@@ -2909,7 +2909,7 @@ git commit -m "test(api): profile endpoints happy-path + 404"
 - [ ] **Step 1: 启动后端(如未启动)**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 uvicorn tianshu.app:app --reload
 ```
 
@@ -2928,8 +2928,8 @@ wait
 对每个 persona,打开 `~/.tianshu/personas/{id}/PROFILE.md`,对照 `personas/{id}/SOUL.md`,在 review 文档里记录:
 
 ```bash
-mkdir -p /Users/chenjiamin/tiangong/tianshu/docs/superpowers/plans
-cat > /Users/chenjiamin/tiangong/tianshu/docs/superpowers/plans/2026-04-18-persona-growth-profile.first-synthesis-review.md <<'EOF'
+mkdir -p <repo>/docs/superpowers/plans
+cat > <repo>/docs/superpowers/plans/2026-04-18-persona-growth-profile.first-synthesis-review.md <<'EOF'
 # 首次合成人工 Review
 
 ## 每 persona 三项判据

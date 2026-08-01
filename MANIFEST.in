@@ -4,3 +4,8 @@
 # 都会失败）。这不是可选的打包细节，是发行链路的必要条件。
 include build_backend/tianshu_build.py
 recursive-exclude build_backend __pycache__ *.pyc
+
+# sdist 不携带测试：setuptools 默认 glob 只会收进 tests/ 顶层的 test_*.py，
+# 缺 conftest 与子目录，形成一套无法运行的半截测试，不如整体剔除。
+prune tests
+global-exclude __pycache__ *.py[co]

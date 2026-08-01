@@ -8,7 +8,7 @@
 
 **Tech Stack:** GitHub Actions + uv(仓库已有 `uv.lock`)/ pre-commit + ruff-pre-commit / eslint 9(flat config)+ typescript-eslint / vitest(node 环境,首批只测纯函数,不引入 jsdom)。
 
-**Spec:** [docs/strategy/2026-07-07-development-strategy-design.md](./2026-07-07-development-strategy-design.md) §七 迭代 0 行。
+**Spec:** 2026-07-07 发展战略与迭代排期 spec §七 迭代 0 行（内部经营文档，未随仓库公开）。
 
 ## Global Constraints
 

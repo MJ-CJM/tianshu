@@ -122,7 +122,7 @@ capability truth 存在语义交接。先完成、审查并提交 A，再处理 
 ## 环境规则
 
 - Python 命令使用 `env -u VIRTUAL_ENV .venv/bin/python`。
-- 不使用外部 `/Users/chenjiamin/myenv`。
+- 不使用外部 `~/myenv`。
 - 验证时避免 `uv run` 自动改写 `uv.lock`；依赖确需同步时先明确记录。
 - source quality 与 repo hygiene 分开报告；不要用根目录历史 demo 噪声掩盖源码结果。
 - warnings 必须记录，尤其是 coroutine、ResourceWarning、数据库/子进程泄漏。

@@ -2326,7 +2326,7 @@ git commit -m "test: add tests for skill system, validator, metrics, and streami
 
 - [ ] **Step 7: Run full test suite**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/ -v --tb=short`
+Run: `cd <repo> && python -m pytest tests/ -v --tb=short`
 
 Expected: All tests PASS.
 

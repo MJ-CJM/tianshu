@@ -87,7 +87,7 @@ def accumulate(self, model, prompt_tokens, completion_tokens, provider_pricing=N
 - [ ] **Step 4: 烟雾验证**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu && python -c "
+cd <repo> && python -c "
 from tianshu.cost.tracker import estimate_cost, lookup_pricing, CostTracker
 
 # 1. deepseek 现在有价格
@@ -148,7 +148,7 @@ class UsageSummary(BaseModel):
 - [ ] **Step 2: 烟雾验证（向后兼容）**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu && python -c "
+cd <repo> && python -c "
 from tianshu.models.common import UsageSummary
 
 # 1. 默认 cost_cny=0
@@ -231,7 +231,7 @@ Read `chat_stream()` 找到 final usage chunk 构造处，**仅在含完整 usag
 > 注：如果 chat_stream 当前没构造 UsageSummary（流式不返回 usage），跳过这步。先 grep 确认。
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu && grep -n "UsageSummary\|response.usage" src/tianshu/llm.py
+cd <repo> && grep -n "UsageSummary\|response.usage" src/tianshu/llm.py
 ```
 
 如果 chat_stream 内有 UsageSummary 构造，按 chat() 同样改；如果没有就跳过。
@@ -239,7 +239,7 @@ cd /Users/chenjiamin/tiangong/tianshu && grep -n "UsageSummary\|response.usage" 
 - [ ] **Step 4: 烟雾验证**（不调真 LLM，mock litellm.acompletion）
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu && python -c "
+cd <repo> && python -c "
 import asyncio
 from unittest.mock import patch, MagicMock
 from tianshu.llm import LLMClient
@@ -300,7 +300,7 @@ actor_cost = actor_result.usage.cost_cny if actor_result.usage else 0.0
 - [ ] **Step 2: 跑 orchestrator 全测试套确认零回归**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu && pytest tests/test_orchestrator_loop.py tests/test_outer_loop_resume.py -v 2>&1 | tail -20
+cd <repo> && pytest tests/test_orchestrator_loop.py tests/test_outer_loop_resume.py -v 2>&1 | tail -20
 ```
 
 期望：所有 PASS（10 个集成测试）。
@@ -419,7 +419,7 @@ def test_usage_summary_round_trip():
 - [ ] **Step 2: 跑测试**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu && pytest tests/test_cost_estimation.py -v 2>&1 | tail -20
+cd <repo> && pytest tests/test_cost_estimation.py -v 2>&1 | tail -20
 ```
 
 期望：11 个测试全 PASS。
@@ -438,7 +438,7 @@ git commit -m "test(cost): estimate_cost + UsageSummary.cost_cny 单元测试"
 - [ ] **Step 1: 老路径回归**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu && pytest tests/test_executor.py tests/test_agent.py tests/test_backward_compat.py 2>&1 | tail -5
+cd <repo> && pytest tests/test_executor.py tests/test_agent.py tests/test_backward_compat.py 2>&1 | tail -5
 ```
 
 期望：22 个 PASS（无回归）。
@@ -446,7 +446,7 @@ cd /Users/chenjiamin/tiangong/tianshu && pytest tests/test_executor.py tests/tes
 - [ ] **Step 2: outer loop 测试套**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu && pytest tests/test_orchestrator_loop.py tests/test_outer_loop_resume.py tests/test_archive.py tests/test_escalation.py tests/test_orchestrator_state.py tests/test_orchestrator_checks.py tests/test_orchestrator_critic.py 2>&1 | tail -5
+cd <repo> && pytest tests/test_orchestrator_loop.py tests/test_outer_loop_resume.py tests/test_archive.py tests/test_escalation.py tests/test_orchestrator_state.py tests/test_orchestrator_checks.py tests/test_orchestrator_critic.py 2>&1 | tail -5
 ```
 
 期望：40 个 PASS。
@@ -454,7 +454,7 @@ cd /Users/chenjiamin/tiangong/tianshu && pytest tests/test_orchestrator_loop.py 
 - [ ] **Step 3: 现有 cost 测试套（如有）**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu && pytest tests/ -k "cost" -v 2>&1 | tail -15
+cd <repo> && pytest tests/ -k "cost" -v 2>&1 | tail -15
 ```
 
 期望：现有 cost 相关测试全 PASS（验证 CostTracker.accumulate 重构后行为不变）。
@@ -464,7 +464,7 @@ cd /Users/chenjiamin/tiangong/tianshu && pytest tests/ -k "cost" -v 2>&1 | tail 
 跑修复后的 e2e 脚本（之前的 `/tmp/e2e_outer_loop.py` 或迁移到 tests）：
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu && python /tmp/e2e_outer_loop.py 2>&1 | grep -A1 "cost_cny\|total_cost"
+cd <repo> && python /tmp/e2e_outer_loop.py 2>&1 | grep -A1 "cost_cny\|total_cost"
 ```
 
 期望：`total_cost_cny` 现在 > 0（之前是 0.0）。

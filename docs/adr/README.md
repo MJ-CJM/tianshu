@@ -14,11 +14,11 @@
 | ADR | 主题 |
 |---|---|
 | [0001](0001-mit-license-no-cloud-protection.md) | MIT 许可证与云服务边界 |
-| [0002](0002-positioning-superior-office-of-claude-code.md) | 产品定位 |
+| 0002 | 产品定位（内部决策记录，未随仓库公开） |
 | [0003](0003-trust-defaults-telemetry-optin-budget-guardrail-on.md) | 信任、遥测与预算默认值 |
 | [0004](0004-evolution-off-by-default-unlock-by-memorial.md) | 演化默认关闭 |
 | [0005](0005-narrow-gate-contribution.md) | 贡献与窄 Gate |
-| [0006](0006-heavy-assets-narrative-roles.md) | 重资产与叙事角色 |
+| 0006 | 重资产与叙事角色（内部决策记录，未随仓库公开） |
 | [0007](0007-skill-curation-effect-gate.md) | Skill 筛选与效果 Gate |
 | [0008](0008-court-deliberation-censor-structured-stance.md) | 会商结构 |
 | [0009](0009-static-dag-no-dynamic-graph.md) | 静态 DAG |

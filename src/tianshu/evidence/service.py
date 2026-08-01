@@ -653,11 +653,11 @@ class EvidenceService:
             "dependency_lock_hash": lock_hash,
             "platform": platform.system() or "unknown",
             "python_version": platform.python_version(),
-            "tianshu_version": "0.4.2",
+            "tianshu_version": "0.5.0",
             "workspace_base_revision": effective.resolved_base_revision,
         }
         return EnvironmentEvidenceV1(
-            tianshu_version="0.4.2",
+            tianshu_version="0.5.0",
             python_version=platform.python_version(),
             platform=platform.system() or "unknown",
             architecture=platform.machine() or "unknown",

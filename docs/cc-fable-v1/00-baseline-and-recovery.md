@@ -65,7 +65,7 @@ git restore --staged docs/codex-v1 && rm -rf docs/codex-v1
 git checkout -- .idea/
 #    （IDE 本地噪声；docs/cc-fable-v1/ 本包为 untracked，不受影响）
 # b. 取回分支
-git remote add codex-local /Users/chenjiamin/tiangong/tianshu
+git remote add codex-local <repo>
 git fetch codex-local feat_codex_phase_1 wip/g1.4b3-freeze
 # c. 纯快进合并（merge-base = 当前 HEAD，已验证）
 git merge --ff-only codex-local/feat_codex_phase_1

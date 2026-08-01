@@ -87,7 +87,7 @@ def delete_feishu_anchor(self, chat_id: str) -> None:
 - [ ] **Step 1.2: 验证**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -c "
 from tianshu.storage import Storage
 s = Storage('/tmp/anchor_test.db')
@@ -262,7 +262,7 @@ __all__ = ["PersonaRenderer", "RenderedPersona", "DEFAULT_NAME", "DEFAULT_EMOJI"
 - [ ] **Step 2.2: 验证 import + 渲染**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -c "
 from tianshu.gateway.feishu.persona_renderer import PersonaRenderer
 r = PersonaRenderer(None)
@@ -379,7 +379,7 @@ __all__ = ["ModeRouter", "ModeContext", "Mode"]
 - [ ] **Step 3.2: 验证 import**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -c "
 from tianshu.gateway.feishu.mode_router import ModeRouter, ModeContext
 print('imports OK')
@@ -655,7 +655,7 @@ __all__ = ["AssistantBranch"]
 - [ ] **Step 4.2: 验证（仅 import + 类型）**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -c "
 from tianshu.gateway.feishu.assistant_branch import AssistantBranch
 print('AssistantBranch imports OK')
@@ -850,7 +850,7 @@ __all__ = ["EdictBranch"]
 - [ ] **Step 5.2: 验证**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -c "
 from tianshu.gateway.feishu.edict_branch import EdictBranch
 print('EdictBranch imports OK')
@@ -1046,7 +1046,7 @@ __all__ = ["CardBuilder"]
 - [ ] **Step 6.2: 验证（list/menu 卡片 schema）**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -c "
 from tianshu.gateway.feishu.card_builder import CardBuilder
 from unittest.mock import MagicMock
@@ -1091,8 +1091,8 @@ git commit -m "feat(feishu): CardBuilder /list /menu 卡片 + /budget 占位"
 - [ ] **Step 7.1: 查现有 cost API**
 
 ```bash
-grep -nE "def get_cost_summary|def list_recent_costs|def get_records" /Users/chenjiamin/tiangong/tianshu/src/tianshu/cost/manager.py /Users/chenjiamin/tiangong/tianshu/src/tianshu/cost/tracker.py 2>/dev/null | head -10
-grep -nE "def get_cost_records|cost_ledger|def get_cost_summary" /Users/chenjiamin/tiangong/tianshu/src/tianshu/storage.py | head -10
+grep -nE "def get_cost_summary|def list_recent_costs|def get_records" <repo>/src/tianshu/cost/manager.py <repo>/src/tianshu/cost/tracker.py 2>/dev/null | head -10
+grep -nE "def get_cost_records|cost_ledger|def get_cost_summary" <repo>/src/tianshu/storage.py | head -10
 ```
 
 记录可用方法。本 Step 假设至少存在以下两类查询能力（如不存在则按 Step 7.4 fallback 简化）：
@@ -1163,7 +1163,7 @@ async def _build_budget_card_real(self) -> dict:
 - [ ] **Step 7.3: 验证**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -c "
 import asyncio
 from tianshu.gateway.feishu.card_builder import CardBuilder
@@ -1203,8 +1203,8 @@ git commit -m "feat(feishu): /budget 卡片接入 cost_ledger 查近 7 天 + Top
 - [ ] **Step 8.1: 查 LLM 调用接口**
 
 ```bash
-grep -nE "class.*Provider|def complete|def chat|async def generate" /Users/chenjiamin/tiangong/tianshu/src/tianshu/providers/manager.py 2>/dev/null | head -10
-grep -nE "class.*Provider|class LLMConfig|def complete" /Users/chenjiamin/tiangong/tianshu/src/tianshu/providers/*.py 2>/dev/null | head -10
+grep -nE "class.*Provider|def complete|def chat|async def generate" <repo>/src/tianshu/providers/manager.py 2>/dev/null | head -10
+grep -nE "class.*Provider|class LLMConfig|def complete" <repo>/src/tianshu/providers/*.py 2>/dev/null | head -10
 ```
 
 记录 ProviderManager 的实际调用入口。本 Step 假设至少有 `provider_manager.acquire(llm_config_name)` 能拿到 client，client 有 `complete(messages, max_tokens, temperature)` 方法。如不一致按实际改下方代码。
@@ -1331,7 +1331,7 @@ __all__ = ["IntentParser", "INTENTS"]
 - [ ] **Step 8.3: 验证（仅 import + JSON 解析）**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -c "
 from tianshu.gateway.feishu.intent_parser import IntentParser, INTENTS
 # 只测 _parse_json
@@ -1473,7 +1473,7 @@ async def handle_button_click(self, action: FeishuCardAction) -> None:
 - [ ] **Step 9.3: 验证**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -c "
 from tianshu.gateway.feishu.card_action_dispatcher import CardActionDispatcher
 assert CardActionDispatcher._synthesize('select', {'edict_id': 'ed_xxx'}) == '/select ed_xxx'
@@ -1569,7 +1569,7 @@ async def list_personas(request: Request) -> ApiResponse:
 ⚠️ 验证 `PersonaLoader` 是否有 `list()` 方法：
 
 ```bash
-grep -nE "def list" /Users/chenjiamin/tiangong/tianshu/src/tianshu/persona/loader.py | head -5
+grep -nE "def list" <repo>/src/tianshu/persona/loader.py | head -5
 ```
 
 如无则用以下兼容实现：
@@ -1763,13 +1763,13 @@ feishu_bot = FeishuBot(
 ⚠️ 检查 `provider_manager / cost_manager` 实例化位置在 FeishuBot 之前。如不在，调整顺序（不要把 FeishuBot 放在它们之前）。grep:
 
 ```bash
-grep -nE "provider_manager =|cost_manager =" /Users/chenjiamin/tiangong/tianshu/src/tianshu/app.py | head -5
+grep -nE "provider_manager =|cost_manager =" <repo>/src/tianshu/app.py | head -5
 ```
 
 - [ ] **Step 10.8: 端到端冒烟测试**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 pkill -f "uvicorn tianshu.app" 2>/dev/null || true
 rm -f /tmp/feishu_v11_test.db ~/.tianshu/feishu_app_lock.test_v11
 sleep 1
@@ -1931,7 +1931,7 @@ await self._send_upgrade_notice_once()
 - [ ] **Step 11.3: 验证（用 mock 跑一次）**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -c "
 from tianshu.storage import Storage
 s = Storage('/tmp/notice_test.db')
@@ -2059,7 +2059,7 @@ const { data: personas } = useQuery({
 - [ ] **Step 12.3: 验证 TypeScript 编译**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu/web
+cd <repo>/web
 pnpm install --frozen-lockfile 2>&1 | tail -3
 pnpm tsc --noEmit 2>&1 | tail -10
 ```
@@ -2069,7 +2069,7 @@ pnpm tsc --noEmit 2>&1 | tail -10
 - [ ] **Step 12.4: commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 git add web/src/api/tongzheng.ts web/src/pages/TongzhengPage.tsx
 git commit -m "feat(tongzheng): web 助手分卡（persona 下拉 + LLM 增强 checkbox）"
 ```
@@ -2145,7 +2145,7 @@ def test_unknown_command_reply():
 - [ ] **Step 2: 跑测试**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -m pytest tests/gateway/feishu/test_persona_renderer.py -v 2>&1 | tail -10
 ```
 
@@ -2852,7 +2852,7 @@ git commit -m "test(feishu): e2e 双模式切换核心路径"
 - [ ] **Step 1: 跑全集 + 覆盖率**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -m pytest tests/gateway/feishu/ --cov=src/tianshu/gateway/feishu --cov-report=term-missing 2>&1 | tail -25
 ```
 

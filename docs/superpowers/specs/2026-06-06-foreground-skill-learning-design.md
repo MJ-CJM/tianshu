@@ -11,7 +11,7 @@
 | 议题 | agent 在对话/执行过程中自创建技能,并持续优化 |
 | 状态 | 设计已确认,待 review → writing-plans |
 | 范围 | `src/tianshu/skills/`、`src/tianshu/tools/skill_tools.py`、`src/tianshu/executor/agent.py`、`src/tianshu/config_manager.py`、`src/tianshu/storage.py`、`web/` |
-| 参考 | hermes-agent(`/Users/chenjiamin/ai-example/hermes-agent`,tianshu skill 系统的上游) |
+| 参考 | hermes-agent(`~/ai-example/hermes-agent`,tianshu skill 系统的上游) |
 
 ---
 

@@ -1,7 +1,7 @@
 # 当前实现与支持边界
 
 > 更新时间：2026-08-01<br>
-> 适用版本：`0.4.2` 当前工作树<br>
+> 适用版本：`0.5.0`<br>
 > 适用范围：可信本地、单机、单节点 SQLite
 
 这份文档是 `docs/` 的当前状态入口。它用于回答“现在能不能用、支持到哪里、哪些
@@ -147,14 +147,10 @@ error、permission-denied 和 404 状态，不用 mock 数据掩盖失败。
 剩余 Gate；当前能力事实以本文为准。最新源码已完成隔离网页功能点验与现场修复，详见
 [Web 全功能点验与修复报告](launch/web-functional-validation-2026-07-31.md)。现有 48 张
 视觉基线和哈希仍保留自前一版 6 路由产品壳；最新 7 路由、预期 56 张图片尚未重新生成
-或更新哈希，故 `visual_status` 仍为 `user_approval_pending`。
+或更新哈希，视觉终审属于待完成项。
 
-当前状态严格拆分如下：
-
-- `design_status`: `approved`
-- `implementation_status`: `verified_local`
-- `visual_status`: `user_approval_pending`
-- `publication_status`: `not_authorized`
+当前成熟度：设计已定稿，实现经本地验证（`verified_local`）；视觉基线重建与
+人工视觉终审尚未完成。
 
 ## 2026-07-31 本地验证快照
 
@@ -171,9 +167,9 @@ error、permission-denied 和 404 状态，不用 mock 数据掩盖失败。
 - 供应链：Python all-extras 已知漏洞扫描通过；npm 仅保留有明确期限和边界的
   React Router 不稳定 RSC 例外；
 - Git 历史：Gitleaks v8.30.1 只读扫描 947 个提交、约 238 MB；13 个命中中 12 个为
-  测试/示例假值，另 1 个是已删除本地第三方 gstack 包中的 Supabase publishable key。
-  当前源码已排除该包；若公开既有历史，仍须先选择清洁快照，或完成外部 key
-  轮换/撤销与历史重写后复扫；
+  测试/示例假值，另 1 个是已删除的第三方 gstack 工具包自带的 Supabase
+  `sb_publishable_` 遥测 key——该类 key 由 Supabase 设计为可嵌入公开客户端，且归属
+  gstack 上游项目而非本仓库维护者，经评估不构成凭证泄露，公开历史前无需轮换；
 - 构建：本地 wheel、sdist 与非 root Docker 运行检查通过，但都不是正式发布制品；
 - 视觉：保留的 48 张基线和哈希覆盖前一版中枢、任务详情、自进化、平行位面、评测和
   客卿 6 个路由；最新源码加入御书房后定义 7 个路由、预期 56 张，重新生成与哈希更新
@@ -187,15 +183,11 @@ error、permission-denied 和 404 状态，不用 mock 数据掩盖失败。
 
 ## 当前发布状态
 
-- `design_status`: `approved`；
-- `implementation_status`: `verified_local`；
-- `visual_status`: `user_approval_pending`；
-- `publication_status`: `not_authorized`；
-- Candidate：未接受；本地实现验证不等于新的发布 Candidate 已被接受；
-- 当前允许：本地开发、测试、文档更新和候选制品准备；
-- 当前不允许：push、PR、tag、Release、PyPI/GHCR 发布、仓库公开化或正式宣发；
-- 既有 Git 历史不能直接公开：需先关闭上述历史 key 门禁并重新扫描；
-- 用户最终审批仍需覆盖视觉/交互方案和发布范围。
+- 设计已定稿，实现经本地验证（`verified_local`）；
+- 发行渠道：源码检出与自构建 wheel 是当前支持的安装路径；GitHub Release 附带
+  构建产物与校验和；PyPI/GHCR/官方容器/签名发布为 `deferred`；
+- 视觉终审：最新 7 路由视觉基线重建与人工视觉终审尚未完成，属已知待办；
+- tag 与 Release 由维护者统一执行。
 
 ## 历史资料如何阅读
 

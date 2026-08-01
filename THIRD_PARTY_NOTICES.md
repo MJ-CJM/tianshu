@@ -38,6 +38,75 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## mattpocock/skills
+
+Source: [mattpocock/skills](https://github.com/mattpocock/skills)
+
+The skills under `.claude/skills/domain-modeling/`, `.claude/skills/grill-me/`,
+`.claude/skills/grill-with-docs/`, and `.claude/skills/grilling/` are vendored from this source.
+They are used as planning and design-review aids for agent sessions in this repository. The
+upstream file paths and content hashes are recorded in `skills-lock.json`; the import did not
+record one exact upstream revision, so this notice does not invent one.
+
+```text
+MIT License
+
+Copyright (c) 2026 Matt Pocock
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Everything Claude Code (ECC) skills
+
+Source: [affaan-m/everything-claude-code](https://github.com/affaan-m/everything-claude-code)
+(now published as `affaan-m/ECC`).
+
+The skills under `.claude/skills/backend-patterns/`, `.claude/skills/coding-standards/`,
+`.claude/skills/e2e-testing/`, and `.claude/skills/frontend-patterns/` are vendored from this
+source (each is marked `origin: ECC` in its frontmatter). They are used as coding-convention
+reference material for agent sessions in this repository. The import did not record one exact
+upstream revision, so this notice does not invent one.
+
+```text
+MIT License
+
+Copyright (c) 2026 Affaan Mustafa
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## agency-agents persona templates
 
 Source: [msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents) at commit

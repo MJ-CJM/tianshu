@@ -99,7 +99,7 @@
 - [ ] **Step 1.1: 删除模块文件**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 rm src/tianshu/gateway/feishu/intent_parser.py
 rm tests/gateway/feishu/test_intent_parser.py
 ```
@@ -205,7 +205,7 @@ def _synthesize_command(intent: str, args: dict) -> str | None:
 - [ ] **Step 2.2: 验证 imports + 行为**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -c "
 from tianshu.gateway.feishu.assistant_branch import AssistantBranch
 import inspect
@@ -284,7 +284,7 @@ self._assistant_branch = AssistantBranch(
 - [ ] **Step 3.5: 验证 + commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -c "
 from tianshu.gateway.feishu import FeishuBot
 import inspect
@@ -338,7 +338,7 @@ class FeishuSettings:
 - [ ] **Step 4.4: 验证 + commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 ruff check src/tianshu/gateway/feishu/settings.py 2>&1 | tail -3
 .venv/bin/python -c "
 from tianshu.gateway.feishu.settings import FeishuSettings
@@ -412,7 +412,7 @@ def list_edicts(
 - [ ] **Step 5.2: 验证**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -c "
 from tianshu.storage import Storage
 from tianshu.models.edict import Edict
@@ -509,7 +509,7 @@ def _find_by_prefix(self, prefix: str):
 - [ ] **Step 6.4: 验证 + commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 ruff check src/tianshu/gateway/feishu/assistant_branch.py 2>&1 | tail -3
 git add src/tianshu/gateway/feishu/assistant_branch.py
 git commit -m "feat(feishu): AssistantBranch /list /select /status /cancel 排除聊天敕令"
@@ -579,7 +579,7 @@ async def ensure_chat_edict(
 - [ ] **Step 7.2: 验证**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -c "
 import asyncio
 from unittest.mock import MagicMock, AsyncMock
@@ -754,7 +754,7 @@ self._mode_router = ModeRouter(
 - [ ] **Step 8.3: 验证 + commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 ruff check src/tianshu/gateway/feishu/mode_router.py src/tianshu/gateway/feishu/__init__.py 2>&1 | tail -3
 .venv/bin/python -c "
 from tianshu.gateway.feishu.mode_router import ModeRouter
@@ -867,7 +867,7 @@ async def _cmd_exit(self, msg: "FeishuMessage", ctx: "ModeContext") -> None:
 - [ ] **Step 9.4: 验证 + commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -c "
 from tianshu.gateway.feishu.assistant_branch import AssistantBranch
 src = __import__('inspect').getsource(AssistantBranch.handle)
@@ -901,7 +901,7 @@ git commit -m "feat(feishu): /clear 归档对话 + /exit 切回 chat 敕令（v2
 - [ ] **Step 10.2: 验证 TypeScript 编译**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu/web
+cd <repo>/web
 pnpm tsc --noEmit 2>&1 | grep TongzhengPage | head -5
 ```
 
@@ -910,7 +910,7 @@ Expected: 无新增错误（PersonaDetailPage pre-existing 错误忽略）。
 - [ ] **Step 10.3: commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 git add web/src/pages/TongzhengPage.tsx
 git commit -m "refactor(tongzheng/web): 隐藏 LLM 意图增强 checkbox（v2 不再使用）"
 ```
@@ -926,7 +926,7 @@ git commit -m "refactor(tongzheng/web): 隐藏 LLM 意图增强 checkbox（v2 �
 - [ ] **Step 11.1: 端到端 webhook 模拟**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 pkill -f "uvicorn tianshu.app" 2>/dev/null || true
 rm -f /tmp/feishu_v2_test.db ~/.tianshu/feishu_app_lock.test_v2
 sleep 1
@@ -1149,7 +1149,7 @@ def test_list_edicts_exclude_assistant_chat(storage):
 - [ ] **Step 12.5: 跑全集测试**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 .venv/bin/python -m pytest tests/gateway/feishu/ tests/test_storage.py tests/test_gateway.py -q 2>&1 | tail -5
 ruff check src/tianshu/gateway/feishu/ tests/gateway/feishu/ 2>&1 | tail -3
 ```

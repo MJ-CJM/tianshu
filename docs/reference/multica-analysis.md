@@ -3,7 +3,7 @@
 > 候选借鉴项目分析。与 [reference-projects.md](./reference-projects.md) 不同，本文记录的是**尚未落地、正在评估**的借鉴对象。
 > 具体的落地实施计划见 [../superpowers/plans/2026-07-02-multica-inspired-control-plane.md](../superpowers/plans/2026-07-02-multica-inspired-control-plane.md)。
 >
-> 分析日期：2026-07-02（feat_phase8）。参考源：`/Users/chenjiamin/ai-example/multica`。
+> 分析日期：2026-07-02（feat_phase8）。参考源：`~/ai-example/multica`。
 >
 > **当前差异（2026-07-31）**：下文“天枢现状”和优先级保留分析当日语境。此后已落地
 > heartbeat/orphan sweeper、checkpointed recovery、周期任务 `skip` 并发策略、durable

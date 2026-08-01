@@ -74,7 +74,7 @@ class TestExitReason:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_exit_reason.py -v`
+Run: `cd <repo> && python -m pytest tests/test_exit_reason.py -v`
 Expected: `ModuleNotFoundError: No module named 'tianshu.executor.exit_reason'`
 
 - [ ] **Step 3: Write the implementation**
@@ -104,13 +104,13 @@ class ExitReason(StrEnum):
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_exit_reason.py -v`
+Run: `cd <repo> && python -m pytest tests/test_exit_reason.py -v`
 Expected: 3 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 git add src/tianshu/executor/exit_reason.py tests/test_exit_reason.py
 git commit -m "feat: add ExitReason enum for agent loop exit semantics"
 ```
@@ -211,7 +211,7 @@ class TestLoopState:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_loop_state.py -v`
+Run: `cd <repo> && python -m pytest tests/test_loop_state.py -v`
 Expected: `ModuleNotFoundError`
 
 - [ ] **Step 3: Write the implementation**
@@ -297,13 +297,13 @@ class LoopState:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_loop_state.py -v`
+Run: `cd <repo> && python -m pytest tests/test_loop_state.py -v`
 Expected: 6 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 git add src/tianshu/executor/loop_state.py tests/test_loop_state.py
 git commit -m "feat: add LoopState immutable dataclass for agent loop state"
 ```
@@ -375,7 +375,7 @@ class TestTokenEstimator:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_compaction.py::TestTokenEstimator -v`
+Run: `cd <repo> && python -m pytest tests/test_compaction.py::TestTokenEstimator -v`
 Expected: `ModuleNotFoundError`
 
 - [ ] **Step 3: Write the implementation**
@@ -414,13 +414,13 @@ def estimate_tokens(messages: Sequence[dict]) -> int:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_compaction.py::TestTokenEstimator -v`
+Run: `cd <repo> && python -m pytest tests/test_compaction.py::TestTokenEstimator -v`
 Expected: 7 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 git add src/tianshu/executor/compaction/__init__.py src/tianshu/executor/compaction/token_estimator.py tests/test_compaction.py
 git commit -m "feat: add token estimator for compaction threshold checks"
 ```
@@ -514,7 +514,7 @@ class TestMicroCompact:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_compaction.py::TestMicroCompact -v`
+Run: `cd <repo> && python -m pytest tests/test_compaction.py::TestMicroCompact -v`
 Expected: `ModuleNotFoundError`
 
 - [ ] **Step 3: Write the implementation**
@@ -575,13 +575,13 @@ def _truncate(content: str) -> str:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_compaction.py::TestMicroCompact -v`
+Run: `cd <repo> && python -m pytest tests/test_compaction.py::TestMicroCompact -v`
 Expected: 6 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 git add src/tianshu/executor/compaction/micro.py tests/test_compaction.py
 git commit -m "feat: add micro compact strategy for per-turn tool result cleanup"
 ```
@@ -669,7 +669,7 @@ class TestAutoCompact:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_compaction.py::TestAutoCompact -v`
+Run: `cd <repo> && python -m pytest tests/test_compaction.py::TestAutoCompact -v`
 Expected: `ModuleNotFoundError`
 
 - [ ] **Step 3: Write the implementation**
@@ -771,13 +771,13 @@ def _format_for_summary(messages: list[dict]) -> str:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_compaction.py::TestAutoCompact -v`
+Run: `cd <repo> && python -m pytest tests/test_compaction.py::TestAutoCompact -v`
 Expected: 5 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 git add src/tianshu/executor/compaction/auto.py tests/test_compaction.py
 git commit -m "feat: add auto compact strategy with LLM summarization"
 ```
@@ -842,7 +842,7 @@ class TestReactiveCompact:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_compaction.py::TestReactiveCompact -v`
+Run: `cd <repo> && python -m pytest tests/test_compaction.py::TestReactiveCompact -v`
 Expected: `ModuleNotFoundError`
 
 - [ ] **Step 3: Write the implementation**
@@ -896,13 +896,13 @@ async def reactive_compact(
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_compaction.py::TestReactiveCompact -v`
+Run: `cd <repo> && python -m pytest tests/test_compaction.py::TestReactiveCompact -v`
 Expected: 3 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 git add src/tianshu/executor/compaction/reactive.py tests/test_compaction.py
 git commit -m "feat: add reactive compact for API context overflow recovery"
 ```
@@ -946,7 +946,7 @@ class TestLLMResponseFinishReason:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_compaction.py::TestLLMResponseFinishReason -v`
+Run: `cd <repo> && python -m pytest tests/test_compaction.py::TestLLMResponseFinishReason -v`
 Expected: `TypeError: LLMResponse.__init__() got an unexpected keyword argument 'finish_reason'`
 
 - [ ] **Step 3: Modify LLMResponse and chat method**
@@ -978,18 +978,18 @@ In the `chat` method, capture `finish_reason` from the API response (around line
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_compaction.py::TestLLMResponseFinishReason -v`
+Run: `cd <repo> && python -m pytest tests/test_compaction.py::TestLLMResponseFinishReason -v`
 Expected: 2 tests PASS
 
 - [ ] **Step 5: Run existing tests to verify no regression**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_agent.py -v`
+Run: `cd <repo> && python -m pytest tests/test_agent.py -v`
 Expected: All existing tests PASS (finish_reason defaults to None)
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 git add src/tianshu/llm.py tests/test_compaction.py
 git commit -m "feat: add finish_reason to LLMResponse for truncation detection"
 ```
@@ -1133,7 +1133,7 @@ class TestAgentNewLoop:
 
 - [ ] **Step 2: Run the new tests to verify they fail**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_agent.py::TestAgentNewLoop -v`
+Run: `cd <repo> && python -m pytest tests/test_agent.py::TestAgentNewLoop -v`
 Expected: `AttributeError: 'AgentResult' has no attribute 'exit_reason'`
 
 - [ ] **Step 3: Rewrite Agent.execute and AgentResult**
@@ -1282,18 +1282,18 @@ def _is_context_overflow(e: Exception) -> bool:
 
 - [ ] **Step 4: Run the new tests**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_agent.py::TestAgentNewLoop -v`
+Run: `cd <repo> && python -m pytest tests/test_agent.py::TestAgentNewLoop -v`
 Expected: 5 tests PASS
 
 - [ ] **Step 5: Run ALL existing agent tests to check backward compat**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_agent.py -v`
+Run: `cd <repo> && python -m pytest tests/test_agent.py -v`
 Expected: All tests PASS. The old `TestAgent` tests still work because `exit_reason` has a default value and the old assertions (`result.status`, `result.result`, `result.usage`) are preserved.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 git add src/tianshu/executor/agent.py tests/test_agent.py
 git commit -m "feat: rewrite Agent.execute with while-loop, exit reasons, compaction, and recovery"
 ```
@@ -1371,18 +1371,18 @@ class TestAgentIntegration:
 
 - [ ] **Step 2: Run the integration test**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/test_agent.py::TestAgentIntegration -v`
+Run: `cd <repo> && python -m pytest tests/test_agent.py::TestAgentIntegration -v`
 Expected: PASS
 
 - [ ] **Step 3: Run full test suite**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/ -v --timeout=30`
+Run: `cd <repo> && python -m pytest tests/ -v --timeout=30`
 Expected: All tests PASS
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 git add tests/test_agent.py
 git commit -m "test: add integration smoke test for agent loop with tools and compaction"
 ```
@@ -1416,18 +1416,18 @@ __all__ = [
 
 - [ ] **Step 2: Verify imports work**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -c "from tianshu.executor.compaction import micro_compact, auto_compact, reactive_compact, estimate_tokens; print('OK')"`
+Run: `cd <repo> && python -c "from tianshu.executor.compaction import micro_compact, auto_compact, reactive_compact, estimate_tokens; print('OK')"`
 Expected: `OK`
 
 - [ ] **Step 3: Run full test suite one final time**
 
-Run: `cd /Users/chenjiamin/tiangong/tianshu && python -m pytest tests/ -v --timeout=30`
+Run: `cd <repo> && python -m pytest tests/ -v --timeout=30`
 Expected: All tests PASS
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu
+cd <repo>
 git add src/tianshu/executor/compaction/__init__.py
 git commit -m "chore: add compaction package re-exports"
 ```

@@ -1,5 +1,7 @@
 # 开源前最终产品方案（六入口方案已批准）
 
+> **历史流程档案：** 本文记录开源前内部发布流程的当时状态，其中的审批旗标与授权表述已随仓库公开而完成流转，不再具有效力。当前能力口径以 [docs/CURRENT-STATE.md](../CURRENT-STATE.md) 为准。
+
 > `design_status`: `approved`
 >
 > `implementation_status`: `verified_local`

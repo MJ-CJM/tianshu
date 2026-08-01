@@ -1,5 +1,7 @@
 # Lean Developer Preview · 单一黄金 Demo 分镜
 
+> **历史流程档案：** 本文记录开源前内部发布流程的当时状态，其中的审批旗标与授权表述已随仓库公开而完成流转，不再具有效力。当前能力口径以 [docs/CURRENT-STATE.md](../CURRENT-STATE.md) 为准。
+
 > 本分镜是本地 desktop Web only 的候选验收说明，不是公开宣传脚本。唯一 runner 命令
 > 只放在 [使用指南](../usage/lean-developer-preview.md)，避免出现多个互相漂移的入口。
 >

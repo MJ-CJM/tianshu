@@ -1,7 +1,0 @@
-S3_CORE_GATE_LOG_V1
-source_commit=60d3c45b836de44b132dba186e5c9a3672592ea3
-command=.venv/bin/mypy
---- output ---
-Success: no issues found in 125 source files
---- exit ---
-exit_code=0

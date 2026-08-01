@@ -11,7 +11,7 @@
 代码、API 和数据库兼容名保留 `Edict` / `Decree`。
 
 文档和界面必须使用明确的 truth states：`implemented`、`disabled`、`deferred`、
-`experimental`、`external_pending`、`user_approval_pending`。设计、计划、截图或局部测试
+`experimental`、`external_pending`。设计、计划、截图或局部测试
 不能自动把状态提升为已实现或已通过。
 
 ## 开发规则
@@ -47,9 +47,14 @@ cd web && npm run lint && npm run typecheck && npm test -- --run
 文档改动至少运行对应 truth/link tests 与 `git diff --check`。慢测试使用
 `@pytest.mark.slow`；不得用 xfail 掩盖真实回归。
 
-## 贡献与发布权限
+## 贡献授权（DCO）
+
+外部贡献以 [Developer Certificate of Origin](https://developercertificate.org/) 方式确认
+授权：提交时使用 `git commit -s` 签署 `Signed-off-by` 行，表示你有权提交该代码，并同意
+其以本项目 MIT 协议入站。
+
+## 贡献与发布
 
 欢迎 issue、文档和小修。特性 PR 先开 issue 对齐；单人维护，尽力 48 小时内响应，
-不承诺 SLA。`publication_status`: `not_authorized`；贡献权限不包含 push、tag、release、
-PyPI/GHCR、仓库公开或外部宣发。PyPI 和 GHCR 均为 `deferred`；这些动作需要维护者
-另行明确授权。
+不承诺 SLA。PyPI 和 GHCR 官方发行渠道当前为 `deferred`；tag 与 release 由维护者
+统一执行。

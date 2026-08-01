@@ -1,26 +1,15 @@
-# Lean Developer Preview Candidate · Launch Kit
-
-当前版本为 **0.4.2**。本目录是私有工作分支中的候选证据包，不是外部发布材料。
-
-> 旧 Candidate JSON/总报告已 fail-closed 撤销；当前没有被接受的 Candidate。历史 demo
-> 仅作 retained evidence，新 final-source Gate、provenance 与 demo 完成后才能重建 Candidate。
-> 当前 final source 已完成本地整库、Web、制品、安全审计和 legacy Docker 验证；用户
-> 明确排除的 Ubuntu 全新 HOME exact-Wheel 黄金路径未执行。最终六入口方案已获用户
-> 批准并完成本地实现验证。最新源码已在隔离 Demo/Eval 环境完成逐页、逐操作的网页
-> 功能点验和现场修复；保留的 48 张视觉基线仍属于前一版 6 路由产品壳，最新 7 路由
-> 预期 56 张图片尚未重新生成或更新哈希，因此视觉状态不随功能点验自动提升。
+# Launch Kit · 发布证据索引
 
 > 天枢是一个可治理、可验证、持续成长的自进化 Agent OS。
 
-当前四层状态必须分别读取：
+本目录汇集发布相关的证据材料与事实矩阵。当前版本经过本地整库、Web、制品、
+安全审计和 legacy Docker 验证；历史 demo 与旧批次报告仅作保留证据
+（retained evidence）。最新源码已在隔离 Demo/Eval 环境完成逐页、逐操作的网页
+功能点验和现场修复；保留的 48 张视觉基线仍属于前一版 6 路由产品壳，最新 7 路由
+预期 56 张图片尚未重新生成或更新哈希——视觉终审是已知待办，功能点验不自动
+等于视觉终审通过。
 
-- `design_status`: `approved`
-- `implementation_status`: `verified_local`
-- `visual_status`: `user_approval_pending`
-- `publication_status`: `not_authorized`
-
-设计批准、本地实现验证与视觉基线生成都不构成发布授权。不得据此公开仓库、push、tag、
-release、上传 PyPI/GHCR、发布官方容器或对外宣发。
+当前成熟度：设计已定稿；实现经本地验证（`verified_local`）；视觉终审待完成。
 
 ## 当前证据
 
@@ -32,13 +21,13 @@ release、上传 PyPI/GHCR、发布官方容器或对外宣发。
 | [Lean Preview 使用指南](../usage/lean-developer-preview.md) | source/exact Wheel、单一黄金 Demo、严格 verifier | procedure documented; current fresh-HOME Gate not run |
 | [本地门禁清单](checklist.md) | 本轮测试、制品、依赖审计、容器与待审批项 | local validation passed; Candidate not accepted |
 | [Web 全功能点验与修复报告](web-functional-validation-2026-07-31.md) | 隔离浏览器点击路径、现场缺陷、修复复验、外部调用披露与未验证边界 | `validation_status=verified_local`; visual approval unchanged |
-| [保留的视觉基线清单](../../web/e2e/__screenshots__/SHA256SUMS) | 48 张及哈希覆盖前一版 6 路由产品壳；最新源码定义 7 路由、预期 56 张，尚未重新生成或更新哈希 | 本轮未重建视觉矩阵；`visual_status=user_approval_pending` |
+| [保留的视觉基线清单](../../web/e2e/__screenshots__/SHA256SUMS) | 48 张及哈希覆盖前一版 6 路由产品壳；最新源码定义 7 路由、预期 56 张，尚未重新生成或更新哈希 | 本轮未重建视觉矩阵；视觉终审待完成 |
 | [历史保留 Demo 报告](../cc-fable-v1/evidence/lean-preview/20260719T083725Z-01da3844dde7/demo-report.json) | 13 步、`fixture=false`、源码/Wheel/证据绑定；不复用为新 Candidate | retained local evidence |
 | [历史桌面 Web 报告](../cc-fable-v1/reports/s4-core-web-report.md) | 旧三张核心页自动化；不替代当前六入口视觉审批 | retained `automation_passed` |
 | [Lean Core evolution 报告](../cc-fable-v1/reports/s5-lean-evolution-report.md) | 技能候选、门禁、分流、回滚 | `implemented`; full G4 `external_pending` |
 | [延期路线图](../cc-fable-v1/06-deferred-work-backlog.md) | 恢复条件与验收证据 | 每项使用下方唯一映射状态 |
 
-## 配套发布材料（尚未授权）
+## 配套发布材料（草稿）
 
 | 文档 | 用途 |
 |---|---|
@@ -47,7 +36,7 @@ release、上传 PyPI/GHCR、发布官方容器或对外宣发。
 | [演示脚本](demo-storyboards.md) | 产品演示顺序与讲解重点 |
 | [隐喻映射](metaphor-map.md) | 古风名称与工程职责对照 |
 
-这些材料只用于本地评审；`publication_status=not_authorized` 时不得据此对外发布。
+这些材料为对外叙事草稿，尚未定稿；正式对外口径以 README 与能力事实矩阵为准。
 
 ## 支持边界
 
@@ -71,6 +60,6 @@ release、上传 PyPI/GHCR、发布官方容器或对外宣发。
 - OpenHands、ROI、cost calibration 和 full G4 为 `external_pending`；full G5 为
   `deferred`。
 
-能力成熟度与发布状态也必须保持分离：`implemented`、`disabled`、`deferred`、
-`experimental`、`beta`、`external_pending`。局部通过、历史计划或截图不能把
-`visual_status` 或 `publication_status` 提升为已批准。
+能力成熟度状态只使用以下枚举：`implemented`、`disabled`、`deferred`、
+`experimental`、`beta`、`external_pending`。局部通过、历史计划或截图不能替代
+完整的视觉终审。

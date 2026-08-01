@@ -2,9 +2,10 @@
 
 ## 报告漏洞
 
-请勿公开提交安全漏洞。发送邮件至 `mj-cjm@outlook.com`，主题注明
-`[SECURITY] tianshu`，并附受影响版本、复现步骤和影响评估。项目由单人维护，尽力在
-72 小时内首次响应，不承诺 SLA。
+请勿公开提交安全漏洞。首选通过 GitHub Private Vulnerability Reporting 私下报告：
+<https://github.com/MJ-CJM/tianshu/security/advisories/new>。如无法使用该渠道，可发送
+邮件至 `mj-cjm@outlook.com`，主题注明 `[SECURITY] tianshu`。报告请附受影响版本、
+复现步骤和影响评估。项目由单人维护，尽力在 72 小时内首次响应，不承诺 SLA。
 
 ## Lean Developer Preview 信任边界
 
@@ -13,7 +14,7 @@
 本 Preview 不声称抵抗该权限主体，也不提供多节点、共识、跨副本恢复或租户隔离保证。
 
 当前 source checkout 与同一 checkout 产出的 exact Wheel 是正式本地安装路径。Ubuntu +
-Python 3.12 是首个正式支持目标；最终黄金批次实际在本机
+Python 3.12 是首个正式支持目标；当前发布产物实际在本机
 `Darwin/arm64/Python 3.12.12` 验证。官方容器、PyPI、GHCR、签名与正式 provenance
 均为 `deferred`，现有 Dockerfile 只是 legacy/experimental 开发资产。
 
@@ -46,12 +47,10 @@ Python 3.12 是首个正式支持目标；最终黄金批次实际在本机
 - 未进入受管 effect ledger 的外部副作用不获得去重或恢复承诺。
 - Keqing 外部 CLI 为 `experimental`；其内部工具流、网络、成本上限和恢复点不受 Native
   边界覆盖。
-- managed OpenHands、ROI、cost calibration 和 full G4 为 `external_pending`；full G5 为
-  `deferred`。
-- desktop Web 自动化不能替代 VoiceOver 与人工视觉终审；对应状态分别为
-  `external_pending` 与 `user_approval_pending`。
-- `publication_status`: `not_authorized`；本文件不授权公开仓库、tag、release、PyPI、GHCR
-  或对外宣发。
+- managed OpenHands、ROI 和 cost calibration 为 `external_pending`；更完整的外部验证
+  矩阵为 `deferred`。
+- desktop Web 自动化不能替代 VoiceOver 与人工视觉终审；VoiceOver 外部验证为
+  `external_pending`，人工视觉终审尚未完成。
 
 更细的威胁/控制映射见
 [Lean Preview 威胁模型](docs/security/lean-preview-threat-model.md)，逐项成熟度见

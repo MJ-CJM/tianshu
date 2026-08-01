@@ -174,7 +174,7 @@ empty.*                     # 空状态
 每批完成后：
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu/web
+cd <repo>/web
 npx tsc --noEmit
 # 应只剩 1 个 pre-existing PersonaDetailPage.tsx:455 错误，与 i18n 无关
 # 该错误属于本次范围（PersonaDetailPage 在批次 4 内），届时一并修复
@@ -183,7 +183,7 @@ npx tsc --noEmit
 启动 dev 手测：
 
 ```bash
-cd /Users/chenjiamin/tiangong/tianshu/web && npm run dev
+cd <repo>/web && npm run dev
 # 浏览器右上角 Segmented 切换三档：
 #   彩蛋 → 古风（御书房/敕令/朱批）
 #   通用 → 业界通用（审批中心/任务/审批决策）

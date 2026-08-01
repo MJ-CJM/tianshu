@@ -8,7 +8,12 @@
 
 *A governable, verifiable Agent OS designed to learn and evolve continuously.*
 
-[English](README.en.md) · [当前实现](docs/CURRENT-STATE.md) · [Lean Preview 使用指南](docs/usage/lean-developer-preview.md) · [能力事实矩阵](docs/launch/capability-matrix.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://github.com/MJ-CJM/tianshu/actions/workflows/ci.yml/badge.svg)](https://github.com/MJ-CJM/tianshu/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue.svg)](pyproject.toml)
+[![Version 0.5.0](https://img.shields.io/badge/version-0.5.0-informational.svg)](https://github.com/MJ-CJM/tianshu/releases)
+
+[English](README.en.md) · [当前实现](docs/CURRENT-STATE.md) · [快速开始](docs/usage/getting-started.md) · [能力事实矩阵](docs/launch/capability-matrix.md)
 
 </div>
 
@@ -161,21 +166,26 @@
   </tr>
 </table>
 
-## Lean Developer Preview Candidate
+## 架构总览
+
+天枢把一次任务组织为一条可审计的核心闭环：下旨（Edict）→ 排期（Scheduler）→ 规划
+（Planner）→ 执行（Agent/DAG/Outer Loop）→ 审计（Auditor）→ 通知（Notifier）→ 记忆与
+成长（Memory/Profile/Skill）。敕令可通过 Web、API、CLI、飞书或 Telegram 下达，系统把
+目标转成可调度、可审计、可裁决、可复盘的执行链路。长程任务不依赖 LLM「一次输出即
+终态」，而由外层循环反复 actor→checks→critic→completion audit，直到验收通过或预算
+耗尽。架构设计、领域模型与各子系统文档见[文档导航](docs/README.md)。
+
+## 能力成熟度
 
 天枢把「敕令（Edict）→ 裁决（Decision）→ 运行 → Evidence → 技能候选 → 门禁 →
 分流 → 回滚」组织成一条可复验的本地链路。当前代码与阶段证据覆盖以下能力：
-
-> 先前生成的 Candidate JSON/总报告因使用 composite summaries、未绑定 tracked raw Gate
-> logs 与 build provenance，已经 fail-closed 撤销。当前没有被接受的 Candidate；必须完成新的
-> 单次 final-source Gate、制品 provenance 与新 demo 后再由严格 checker 重建。
 
 - **可治理：**受管 Native 路径使用持久 Decision、RunState、attempt lease/fencing 和
   effect intent/receipt；已声明且进入账本的恢复边界可耐单节点重启。
 - **可验证：**SystemAudit 防篡改链、内容寻址 ArtifactStore 与 Evidence Bundle v1
   记录行为、裁决、产物和边界；严格 verifier 会重算 hash 并核对源码与 exact Wheel。
-- **持续成长：**技能候选经过 evidence-bound Gate、真实 canary assignment 和 effective
-  overlay，再由受控回滚把新流量归零。它是通过的 Lean Core，不等于完整 G4。
+- **持续成长：**技能候选经过证据绑定的门禁、真实 canary assignment 和 effective
+  overlay，再由受控回滚把新流量归零；完整的自进化闭环仍属实验能力。
 - **真实桌面产品：**默认导航为中枢、御书房、朝堂、百司、天工院〔实验〕、内府六个
   一级入口。
   御书房以“全部敕令 / 颁发敕令 / 钦天监 / 都察院”统一承载任务、定时调度与审计；
@@ -187,46 +197,42 @@
   长程治理、自进化、平行位面和客卿，其中自进化状态来自后端 `evolution_status` 的真实
   投影，不以 mock 数字冒充能力。
 
-本轮产品方案与发布边界严格拆分：
-
-- `design_status`: `approved`
-- `implementation_status`: `verified_local`
-- `visual_status`: `user_approval_pending`
-- `publication_status`: `not_authorized`
-
-最终六入口方案已获用户批准并完成本地实现与验证；最新源码也已在隔离 Demo/Eval 环境
-完成逐页、逐操作的网页功能点验与现场修复。现有 48 张视觉基线及哈希仍保留自前一版
-6 路由产品壳；御书房加入后的 7 路由、预期 56 张视觉图片尚未重新生成或更新哈希。
-因此 `visual_status` 仍为 `user_approval_pending`；`verified_local` 不代表新的 Candidate
-已被接受。逐项点击路径、现场修复与未验证边界见
-[Web 全功能点验与修复报告](docs/launch/web-functional-validation-2026-07-31.md)。
-
-历史保留的黄金批次通过全部 13 步和严格校验，但不复用为新 Candidate；详见
-[使用指南](docs/usage/lean-developer-preview.md)与
-[不可变报告](docs/cc-fable-v1/evidence/lean-preview/20260719T083725Z-01da3844dde7/demo-report.json)。
+以上能力均已在本地完成逐页、逐操作的网页功能点验与现场修复；逐项点击路径与
+未验证边界见[Web 全功能点验与修复报告](docs/launch/web-functional-validation-2026-07-31.md)。
+历史阶段的完整验证流程与不可变证据归档于 [docs/cc-fable-v1/](docs/cc-fable-v1/)；
+逐项能力的成熟度结论见[能力事实矩阵](docs/launch/capability-matrix.md)与
+[当前实现](docs/CURRENT-STATE.md)。
 
 ## 当前支持边界
 
 - **首个正式目标：**Ubuntu + Python 3.12，本地 desktop Web only；不提供移动端产品承诺。
-- **已有本地证据：**最终 exact-Wheel 黄金批次运行于
+- **已有本地证据：**最近一次 exact-Wheel 完整验证运行于
   `Darwin/arm64/Python 3.12.12`。这证明本机验证环境，不替代尚待执行的 Ubuntu 外部复验。
 - **部署模型：**单机、单节点 SQLite。宿主机管理员可读取数据库、主密钥和进程内明文，
   因而不在当前威胁模型的防护对象内。
 - **正式安装路径：**源码 checkout 与同一 checkout 构建的 exact Wheel。官方容器、PyPI、
   GHCR、签名和正式供应链 provenance 均为 `deferred`。
 - **MCP：**持久 env/header secret mapping 已密文落库；remote MCP 与 open stdio MCP
-  在 Candidate 支持面内保持 `disabled`，完整开放安全工作为 `deferred`。
-- **演化边界：**managed OpenHands、执行器兼容套件、ROI、cost calibration 和 full G4
-  均为 `external_pending`；full G5 为 `deferred`。
-
-`publication_status`: `not_authorized`。本分支中的 Candidate 文档不是外部发布授权；不得据此
-push、tag、release、发布 PyPI/GHCR、公开仓库或对外宣称正式版。
+  在当前支持面内保持 `disabled`，完整开放安全工作为 `deferred`。
+- **演化边界：**managed OpenHands、执行器兼容套件、ROI 与 cost calibration 均为
+  `external_pending`；更完整的自动化演化门禁为 `deferred`。
 
 ## 本地安装与验证
 
-请按 [Lean Developer Preview 使用指南](docs/usage/lean-developer-preview.md)完成源码安装、
-exact Wheel 本地安装、单一黄金 Demo 与严格 provenance 校验。指南只使用当前官方路径，
-不把仓库中的 legacy Dockerfile 当作正式制品。
+```bash
+git clone https://github.com/MJ-CJM/tianshu.git
+cd tianshu
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -e .
+cp .env.example .env   # 编辑 .env，填写 TIANSHU_LLM_API_KEY 等
+cd web && npm install && npm run build && cd ..
+TIANSHU_STATIC_DIR=src/tianshu/web/static uvicorn tianshu.app:create_app --factory --port 8000
+```
+
+启动后打开 http://127.0.0.1:8000 即可使用 Web UI。前端构建需要 Node.js >= 20；开发模式
+（前后端分离热重载）、环境变量与部署说明见[快速开始](docs/usage/getting-started.md)。
+需要严格复验路径（exact Wheel 安装、黄金 Demo 与 provenance 校验）时，参见
+[Lean Developer Preview 使用指南](docs/usage/lean-developer-preview.md)。
 
 ## 能力状态
 
@@ -236,8 +242,7 @@ exact Wheel 本地安装、单一黄金 Demo 与严格 provenance 校验。指�
 - `disabled`：当前支持面明确关闭并 fail closed；
 - `deferred`：已记录恢复条件，本轮不交付；
 - `experimental`：可试用，但协议或支持承诺尚未冻结；
-- `external_pending`：缺少指定外部环境或时间窗证据；
-- `user_approval_pending`：自动化已过，但仍等待用户终审。
+- `external_pending`：缺少指定外部环境或时间窗证据。
 
 当前工作树的功能结论和验证快照先看
 [当前实现](docs/CURRENT-STATE.md)；逐项默认值、保证、非保证和证据见
@@ -254,7 +259,7 @@ exact Wheel 本地安装、单一黄金 Demo 与严格 provenance 校验。指�
 包含吏部、廷议、内阁；百司包含翰林院、鸿胪寺、通政司；天工院包含演化司〔实验〕、
 诸界台〔实验〕、考功司〔试行〕、客卿馆〔实验〕；内府保留藏兵阁、权印司、户部账房。
 御书房统一承载全部任务、任务进度与待人工介入事项，`/edicts` 仅作兼容跳转。该产品
-结构已经批准并本地实现；原
+结构已在当前版本落地；原
 [审批提案](docs/launch/final-approval-proposal.md)保留为决策过程记录，当前状态以
 [当前实现](docs/CURRENT-STATE.md)为准。
 

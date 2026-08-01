@@ -2,7 +2,7 @@
 
 - 状态:已接受
 - 日期:2026-07-08(迭代 3.5「客卿」)
-- 相关:[ADR-0002](./adr-0002-positioning.md)(上级机关定位)、[ADR-0010](./adr-0010-runtime-defense.md)(锦衣卫)、spec §四
+- 相关:ADR-0002(上级机关定位,内部决策记录未随仓库公开)、[ADR-0010](./adr-0010-runtime-defense.md)(锦衣卫)、spec §四
 
 ## 背景
 
