@@ -238,8 +238,10 @@ cd web && npm install && npm run build && cd ..
 TIANSHU_STATIC_DIR=src/tianshu/web/static uvicorn tianshu.app:create_app --factory --port 8000
 ```
 
-Then open http://127.0.0.1:8000 for the Web UI. Building the frontend requires Node.js >= 20. See
-the [getting started guide](docs/usage/getting-started.en.md) for the development mode,
+Then open http://127.0.0.1:8000 for the Web UI. Building the frontend requires Node.js >= 20.
+For day-to-day development, prefer the one-command script `./scripts/local.sh start --dev`
+(hot reload + managed processes). See the
+[getting started guide](docs/usage/getting-started.en.md) for the development mode,
 environment variables, and deployment notes. For the strict re-verification path (exact-Wheel
 installation, the golden demo, and provenance verification), follow the
 [Lean Developer Preview guide](docs/usage/lean-developer-preview.md).

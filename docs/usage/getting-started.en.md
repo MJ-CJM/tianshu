@@ -25,6 +25,34 @@ tianshu/
 
 The frontend and backend start separately and are wired together through the Vite proxy.
 
+### One-Command Script (Recommended)
+
+`scripts/local.sh` wraps the manual steps below into managed background services
+(PID files under `.tianshu/`, logs in `.tianshu/uvicorn.log` and `.tianshu/vite.log`):
+
+```bash
+# First time / after dependency changes: install Python deps (with the cli extra) + npm ci + frontend build
+./scripts/local.sh build
+
+# Dev mode: starts uvicorn (hot reload) and the Vite dev server together; visit http://localhost:7999
+./scripts/local.sh start --dev
+
+# Day-to-day operations
+./scripts/local.sh status    # process status + health check
+./scripts/local.sh logs      # tail the logs
+./scripts/local.sh restart   # restart with the original flags
+./scripts/local.sh stop      # graceful shutdown
+```
+
+Before starting, the script exports every variable in `.env` into the environment.
+This is a real difference from running uvicorn by hand: settings declared on
+`TianshuSettings` are read from `.env` either way, but runtime secrets read via
+`os.getenv` (such as `TIANSHU_SECRET_MASTER_KEY`) are only visible when exported
+as environment variables. Once you configure a master key, prefer starting
+through the script.
+
+The manual step-by-step flow below is for readers who want to see each moving part.
+
 ### Backend
 
 ```bash
@@ -73,6 +101,9 @@ TIANSHU_STATIC_DIR=src/tianshu/web/static \
 ```
 
 Visit `http://localhost:8000` for both the API and the Web UI.
+
+The managed equivalent is `./scripts/local.sh start` (without `--dev`); it expects
+a prior `./scripts/local.sh build` and warns when the static directory is missing.
 
 ---
 

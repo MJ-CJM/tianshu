@@ -229,8 +229,9 @@ cd web && npm install && npm run build && cd ..
 TIANSHU_STATIC_DIR=src/tianshu/web/static uvicorn tianshu.app:create_app --factory --port 8000
 ```
 
-启动后打开 http://127.0.0.1:8000 即可使用 Web UI。前端构建需要 Node.js >= 20；开发模式
-（前后端分离热重载）、环境变量与部署说明见[快速开始](docs/usage/getting-started.md)。
+启动后打开 http://127.0.0.1:8000 即可使用 Web UI。前端构建需要 Node.js >= 20。日常开发
+推荐一键脚本 `./scripts/local.sh start --dev`（热重载 + 进程托管）；开发模式、环境变量
+与部署说明见[快速开始](docs/usage/getting-started.md)。
 需要严格复验路径（exact Wheel 安装、黄金 Demo 与 provenance 校验）时，参见
 [Lean Developer Preview 使用指南](docs/usage/lean-developer-preview.md)。
 

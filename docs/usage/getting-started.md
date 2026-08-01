@@ -23,6 +23,32 @@ tianshu/
 
 前端和后端各自启动，通过 vite proxy 串联。
 
+### 一键脚本（推荐）
+
+`scripts/local.sh` 把下面的手动步骤托管为后台服务（PID 文件在 `.tianshu/`，
+日志落 `.tianshu/uvicorn.log` 与 `.tianshu/vite.log`）：
+
+```bash
+# 首次 / 依赖变更后：安装 Python 依赖（含 cli extra）+ npm ci + 前端构建
+./scripts/local.sh build
+
+# 开发模式：同时拉起 uvicorn（热重载）+ vite dev server，访问 http://localhost:7999
+./scripts/local.sh start --dev
+
+# 常用运维
+./scripts/local.sh status    # 进程状态 + 健康检查
+./scripts/local.sh logs      # 跟踪日志
+./scripts/local.sh restart   # 按原参数重启
+./scripts/local.sh stop      # 优雅停止
+```
+
+脚本启动前会把 `.env` 整体导出为环境变量——与手动执行 uvicorn 的一个实际差异：
+`TianshuSettings` 声明的配置两种方式都能从 `.env` 读到，但通过 `os.getenv`
+读取的运行期密钥（如 `TIANSHU_SECRET_MASTER_KEY`）只有导出为环境变量才可见。
+配置了主密钥后建议统一走脚本启动。
+
+以下为手动分步方式，适合想看清每个环节的读者。
+
 ### 后端
 
 ```bash
@@ -71,6 +97,9 @@ TIANSHU_STATIC_DIR=src/tianshu/web/static \
 ```
 
 访问 `http://localhost:8000` 同时提供 API 和 Web UI。
+
+等价的托管方式：`./scripts/local.sh start`（不带 `--dev`），要求先执行过
+`./scripts/local.sh build`，静态目录缺失时会给出提示。
 
 ---
 
