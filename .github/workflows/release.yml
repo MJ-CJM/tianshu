@@ -55,7 +55,7 @@ jobs:
           mkdir -p release-assets
           cp dist/*.tar.gz release-assets/
           cp dist/from-sdist/*.whl release-assets/
-          (cd release-assets && shasum -a 256 * > SHA256SUMS.txt)
+          (cd release-assets && sha256sum * > SHA256SUMS.txt)
       - name: Create GitHub Release with artifacts
         env:
           GH_TOKEN: ${{ github.token }}

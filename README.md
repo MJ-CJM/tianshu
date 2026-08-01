@@ -9,7 +9,6 @@
 *A governable, verifiable Agent OS designed to learn and evolve continuously.*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI](https://github.com/MJ-CJM/tianshu/actions/workflows/ci.yml/badge.svg)](https://github.com/MJ-CJM/tianshu/actions/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue.svg)](pyproject.toml)
 [![Version 0.5.0](https://img.shields.io/badge/version-0.5.0-informational.svg)](https://github.com/MJ-CJM/tianshu/releases)
 

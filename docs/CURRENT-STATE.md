@@ -189,6 +189,22 @@ error、permission-denied 和 404 状态，不用 mock 数据掩盖失败。
 - 视觉终审：最新 7 路由视觉基线重建与人工视觉终审尚未完成，属已知待办；
 - tag 与 Release 由维护者统一执行。
 
+## 已知问题（GitHub Actions）
+
+本地开发环境（macOS/arm64/Python 3.12）下 `pytest -m "not slow"` 全绿，但
+Ubuntu CI 上仍有一批环境特有的失败，公开发布时如实记录如下，欢迎复现与修复：
+
+- **CLI 帮助文本断言（2 项）**：`tests/cli/test_workspace_commands.py` 断言
+  `--token-stdin` / `--apply-now` 出现在 `--help` 输出中。Linux 非 TTY 环境下
+  Rich 的渲染结果与本地不同，导致断言失配；命令本身功能正常。
+- **集成测试（2 项）**：`test_governed_apply_decision_restart` 的暂存清理与
+  `test_outbox_scheduler_idempotency` 的定时恢复断言在 CI 上不稳定，疑与
+  Linux 文件系统语义和调度时序有关；两者在本地均通过。
+- **Web E2E 无障碍**：axe 报告 serious/critical 违规、部分交互元素缺可见键盘
+  焦点指示器。这是真实的可访问性缺陷，属产品待办而非测试环境问题。
+
+在上述问题收敛前，README 不挂 CI 状态徽章，避免用绿色徽章暗示未达成的保证。
+
 ## 历史资料如何阅读
 
 | 目录 | 正确用途 |
