@@ -46,7 +46,9 @@ jobs:
           uv venv /tmp/sdist-smoke --python 3.12
           VIRTUAL_ENV=/tmp/sdist-smoke uv pip install "$(ls dist/from-sdist/*.whl)[cli]"
           /tmp/sdist-smoke/bin/python -c "import tianshu, tianshu.app; print('sdist wheel importable:', tianshu.__file__)"
-          /tmp/sdist-smoke/bin/tianshu doctor --format json > /dev/null
+          # demo 档位：发布环境没有真实 LLM 凭证，而 provider.config 是 required
+          # 检查，live 档位下必然 fail 并让 doctor 退出 1。见 ci.yml 同一处说明。
+          TIANSHU_STARTUP_PROFILE=demo /tmp/sdist-smoke/bin/tianshu doctor --format json > /dev/null
       - name: Collect artifacts and checksums
         run: |
           set -euo pipefail
