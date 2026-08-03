@@ -108,7 +108,8 @@ export default function TelegramChannelForm() {
         poll_timeout: 30,
         text_batch_delay: 0.6,
         dedup_cache_size: 2048,
-        assistant_persona_id: "tongzheng",
+        // 必须是在编官员 id，不能填部门名（见后端 DEFAULT_ASSISTANT_PERSONA_ID）
+        assistant_persona_id: "qb",
         enable_edict_submission: false,
       }}
     >

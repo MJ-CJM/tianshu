@@ -65,6 +65,10 @@ const TELEGRAM_CONFIG_FIELDS = [
   "enable_edict_submission",
 ] as const;
 
+// 助手 persona 默认值：必须是在编官员 id，不能填部门名（后端
+// tianshu/persona/model.py DEFAULT_ASSISTANT_PERSONA_ID 与此保持一致）。
+const DEFAULT_ASSISTANT_PERSONA_ID = "qb";
+
 const FEISHU_DEFAULTS = {
   domain: "feishu",
   connection_mode: "websocket",
@@ -72,7 +76,7 @@ const FEISHU_DEFAULTS = {
   ws_reconnect_interval: 120,
   text_batch_delay: 0.6,
   dedup_cache_size: 2048,
-  assistant_persona_id: "tongzheng",
+  assistant_persona_id: DEFAULT_ASSISTANT_PERSONA_ID,
   intent_llm_enabled: true,
   enable_edict_submission: false,
 };
@@ -83,7 +87,7 @@ const TELEGRAM_DEFAULTS = {
   poll_timeout: 30,
   text_batch_delay: 0.6,
   dedup_cache_size: 2048,
-  assistant_persona_id: "tongzheng",
+  assistant_persona_id: DEFAULT_ASSISTANT_PERSONA_ID,
   enable_edict_submission: false,
 };
 

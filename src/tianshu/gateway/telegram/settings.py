@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from tianshu.config import DEFAULT_ASSISTANT_PERSONA_ID
+
 
 @dataclass(frozen=True)
 class TelegramSettings:
@@ -19,7 +21,7 @@ class TelegramSettings:
     poll_timeout: int
     text_batch_delay: float
     dedup_cache_size: int
-    assistant_persona_id: str = "tongzheng"  # 默认通政司
+    assistant_persona_id: str = DEFAULT_ASSISTANT_PERSONA_ID  # 默认通政司在编官员
     disable_assistant_mode: bool = False  # 紧急逃生开关
     enable_edict_submission: bool = False  # 助手是否允许在对话中颁敕
     instance_id: str = "telegram-default"
@@ -67,7 +69,9 @@ def from_global_settings(s) -> TelegramSettings:
         poll_timeout=s.telegram_poll_timeout,
         text_batch_delay=s.telegram_text_batch_delay,
         dedup_cache_size=s.telegram_dedup_cache_size,
-        assistant_persona_id=getattr(s, "telegram_assistant_persona_id", "tongzheng"),
+        assistant_persona_id=getattr(
+            s, "telegram_assistant_persona_id", DEFAULT_ASSISTANT_PERSONA_ID
+        ),
         disable_assistant_mode=getattr(s, "telegram_disable_assistant_mode", False),
         enable_edict_submission=getattr(s, "telegram_enable_edict_submission", False),
         instance_id="telegram-default",
