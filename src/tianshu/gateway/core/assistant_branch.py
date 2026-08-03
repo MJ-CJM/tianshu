@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, ClassVar, Protocol
 
+from tianshu.config import DEFAULT_ASSISTANT_PERSONA_ID
 from tianshu.gateway.core.approval import parse_approval_command
 from tianshu.gateway.core.errors import EdictBusyError
 from tianshu.gateway.core.status_label import format_status_label
@@ -48,8 +49,10 @@ logger = logging.getLogger(__name__)
 class _SessionAnchor(Protocol):
     """AssistantBranchBase 用到的 SessionAnchor 子集（feishu/telegram 各自实现）。"""
 
+    def get(self, chat_id: str) -> str | None: ...
     def set(self, chat_id: str, edict_id: str) -> None: ...
     def delete(self, chat_id: str) -> None: ...
+    def list_chats(self) -> list[str]: ...
 
 
 class _CardBuilder(Protocol):
@@ -84,7 +87,7 @@ class AssistantBranchBase:
         renderer: PersonaRenderer,
         card_builder: _CardBuilder,
         approval_commands: ApprovalCommandHandler | None = None,
-        assistant_persona_id: str = "tongzheng",
+        assistant_persona_id: str = DEFAULT_ASSISTANT_PERSONA_ID,
         instance_id: str | None = None,
     ) -> None:
         self._storage = storage
@@ -104,6 +107,38 @@ class AssistantBranchBase:
     def set_assistant_persona_id(self, persona_id: str) -> None:
         """支持 reload 时切换 persona id（用于 /clear 后新建 chat 敕令时指派 persona）。"""
         self._assistant_persona_id = persona_id
+
+    def resync_active_chat_personas(self) -> int:
+        """把本实例进行中的聊天敕令改派给当前助手 persona，返回改派条数。
+
+        ``set_assistant_persona_id`` 只影响此后**新建**的 chat 敕令，而
+        ``assigned_persona_id`` 是建会话那一刻写死的快照——不同步的话，用户在
+        通政司改了助手 persona 并热加载，当前会话仍按旧 persona 执行（表现为
+        "改了没生效"，须先 ``/clear``）。这里让热加载名副其实。
+
+        只动 ``assistant_chat`` 标记的聊天敕令；业务敕令的承办官员是派官结果，
+        不受渠道助手配置影响。
+        """
+        synced = 0
+        for chat_id in self._anchor.list_chats():
+            edict_id = self._anchor.get(chat_id)
+            if not edict_id:
+                continue
+            edict = self._storage.get_edict(edict_id)
+            if not edict or not (edict.metadata and edict.metadata.get("assistant_chat")):
+                continue
+            if edict.assigned_persona_id == self._assistant_persona_id:
+                continue
+            self._storage.update_edict_assigned_persona(edict_id, self._assistant_persona_id)
+            logger.info(
+                "[gateway] chat edict %s reassigned %s → %s (instance=%s)",
+                edict_id,
+                edict.assigned_persona_id,
+                self._assistant_persona_id,
+                self._instance_id,
+            )
+            synced += 1
+        return synced
 
     async def handle(self, msg: ChatMessage, ctx: ModeContext) -> None:
         """主入口：解析命令 → 调对应实现。"""

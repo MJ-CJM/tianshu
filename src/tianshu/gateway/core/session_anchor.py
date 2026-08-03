@@ -18,3 +18,7 @@ class SessionAnchor:
 
     def delete(self, chat_id: str) -> None:
         self._storage.delete_feishu_anchor(chat_id, instance_id=self._instance_id)
+
+    def list_chats(self) -> list[str]:
+        """本实例所有仍挂着 anchor 的 chat_id。"""
+        return self._storage.list_active_anchor_chats(instance_id=self._instance_id)

@@ -1050,9 +1050,30 @@ class Executor:
             if plan and plan.tasks:
                 plan_persona = plan.tasks[0].assigned_official
             persona_id = edict.assigned_persona_id or plan_persona
+            # 显式指派也可能指向不存在的 persona（历史遗留：部门名当 persona id
+            # 用，如 "tongzheng"）。这种 id 加载不出人格，prompt_builder 只会注入
+            # 裸 _BASE_IDENTITY，助手静默退化成"无人格"。故显式指派不再无条件
+            # 短路兜底，而是先校验能否加载。
+            assigned_loadable = bool(edict.assigned_persona_id) and (
+                self._persona_loader is not None
+                and self._persona_loader.get(edict.assigned_persona_id or "") is not None
+            )
+            if edict.assigned_persona_id and not assigned_loadable:
+                logger.warning(
+                    "[EXEC] Edict %s: assigned persona %r not found "
+                    "(部门名不能当 persona id 用；将回落到兜底选官)",
+                    edict.id,
+                    edict.assigned_persona_id,
+                )
+                self._storage.append_event(
+                    edict.id,
+                    memorial.id,
+                    "official.assigned_missing",
+                    {"assigned_persona_id": edict.assigned_persona_id},
+                )
             if (
                 self._official_selector is not None
-                and not edict.assigned_persona_id
+                and not assigned_loadable
                 and (
                     not persona_id
                     or self._persona_loader is None

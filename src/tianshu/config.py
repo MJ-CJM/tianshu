@@ -9,6 +9,18 @@ from urllib.parse import urlsplit
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_ASSISTANT_PERSONA_ID = "qb"
+"""渠道助手（通政司）默认 persona id。
+
+必须是 personas 表中**在编官员**的 id，不能填部门名——部门目录
+（resources/personas/<dept>/）只作部门级 prompt 模板，PersonaLoader 在有
+storage 时只从 DB 装载（loader._seed_from_files 是 no-op），填部门名会让
+loader.get() 返回 None，prompt_builder 只注入裸 _BASE_IDENTITY，助手静默
+退化成"无人格"。历史上此处误用部门名 "tongzheng" 正是这个原因。
+
+定义在 config（最低层）而非 persona.model：import-linter 分层契约禁止
+config 向上依赖 persona。"""
+
 _SHA256_HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _CONTAINER_PRIVATE_NETWORKS = tuple(
     ipaddress.ip_network(cidr)
@@ -100,7 +112,7 @@ class TianshuSettings(BaseSettings):
     feishu_ws_reconnect_interval: int = 120
     feishu_text_batch_delay: float = 0.6
     feishu_dedup_cache_size: int = 2048
-    feishu_assistant_persona_id: str = "tongzheng"
+    feishu_assistant_persona_id: str = DEFAULT_ASSISTANT_PERSONA_ID
     feishu_intent_llm_enabled: bool = True
     feishu_disable_assistant_mode: bool = False
     # Telegram Bot —— inbound + outbound（与飞书并列；空 token → 不启用，向后兼容）
@@ -113,7 +125,7 @@ class TianshuSettings(BaseSettings):
     telegram_poll_timeout: int = 30  # getUpdates 长轮询超时（秒）
     telegram_text_batch_delay: float = 0.6  # 文本批处理静默期
     telegram_dedup_cache_size: int = 2048
-    telegram_assistant_persona_id: str = "tongzheng"
+    telegram_assistant_persona_id: str = DEFAULT_ASSISTANT_PERSONA_ID
     telegram_disable_assistant_mode: bool = False
     telegram_enable_edict_submission: bool = False
     dingtalk_webhook: str = ""

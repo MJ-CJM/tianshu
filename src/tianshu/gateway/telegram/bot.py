@@ -248,7 +248,14 @@ class TelegramBot:
         self._assistant_branch.set_assistant_persona_id(new_settings.assistant_persona_id)
         self._edict_branch.set_assistant_persona_id(new_settings.assistant_persona_id)
         self._mode_router._settings = new_settings  # type: ignore[attr-defined]
-        logger.info("[telegram] reload complete (mode=%s)", new_settings.connection_mode)
+        # 进行中的聊天敕令一并改派，否则新 persona 对当前会话要等 /clear 才生效
+        resynced = self._assistant_branch.resync_active_chat_personas()
+        logger.info(
+            "[telegram] reload complete (mode=%s, persona=%s, chat_edicts_resynced=%d)",
+            new_settings.connection_mode,
+            new_settings.assistant_persona_id,
+            resynced,
+        )
 
     def attach_webhook_router(self, app: FastAPI) -> None:
         """Webhook 模式：把路由挂到 FastAPI app。"""

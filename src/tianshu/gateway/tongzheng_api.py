@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from ulid import ULID
 
+from tianshu.config import DEFAULT_ASSISTANT_PERSONA_ID
 from tianshu.gateway.instance import default_instance_id
 from tianshu.models.common import ApiResponse
 from tianshu.storage import Storage
@@ -54,7 +55,7 @@ class FeishuChannelConfig(BaseModel):
     ws_reconnect_interval: int = 120
     text_batch_delay: float = 0.6
     dedup_cache_size: int = 2048
-    assistant_persona_id: str = "tongzheng"
+    assistant_persona_id: str = DEFAULT_ASSISTANT_PERSONA_ID
     intent_llm_enabled: bool = True
     enable_edict_submission: bool = False
 
@@ -80,7 +81,7 @@ def _build_feishu_settings_from_runtime(runtime_cfg: dict):
         ws_reconnect_interval=int(runtime_cfg.get("ws_reconnect_interval", 120)),
         text_batch_delay=float(runtime_cfg.get("text_batch_delay", 0.6)),
         dedup_cache_size=int(runtime_cfg.get("dedup_cache_size", 2048)),
-        assistant_persona_id=runtime_cfg.get("assistant_persona_id", "tongzheng"),
+        assistant_persona_id=runtime_cfg.get("assistant_persona_id", DEFAULT_ASSISTANT_PERSONA_ID),
         intent_llm_enabled=bool(runtime_cfg.get("intent_llm_enabled", True)),
         disable_assistant_mode=bool(runtime_cfg.get("disable_assistant_mode", False)),
         enable_edict_submission=bool(runtime_cfg.get("enable_edict_submission", False)),
@@ -128,7 +129,7 @@ def get_feishu_channel(request: Request) -> ApiResponse:
     cfg["app_secret"] = "***" if row.get("_has_secret") else ""
     cfg["_source"] = "db"
     # 兼容缺字段（无新字段时回填默认）
-    cfg.setdefault("assistant_persona_id", "tongzheng")
+    cfg.setdefault("assistant_persona_id", DEFAULT_ASSISTANT_PERSONA_ID)
     cfg.setdefault("intent_llm_enabled", True)
     cfg.setdefault("enable_edict_submission", False)
     return ApiResponse(success=True, data=cfg)
@@ -227,7 +228,7 @@ class TelegramChannelConfig(BaseModel):
     poll_timeout: int = 30
     text_batch_delay: float = 0.6
     dedup_cache_size: int = 2048
-    assistant_persona_id: str = "tongzheng"
+    assistant_persona_id: str = DEFAULT_ASSISTANT_PERSONA_ID
     enable_edict_submission: bool = False
 
 
@@ -248,7 +249,7 @@ def _build_telegram_settings_from_runtime(runtime_cfg: dict):
         poll_timeout=int(runtime_cfg.get("poll_timeout", 30)),
         text_batch_delay=float(runtime_cfg.get("text_batch_delay", 0.6)),
         dedup_cache_size=int(runtime_cfg.get("dedup_cache_size", 2048)),
-        assistant_persona_id=runtime_cfg.get("assistant_persona_id", "tongzheng"),
+        assistant_persona_id=runtime_cfg.get("assistant_persona_id", DEFAULT_ASSISTANT_PERSONA_ID),
         disable_assistant_mode=bool(runtime_cfg.get("disable_assistant_mode", False)),
         enable_edict_submission=bool(runtime_cfg.get("enable_edict_submission", False)),
     )
@@ -287,7 +288,7 @@ def get_telegram_channel(request: Request) -> ApiResponse:
     cfg = _mask_instance(row)
     cfg["bot_token"] = "***" if row.get("_has_secret") else ""
     cfg["_source"] = "db"
-    cfg.setdefault("assistant_persona_id", "tongzheng")
+    cfg.setdefault("assistant_persona_id", DEFAULT_ASSISTANT_PERSONA_ID)
     cfg.setdefault("enable_edict_submission", False)
     return ApiResponse(success=True, data=cfg)
 

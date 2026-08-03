@@ -371,6 +371,18 @@ class EdictMixin:
                 (status, edict_id),
             )
 
+    def update_edict_assigned_persona(self, edict_id: str, persona_id: str) -> None:
+        """改派敕令承办官员。
+
+        用于渠道助手 persona 热切换：进行中的聊天敕令 assigned_persona_id 是
+        建会话那一刻的快照，不改它则新配置对当前会话永不生效。
+        """
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE edicts SET assigned_persona_id = ? WHERE id = ?",
+                (persona_id, edict_id),
+            )
+
     def update_edict_lifecycle_phase(self, edict_id: str, phase: str) -> None:
         """部分更新 runtime_json 的 lifecycle_phase 字段，保留其他字段。"""
         if phase not in ("active", "paused", "winding_down", "complete"):

@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, ClassVar, Protocol
 
+from tianshu.config import DEFAULT_ASSISTANT_PERSONA_ID
 from tianshu.gateway.core.approval import parse_approval_command
 from tianshu.gateway.core.errors import EdictBusyError
 from tianshu.gateway.core.status_label import format_status_label
@@ -62,7 +63,7 @@ class EdictBranchBase:
         renderer: PersonaRenderer,
         assistant_branch: AssistantBranchBase,
         approval_commands: ApprovalCommandHandler | None = None,
-        assistant_persona_id: str = "tongzheng",
+        assistant_persona_id: str = DEFAULT_ASSISTANT_PERSONA_ID,
         instance_id: str | None = None,
     ) -> None:
         self._storage = storage

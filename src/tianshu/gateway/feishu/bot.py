@@ -290,12 +290,17 @@ class FeishuBot:
         self._edict_branch.set_assistant_persona_id(new_settings.assistant_persona_id)
         self._mode_router._settings = new_settings  # type: ignore[attr-defined]
 
+        # 8. 进行中的聊天敕令一并改派，否则新 persona 对当前会话要等 /clear 才生效
+        resynced = self._assistant_branch.resync_active_chat_personas()
+
         logger.info(
-            "[feishu] reload complete (mode=%s, app=%s, persona=%s, disable_assistant=%s)",
+            "[feishu] reload complete (mode=%s, app=%s, persona=%s, "
+            "disable_assistant=%s, chat_edicts_resynced=%d)",
             new_settings.connection_mode,
             new_settings.app_id,
             new_settings.assistant_persona_id,
             new_settings.disable_assistant_mode,
+            resynced,
         )
 
     async def _send_upgrade_notice_once(self) -> None:
