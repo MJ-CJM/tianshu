@@ -467,3 +467,77 @@ def test_start_subscribes_event_handlers(storage):
     types = [c.args[0] for c in bus.on.call_args_list]
     assert "execution.completed" in types
     assert "execution.failed" in types
+
+
+@pytest.mark.asyncio
+async def test_on_execution_completed_prefixes_edict_header(storage):
+    """业务敕令回执带抬头，让异步回推的成果有出处可循。
+
+    回归（2026-08-04）：助手颁的敕令独立跑完后隔若干轮对话才回推，不标出处
+    用户会突然收到一段没头没尾的正文（"圣上在上，臣司马光叩见…"），不知是谁在答什么。
+    """
+    from tianshu.models.memorial import Memorial
+
+    bus = EventBus()
+    out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
+    out._send_post = AsyncMock(return_value="m1")
+
+    edict = Edict(title="司马光自我介绍", goal="g", source="channel", metadata={"chat_id": "oc_x"})
+    storage.save_edict(edict)
+    memorial = Memorial(edict_id=edict.id, instruction="i", result="圣上在上，臣司马光叩见。")
+    storage.save_memorial(memorial)
+
+    await out._on_execution_completed(
+        EventEnvelope(event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id)
+    )
+    _chat, body = out._send_post.await_args.args
+    assert body.startswith(f"📜 敕令 #{edict.id[:8]}「司马光自我介绍」办讫复奏")
+    assert "圣上在上" in body
+
+
+@pytest.mark.asyncio
+async def test_on_execution_completed_no_header_for_assistant_chat(storage):
+    """助手聊天敕令的回复就是当轮对话本身，加抬头反而突兀。"""
+    from tianshu.models.memorial import Memorial
+
+    bus = EventBus()
+    out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
+    out._send_post = AsyncMock(return_value="m1")
+
+    edict = Edict(
+        title="飞书助手对话",
+        goal="g",
+        source="channel",
+        metadata={"chat_id": "oc_x", "assistant_chat": True},
+    )
+    storage.save_edict(edict)
+    memorial = Memorial(edict_id=edict.id, instruction="i", result="**臣以为**不可。")
+    storage.save_memorial(memorial)
+
+    await out._on_execution_completed(
+        EventEnvelope(event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id)
+    )
+    _chat, body = out._send_post.await_args.args
+    assert body == "**臣以为**不可。"
+
+
+@pytest.mark.asyncio
+async def test_delivery_header_offers_follow_up_for_conversational_edict(storage):
+    """对话式敕令的回执告知怎么继续追问——否则没人知道敕令还没结案。"""
+    from tianshu.models.memorial import Memorial
+
+    bus = EventBus()
+    out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
+    out._send_post = AsyncMock(return_value="m1")
+
+    edict = Edict(title="司马光自述", goal="g", source="channel", metadata={"chat_id": "oc_x"})
+    assert edict.runtime.conversation is True  # 默认多轮
+    storage.save_edict(edict)
+    memorial = Memorial(edict_id=edict.id, instruction="i", result="臣谨述如次。")
+    storage.save_memorial(memorial)
+
+    await out._on_execution_completed(
+        EventEnvelope(event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id)
+    )
+    _chat, body = out._send_post.await_args.args
+    assert f"（可继续批示：/select #{edict.id[:8]}）" in body
