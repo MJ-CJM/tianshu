@@ -21,6 +21,9 @@ from tianshu.storage import Storage
 from tianshu.storage.outbox_repo import OutboxRepository
 
 _CONSUMER_NAME = "scheduler.edict_submitted.v1"
+#: once 用例的提前量。窗口只需覆盖 save_edict + schedule() 这两步（建库与
+#: init_db 已移到起算之前），1 秒对 CI 慢盘也绰绰有余，又不至于拖慢用例。
+_ONCE_LEAD_SECONDS = 1.0
 
 
 class _FailFirstConsumptionAck:
@@ -75,16 +78,10 @@ async def test_future_once_first_fire_is_not_restored_after_restart(
     tmp_path: Path,
 ) -> None:
     database_path = tmp_path / "scheduler-once-terminal.sqlite3"
-    target = datetime.now(UTC) + timedelta(milliseconds=100)
     job_id = "future-once-terminal-job"
 
     first_storage = Storage(str(database_path))
     first_storage.init_db()
-    edict = Edict(
-        goal="fire a durable once schedule only once",
-        schedule=EdictSchedule(type="once", at=target),
-    )
-    first_storage.save_edict(edict)
     first_bus = EventBus()
     first_scheduler = _register_scheduler(first_bus, first_storage)
     first_delivery = asyncio.Event()
@@ -99,9 +96,25 @@ async def test_future_once_first_fire_is_not_restored_after_restart(
     )
     await first_scheduler.start()
 
+    # 时间窗必须在建库/init_db（跑 migration）之后才起算：Scheduler.schedule
+    # 对 once 的分派看的是 `schedule.at - now() <= 0`，一旦到点即走"立即触发"
+    # 分支——那条路只建内存 _Job **不落库**，后面 get_scheduler_job 自然为 None。
+    # 原先在 init_db 之前就取 now()+100ms，CI 慢盘上 migration 足以吃光窗口，
+    # 于是间歇性走成立即触发（本地飞快则始终走延迟路径，故只在 CI 复现）。
+    target = datetime.now(UTC) + timedelta(seconds=_ONCE_LEAD_SECONDS)
+    edict = Edict(
+        goal="fire a durable once schedule only once",
+        schedule=EdictSchedule(type="once", at=target),
+    )
+    first_storage.save_edict(edict)
+
     try:
         await first_scheduler.schedule(edict, job_id=job_id)
-        await asyncio.wait_for(first_delivery.wait(), timeout=1)
+        # 落库即证明走的是延迟路径；随后才是本用例真正要验的"触发一次即终结"。
+        assert first_storage.get_scheduler_job(job_id) is not None, (
+            "once job 未落库，说明 schedule() 走了立即触发分支，时间窗被吃光"
+        )
+        await asyncio.wait_for(first_delivery.wait(), timeout=_ONCE_LEAD_SECONDS + 5)
         row = first_storage.get_scheduler_job(job_id)
         assert row is not None
         assert row["status"] != "active"
