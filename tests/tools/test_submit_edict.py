@@ -8,7 +8,9 @@ import pytest
 
 from tianshu.application.edicts import EdictApplicationService
 from tianshu.bus.event_bus import EventBus
+from tianshu.kernel.ambient import bind_edict
 from tianshu.models.common import TaskStatus
+from tianshu.models.edict import Edict
 from tianshu.tools.registry import ToolRegistry
 from tianshu.tools.submit_edict import register_submit_edict
 
@@ -315,3 +317,79 @@ async def test_submit_edict_schema_exposes_extended_fields(setup):
     }
     assert "output_format" in props
     assert "acceptance_rubric" in props
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_inherits_channel_routing_from_caller(setup):
+    """助手在渠道对话里颁的敕令须继承 channel/instance_id/chat_id。
+
+    回归（2026-08-04）：缺了这三件套，敕令等于人间蒸发——outbound 按
+    metadata.chat_id 反查投递目标，查不到就把成果烂在库里；助手模式 /list
+    又按 instance_id 过滤，用户既收不到回禀也查不到这道敕令。
+    """
+    registry, storage, _ = setup
+    _, func = registry._tools["submit_edict"]
+    caller = Edict(
+        title="飞书助手对话",
+        goal="持续对话上下文",
+        metadata={
+            "channel": "feishu",
+            "instance_id": "feishu-01KZ3XEK",
+            "chat_id": "oc_775068660",
+            "assistant_chat": True,
+            "feishu_user": "ou_abc",
+        },
+    )
+    with bind_edict(caller):
+        result = await func(goal="介绍下你自己")
+
+    edict = storage.get_edict(result.details["edict_id"])
+    assert edict.metadata["channel"] == "feishu"
+    assert edict.metadata["instance_id"] == "feishu-01KZ3XEK"
+    assert edict.metadata["chat_id"] == "oc_775068660"
+    # 只继承路由三件套：整份拷贝会带上 assistant_chat，反被 /list 当聊天敕令隐藏
+    assert "assistant_chat" not in edict.metadata
+    assert "feishu_user" not in edict.metadata
+    assert "办讫自动回禀本对话" in result.content
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_without_caller_promises_no_report_back(setup):
+    """无发起会话（cron/CLI）时不编造路由，也不许诺回禀。"""
+    registry, storage, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(goal="x")
+    edict = storage.get_edict(result.details["edict_id"])
+    assert not (edict.metadata or {}).get("chat_id")
+    assert "Web 端查看" in result.content
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_from_chat_is_conversational(setup):
+    """人在渠道对话里让助手代颁 → 多轮敕令，过审后不自动结案。
+
+    回归（2026-08-04）：原先硬编码 conversation=False，敕令办成即 auto-close，
+    用户 /select 切过去再说话就被 edict_bridge 判为"已结案 → 自动新建"，
+    表现为「每次都是新 session、没法继续交互」。
+    """
+    registry, storage, _ = setup
+    _, func = registry._tools["submit_edict"]
+    caller = Edict(
+        title="飞书助手对话",
+        goal="持续对话上下文",
+        metadata={"channel": "feishu", "instance_id": "feishu-x", "chat_id": "oc_1"},
+    )
+    with bind_edict(caller):
+        result = await func(goal="介绍下你自己")
+    edict = storage.get_edict(result.details["edict_id"])
+    assert edict.runtime.conversation is True
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_without_chat_stays_one_shot(setup):
+    """无人在对话那头（cron / 自主 agent）→ 一次性闭环，办成即结案。"""
+    registry, storage, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(goal="每日巡检")
+    edict = storage.get_edict(result.details["edict_id"])
+    assert edict.runtime.conversation is False

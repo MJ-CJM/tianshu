@@ -105,6 +105,27 @@ def register_submit_edict(
                 ],
             )
 
+        # 发起会话上下文：既决定成果往哪回禀，也决定这道敕令是一次性还是多轮。
+        # 只取路由三件套：整份拷贝会带上 assistant_chat 标记，反被 /list 当聊天
+        # 敕令隐藏。
+        caller = get_current_edict()
+        routing: dict = {}
+        if caller and caller.metadata:
+            routing = {
+                k: caller.metadata[k]
+                for k in ("channel", "instance_id", "chat_id")
+                if caller.metadata.get(k)
+            }
+        # 渠道路由让各渠道 outbound 在 execution.completed 时按 metadata.chat_id
+        # 把成果投递回原对话（与 schedule_edict 的 deliver=origin 同口径）。缺了
+        # 这三件套，敕令会"人间蒸发"——办完无处回禀，/list 按 instance_id 也查不到。
+        #
+        # 意图来源决定生命周期（判据是"有没有人在对话那头"，不是"谁调用了 API"）：
+        # 人在渠道对话里让助手代颁 → 与 /new 同语义，敕令过审后保持 OPEN，
+        # /select 切过去可继续批示，结案权在人；无会话上下文（cron / 自主 agent）
+        # → 一次性闭环，办成即结案。见 EdictRuntime.conversation（2026-07-29 拍板）。
+        interactive = bool(routing.get("chat_id"))
+
         edict_title = title_from_goal(goal, title)
         edict_kwargs: dict = {
             "title": edict_title,
@@ -114,10 +135,10 @@ def register_submit_edict(
             "priority": priority,
             "execution_profile": execution_profile,
             "review_policy": review_policy,
-            # 机器自动化入口保持一次性闭环：办成即结案，不等人工「结案」
-            # （人下的敕令默认多轮，见 EdictRuntime.conversation）。
-            "runtime": EdictRuntime(conversation=False),
+            "runtime": EdictRuntime(conversation=interactive),
         }
+        if routing:
+            edict_kwargs["metadata"] = routing
         if output_format and output_format.strip():
             edict_kwargs["output_format"] = output_format.strip()
         if acceptance is not None:
@@ -127,7 +148,6 @@ def register_submit_edict(
         edict = Edict(**edict_kwargs)
         invocation_id = get_current_tool_invocation_id() or edict.id
         correlation_id = f"tool:{invocation_id}"
-        caller = get_current_edict()
         command = SubmitEdictCommand(
             edict=edict,
             idempotency_key=correlation_id,
@@ -166,8 +186,10 @@ def register_submit_edict(
             "checkpointed": "中等任务（带检查点）",
             "background": "长任务（后台）",
         }.get(execution_profile, execution_profile)
+        # 继承到 chat_id 才有回禀通道；否则如实告知需去 web/CLI 查看，不许诺空头追踪。
+        tail = "，办讫自动回禀本对话" if interactive else "，成果请在 Web 端查看"
         return ok_result(
-            f"已颁敕 #{persisted_edict.id[:8]}「{edict_title}」（{profile_hint}，立即执行）",
+            f"已颁敕 #{persisted_edict.id[:8]}「{edict_title}」（{profile_hint}，立即执行{tail}）",
             details={
                 "edict_id": persisted_edict.id,
                 "memorial_id": submission.memorial.id,
@@ -196,7 +218,10 @@ def register_submit_edict(
                 "直接传 assigned_persona_id；若用户未指定，**必须先调用 list_personas** "
                 "拿到当前 DB 实际官员名册，按各人 department/title 与任务匹配后再选定 "
                 "assigned_persona_id 颁敕；切勿凭空猜测某 persona 是否存在。"
-                "返回敕令短 ID 给用户做后续追踪。"
+                "**颁敕后的回话规矩**：本工具返回的短 ID 只作存档标识告知用户即可；"
+                "敕令办讫后成果由系统自动回禀本对话，**不要**反问"
+                "「需要我帮你查看结果吗」，也不要引导用户去轮询/追问进度——"
+                "如实说明已下发、稍候自动回禀即可。"
             ),
             parameters={
                 "type": "object",
