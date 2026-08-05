@@ -197,6 +197,13 @@ async def test_submit_tool_uses_one_tool_call_identity(storage) -> None:
 
 @pytest.mark.asyncio
 async def test_schedule_tool_submits_once_and_uses_durable_event_job_id(storage) -> None:
+    """schedule_edict 在 managed 上下文内只提交一次，且 job_id 取自 durable event。
+
+    2026-08-05：schedule_edict 补声明 PROVIDER_IDEMPOTENT 后，registry 会强制
+    要求 managed authority（声明语义 = 承诺副作用被 journal 追踪，无 authority
+    则 fail-secure 拒绝），故本测试改为与 test_submit_tool_uses_one_tool_call_identity
+    同规格搭 managed 上下文。生产中此工具只被 agent 调用，总在 managed run 内。
+    """
     registry = ToolRegistry()
     service = RecordingEdictService()
     scheduler = MagicMock()
@@ -207,20 +214,60 @@ async def test_schedule_tool_submits_once_and_uses_durable_event_job_id(storage)
         scheduler=scheduler,
         edict_application_service=service,
     )
-
-    result = await registry.execute(
-        "schedule_edict",
-        {"action": "create", "goal": "daily report", "schedule": "0 9 * * *"},
-        invocation_id="schedule-call-1",
+    root_edict = Edict(id="schedule-root-edict", goal="invoke schedule tool")
+    root_memorial = Memorial(
+        id="schedule-root-memorial",
+        edict_id=root_edict.id,
+        status=TaskStatus.RUNNING,
     )
+    storage.save_edict(root_edict)
+    storage.save_memorial(root_memorial)
+    now = datetime.now(UTC)
+    with storage.unit_of_work() as unit_of_work:
+        storage.attempt_repo.enqueue_initial(
+            unit_of_work.connection,
+            memorial_id=root_memorial.id,
+            available_at=now,
+        )
+        unit_of_work.commit()
+    claimed = storage.attempt_repo.claim(
+        memorial_id=root_memorial.id,
+        owner_id="schedule-test-worker",
+        now=now,
+        lease_seconds=60,
+    )
+    assert claimed is not None and claimed.owner_id is not None
+    authority = AttemptAuthority(
+        attempt_id=claimed.attempt_id,
+        memorial_id=claimed.memorial_id,
+        owner_id=claimed.owner_id,
+        fencing_token=claimed.fencing_token,
+    )
+    registry.set_managed_effect_executor(
+        ManagedToolEffectExecutor(storage, DecisionService(storage))
+    )
+
+    with bind_managed_attempt_authority(authority):
+        result = await registry.execute(
+            "schedule_edict",
+            {"action": "create", "goal": "daily report", "schedule": "0 9 * * *"},
+            invocation_id="schedule-call-1",
+        )
 
     assert result.is_error is False
     assert len(service.calls) == 1
     command, _auth, _producer, correlation_id = service.calls[0]
-    assert command.idempotency_key == "tool:schedule-call-1"
-    assert correlation_id == "tool:schedule-call-1"
+    durable = storage._conn.execute(  # noqa: SLF001
+        "SELECT provider_idempotency_key, status FROM side_effect_journal"
+    ).fetchone()
+    assert durable is not None and durable[1] == "receipted"
+    expected_identity = f"tool:{durable[0]}"
+    assert command.idempotency_key == expected_identity
+    assert correlation_id == expected_identity
     scheduler.schedule.assert_not_awaited()
-    assert result.details["job_id"].startswith("submitted-")
+    # managed 路径的 ToolResult 由 receipt 重建，只保留 content/is_error（details
+    # 丢失，submit_edict 同理），故 job_id 改从回执文案里断言。
+    assert "job=submitte" in result.content
 
 
 @pytest.mark.asyncio
