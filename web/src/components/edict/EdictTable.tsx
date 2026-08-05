@@ -336,6 +336,12 @@ export default function EdictTable({
           onChange: setSelectedRowKeys,
           getCheckboxProps: (record) => ({
             disabled: !deletableIds.has(record.id),
+            // a11y：每行的选择框必须有可读名称，否则屏幕阅读器只念"复选框"，
+            // 用户无从知道选的是哪一行（axe label 规则判 serious）。表头的全选
+            // 框由 antd 自带 aria-label，只有行内这个需要我们补。
+            "aria-label": t("comp.edictTable.selectRow", {
+              name: record.title || record.goal.slice(0, 20),
+            }),
           }),
         }}
         onRow={(record) => ({

@@ -1214,7 +1214,8 @@
       "toastRenamed": "已重命名",
       "toastRenameFailed": "重命名失败",
       "toastBatchDeleted": "已删除 {n} 条敕令",
-      "toastBatchDeleteFailed": "批量删除失败"
+      "toastBatchDeleteFailed": "批量删除失败",
+      "selectRow": "择此敕令：{name}"
     },
     "policyProfile": {
       "title": "工具权限策略（可选）",
@@ -1979,7 +1980,8 @@
       "source": "来源",
       "access": "权限",
       "confidence": "置信度",
-      "time": "时间"
+      "time": "时间",
+      "selectRow": "择此记忆：{name}"
     },
     "category": {
       "observation": "观察",

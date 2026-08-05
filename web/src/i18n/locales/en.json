@@ -1214,7 +1214,8 @@
       "toastRenamed": "Renamed",
       "toastRenameFailed": "Rename failed",
       "toastBatchDeleted": "{n} tasks deleted",
-      "toastBatchDeleteFailed": "Batch delete failed"
+      "toastBatchDeleteFailed": "Batch delete failed",
+      "selectRow": "Select edict: {name}"
     },
     "policyProfile": {
       "title": "Tool permission policy (optional)",
@@ -1979,7 +1980,8 @@
       "source": "Source",
       "access": "Access",
       "confidence": "Confidence",
-      "time": "Time"
+      "time": "Time",
+      "selectRow": "Select memory entry: {name}"
     },
     "category": {
       "observation": "Observation",

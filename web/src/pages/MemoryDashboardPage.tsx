@@ -311,6 +311,14 @@ function MemorySummaryTab({ persona }: { persona: string }) {
             rowSelection={{
               selectedRowKeys,
               onChange: setSelectedRowKeys,
+              // a11y：同 EdictTable，行内选择框需可读名称，否则屏幕阅读器只念
+              // "复选框"。记忆条目无标题，取正文首 20 字作辨识。
+              getCheckboxProps: (record) => ({
+                name: `memory-entry-${record.id}`,
+                "aria-label": t("memory.table.selectRow", {
+                  name: record.content.slice(0, 20),
+                }),
+              }),
             }}
             // 内容列 ellipsis 截断，长条目只能看到开头；展开行给全文与出处，
             // 点行内任意处即可展开（不必非得点左侧箭头）。
