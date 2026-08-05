@@ -43,6 +43,10 @@ def register_list_personas(
         if only_can_delegate:
             rows = [r for r in rows if r.get("can_delegate")]
 
+        # 部门中文名（departments 表）：只给 LLM 看 dept id 的话，它会自行猜译，
+        # 曾把 wenyuan（文渊阁）说成"翰林院"当面报给用户。这里直接给准名。
+        dept_names = {d["id"]: (d.get("name") or d["id"]) for d in storage.list_departments()}
+
         # 投影：只暴露给 LLM 决策需要的字段，避免 prompt 噪音。
         # role_path 一并返回 —— LLM 觉得 dept/title 不够判断时，
         # 可主动 read_file(role_path) 看 ROLE.md 详细职责。
@@ -51,6 +55,7 @@ def register_list_personas(
                 "id": r["id"],
                 "name": r["name"],
                 "department": r["department"],
+                "department_name": dept_names.get(r["department"], r["department"]),
                 "title": r.get("title"),
                 "llm_config_name": r.get("llm_config_name"),
                 "can_delegate": bool(r.get("can_delegate")),
@@ -74,7 +79,7 @@ def register_list_personas(
         # 文本摘要供 LLM 直接读，details 给程序化下游
         lines = [f"共 {len(items)} 位 persona（来自 DB personas 表）："]
         for it in items:
-            seg = f"- {it['id']} | dept={it['department']}"
+            seg = f"- {it['id']} | dept={it['department']}（{it['department_name']}）"
             if it.get("title"):
                 seg += f" | title={it['title']}"
             seg += f" | name={it['name']}"
@@ -103,6 +108,8 @@ def register_list_personas(
                 "用 read_file(role_path) 查看 ROLE.md 详细职责。"
                 "**严禁去翻 personas/ 代码目录或凭训练知识猜测**，"
                 "那是部门模板而非运行实例。"
+                "向用户复述部门时一律以返回的 department_name 为准，"
+                "**不要自行翻译 dept id**（wenyuan 是文渊阁，不是翰林院）。"
             ),
             parameters={
                 "type": "object",

@@ -146,3 +146,17 @@ async def test_list_personas_description_guides_submit_edict_chain(registry_with
     assert "submit_edict" in defn.description
     assert "未指定" in defn.description
     assert "role_path" in defn.description  # 提示 LLM 用 read_file 看细节
+
+
+@pytest.mark.asyncio
+async def test_list_personas_exposes_department_chinese_name(registry_with_personas):
+    """名册须给出部门中文名，别让 LLM 自行猜译 dept id。
+
+    回归（2026-08-04）：只给 wenyuan 这种 id 时，助手当面把文渊阁说成"翰林院"。
+    """
+    r, _ = registry_with_personas
+    result = await r.execute("list_personas", {"department": "wenyuan"})
+    assert all(
+        p["department_name"] == "文渊阁 (Grand Secretariat)" for p in result.details["personas"]
+    )
+    assert "文渊阁" in result.content
