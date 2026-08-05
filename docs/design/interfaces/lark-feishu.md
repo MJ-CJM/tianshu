@@ -53,7 +53,7 @@ continue_or_create(chat_id, sender, text)
 | `execution.completed` / `execution.failed` | `FeishuOutbound`（`outbound.py`） | 渲染结果 → `_lookup_chat_id` → 发 post / 切换 typing 气泡 |
 | `tool.approval_required` | `ApprovalCardHandler`（`approval_card.py`） | 找 chat → 下审批卡片 → 落 `feishu_pending_cards` |
 
-**审批往返**（与工具治理 [../tools/policy.md] 衔接）：PolicyHook 判定某 tool-call 需人工审批时 `fire("tool.approval_required")` → `ApprovalCardHandler._on_approval_required` 下发卡片（v2 极简模型用纯 markdown，因飞书 ws 不支持卡片回调）→ 用户回 `/approve` `/reject`（或中文 `/准` `/驳`，`/准敕`=本敕令、`/准永`=总是）→ `ApprovalCommandHandler.handle` 解析后调 `ApprovalManager.submit_tool_decision` unblock 执行。
+**审批往返**（与工具治理 [../tools/policy.md] 衔接）：PolicyHook 判定某 tool-call 需人工审批时 `fire("tool.approval_required")` → `ApprovalCardHandler._on_approval_required` 下发卡片（v2 极简模型用纯 markdown，历史原因见下）→ 用户回 `/approve` `/reject`（或中文 `/准` `/驳`，`/准敕`=本敕令、`/准永`=总是）→ `ApprovalCommandHandler.handle` 解析后调 `ApprovalManager.submit_tool_decision` unblock 执行。
 
 关键设计：
 
@@ -62,6 +62,7 @@ continue_or_create(chat_id, sender, text)
 - **跨通道幂等**：同一审批可能被 web 端先响应，`submit_tool_decision` 抛 `ValueError` 时回「已被其他通道响应」而非报错。
 - **scope 降级透明**：用户请求 `/准永`（always）但命中安全降级（如 shell_exec 不可永久放行）时，回复显式提示「因安全策略降级」，避免用户误以为永久放行。
 - **多 pending 消歧**：一个 chat 有多个待审批时，要求用户带 memorial_id 短前缀（≥6 字符），`_list_pending_for_chat` 从 `feishu_pending_cards` 反查。
+- **卡片按钮可用性（2026-08-05 更新）**：早期结论「飞书 ws 不支持卡片回调」**已过时**，当时实为两处叠加——lark-oapi 1.5.5 的 ws.Client 不分派 CARD 帧（`connection.py` 已 monkey patch 修复），以及开放平台未订阅回调。二者补齐后按钮实测可用（`/list`、`/menu` 已启用）。**前提是平台侧配置**：开放平台 →「事件与回调」→「回调配置」→ 订阅方式选**长连接** + 订阅 `card.action.trigger`，且**发布版本**方生效；未配置时点击会弹「该应用尚未配置卡片回调」。故所有带按钮的卡片**必须同时给出等效文本命令**，平台没配也能操作。审批卡片仍走纯 markdown + `/approve` 文本命令，未改。
 
 ## 4. lark_cli 工具的安全模型
 
