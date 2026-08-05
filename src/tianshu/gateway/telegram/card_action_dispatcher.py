@@ -26,6 +26,7 @@ _CMD_TEXT = {
     "clear": "/clear",
     "help": "/help",
     "menu": "/menu",
+    "exit": "/exit",
 }
 
 

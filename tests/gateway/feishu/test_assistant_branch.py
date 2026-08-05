@@ -396,3 +396,79 @@ def test_set_renderer_replaces_renderer():
     new_r = _renderer()
     b.set_renderer(new_r)
     assert b._renderer is new_r
+
+
+@pytest.mark.asyncio
+async def test_select_accepts_hash_prefixed_id(branch):
+    """回执/卡片里 ID 一律以 `#01KZ567C` 展示，用户照抄带 # 也要能切。
+
+    回归（2026-08-04）：不剥 # 则前缀匹配永不命中，错误提示还会拼成 `##01KZ567C`
+    ——助手等于亲手教用户输一个必错的格式。
+    """
+    b, storage, anchor, _outbound, _, _ = branch
+    e = MagicMock()
+    e.id = "01KZ567C0Q04GHPR"
+    e.title = "司马光自我介绍"
+    e.status = "open"
+    storage.list_edicts.return_value = ([e], 1)
+    await b.handle(_msg("/select #01KZ567C"), _ctx())
+    anchor.set.assert_called_once_with("oc_x", "01KZ567C0Q04GHPR")
+
+
+@pytest.mark.asyncio
+async def test_select_is_case_insensitive(branch):
+    """ULID 展示为大写，用户手敲小写照样切得动。"""
+    b, storage, anchor, _outbound, _, _ = branch
+    e = MagicMock()
+    e.id = "01KZ567C0Q04GHPR"
+    e.title = "司马光自我介绍"
+    e.status = "open"
+    storage.list_edicts.return_value = ([e], 1)
+    await b.handle(_msg("/select 01kz567c"), _ctx())
+    anchor.set.assert_called_once_with("oc_x", "01KZ567C0Q04GHPR")
+
+
+@pytest.mark.asyncio
+async def test_list_empty_hints_other_statuses(branch):
+    """/list 默认只看 open；空结果时如实报出其他状态还有多少道。
+
+    回归（2026-08-04）：敕令办完即结案，`/list` 只说"暂无敕令"，用户以为敕令丢了。
+    """
+    b, storage, _anchor, outbound, _, _ = branch
+    # 第一次查 open → 空；第二次查全部 → 3 道
+    storage.list_edicts.side_effect = [([], 0), ([], 3)]
+    await b.handle(_msg("/list"), _ctx())
+    text = outbound.send_text.await_args.args[1]
+    assert "另有 3 道其他状态的" in text
+    assert "/list all" in text
+
+
+@pytest.mark.asyncio
+async def test_list_all_empty_says_no_edicts(branch):
+    """已经是 /list all 还空 → 确实一道都没有，不再多此一举地引导。"""
+    b, storage, _anchor, outbound, _, _ = branch
+    storage.list_edicts.return_value = ([], 0)
+    await b.handle(_msg("/list all"), _ctx())
+    text = outbound.send_text.await_args.args[1]
+    assert "暂无敕令" in text
+    assert "/list all" not in text
+
+
+@pytest.mark.asyncio
+async def test_menu_card_is_mode_aware(branch):
+    """敕令模式下 /menu 要把 edict_id 传下去，才能渲染带 /exit 出口的菜单。
+
+    回归（2026-08-04）：敕令模式的 /menu 委托到 AssistantBranch 的同一实现，
+    此前一律渲染助手命令表——里面没有 /exit，用户被业务敕令接管后找不到出口。
+    """
+    b, _storage, _anchor, _outbound, cb, _bridge = branch
+
+    await b.handle(_msg("/menu"), _ctx())
+    cb.build_menu_card.assert_called_once_with(edict_id=None)
+
+    cb.build_menu_card.reset_mock()
+    edict_ctx = ModeContext(
+        mode="edict", chat_id="oc_x", sender_open_id="ou_a", edict_id="ed_biz_1234"
+    )
+    await b.handle(_msg("/menu"), edict_ctx)
+    cb.build_menu_card.assert_called_once_with(edict_id="ed_biz_1234")
