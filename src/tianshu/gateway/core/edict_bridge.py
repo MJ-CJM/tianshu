@@ -209,8 +209,9 @@ class EdictBridge:
                 **不**强制更新 persona（保留旧敕令建立时的 persona，保证对话一致性）。
 
         优先级：
-        1. anchor 已存在 → 直接返回（无论是 chat 还是业务敕令）
-        2. anchor 不存在 + 该 chat_id 有 open 状态的 chat 敕令 → 复用 + 设 anchor
+        1. anchor 已存在**且敕令未结案** → 直接返回（无论是 chat 还是业务敕令）
+        2. 否则（无 anchor / anchor 已死）+ 该 chat_id 有 open 状态的 chat 敕令
+           → 复用 + 设 anchor
         3. 都不存在 → 新建一个 chat 敕令并设 anchor
 
         **不**创建 SUBMITTED memorial（避免 has_active=True 让 follow_up 抛 EdictBusyError）；
@@ -218,7 +219,22 @@ class EdictBridge:
         """
         existing = self._anchor.get(chat_id)
         if existing:
-            return existing
+            anchored = self._storage.get_edict(existing)
+            if anchored and anchored.status not in CLOSED_STATES:
+                return existing
+            # anchor 指向已结案/已删除的敕令 → 视同无 anchor 重新解析。
+            # 不清的话本函数名不副实：聊天敕令一旦结案（web 端取消、/clear 等），
+            # 后续纯文本会被 continue_or_create 的「已结案 → 自动新建」接走，
+            # 而那条路建的是**业务敕令**——丢掉 assistant_chat 标记与助手 persona，
+            # 改由派官决定承办官员，表现为"通政司配的是王阳明，答话的是七宝"。
+            # 且死 anchor 不会自愈，一旦踩进去每轮对话都新开一道业务敕令。
+            logger.info(
+                "[%s/edict] anchor %s is closed/missing (status=%s), re-resolving chat edict",
+                self._channel,
+                existing,
+                anchored.status if anchored else "missing",
+            )
+            self._anchor.delete(chat_id)
 
         # 查找该 chat_id 是否有可复用的 open chat 敕令
         # 注意：list_edicts 不带 metadata 过滤，需 Python 端遍历筛
