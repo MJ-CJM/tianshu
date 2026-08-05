@@ -162,3 +162,41 @@ async def test_create_new_enqueues_edict_submitted_event(bridge, storage):
     assert row["status"] == "pending"
     assert '"chat_id":"oc_z"' in row["payload_json"]
     assert received == []
+
+
+@pytest.mark.asyncio
+async def test_ensure_chat_edict_replaces_closed_anchor(bridge, storage):
+    """anchor 指向的聊天敕令被结案后，应重开一个聊天敕令，而不是沿用死 anchor。
+
+    回归（2026-08-04）：死 anchor 不自愈时，后续纯文本会被 continue_or_create 的
+    「已结案 → 自动新建」接走，那条路建的是业务敕令——丢掉 assistant_chat 与助手
+    persona，改由派官定承办官员，表现为「通政司配的是王阳明，答话的却是七宝」。
+    """
+    from tianshu.models.common import EdictStatus
+
+    b, _, anchor = bridge
+    dead = await b.ensure_chat_edict(
+        chat_id="oc_x", sender_open_id="ou_a", assistant_persona_id="wym"
+    )
+    storage.update_edict_status(dead, EdictStatus.CANCELLED.value)
+
+    fresh = await b.ensure_chat_edict(
+        chat_id="oc_x", sender_open_id="ou_a", assistant_persona_id="wym"
+    )
+    assert fresh != dead
+    assert anchor.get("oc_x") == fresh
+    edict = storage.get_edict(fresh)
+    # 必须仍是「聊天敕令 + 助手 persona」，否则助手人格配置形同虚设
+    assert edict.metadata["assistant_chat"] is True
+    assert edict.assigned_persona_id == "wym"
+    assert edict.status == EdictStatus.OPEN
+
+
+@pytest.mark.asyncio
+async def test_ensure_chat_edict_keeps_live_anchor(bridge, storage):
+    """anchor 敕令还活着就不动它——包括用户 /select 切过去的业务敕令。"""
+    b, _, anchor = bridge
+    live = await b.ensure_chat_edict(chat_id="oc_y", sender_open_id="ou_a")
+    again = await b.ensure_chat_edict(chat_id="oc_y", sender_open_id="ou_a")
+    assert again == live
+    assert anchor.get("oc_y") == live

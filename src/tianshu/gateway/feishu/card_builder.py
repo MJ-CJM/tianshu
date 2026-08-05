@@ -2,7 +2,7 @@
 
 按钮 value 协议（统一）：
 {
-  "command": "select" | "list" | "budget" | "help" | "new" | "cancel",
+  "command": "select" | "list" | "budget" | "help" | "new" | "cancel" | "exit" | "clear",
   "edict_id"?: str,
   "goal"?: str,
   "filter"?: str,
@@ -44,20 +44,75 @@ class CardBuilder:
         edicts: list[Edict],
         current_anchor: str | None = None,
     ) -> dict:
-        """每条敕令一行 markdown，含可复制的短 ID。
+        """每条敕令一行，右侧「切换」按钮直接切 anchor，免去手抄 ULID。
 
-        注意：v2 不用 callback button —— 飞书 ws 不支持卡片回调（仅 HTTPS webhook 支持）。
-        让用户手敲 `/select <短 ID>` 切换。
+        按钮 value 走 CardActionDispatcher 的通用协议（``{"command": "select"}``），
+        点击等价于输入 `/select <完整 ID>`。
+
+        ⚠️ 按钮可用有个**平台侧前提**：飞书开放平台须为该应用开启「卡片回调」
+        （未开启时点按钮，飞书会弹「该应用尚未配置卡片回调」并引导一键配置）。
+        接收侧已就绪——lark-oapi 1.5.5 不分派 CARD 帧的 bug 由 connection.py 的
+        monkey patch 修掉了，但那只解决"收得到"，不解决"飞书愿不愿意推"。
+        故底部**始终**保留文本命令提示作为退路，勿删。
         """
-        rows: list[str] = []
+        elements: list[dict] = []
         for e in edicts:
-            star = "★ " if e.id == current_anchor else ""
+            is_current = e.id == current_anchor
+            star = "★ " if is_current else ""
             title_short = (e.title or "(无标题)")[:30]
-            status_label = format_status_label(e.status)
-            short_id = e.id[:8]
-            rows.append(f"{star}**#{short_id}** · {status_label} · {title_short}")
-        body = "\n\n".join(rows)
-        hint = "\n\n---\n💡 复制短 ID 后输入 `/select <ID>` 切换敕令"
+            row: dict = {
+                "tag": "div",
+                "text": {
+                    "tag": "lark_md",
+                    "content": (
+                        f"{star}**#{e.id[:8]}** · {format_status_label(e.status)} · {title_short}"
+                    ),
+                },
+            }
+            # 当前 anchor 那条不给按钮——点了是空操作，徒增误触
+            if not is_current:
+                row["extra"] = {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "切换"},
+                    "type": "primary",
+                    "value": {"command": "select", "edict_id": e.id},
+                }
+            elements.append(row)
+
+        elements.append({"tag": "hr"})
+        elements.append(
+            {
+                "tag": "action",
+                # 筛选按钮：/list 默认只看 open，已结案的一概不显示。给「全部」
+                # 一个入口，免得用户以为敕令丢了。
+                "actions": [
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "🔄 进行中"},
+                        "type": "default",
+                        "value": {"command": "list", "filter": "open"},
+                    },
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "📚 全部"},
+                        "type": "default",
+                        "value": {"command": "list", "filter": "all"},
+                    },
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "💰 成本"},
+                        "type": "default",
+                        "value": {"command": "budget"},
+                    },
+                ],
+            },
+        )
+        elements.append(
+            {
+                "tag": "note",
+                "elements": [{"tag": "plain_text", "content": "也可输入 /select <ID>"}],
+            },
+        )
 
         return {
             "config": {"wide_screen_mode": True},
@@ -68,14 +123,26 @@ class CardBuilder:
                     "content": f"📋 最近敕令（{len(edicts)} 条）",
                 },
             },
-            "elements": [
-                {"tag": "markdown", "content": body + hint},
-            ],
+            "elements": elements,
         }
 
     # --- /menu 卡片 ---
 
-    def build_menu_card(self) -> dict:
+    def build_menu_card(self, *, edict_id: str | None = None) -> dict:
+        """主菜单。``edict_id`` 非空表示当前在敕令模式，给敕令模式的命令表。
+
+        敕令模式下 `/menu` 也走同一个实现（edict_branch 委托），此前一律渲染
+        助手命令表——用户被业务敕令接管后翻菜单，找不到 `/exit` 出口。
+
+        命令表用文字列全，不依赖按钮：按钮需飞书开放平台开启「卡片回调」才生效
+        （详见 build_list_card 的说明），没开也得让用户看得到 `/exit` 怎么打。
+        """
+        if edict_id:
+            return self._build_edict_menu(edict_id)
+        return self._build_assistant_menu()
+
+    @staticmethod
+    def _build_assistant_menu() -> dict:
         return {
             "config": {"wide_screen_mode": True},
             "header": {
@@ -95,6 +162,78 @@ class CardBuilder:
                         "❓ `/help` 完整帮助\n\n"
                         "_直接输入命令即可。纯文本会进入助手对话。_"
                     ),
+                },
+                {"tag": "hr"},
+                {
+                    "tag": "action",
+                    "actions": [
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "📋 敕令列表"},
+                            "type": "primary",
+                            "value": {"command": "list", "filter": "open"},
+                        },
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "💰 成本"},
+                            "type": "default",
+                            "value": {"command": "budget"},
+                        },
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "🧹 新会话"},
+                            "type": "default",
+                            "value": {"command": "clear"},
+                        },
+                    ],
+                },
+            ],
+        }
+
+    @staticmethod
+    def _build_edict_menu(edict_id: str) -> dict:
+        return {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "template": "blue",
+                "title": {"tag": "plain_text", "content": f"📜 敕令模式 #{edict_id[:8]}"},
+            },
+            "elements": [
+                {
+                    "tag": "markdown",
+                    "content": (
+                        "**当前在敕令模式**，纯文本会续接本敕令：\n\n"
+                        "📊 `/status` 查看状态\n"
+                        "🛑 `/cancel` 取消本敕令\n"
+                        "🚪 `/exit` 退出，回到助手对话\n"
+                        "✏️ `/new <目标>` 自动退出 + 新建\n"
+                        "📋 `/list` `/budget` 查询（不切换）\n\n"
+                        "_想回到助手（按通政司配置的人格答话），点下方「退出敕令」。_"
+                    ),
+                },
+                {"tag": "hr"},
+                {
+                    "tag": "action",
+                    "actions": [
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "🚪 退出敕令"},
+                            "type": "primary",
+                            "value": {"command": "exit"},
+                        },
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "📊 状态"},
+                            "type": "default",
+                            "value": {"command": "status", "edict_id": edict_id},
+                        },
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "📋 敕令列表"},
+                            "type": "default",
+                            "value": {"command": "list", "filter": "open"},
+                        },
+                    ],
                 },
             ],
         }

@@ -2,7 +2,8 @@
 
 按钮 value 协议（v1.1）：
 {
-  "command": "select" | "list" | "budget" | "help" | "new" | "cancel",
+  "command": "select" | "list" | "budget" | "help" | "new" | "cancel"
+             | "status" | "exit" | "clear",
   "edict_id"?: str,
   "goal"?: str,
   "filter"?: str,
@@ -71,6 +72,13 @@ class CardActionDispatcher:
         if command == "cancel":
             eid = value.get("edict_id") or ""
             return f"/cancel {eid}".strip() if eid else "/cancel"
+        if command == "status":
+            eid = value.get("edict_id") or ""
+            return f"/status {eid}".strip() if eid else "/status"
+        if command == "exit":
+            return "/exit"
+        if command == "clear":
+            return "/clear"
         return None
 
 

@@ -64,7 +64,37 @@ class TelegramCardBuilder:
 
     # --- /menu ---
 
-    def build_menu_card(self) -> TelegramCard:
+    def build_menu_card(self, *, edict_id: str | None = None) -> TelegramCard:
+        """主菜单。``edict_id`` 非空表示当前在敕令模式，给敕令模式的命令表。
+
+        敕令模式下 /menu 也走同一个实现（edict_branch 委托），此前一律渲染助手
+        命令表——用户被业务敕令接管后翻菜单，找不到 `/exit` 出口。
+        """
+        if edict_id:
+            text = (
+                f"📜 **敕令模式 #{edict_id[:8]}**\n\n"
+                "当前纯文本会续接本敕令：\n"
+                "📊 `/status` 查看状态\n"
+                "🛑 `/cancel` 取消本敕令\n"
+                "🚪 `/exit` 退出，回到助手对话\n"
+                "✏️ `/new <目标>` 自动退出 + 新建\n"
+                "📋 `/list` `/budget` 查询（不切换）\n\n"
+                "_想回到助手（按配置的人格答话），点下方「退出敕令」。_"
+            )
+            kb = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton("🚪 退出敕令", callback_data="cmd:exit"),
+                        InlineKeyboardButton("📋 列表", callback_data="cmd:list"),
+                    ],
+                    [
+                        InlineKeyboardButton("💰 预算", callback_data="cmd:budget"),
+                        InlineKeyboardButton("❓ 帮助", callback_data="cmd:help"),
+                    ],
+                ]
+            )
+            return text, kb
+
         text = (
             "🏛️ **主菜单**\n\n"
             "**助手模式可用命令**：\n"

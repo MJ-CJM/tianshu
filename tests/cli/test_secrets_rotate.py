@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -178,11 +179,24 @@ def _invoke_rotation(storage: Storage, monkeypatch: pytest.MonkeyPatch, old: str
     )
 
 
+_ANSI_SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """剥掉 ANSI 样式码后再断言（同 tests/cli/test_workspace_commands.py）。
+
+    Rich 是否上色取决于环境（本地 pytest 无色，FORCE_COLOR 下启用）。对本文件
+    尤其要紧：gen-key 的输出会被直接当作 Fernet 密钥解析，带样式码即
+    ValueError；而 "N 条密文" 之类的审计断言被切碎后会静默假通过。
+    """
+    return _ANSI_SGR_RE.sub("", text)
+
+
 class TestRotate:
     def test_gen_key_outputs_valid_fernet(self) -> None:
         result = CliRunner().invoke(app, ["gen-key"])
         assert result.exit_code == 0
-        Fernet(result.output.strip().encode())
+        Fernet(_plain(result.output).strip().encode())
 
     def test_rotate_reencrypts_every_non_null_family_and_appends_one_redacted_audit(
         self,
@@ -213,11 +227,11 @@ class TestRotate:
         assert audits[0].action == "secrets.master_key.rotated"
         assert audits[0].outcome == "succeeded"
         assert audits[0].metadata == {}
-        assert "secret_rotation_backup_created" in result.output
-        assert "secret_rotation_succeeded" in result.output
-        assert "5 条密文" in result.output
+        assert "secret_rotation_backup_created" in _plain(result.output)
+        assert "secret_rotation_succeeded" in _plain(result.output)
+        assert "5 条密文" in _plain(result.output)
         for plaintext in plaintexts.values():
-            assert plaintext.decode() not in result.output
+            assert plaintext.decode() not in _plain(result.output)
             assert plaintext.decode() not in str(_audit_rows(storage))
 
     def test_wrong_old_key_fails_before_backup_and_leaves_all_persistent_state_unchanged(
@@ -247,9 +261,9 @@ class TestRotate:
             _ledger(storage),
             _audit_rows(storage),
         ) == before
-        assert "secret_rotation_validation_failed" in result.output
-        assert "轮换完成" not in result.output
-        assert "secret_rotation_succeeded" not in result.output
+        assert "secret_rotation_validation_failed" in _plain(result.output)
+        assert "轮换完成" not in _plain(result.output)
+        assert "secret_rotation_succeeded" not in _plain(result.output)
 
     def test_null_business_primary_key_ciphertext_is_not_silently_skipped(
         self,
@@ -319,8 +333,8 @@ class TestRotate:
                 assert after[family] == ciphertext
         assert _ledger(storage) == ledger_before
         assert _audit_rows(storage) == ()
-        assert "secret_rotation_concurrent_change" in result.output
-        assert "secret_rotation_succeeded" not in result.output
+        assert "secret_rotation_concurrent_change" in _plain(result.output)
+        assert "secret_rotation_succeeded" not in _plain(result.output)
         with closing(sqlite3.connect(backup_path)) as backup:
             backed_up_headers = backup.execute(
                 """
@@ -410,9 +424,9 @@ class TestRotate:
             Fernet(new.encode()).decrypt(added_row[0])
         assert _ledger(storage) == ledger_before
         assert _audit_rows(storage) == ()
-        assert "secret_rotation_concurrent_change" in result.output
-        assert "secret_rotation_succeeded" not in result.output
-        assert "added-after-backup" not in result.output
+        assert "secret_rotation_concurrent_change" in _plain(result.output)
+        assert "secret_rotation_succeeded" not in _plain(result.output)
+        assert "added-after-backup" not in _plain(result.output)
 
     def test_same_decoded_key_is_rejected_before_storage_or_backup(
         self,
@@ -448,8 +462,8 @@ class TestRotate:
             _ledger(storage),
             _audit_rows(storage),
         ) == before
-        assert "secret_rotation_same_key" in result.output
-        assert "secret_rotation_succeeded" not in result.output
+        assert "secret_rotation_same_key" in _plain(result.output)
+        assert "secret_rotation_succeeded" not in _plain(result.output)
 
     def test_corrupt_late_family_fails_before_backup_without_partial_network_write(
         self,
@@ -485,9 +499,9 @@ class TestRotate:
             _ledger(storage),
             _audit_rows(storage),
         ) == before
-        assert "secret_rotation_validation_failed" in result.output
-        assert "轮换完成" not in result.output
-        assert "secret_rotation_succeeded" not in result.output
+        assert "secret_rotation_validation_failed" in _plain(result.output)
+        assert "轮换完成" not in _plain(result.output)
+        assert "secret_rotation_succeeded" not in _plain(result.output)
 
     def test_audit_failure_rolls_back_every_ciphertext_and_retains_pre_rotation_backup(
         self,
@@ -516,9 +530,9 @@ class TestRotate:
             _ledger(storage),
             _audit_rows(storage),
         ) == before
-        assert "secret_rotation_commit_failed" in result.output
-        assert "轮换完成" not in result.output
-        assert "secret_rotation_succeeded" not in result.output
+        assert "secret_rotation_commit_failed" in _plain(result.output)
+        assert "轮换完成" not in _plain(result.output)
+        assert "secret_rotation_succeeded" not in _plain(result.output)
 
     def test_zero_family_is_no_op_without_backup_audit_or_updated_rows_claim(
         self,
@@ -537,7 +551,7 @@ class TestRotate:
 
         assert result.exit_code == 0, result.output
         assert _audit_rows(storage) == ()
-        assert "secret_rotation_noop" in result.output
-        assert "轮换完成" not in result.output
-        assert "条凭证已" not in result.output
-        assert "secret_rotation_succeeded" not in result.output
+        assert "secret_rotation_noop" in _plain(result.output)
+        assert "轮换完成" not in _plain(result.output)
+        assert "条凭证已" not in _plain(result.output)
+        assert "secret_rotation_succeeded" not in _plain(result.output)

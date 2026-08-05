@@ -14,55 +14,90 @@ class _E:
         self.id, self.title, self.status = id, title, status
 
 
+def _button_commands(card: dict) -> list[str]:
+    """卡片 action 区所有按钮的 command。"""
+    return [
+        btn["value"]["command"]
+        for el in card["elements"]
+        if el.get("tag") == "action"
+        for btn in el["actions"]
+    ]
+
+
 def test_menu_card():
-    """v2: /menu 卡片不再含 callback button（飞书 ws 不支持卡片回调）；改为命令列表 markdown。"""
+    """助手模式菜单：命令清单 + 快捷按钮。"""
     cb = CardBuilder(storage=MagicMock(), cost_manager=None)
     card = cb.build_menu_card()
     assert card["header"]["template"] == "purple"
-    # 不应有 action 元素（callback button）
-    has_action = any(el.get("tag") == "action" for el in card["elements"])
-    assert not has_action
-    # markdown 内含命令清单
     md = card["elements"][0]["content"]
     for cmd in ("/list", "/new", "/select", "/budget", "/clear", "/help"):
         assert cmd in md
+    assert set(_button_commands(card)) == {"list", "budget", "clear"}
+
+
+def test_menu_card_in_edict_mode_offers_exit():
+    """敕令模式菜单必须给出 /exit 出口——助手命令表里没有它，用户会困在敕令里。
+
+    回归（2026-08-04）：敕令模式下 /menu 委托给同一实现，此前一律渲染助手命令表。
+    """
+    cb = CardBuilder(storage=MagicMock(), cost_manager=None)
+    card = cb.build_menu_card(edict_id="01KZ5XFDFF5MVPBR")
+    assert "01KZ5XFD" in card["header"]["title"]["content"]
+    md = card["elements"][0]["content"]
+    assert "/exit" in md
+    assert "/status" in md
+    commands = _button_commands(card)
+    assert "exit" in commands  # 「退出敕令」按钮
+    assert "clear" not in commands  # /clear 只在助手模式有意义
+
+
+def _rows(card: dict) -> list[dict]:
+    """卡片里的敕令行（div 元素）。"""
+    return [el for el in card["elements"] if el.get("tag") == "div"]
 
 
 def test_list_card_marks_anchor_with_star():
-    """v2: /list 不再含 button，所有敕令在单 markdown 块内。当前 anchor 加 ★ 标记。"""
+    """当前 anchor 行加 ★ 标记，且只有它带 ★。"""
     cb = CardBuilder(storage=MagicMock(), cost_manager=None)
     edicts = [_E("ed_a", "写代码", "open"), _E("ed_b", "总结", "open")]
     card = cb.build_list_card(edicts, current_anchor="ed_a")
-    has_action = any(el.get("tag") == "action" for el in card["elements"])
-    assert not has_action
-    md = card["elements"][0]["content"]
-    assert "★" in md
-    assert "/select" in md
-    # ed_b 不应有 ★ —— 验证仅 anchor 行带 ★
-    lines = md.split("\n")
-    star_lines = [line for line in lines if "★" in line]
-    assert len(star_lines) == 1
+    starred = [r for r in _rows(card) if "★" in r["text"]["content"]]
+    assert len(starred) == 1
+    assert "ed_a"[:8] in starred[0]["text"]["content"]
+
+
+def test_list_card_switch_button_carries_full_id():
+    """非 anchor 行带「切换」按钮，value 走 CardActionDispatcher 的 select 协议。
+
+    edict_id 必须是完整 ID：合成的 `/select <id>` 要过 _cmd_select 的 ≥6 字符校验，
+    且完整 ID 才能保证唯一匹配。
+    """
+    cb = CardBuilder(storage=MagicMock(), cost_manager=None)
+    edicts = [_E("ed_anchor_1234", "写代码", "open"), _E("ed_other_5678", "总结", "open")]
+    card = cb.build_list_card(edicts, current_anchor="ed_anchor_1234")
+    buttons = [r["extra"] for r in _rows(card) if "extra" in r]
+    # anchor 那行不给按钮（点了是空操作）
+    assert len(buttons) == 1
+    assert buttons[0]["value"] == {"command": "select", "edict_id": "ed_other_5678"}
 
 
 def test_list_card_truncates_long_title():
     cb = CardBuilder(storage=MagicMock(), cost_manager=None)
-    long_title = "x" * 100
-    edicts = [_E("ed_a", long_title, "open")]
+    edicts = [_E("ed_a", "x" * 100, "open")]
     card = cb.build_list_card(edicts)
-    # Title 截到 30 字符内
-    md = card["elements"][0]["content"]
-    # 单个敕令的 title 部分应 ≤ 30 字符
-    assert "x" * 31 not in md
+    assert "x" * 31 not in _rows(card)[0]["text"]["content"]
 
 
-def test_list_card_contains_select_hint():
-    """v2: /list 提示用户用 /select <ID> 切换。"""
+def test_list_card_has_footer_actions_and_text_fallback():
+    """底部快捷按钮 + 文本命令退路（按钮失灵时仍可操作）。"""
     cb = CardBuilder(storage=MagicMock(), cost_manager=None)
-    edicts = [_E("ed_a", "x", "open")]
-    card = cb.build_list_card(edicts)
-    md = card["elements"][0]["content"]
-    assert "/select" in md
-    assert "复制" in md or "短 ID" in md
+    card = cb.build_list_card([_E("ed_a", "x", "open")])
+    actions = [el for el in card["elements"] if el.get("tag") == "action"]
+    assert len(actions) == 1
+    commands = {btn["value"]["command"] for btn in actions[0]["actions"]}
+    assert commands == {"list", "budget"}
+    notes = [el for el in card["elements"] if el.get("tag") == "note"]
+    assert "/select" in notes[0]["elements"][0]["content"]
 
 
 @pytest.mark.asyncio

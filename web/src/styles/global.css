@@ -68,6 +68,16 @@ body {
   letter-spacing: 0.14em;
 }
 
+/* a11y:antd Table 的列宽测量行标了 aria-hidden="true"，但行内的
+   .ant-checkbox-input 仍可聚焦——键盘用户会 Tab 到一个看不见的复选框，
+   axe 报 aria-hidden-focus(critical) 与 label(serious)。tr 上的 tabindex="-1"
+   不会继承给后代，故在此显式失焦。
+   用 visibility 而非 display:none：后者会让元素脱离布局，antd 正是靠这一行
+   量列宽；visibility:hidden 保留盒模型（测量照常），同时使后代不可聚焦。 */
+.ant-table-measure-row {
+  visibility: hidden;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

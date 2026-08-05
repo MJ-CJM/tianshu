@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 import httpx
 import pytest
@@ -12,6 +13,25 @@ from typer.testing import CliRunner
 from tianshu.cli.main import app
 
 runner = CliRunner()
+
+_ANSI_SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """剥掉 ANSI 样式码后再断言。
+
+    Rich 是否给输出上色取决于运行环境（本地 pytest 无色，CI 上 FORCE_COLOR
+    使其启用），且上色时会把 ``--token-stdin`` 拆成 ``-``/``-token``/``-stdin``
+    三段分别包样式码，原始字节里选项名被切开。后果有两面：
+    - ``X in output`` 假失败（CI 上 --help 断言即因此挂）；
+    - ``_TOKEN not in output`` 这类安全断言**假通过**——token 被样式码切碎后
+      子串匹配不到，泄漏也测不出来，比前者更危险。
+    环境变量压不住（NO_COLOR 敌不过 FORCE_COLOR，且 Console 会缓存），故一律
+    在断言前归一。
+    """
+    return _ANSI_SGR_RE.sub("", text)
+
+
 _BASE = "https://tianshu.example.com"
 _TOKEN = "A9fK7zQ4mV2pL8xR6cN3wH5jD1sB0yUe"
 
@@ -91,7 +111,7 @@ def test_workspace_read_commands_render_stable_tables(
     result = runner.invoke(app, command)
 
     assert result.exit_code == 0, result.output
-    assert expected in result.output
+    assert expected in _plain(result.output)
 
 
 @pytest.mark.parametrize(
@@ -132,11 +152,11 @@ def test_apply_help_has_no_raw_token_argument_or_option() -> None:
     )
 
     assert result.exit_code == 0, result.output
-    assert "--token-stdin" in result.output
-    assert "--token " not in result.output
-    assert "TOKEN" not in result.output.replace("--token-stdin", "")
+    assert "--token-stdin" in _plain(result.output)
+    assert "--token " not in _plain(result.output)
+    assert "TOKEN" not in _plain(result.output).replace("--token-stdin", "")
     assert rejected.exit_code == 2
-    assert _TOKEN not in rejected.output
+    assert _TOKEN not in _plain(rejected.output)
 
 
 @pytest.mark.parametrize("stdin_mode", [False, True], ids=("hidden-prompt", "stdin"))
@@ -158,7 +178,7 @@ def test_apply_token_is_body_only_and_never_echoed_or_logged(
     result = runner.invoke(app, command, input=f"{_TOKEN}\n")
 
     assert result.exit_code == 0, result.output
-    assert _TOKEN not in result.output
+    assert _TOKEN not in _plain(result.output)
     assert _TOKEN not in caplog.text
     request = route.calls[0].request
     assert str(request.url) == f"{_BASE}/api/workspace-runs/run-1/apply"
@@ -194,8 +214,8 @@ def test_apply_error_never_echoes_server_reflected_token(
     )
 
     assert result.exit_code == 1
-    assert f"({status_code})" in result.output
-    assert _TOKEN not in result.output
+    assert f"({status_code})" in _plain(result.output)
+    assert _TOKEN not in _plain(result.output)
     assert _TOKEN not in caplog.text
 
 
@@ -222,7 +242,7 @@ def test_apply_network_error_never_echoes_token(
     )
 
     assert result.exit_code == 1
-    assert _TOKEN not in result.output
+    assert _TOKEN not in _plain(result.output)
     assert _TOKEN not in caplog.text
 
 
@@ -252,8 +272,8 @@ def test_apply_token_stdin_refuses_tty_before_reading_or_requesting(
     )
 
     assert result.exit_code == 1
-    assert "hidden" in result.output.lower()
-    assert _TOKEN not in result.output
+    assert "hidden" in _plain(result.output).lower()
+    assert _TOKEN not in _plain(result.output)
     assert route.call_count == 0
 
 
@@ -278,8 +298,8 @@ def test_approve_apply_now_keeps_issued_token_in_process_only(
     )
 
     assert result.exit_code == 0, result.output
-    assert "receipt-1" in result.output
-    assert _TOKEN not in result.output
+    assert "receipt-1" in _plain(result.output)
+    assert _TOKEN not in _plain(result.output)
     assert _TOKEN not in caplog.text
     assert json.loads(decision.calls[0].request.content) == {"reason": "reviewed"}
     assert json.loads(apply.calls[0].request.content) == {
@@ -311,12 +331,12 @@ def test_approve_exposes_only_required_apply_now_and_never_exports_a_token(respx
     )
 
     assert help_result.exit_code == 0, help_result.output
-    assert "--apply-now" in help_result.output
-    assert "--token-stdout" not in help_result.output
+    assert "--apply-now" in _plain(help_result.output)
+    assert "--token-stdout" not in _plain(help_result.output)
     assert missing_apply_now.exit_code == 2
     assert rejected_export.exit_code == 2
-    assert _TOKEN not in missing_apply_now.output
-    assert _TOKEN not in rejected_export.output
+    assert _TOKEN not in _plain(missing_apply_now.output)
+    assert _TOKEN not in _plain(rejected_export.output)
     assert route.call_count == 0
 
 
@@ -329,7 +349,7 @@ def test_workspace_commands_use_stable_failure_exit_code(respx_mock) -> None:
     result = runner.invoke(app, ["workspace", "status", "missing"])
 
     assert result.exit_code == 1
-    assert "(404)" in result.output
+    assert "(404)" in _plain(result.output)
 
 
 @pytest.mark.parametrize(
@@ -370,8 +390,8 @@ def test_workspace_command_transport_failures_use_exit_one_without_secret_leak(
     result = runner.invoke(app, command, input=f"{_TOKEN}\n")
 
     assert result.exit_code == 1
-    assert "transport unavailable" in result.output
-    assert _TOKEN not in result.output
+    assert "transport unavailable" in _plain(result.output)
+    assert _TOKEN not in _plain(result.output)
 
 
 @pytest.mark.parametrize(
@@ -413,8 +433,8 @@ def test_workspace_command_api_failures_use_exit_one_without_response_reflection
     result = runner.invoke(app, command, input=f"{_TOKEN}\n")
 
     assert result.exit_code == 1
-    assert "(409)" in result.output
-    assert _TOKEN not in result.output
+    assert "(409)" in _plain(result.output)
+    assert _TOKEN not in _plain(result.output)
 
 
 @pytest.mark.parametrize(
@@ -431,4 +451,4 @@ def test_workspace_command_validation_failures_use_exit_two(command: list[str]) 
     result = runner.invoke(app, command)
 
     assert result.exit_code == 2
-    assert _TOKEN not in result.output
+    assert _TOKEN not in _plain(result.output)

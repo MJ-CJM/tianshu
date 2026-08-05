@@ -22,6 +22,7 @@ from tianshu.gateway.core.markdown_compat import (
 
 if TYPE_CHECKING:
     from tianshu.bus.event_bus import EventBus
+    from tianshu.models.edict import Edict
     from tianshu.models.events import EventEnvelope
     from tianshu.storage import Storage
 
@@ -106,6 +107,9 @@ class OutboundEventBase:
             return
 
         body = convert_tables_to_lists(delivery)
+        header = self._delivery_header(event.edict_id)
+        if header:
+            body = f"{header}\n\n{body}"
         chunks = split_long(body, max_len=self._chunk_max_len)
         total = len(chunks)
         for idx, chunk in enumerate(chunks):
@@ -117,7 +121,43 @@ class OutboundEventBase:
             return
         await self._clear_thinking_failed(event.memorial_id, chat_id)
         reason = (event.payload or {}).get("error", "未知错误")
-        await self.send_text(chat_id, f"❌ 执行失败：{reason}")
+        ref = self._edict_ref(event.edict_id)
+        await self.send_text(
+            chat_id, f"❌ {ref}执行失败：{reason}" if ref else f"❌ 执行失败：{reason}"
+        )
+
+    def _business_edict(self, edict_id: str | None) -> Edict | None:
+        """取业务敕令；聊天敕令与查无此令都返回 None（回执不必标注出处）。
+
+        助手在对话里颁的敕令由 executor 独立跑完后异步回推，隔了若干轮对话才到。
+        不标出处的话，用户会突然收到一段没头没尾的正文（"圣上在上，臣司马光
+        叩见…"），不知是谁在答什么。聊天敕令本身就是当轮对话的回复，不必标注。
+        """
+        if not edict_id:
+            return None
+        edict = self._storage.get_edict(edict_id)
+        if not edict or (edict.metadata or {}).get("assistant_chat"):
+            return None
+        return edict
+
+    def _edict_ref(self, edict_id: str | None) -> str:
+        """业务敕令的可读引用（`敕令 #01KZ567C「标题」`）；聊天敕令返回空串。"""
+        edict = self._business_edict(edict_id)
+        return f"敕令 #{edict.id[:8]}「{edict.title or '无标题'}」" if edict else ""
+
+    def _delivery_header(self, edict_id: str | None) -> str | None:
+        """完成回执的抬头行；聊天敕令无抬头。
+
+        对话式敕令（runtime.conversation）过审后不结案，可继续追问——但没人
+        天生知道这回事，抬头里直接给出切过去的命令。
+        """
+        edict = self._business_edict(edict_id)
+        if not edict:
+            return None
+        head = f"📜 敕令 #{edict.id[:8]}「{edict.title or '无标题'}」办讫复奏"
+        if getattr(edict.runtime, "conversation", False):
+            head += f"\n（可继续批示：/select #{edict.id[:8]}）"
+        return head
 
     def _lookup_chat_id(self, event: EventEnvelope) -> str | None:
         """反查回执目标 chat_id。

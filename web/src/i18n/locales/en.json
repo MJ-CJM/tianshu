@@ -1214,7 +1214,8 @@
       "toastRenamed": "Renamed",
       "toastRenameFailed": "Rename failed",
       "toastBatchDeleted": "{n} tasks deleted",
-      "toastBatchDeleteFailed": "Batch delete failed"
+      "toastBatchDeleteFailed": "Batch delete failed",
+      "selectRow": "Select edict: {name}"
     },
     "policyProfile": {
       "title": "Tool permission policy (optional)",
@@ -1979,7 +1980,8 @@
       "source": "Source",
       "access": "Access",
       "confidence": "Confidence",
-      "time": "Time"
+      "time": "Time",
+      "selectRow": "Select memory entry: {name}"
     },
     "category": {
       "observation": "Observation",
@@ -2023,6 +2025,16 @@
       "reflectCompletedDesc": "Generated {n} insights",
       "reflectCooldown": "Cooling down",
       "reflectResult": "Reflection result"
+    },
+    "scope": {
+      "court": "Court-wide",
+      "department": "Departments",
+      "official": "Officials",
+      "placeholder": "Select memory owner"
+    },
+    "detail": {
+      "edict": "From edict",
+      "id": "Entry ID"
     }
   },
   "scheduler": {

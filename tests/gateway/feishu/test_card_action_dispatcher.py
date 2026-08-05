@@ -101,3 +101,18 @@ async def test_handle_synthesize_returns_none_no_dispatch():
     d = CardActionDispatcher(mode_router=router)
     await d.handle(_action({"command": "new"}))
     router.dispatch.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ({"command": "exit"}, "/exit"),
+        ({"command": "clear"}, "/clear"),
+        ({"command": "status", "edict_id": "01KZ5XFD"}, "/status 01KZ5XFD"),
+    ],
+)
+def test_synthesize_supports_menu_buttons(value, expected):
+    """敕令模式菜单的按钮必须能合成命令，否则点了没反应（废按钮）。"""
+    from tianshu.gateway.feishu.card_action_dispatcher import CardActionDispatcher
+
+    assert CardActionDispatcher._synthesize(value["command"], value) == expected

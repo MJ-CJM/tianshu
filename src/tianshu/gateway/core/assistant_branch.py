@@ -64,7 +64,7 @@ class _CardBuilder(Protocol):
     """
 
     def build_list_card(self, edicts: list[Edict], current_anchor: str | None) -> object: ...
-    def build_menu_card(self) -> object: ...
+    def build_menu_card(self, *, edict_id: str | None = None) -> object: ...
     async def build_budget_card(self) -> object: ...
 
 
@@ -221,10 +221,7 @@ class AssistantBranchBase:
             instance_id=self._instance_id,
         )
         if not edicts:
-            await self._reply(
-                msg.chat_id,
-                f"{self._renderer.assistant_tag()} 暂无敕令。输入 /new <目标> 颁布第一道",
-            )
+            await self._reply(msg.chat_id, self._empty_list_hint(status_filter))
             return
         card = self._card_builder.build_list_card(
             edicts=edicts,
@@ -233,6 +230,7 @@ class AssistantBranchBase:
         await self._outbound.send_card(msg.chat_id, card)
 
     async def _cmd_select(self, msg: ChatMessage, ctx: ModeContext, target: str) -> None:
+        target = self._normalize_edict_ref(target)
         if not target:
             await self._reply(msg.chat_id, "用法：/select <敕令 ID 前缀（≥6 字符）>")
             return
@@ -245,7 +243,7 @@ class AssistantBranchBase:
             exclude_assistant_chat=True,
             instance_id=self._instance_id,
         )
-        matches = [e for e in edicts if e.id.startswith(target)]
+        matches = [e for e in edicts if self._id_matches(e.id, target)]
         if not matches:
             await self._reply(msg.chat_id, f"未找到敕令 #{target}，输入 /list 查看")
             return
@@ -263,15 +261,43 @@ class AssistantBranchBase:
             self._renderer.edict_selected_reply(edict.id, edict.title or "(无标题)"),
         )
 
+    def _empty_list_hint(self, status_filter: EdictStatus | None) -> str:
+        """空列表提示。
+
+        `/list` 默认只看 open，已结案的敕令一概不显示——只说"暂无敕令"会让人
+        以为敕令丢了（实际是办完就结案了）。这里如实报出其他状态下还有多少道，
+        并给出看得到它们的命令。
+        """
+        tag = self._renderer.assistant_tag()
+        blank = f"{tag} 暂无敕令。输入 /new <目标> 颁布第一道"
+        if status_filter is None:  # 已经是 /list all，确实一道都没有
+            return blank
+        _rows, total = self._storage.list_edicts(
+            status=None,
+            limit=1,
+            offset=0,
+            exclude_assistant_chat=True,
+            instance_id=self._instance_id,
+        )
+        if not total:
+            return blank
+        label = format_status_label(status_filter.value)
+        return f"{tag} 暂无{label}敕令；另有 {total} 道其他状态的，输入 /list all 查看"
+
     async def _cmd_budget(self, msg: ChatMessage, ctx: ModeContext) -> None:
         card = await self._card_builder.build_budget_card()
         await self._outbound.send_card(msg.chat_id, card)
 
     async def _cmd_menu(self, msg: ChatMessage, ctx: ModeContext) -> None:
-        card = self._card_builder.build_menu_card()
+        # 敕令模式下 /menu 也委托到这里（见 EdictBranchBase.handle），必须给敕令
+        # 模式的命令表——否则用户被业务敕令接管后翻菜单，找不到 /exit 出口。
+        card = self._card_builder.build_menu_card(
+            edict_id=ctx.edict_id if ctx.mode == "edict" else None,
+        )
         await self._outbound.send_card(msg.chat_id, card)
 
     async def _cmd_status(self, msg: ChatMessage, ctx: ModeContext, target: str) -> None:
+        target = self._normalize_edict_ref(target)
         if not target:
             await self._reply(
                 msg.chat_id,
@@ -288,6 +314,7 @@ class AssistantBranchBase:
         )
 
     async def _cmd_cancel(self, msg: ChatMessage, ctx: ModeContext, target: str) -> None:
+        target = self._normalize_edict_ref(target)
         if not target:
             await self._reply(
                 msg.chat_id,
@@ -368,6 +395,22 @@ class AssistantBranchBase:
     # --- 工具方法 ---
 
     @staticmethod
+    def _normalize_edict_ref(s: str) -> str:
+        """归一化用户输入的敕令引用：剥 `#` 前缀与空白。
+
+        回执、卡片、助手话术里 ID 一律以 `#01KZ567C` 形式展示，用户照抄时必然
+        带上 `#`；不剥掉则前缀匹配永不命中，错误提示还会拼成 `##01KZ567C`。
+        大小写不在这里动——单边转换会打断非 ULID 形态的 ID，匹配时双边归一，
+        见 ``_id_matches``。
+        """
+        return s.strip().lstrip("#").strip()
+
+    @staticmethod
+    def _id_matches(edict_id: str, prefix: str) -> bool:
+        """敕令 ID 前缀匹配，大小写不敏感（ULID 展示为大写，用户常手敲小写）。"""
+        return edict_id.casefold().startswith(prefix.casefold())
+
+    @staticmethod
     def _parse_filter(s: str) -> EdictStatus | None:
         s = s.lower()
         if s in ("open", "active", ""):
@@ -381,6 +424,7 @@ class AssistantBranchBase:
         return EdictStatus.OPEN
 
     def _find_by_prefix(self, prefix: str) -> Edict | None:
+        prefix = self._normalize_edict_ref(prefix)
         if len(prefix) < 6:
             return None
         edicts, _total = self._storage.list_edicts(
@@ -390,7 +434,7 @@ class AssistantBranchBase:
             instance_id=self._instance_id,
         )
         for e in edicts:
-            if e.id.startswith(prefix):
+            if self._id_matches(e.id, prefix):
                 return e
         return None
 

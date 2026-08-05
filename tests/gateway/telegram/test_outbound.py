@@ -121,5 +121,6 @@ async def test_execution_completed_multi_chunk_adds_continuation_prefix(storage)
     assert bot.send_message.await_count == 2
     first_text = bot.send_message.await_args_list[0].kwargs["text"]
     second_text = bot.send_message.await_args_list[1].kwargs["text"]
-    assert "续" not in first_text
+    # 断言续接头本身（`## 续 i/n`），不是单字"续"——正文/抬头里的"继续"会误伤
+    assert "## 续" not in first_text
     assert "续 2/2" in second_text
