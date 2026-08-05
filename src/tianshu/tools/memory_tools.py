@@ -14,6 +14,7 @@ import json
 import logging
 from pathlib import Path
 
+from tianshu.models.side_effect import SideEffectSemantics
 from tianshu.storage import Storage
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
@@ -377,5 +378,10 @@ def register_memory_tools(
             tier=ToolTier.T1_WORKSPACE.value,
             max_result_chars=2000,
             side_effect=True,
+            # 写入按 section 内容去重（重放同一条返回 "content already present
+            # in this section (dedupe)"，不会追加第二遍），故重放安全。
+            # 漏声明会被 managed_tools 兜底成 OPAQUE_CLI（`semantics or OPAQUE_CLI`），
+            # 改走"结果不确定→挂起转人工审批"路径，agent 在对话里调用可能直接报错。
+            managed_effect_semantics=SideEffectSemantics.PROVIDER_IDEMPOTENT,
         ),
     )

@@ -29,6 +29,7 @@ from tianshu.models.principal import (
     ClientKind,
     PrincipalKind,
 )
+from tianshu.models.side_effect import SideEffectSemantics
 from tianshu.scheduler.schedule_spec import parse_spec
 from tianshu.scheduler.scheduler import submission_job_id
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
@@ -392,6 +393,13 @@ def register_schedule_edict(
             tier=ToolTier.T2_NETWORK.value,
             max_result_chars=2048,
             side_effect=True,
+            # 与 submit_edict 同构：全部 action 都自带幂等键，可安全重放——
+            # create 走 EdictApplicationService.submit(idempotency_key)，run_now 走
+            # scheduler.run_now(idempotency_key)，cancel/pause/resume 是置状态，list 只读。
+            # 漏声明会被 managed_tools 兜底成 OPAQUE_CLI（见 managed_tools.py 的
+            # `semantics or OPAQUE_CLI`），转而走"挂起转人工审批"路径，助手在对话里
+            # 一调此工具就报 side-effect RunState cannot be suspended。
+            managed_effect_semantics=SideEffectSemantics.PROVIDER_IDEMPOTENT,
         ),
     )
 

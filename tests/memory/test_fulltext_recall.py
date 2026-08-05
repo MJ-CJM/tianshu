@@ -305,3 +305,38 @@ def test_set_creates_section_when_absent(tmp_path):
     md.write_section("wym", "## 历史摘要", mode="set", content="首个摘要")
     text = md.read_core_memory("wym")
     assert "## 历史摘要" in text and "首个摘要" in text
+
+
+@pytest.mark.asyncio
+async def test_memory_write_is_dedupe_idempotent_and_declares_semantics(storage, tmp_path):
+    """memory_write 重放同一条内容会被去重，故必须声明 PROVIDER_IDEMPOTENT。
+
+    回归（2026-08-05）：漏声明时 managed_tools 兜底成 OPAQUE_CLI
+    （`semantics or OPAQUE_CLI`），改走"结果不确定→挂起转人工审批"路径，
+    agent 在对话里调用可能直接报错（王阳明："记忆写入工具此刻暂未响应"）。
+    """
+    from tianshu.bus.event_bus import EventBus
+    from tianshu.models.side_effect import SideEffectSemantics
+    from tianshu.tools.memory_tools import register_memory_tools
+    from tianshu.tools.registry import ToolRegistry
+
+    md = MarkdownMemoryBackend(memory_dir=tmp_path / "memory", personas_dir=tmp_path)
+    args = dict(action="add", scope="court", section="用户偏好", content="称呼用「佳民」")
+    first = await _memory_write(md, None, storage, **args)
+    assert first.is_error is False
+    # 重放不追加第二遍 —— 这正是 PROVIDER_IDEMPOTENT 的前提
+    replay = await _memory_write(md, None, storage, **args)
+    assert replay.is_error is True
+    assert "dedupe" in replay.content
+
+    registry = ToolRegistry()
+    register_memory_tools(
+        registry,
+        storage=storage,
+        event_bus=EventBus(),
+        memory_dir=tmp_path / "memory",
+        personas_dir=tmp_path,
+    )
+    defn = registry.get_definition("memory_write")
+    assert defn.side_effect is True
+    assert defn.managed_effect_semantics is SideEffectSemantics.PROVIDER_IDEMPOTENT

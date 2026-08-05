@@ -346,3 +346,36 @@ async def test_schema_and_tier(setup):
         "run_now",
     }
     assert defn.parameters["required"] == ["action"]
+
+
+def test_edict_tools_declare_idempotent_side_effect(storage):
+    """两个敕令提交入口都必须声明 PROVIDER_IDEMPOTENT，语义不该分家。
+
+    回归（2026-08-05）：schedule_edict 漏声明时，managed_tools 会兜底成
+    OPAQUE_CLI（`semantics or OPAQUE_CLI`），转去走"挂起转人工审批"路径，
+    助手在对话里一调就报 `side-effect RunState cannot be suspended`，
+    整个 execution 失败——用户侧表现为「❌ 执行失败：Managed execution failed」。
+    schedule_edict 全部 action 都自带幂等键（create/run_now 传 idempotency_key，
+    cancel/pause/resume 置状态，list 只读），本就该按 PROVIDER_IDEMPOTENT 直接执行。
+    """
+    from tianshu.bus.event_bus import EventBus
+    from tianshu.models.side_effect import SideEffectSemantics
+    from tianshu.tools.submit_edict import register_submit_edict
+
+    registry = ToolRegistry()
+    register_schedule_edict(
+        registry,
+        storage=storage,
+        scheduler=FakeScheduler(),
+        edict_application_service=EdictApplicationService(storage),
+    )
+    register_submit_edict(
+        registry,
+        storage=storage,
+        event_bus=EventBus(),
+        edict_application_service=EdictApplicationService(storage),
+    )
+    for name in ("schedule_edict", "submit_edict"):
+        defn = registry.get_definition(name)
+        assert defn.side_effect is True, name
+        assert defn.managed_effect_semantics is SideEffectSemantics.PROVIDER_IDEMPOTENT, name
