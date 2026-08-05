@@ -2023,6 +2023,16 @@
       "reflectCompletedDesc": "Generated {n} insights",
       "reflectCooldown": "Cooling down",
       "reflectResult": "Reflection result"
+    },
+    "scope": {
+      "court": "Court-wide",
+      "department": "Departments",
+      "official": "Officials",
+      "placeholder": "Select memory owner"
+    },
+    "detail": {
+      "edict": "From edict",
+      "id": "Entry ID"
     }
   },
   "scheduler": {

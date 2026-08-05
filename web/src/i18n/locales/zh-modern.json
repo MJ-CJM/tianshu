@@ -2023,6 +2023,16 @@
       "reflectCompletedDesc": "生成 {n} 条洞察",
       "reflectCooldown": "冷却中",
       "reflectResult": "反思结果"
+    },
+    "scope": {
+      "court": "全局共享",
+      "department": "部门",
+      "official": "成员",
+      "placeholder": "选择记忆归属"
+    },
+    "detail": {
+      "edict": "来源任务",
+      "id": "条目 ID"
     }
   },
   "scheduler": {

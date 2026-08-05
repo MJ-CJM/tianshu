@@ -2023,6 +2023,16 @@
       "reflectCompletedDesc": "生成 {n} 条洞察",
       "reflectCooldown": "冷却中",
       "reflectResult": "反思结果"
+    },
+    "scope": {
+      "court": "朝廷共享",
+      "department": "各部",
+      "official": "百官",
+      "placeholder": "择记忆之属"
+    },
+    "detail": {
+      "edict": "所出敕令",
+      "id": "条目编号"
     }
   },
   "scheduler": {

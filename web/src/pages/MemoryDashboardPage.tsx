@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import {
   Card,
   Space,
-  Segmented,
+  Select,
   Table,
   Tabs,
   Tag,
@@ -39,6 +39,7 @@ import {
   usePersonaMemorials,
 } from "../hooks/useMemory";
 import { useMemoryStats, useCompactMemory, useTriggerReflection } from "../hooks/useOps";
+import { usePersonas } from "../hooks/usePersonas";
 import type { MemoryEntry, EdictMemorialGroup, MemorialBrief } from "../api/types";
 import PageContainer from "../components/common/PageContainer";
 import { useT } from "../i18n";
@@ -46,7 +47,35 @@ import PageQueryError from "../components/states/PageQueryError";
 
 const { Text, Paragraph } = Typography;
 
-const PERSONA_IDS = ["bingbu", "neige", "ducha", "tongzheng", "wenyuan", "hubu"] as const;
+/** 六个建制部门；其余主体由 /memory/stats 动态发现（见 personaOptions）。 */
+const DEPARTMENT_IDS: readonly string[] = [
+  "bingbu",
+  "neige",
+  "ducha",
+  "tongzheng",
+  "wenyuan",
+  "hubu",
+];
+/** 全朝廷共享池（memory_write scope="court" 的落盘处）。 */
+const COURT_ID = "court";
+
+/**
+ * 记忆主体的显示名。三类主体共用一个 persona_id 命名空间，不能一律套
+ * `dept.*`——court 和官员 id 都没有对应词条，会把原始 key（如 `dept.court`）
+ * 直接显示给用户。
+ */
+function usePersonaLabel() {
+  const t = useT();
+  const { data: personas } = usePersonas();
+  return React.useCallback(
+    (id: string) => {
+      if (id === COURT_ID) return t("memory.scope.court");
+      if (DEPARTMENT_IDS.includes(id)) return t(`dept.${id}`);
+      return personas?.find((p) => p.id === id)?.name ?? id;
+    },
+    [t, personas],
+  );
+}
 
 const categoryColors: Record<string, string> = {
   observation: "blue",
@@ -71,6 +100,7 @@ const statusColors: Record<string, string> = {
 
 function MemorySummaryTab({ persona }: { persona: string }) {
   const t = useT();
+  const labelOf = usePersonaLabel();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<MemoryEntry[] | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -207,7 +237,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
   ];
 
   const currentPolicy = policies?.[persona];
-  const personaName = t(`dept.${persona}`);
+  const personaName = labelOf(persona);
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
@@ -282,6 +312,38 @@ function MemorySummaryTab({ persona }: { persona: string }) {
               selectedRowKeys,
               onChange: setSelectedRowKeys,
             }}
+            // 内容列 ellipsis 截断，长条目只能看到开头；展开行给全文与出处，
+            // 点行内任意处即可展开（不必非得点左侧箭头）。
+            expandable={{
+              expandedRowRender: (record) => (
+                <Space direction="vertical" size="small" style={{ width: "100%" }}>
+                  <Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
+                    {record.content}
+                  </Paragraph>
+                  <Descriptions size="small" column={2}>
+                    <Descriptions.Item label={t("memory.table.time")}>
+                      {new Date(record.created_at).toLocaleString()}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t("memory.table.confidence")}>
+                      {(record.confidence * 100).toFixed(0)}%
+                    </Descriptions.Item>
+                    {record.edict_id ? (
+                      <Descriptions.Item label={t("memory.detail.edict")}>
+                        <Text code copyable={{ text: record.edict_id }}>
+                          #{record.edict_id.slice(0, 8)}
+                        </Text>
+                      </Descriptions.Item>
+                    ) : null}
+                    <Descriptions.Item label={t("memory.detail.id")}>
+                      <Text code copyable={{ text: record.id }}>
+                        {record.id.slice(0, 16)}…
+                      </Text>
+                    </Descriptions.Item>
+                  </Descriptions>
+                </Space>
+              ),
+              expandRowByClick: true,
+            }}
           />
         )}
       </Card>
@@ -303,7 +365,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
                   {currentPolicy.can_read.length > 0
                     ? currentPolicy.can_read.map((p: string) => (
                         <Tag key={p} color="blue">
-                          {t(`dept.${p}`)}
+                          {labelOf(p)}
                         </Tag>
                       ))
                     : <Text type="secondary">{t("memory.policy.none")}</Text>}
@@ -312,7 +374,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
                   {currentPolicy.can_write.length > 0
                     ? currentPolicy.can_write.map((p: string) => (
                         <Tag key={p} color="green">
-                          {t(`dept.${p}`)}
+                          {labelOf(p)}
                         </Tag>
                       ))
                     : <Text type="secondary">{t("memory.policy.none")}</Text>}
@@ -626,24 +688,69 @@ function MemoryMaintenanceTab({ persona }: { persona: string }) {
 
 export default function MemoryDashboardPage() {
   const t = useT();
-  const [persona, setPersona] = useState("bingbu");
+  const [persona, setPersona] = useState(COURT_ID);
   const [activeTab, setActiveTab] = useState("memory");
+  const { data: memoryStats } = useMemoryStats();
+  const labelOf = usePersonaLabel();
 
-  const personaOptions = PERSONA_IDS.map((id) => ({
-    value: id,
-    label: t(`dept.${id}`),
-  }));
+  // 记忆按 persona_id 落盘，三种 scope 共用一个命名空间：部门（department）、
+  // 官员私有（self）、全朝廷共享（court）。此前这里写死六个部门 id，导致官员
+  // 私有记忆与朝廷共享池在界面上完全不可见（写进去了却查不到）。
+  // 改为以 /memory/stats 实际发现的主体为准，分三组呈现。
+  const personaOptions = React.useMemo(() => {
+    const ids = Object.keys(memoryStats ?? {});
+    const countOf = (id: string) => memoryStats?.[id]?.entry_count ?? 0;
+    const withCount = (text: string, id: string) => `${text} · ${countOf(id)}`;
+
+    const groups: { label: string; options: { value: string; label: string }[] }[] = [];
+
+    if (ids.includes(COURT_ID)) {
+      groups.push({
+        label: t("memory.scope.court"),
+        options: [
+          { value: COURT_ID, label: withCount(t("memory.scope.court"), COURT_ID) },
+        ],
+      });
+    }
+
+    const departmentIds = ids.filter((id) => DEPARTMENT_IDS.includes(id));
+    if (departmentIds.length > 0) {
+      groups.push({
+        label: t("memory.scope.department"),
+        options: departmentIds.map((id) => ({
+          value: id,
+          label: withCount(labelOf(id), id),
+        })),
+      });
+    }
+
+    const officialIds = ids.filter(
+      (id) => id !== COURT_ID && !DEPARTMENT_IDS.includes(id),
+    );
+    if (officialIds.length > 0) {
+      groups.push({
+        label: t("memory.scope.official"),
+        options: officialIds.map((id) => ({
+          value: id,
+          label: withCount(labelOf(id), id),
+        })),
+      });
+    }
+
+    return groups;
+  }, [memoryStats, labelOf, t]);
 
   return (
     <PageContainer title={t("memory.title")}>
       <Space direction="vertical" size="large" style={{ width: "100%" }}>
-        <Segmented
+        <Select
           value={persona}
-          onChange={(v) => {
-            setPersona(v as string);
-          }}
+          onChange={setPersona}
           options={personaOptions}
-          block
+          style={{ width: "100%" }}
+          showSearch
+          optionFilterProp="label"
+          placeholder={t("memory.scope.placeholder")}
         />
 
         <Tabs
