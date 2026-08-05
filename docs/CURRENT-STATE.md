@@ -191,19 +191,31 @@ error、permission-denied 和 404 状态，不用 mock 数据掩盖失败。
 
 ## 已知问题（GitHub Actions）
 
-本地开发环境（macOS/arm64/Python 3.12）下 `pytest -m "not slow"` 全绿，但
-Ubuntu CI 上仍有一批环境特有的失败，公开发布时如实记录如下，欢迎复现与修复：
+CI 五项已全绿（2026-08-05，见 #29 / PR #31）：backend 4477 passed、web-e2e
+32 passed + 56 skipped、frontend、release-wheel、dependency-review。原先记录的
+「Ubuntu 环境特有失败」多数并非环境玄学，均已定位到确定根因并修复：
 
-- **CLI 帮助文本断言（2 项）**：`tests/cli/test_workspace_commands.py` 断言
-  `--token-stdin` / `--apply-now` 出现在 `--help` 输出中。Linux 非 TTY 环境下
-  Rich 的渲染结果与本地不同，导致断言失配；命令本身功能正常。
-- **集成测试（2 项）**：`test_governed_apply_decision_restart` 的暂存清理与
-  `test_outbox_scheduler_idempotency` 的定时恢复断言在 CI 上不稳定，疑与
-  Linux 文件系统语义和调度时序有关；两者在本地均通过。
-- **Web E2E 无障碍**：axe 报告 serious/critical 违规、部分交互元素缺可见键盘
-  焦点指示器。这是真实的可访问性缺陷，属产品待办而非测试环境问题。
+- **CLI 帮助文本断言（2 项）** — 已修。根因不是按 80 列折行，而是 Rich 上色时
+  把 `--token-stdin` 拆成 `-`/`-token`/`-stdin` 三段分别包 SGR 码，原始字节里
+  选项名被切开。改为剥离 ANSI 后比对（`FORCE_COLOR=1` 可本地复现）。同一缺陷
+  会让 `assert _TOKEN not in output` 这类**安全断言假通过**，故全文件统一归一。
+- **集成测试** — `test_outbox_scheduler_idempotency` 已修：`Scheduler.schedule`
+  对已过点的 once 只建内存 job 不落库，而用例在 `init_db()` 之前就起算 100ms
+  时间窗，CI 慢盘上 migration 足以吃光它。窗口起算已移到建库之后。
+  `test_governed_apply_decision_restart` 近期未复现，暂留观察。
+- **Web E2E 无障碍** — 已修。确为真实产品缺陷：antd Table 测量行标了
+  `aria-hidden` 却含可聚焦 checkbox（键盘会 Tab 到看不见的元素）；行选择框无
+  可访问名。accessibility.spec.ts 现 21 passed。
 
-在上述问题收敛前，README 不挂 CI 状态徽章，避免用绿色徽章暗示未达成的保证。
+**仍未收敛（重要）**：`visual-core` 的 56 项当前是 **skipped 而非 passed**。
+基线只覆盖前一版 6 路由（48 张），当前源码为 7 路由（56 项），**macOS 本地实测
+同样 56/56 全失败**——视觉回归与平台无关地已经失效。跨平台误比问题已修
+（`snapshotPathTemplate` 补 `{platform}`，存量基线改名 `-darwin`），但未用
+`--update-snapshots` 一键重建：那等于把未经人工终审的界面固化成"正确答案"。
+恢复方式见 `web/e2e/visual-core.spec.ts` 的 `AWAITING_VISUAL_SIGNOFF`。
+
+在视觉终审收敛前，README 仍不挂 CI 状态徽章——绿灯里含 56 个 skip，挂上仍属
+用绿色暗示未达成的保证。
 
 ## 历史资料如何阅读
 
