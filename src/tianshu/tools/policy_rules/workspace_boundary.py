@@ -1,12 +1,27 @@
 """WorkspaceBoundaryRule — 硬约束：越界路径直接 deny。
 
 检查 path/cwd/file_path 类参数是否在 workspace_root 下。路径越界不走审批，
-因为审批按钮本身就是诱导攻击面（攻击者可能社工用户点批准）。
+因为审批按钮本身就是诱导攻击面（攻击者可能社工用户点批准）——越界只能靠
+**事前**声明的 ``policy_profile.allowed_paths`` 白名单放行，见下。
+
+allowed_paths 的 glob 语义（2026-08-05 收紧）：
+
+- **相对 glob**（如 ``**/*``）锚定在工作区内。执行到白名单判定时已确定路径
+  越界，故相对 glob **一律不放行**。
+- **绝对 glob**（如 ``/data/shared/**``）才能授权工作区外的路径，用 fnmatch
+  匹配整个绝对路径。
+
+此前用 ``Path.match(glob)`` 判定，而 ``Path.match`` 只比对路径尾部：
+``Path("/etc/passwd").match("**/*")`` 为 True。于是内置模板
+``refactor-in-place`` / ``trusted-automation``（两者 allowed_paths 都是
+``("**/*",)``，本意是"工作区内任意文件"）会放行**任意**越界路径——
+``/etc/passwd``、``~/.ssh/id_rsa`` 皆可读，越界防护被完全绕过。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from fnmatch import fnmatch
 from pathlib import Path
 
 from tianshu.tools.policy import PolicyContext, PolicyDecision
@@ -37,8 +52,8 @@ class WorkspaceBoundaryRule:
             if self._is_inside(resolved, workspace):
                 continue
 
-            # 越界 — 再查 profile 白名单
-            if any(resolved.match(glob) for glob in extra_globs):
+            # 越界 — 再查 profile 白名单（仅绝对 glob 有效，理由见模块 docstring）
+            if self._allowed_outside(resolved, extra_globs):
                 continue
 
             return PolicyDecision(
@@ -49,6 +64,18 @@ class WorkspaceBoundaryRule:
             )
 
         return None  # 所有 path 参数都在 workspace 内 → 弃权
+
+    @staticmethod
+    def _allowed_outside(resolved: Path, globs: tuple[str, ...]) -> bool:
+        """越界路径是否被 allowed_paths 显式授权。
+
+        只认绝对 glob：相对 glob 描述的是工作区内的路径，拿它放行界外路径属于
+        语义错配（也正是此前 ``**/*`` 放行 /etc/passwd 的原因）。
+        用 fnmatch 而非 Path.match —— 后者在 Python 3.12 只比对路径尾部且 ``**``
+        不递归，无法表达"某目录下任意层级"。
+        """
+        target = str(resolved)
+        return any(glob.startswith("/") and fnmatch(target, glob) for glob in globs)
 
     @staticmethod
     def _resolve(raw: str, workspace: Path) -> Path:
