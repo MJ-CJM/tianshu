@@ -21,9 +21,9 @@ allowed_paths 的 glob 语义（2026-08-05 收紧）：
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from fnmatch import fnmatch
 from pathlib import Path
 
+from tianshu.tools.path_utils import path_allowed_outside
 from tianshu.tools.policy import PolicyContext, PolicyDecision
 
 # 参数名白名单：这些字段被当作 path 处理
@@ -69,13 +69,10 @@ class WorkspaceBoundaryRule:
     def _allowed_outside(resolved: Path, globs: tuple[str, ...]) -> bool:
         """越界路径是否被 allowed_paths 显式授权。
 
-        只认绝对 glob：相对 glob 描述的是工作区内的路径，拿它放行界外路径属于
-        语义错配（也正是此前 ``**/*`` 放行 /etc/passwd 的原因）。
-        用 fnmatch 而非 Path.match —— 后者在 Python 3.12 只比对路径尾部且 ``**``
-        不递归，无法表达"某目录下任意层级"。
+        判定收敛在 path_utils，与执行层沙箱 ``safe_path`` 共用同一份逻辑——
+        两层若各写一份，会漂移成"策略放行了但工具仍拒绝"。
         """
-        target = str(resolved)
-        return any(glob.startswith("/") and fnmatch(target, glob) for glob in globs)
+        return path_allowed_outside(resolved, globs)
 
     @staticmethod
     def _resolve(raw: str, workspace: Path) -> Path:
