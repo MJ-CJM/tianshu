@@ -253,16 +253,40 @@ def register_schedule_edict(
 
         if act == "list":
             jobs = await scheduler.list_jobs()
-            return ok_result(
-                f"当前有 {len(jobs)} 个定时/周期任务",
-                details={"jobs": jobs},
-            )
+            if not jobs:
+                return ok_result("当前没有定时/周期任务", details={"jobs": []})
+            # job_id 必须写进 content：本工具声明了 managed 副作用语义，走 managed
+            # 路径时 ToolResult 由 receipt 重建，**只保留 content/is_error，details
+            # 会丢失**。此前 job_id 只放在 details 里，调用方（助手 LLM）读不到，
+            # 只能拿对话里可见的敕令 ID 去猜，cancel 遂静默失灵。
+            lines = [f"当前有 {len(jobs)} 个定时/周期任务："]
+            for job in jobs:
+                spec = job.get("cron_expr") or (
+                    f"每 {job['interval_seconds']} 秒" if job.get("interval_seconds") else "一次性"
+                )
+                lines.append(
+                    f"- job_id={job['job_id']}｜{job.get('title') or '(无标题)'}"
+                    f"｜{job['schedule_type']}（{spec}）｜状态={job['status']}"
+                    f"｜下次={job.get('next_run') or '—'}"
+                    f"｜敕令 #{str(job['edict_id'])[:8]}"
+                )
+            lines.append("管理任务请用上面的 job_id（不是敕令 ID）。")
+            return ok_result("\n".join(lines), details={"jobs": jobs})
 
         if act in ("cancel", "pause", "resume", "run_now"):
             if not job_id:
                 return error_result(f"schedule_edict: action={act} 需要 job_id")
             if act == "cancel":
-                await scheduler.cancel(job_id)
+                # 必须检查返回值：cancel() 在 job 不存在/已终结时返回 False。
+                # 此前丢弃返回值无条件报「已取消 ✅」，而调用方常误传敕令 ID
+                # （对话里可见的是它），于是任务照跑不误——假成功比失败更糟，
+                # 用户以为停了。pause/resume/run_now 一直都在检查，唯独这里漏了。
+                if not await scheduler.cancel(job_id):
+                    return error_result(
+                        f"无法取消 {job_id[:12]}：任务不存在或已终结。"
+                        "请先用 action='list' 取得 job_id（形如 submitted-xxxx），"
+                        "注意它不是敕令 ID。",
+                    )
                 return ok_result(f"已取消任务 {job_id[:8]}", details={"job_id": job_id})
             if act == "pause":
                 ok = await scheduler.pause(job_id)
@@ -342,7 +366,11 @@ def register_schedule_edict(
                     },
                     "job_id": {
                         "type": "string",
-                        "description": "（cancel/pause/resume/run_now 必填）目标任务的 job_id。",
+                        "description": (
+                            "（cancel/pause/resume/run_now 必填）目标任务的 job_id，"
+                            "形如 'submitted-xxxx'。**必须先用 action='list' 取得，"
+                            "不能用敕令 ID（01K... 那种）代替**——两者不同，传错会取消失败。"
+                        ),
                     },
                     "context": {
                         "type": "string",

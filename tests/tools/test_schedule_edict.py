@@ -15,6 +15,9 @@ class FakeScheduler:
     def __init__(self) -> None:
         self.scheduled: list = []
         self.calls: list = []
+        # 真实 Scheduler.cancel() 返回 bool（job 不存在/已终结时 False）。替身此前
+        # 不返回值，与真实签名不符，是「取消假成功」长期没被测出来的原因之一。
+        self.cancel_result = True
 
     async def schedule(self, edict, memorial_id=None):
         self.scheduled.append(edict)
@@ -23,16 +26,20 @@ class FakeScheduler:
     async def list_jobs(self):
         return [
             {
-                "job_id": "j1",
-                "edict_id": "e1",
-                "schedule_type": "cron",
+                "job_id": "submitted-abc123",
+                "edict_id": "01KZ7SF9KTVHFDM36423MTDFNS",
+                "schedule_type": "interval",
                 "status": "active",
-                "next_run": None,
+                "next_run": "2026-08-06T01:44:10+00:00",
+                "cron_expr": None,
+                "interval_seconds": 1800,
+                "title": "每 30 分钟伸展提醒",
             }
         ]
 
     async def cancel(self, job_id):
         self.calls.append(("cancel", job_id))
+        return self.cancel_result
 
     async def pause(self, job_id):
         self.calls.append(("pause", job_id))
@@ -379,3 +386,59 @@ def test_edict_tools_declare_idempotent_side_effect(storage):
         defn = registry.get_definition(name)
         assert defn.side_effect is True, name
         assert defn.managed_effect_semantics is SideEffectSemantics.PROVIDER_IDEMPOTENT, name
+
+
+async def test_cancel_failure_is_reported_not_swallowed(setup):
+    """cancel 失败必须如实报错，不得假成功。
+
+    回归（2026-08-06）：工具原先丢弃 `scheduler.cancel()` 的返回值，无条件回
+    「已取消 ✅」。而调用方常误传敕令 ID（对话里可见的是它，job_id 藏在 details
+    里而 managed 路径会丢 details），于是 cancel 静默失灵、定时任务照常每 30
+    分钟推送，用户以为已经停了——假成功比失败更糟。
+    pause/resume/run_now 一直都检查返回值，唯独 cancel 漏了。
+    """
+    func, _, sched = setup
+    sched.cancel_result = False  # job 不存在（例如误传了敕令 ID）
+    result = await func(action="cancel", job_id="01KZ7SF9KTVHFDM36423MTDFNS")
+
+    assert result.is_error is True
+    assert "无法取消" in result.content
+    assert "job_id" in result.content  # 指出正确取法
+    assert ("cancel", "01KZ7SF9KTVHFDM36423MTDFNS") in sched.calls
+
+
+async def test_cancel_success_still_reports_ok(setup):
+    func, _, sched = setup
+    sched.cancel_result = True
+    result = await func(action="cancel", job_id="submitted-abc123")
+    assert result.is_error is False
+    assert "已取消" in result.content
+
+
+async def test_list_exposes_job_id_in_content(setup):
+    """job_id 必须出现在 content 里，不能只放 details。
+
+    本工具声明了 managed 副作用语义，走 managed 路径时 ToolResult 由 receipt
+    重建，只保留 content/is_error——details 会丢失。job_id 只放 details 等于
+    对调用方不可见，它就只能拿敕令 ID 去猜。
+    """
+    func, _, _ = setup
+    result = await func(action="list")
+
+    assert result.is_error is False
+    assert "submitted-abc123" in result.content
+    assert "每 30 分钟伸展提醒" in result.content
+    assert "不是敕令 ID" in result.content  # 明确警示，降低误传概率
+    assert result.details["jobs"][0]["job_id"] == "submitted-abc123"
+
+
+async def test_list_empty_is_explicit(setup):
+    func, _, sched = setup
+    sched.list_jobs = lambda: _empty_jobs()
+    result = await func(action="list")
+    assert result.is_error is False
+    assert "没有定时" in result.content
+
+
+async def _empty_jobs():
+    return []
