@@ -28,15 +28,9 @@ export interface DemoStack {
 
 type Fixtures = {
   stack: DemoStack;
-  visualStack: DemoStack;
   isolatedStack: DemoStack;
 };
 
-export const VIEWPORTS = [
-  { name: "1280x800", size: { width: 1280, height: 800 } },
-  { name: "1440x1024", size: { width: 1440, height: 1024 } },
-] as const;
-export const THEMES = ["dark", "light"] as const;
 export const CORE_ROUTES = [
   { name: "control", path: "/control" },
   { name: "workbench", path: "/approvals" },
@@ -177,17 +171,6 @@ async function launchDemoStack(): Promise<DemoStack> {
 
 export const test = base.extend<Fixtures>({
   stack: [
-    async ({}, use) => {
-      const stack = await launchDemoStack();
-      try {
-        await use(stack);
-      } finally {
-        await stack.stop();
-      }
-    },
-    { scope: "worker" },
-  ],
-  visualStack: [
     async ({}, use) => {
       const stack = await launchDemoStack();
       try {
