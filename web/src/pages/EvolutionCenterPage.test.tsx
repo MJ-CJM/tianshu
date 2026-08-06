@@ -24,7 +24,8 @@ vi.mock("../api/evolution", async (importOriginal) => ({
   getEvolutionCenterSnapshot: () => {
     evolutionSource.calls += 1;
     if (evolutionSource.error !== undefined) throw evolutionSource.error;
-    if (evolutionSource.result !== undefined) return Promise.resolve(evolutionSource.result);
+    if (evolutionSource.result !== undefined)
+      return Promise.resolve(evolutionSource.result);
     return new Promise(() => undefined);
   },
 }));
@@ -101,23 +102,36 @@ const DEGRADED_FIXTURE: EvolutionCenterSnapshotV1 = {
 };
 
 function problem(status: number, code: string, message: string): ApiProblem {
-  return { status, code, message, correlationId: "corr-evolution", retryable: status >= 500 };
+  return {
+    status,
+    code,
+    message,
+    correlationId: "corr-evolution",
+    retryable: status >= 500,
+  };
 }
 
 function LocaleControls() {
   const locale = useLocaleProvider();
   return (
     <>
-      <button type="button" onClick={() => locale.setLocale("en")}>English</button>
-      <button type="button" onClick={() => locale.setLocale("zh-modern")}>modern</button>
-      <button type="button" onClick={() => locale.setLocale("zh-classic")}>classic</button>
+      <button type="button" onClick={() => locale.setLocale("en")}>
+        English
+      </button>
+      <button type="button" onClick={() => locale.setLocale("zh-modern")}>
+        modern
+      </button>
+      <button type="button" onClick={() => locale.setLocale("zh-classic")}>
+        classic
+      </button>
     </>
   );
 }
 
 function renderPage(queryClient?: QueryClient, showLocaleControls = false) {
   const client =
-    queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient ??
+    new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={["/evolution"]}>
@@ -139,15 +153,21 @@ describe("authoritative Evolution Center snapshot", () => {
   it("shows loading while the single snapshot request is pending", () => {
     renderPage();
 
-    expect(screen.getByRole("heading", { name: "演化中心" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "演化中心" }),
+    ).toBeInTheDocument();
     expect(screen.getAllByText("实验")).toHaveLength(2);
     expect(
-      screen.getByText("查看并治理 Skill 候选之门禁、灰度分流、晋升与回滚证据。"),
+      screen.getByText(
+        "查看并治理 Skill 候选之门禁、灰度分流、晋升与回滚证据。",
+      ),
     ).toBeInTheDocument();
     expect(
       screen.getByText("非 Skill 激活仍闭；系统不会自行晋升候选。"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "正在加载" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "正在加载" }),
+    ).toBeInTheDocument();
     expect(evolutionSource.calls).toBe(1);
   });
 
@@ -155,8 +175,14 @@ describe("authoritative Evolution Center snapshot", () => {
     evolutionSource.result = NOT_ENABLED;
     renderPage();
 
-    expect(await screen.findByText("S5 受治理演化尚未启用；当前没有候选、分流或门禁结果。")).toBeInTheDocument();
-    expect(screen.getByText("s5_governed_evolution_not_enabled")).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "S5 受治理演化尚未启用；当前没有候选、分流或门禁结果。",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("s5_governed_evolution_not_enabled"),
+    ).toBeInTheDocument();
     expect(
       screen.queryByText(/Canary 已启用|自动晋升|真实流量/),
     ).not.toBeInTheDocument();
@@ -175,7 +201,9 @@ describe("authoritative Evolution Center snapshot", () => {
         "演化服务已就绪；待建立受治理 Skill 候选，此处即呈门禁、分流与回滚状态。",
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "暂无数据" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "暂无数据" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 
@@ -183,10 +211,14 @@ describe("authoritative Evolution Center snapshot", () => {
     evolutionSource.result = DEGRADED_EMPTY;
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "演化状态" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "演化状态" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("降级")).toBeInTheDocument();
     expect(screen.getByText("evolution_source_degraded")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "暂无数据" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "暂无数据" }),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps degraded status and reason visible beside candidate data", async () => {
@@ -241,7 +273,9 @@ describe("authoritative Evolution Center snapshot", () => {
   });
 
   it("keeps cached fixture data visible when refresh becomes stale", async () => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     client.setQueryData(EVOLUTION_CENTER_QUERY_KEY, FIXTURE);
     evolutionSource.error = problem(
       500,
@@ -250,24 +284,38 @@ describe("authoritative Evolution Center snapshot", () => {
     );
     renderPage(client);
 
-    expect(await screen.findByRole("heading", { name: "数据可能已过期" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "数据可能已过期" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("candidate-skill-7")).toBeInTheDocument();
     expect(screen.getByText("演化快照刷新失败")).toBeInTheDocument();
   });
 
   it("renders generic error without fabricated disabled data", async () => {
-    evolutionSource.error = problem(500, "evolution-failed", "演化快照读取失败");
+    evolutionSource.error = problem(
+      500,
+      "evolution-failed",
+      "演化快照读取失败",
+    );
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "请求失败" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "请求失败" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("尚未启用")).not.toBeInTheDocument();
   });
 
   it("renders permission denied distinctly", async () => {
-    evolutionSource.error = problem(403, "permission-denied", "当前身份无权查看演化中心");
+    evolutionSource.error = problem(
+      403,
+      "permission-denied",
+      "当前身份无权查看演化中心",
+    );
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "无权查看此内容" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "无权查看此内容" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("关联标识: corr-evolution")).toBeInTheDocument();
   });
 
@@ -279,7 +327,9 @@ describe("authoritative Evolution Center snapshot", () => {
     );
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "服务暂不可用" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "服务暂不可用" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
   });
 
@@ -289,11 +339,21 @@ describe("authoritative Evolution Center snapshot", () => {
     renderPage(undefined, true);
 
     await user.click(screen.getByRole("button", { name: "English" }));
-    expect(screen.getByRole("heading", { name: "Evolution Center" })).toBeInTheDocument();
-    expect(screen.getByText("Governed evolution is not enabled before S5; there are no candidates, routing assignments, or gate results.")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Evolution Center" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Governed evolution is not enabled before S5; there are no candidates, routing assignments, or gate results.",
+      ),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "modern" }));
-    expect(screen.getByRole("heading", { name: "演化中心" })).toBeInTheDocument();
-    expect(screen.getByText("S5 受治理演化尚未启用；当前没有候选、分流或门禁结果。")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "演化中心" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("S5 受治理演化尚未启用；当前没有候选、分流或门禁结果。"),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "classic" }));
   });
 });

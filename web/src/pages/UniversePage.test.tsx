@@ -2,7 +2,13 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
@@ -102,13 +108,21 @@ describe("UniversePage capability truth", () => {
     expect(screen.getByRole("heading", { name: "位面" })).toBeInTheDocument();
     expect(screen.getAllByText("实验")).toHaveLength(2);
     expect(
-      screen.getByText("创建、分支、生成代码候选、查看差异、考成、归档与恢复位面。"),
+      screen.getByText(
+        "创建、分支、生成代码候选、查看差异、考成、归档与恢复位面。",
+      ),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("不可从 Web 切换在役运行时或晋升代码；候选不会自行写入主工房。"),
+      screen.getByText(
+        "不可从 Web 切换在役运行时或晋升代码；候选不会自行写入主工房。",
+      ),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "切换/回滚" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "晋升代码" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "切换/回滚" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "晋升代码" }),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "代码演化" }));
     expect(screen.getByPlaceholderText(/具体 \.py 文件/)).toHaveValue(
@@ -125,7 +139,9 @@ describe("UniversePage capability truth", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "生成奏折" }));
 
-    await waitFor(() => expect(apiMocks.generateTaiyiReport).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(apiMocks.generateTaiyiReport).toHaveBeenCalledOnce(),
+    );
     expect(await screen.findByText("太医巡诊,未见沉疴。")).toBeInTheDocument();
   });
 });

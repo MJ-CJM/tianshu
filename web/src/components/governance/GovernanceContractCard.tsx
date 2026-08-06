@@ -39,7 +39,9 @@ export default function GovernanceContractCard({
   const visibleMandatoryMismatches =
     executorLevel === "contained"
       ? mandatoryMismatches.filter((item) =>
-          [...CONTAINED_CAPABILITIES].some((capability) => item.startsWith(capability)),
+          [...CONTAINED_CAPABILITIES].some((capability) =>
+            item.startsWith(capability),
+          ),
         )
       : mandatoryMismatches;
   const visibleAdvisoryGaps =
@@ -58,7 +60,9 @@ export default function GovernanceContractCard({
         <dt>{t("governanceUi.executorLevel")}</dt>
         <dd>{executorLevel ?? t("governanceUi.executorLevelUnknown")}</dd>
       </dl>
-      {executorLevel === "contained" ? <p>{t("governanceUi.containedCaveat")}</p> : null}
+      {executorLevel === "contained" ? (
+        <p>{t("governanceUi.containedCaveat")}</p>
+      ) : null}
 
       <table>
         <thead>
@@ -72,8 +76,12 @@ export default function GovernanceContractCard({
           {visibleCapabilities.map((capability) => (
             <tr key={capability.id}>
               <th scope="row">{capability.label}</th>
-              <td>{t(`governanceUi.requestedState.${capability.requested}`)}</td>
-              <td>{t(`governanceUi.effectiveState.${capability.effective}`)}</td>
+              <td>
+                {t(`governanceUi.requestedState.${capability.requested}`)}
+              </td>
+              <td>
+                {t(`governanceUi.effectiveState.${capability.effective}`)}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -82,13 +90,21 @@ export default function GovernanceContractCard({
       {visibleMandatoryMismatches.length > 0 ? (
         <section>
           <h3>{t("governanceUi.mandatoryMismatches")}</h3>
-          <ul>{visibleMandatoryMismatches.map((item) => <li key={item}>{item}</li>)}</ul>
+          <ul>
+            {visibleMandatoryMismatches.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
         </section>
       ) : null}
       {visibleAdvisoryGaps.length > 0 ? (
         <section>
           <h3>{t("governanceUi.advisoryGaps")}</h3>
-          <ul>{visibleAdvisoryGaps.map((item) => <li key={item}>{item}</li>)}</ul>
+          <ul>
+            {visibleAdvisoryGaps.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
         </section>
       ) : null}
     </section>

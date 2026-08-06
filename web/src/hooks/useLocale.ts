@@ -1,4 +1,10 @@
-import { createContext, useContext, useCallback, useEffect, useSyncExternalStore } from "react";
+import {
+  createContext,
+  useContext,
+  useCallback,
+  useEffect,
+  useSyncExternalStore,
+} from "react";
 
 export type Locale = "zh-classic" | "zh-modern" | "en";
 

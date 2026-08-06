@@ -7,7 +7,15 @@ import { resolve } from "node:path";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useNavigate } from "react-router-dom";
-import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+  vi,
+} from "vitest";
 import type { ApiProblem, PageDataStatus } from "../contracts/api";
 import { ThemeContext } from "../hooks/useTheme";
 import { LocaleContext, useLocaleProvider } from "../hooks/useLocale";
@@ -52,7 +60,14 @@ function HeaderLocaleHarness() {
 
 const API_CONTRACT_PATH = resolve(process.cwd(), "src/contracts/api.ts");
 const HEADER_STATUS_LABELS = ["彩蛋", "通用", "English", "实时", "通政"];
-const PRIMARY_NAVIGATION = ["中枢", "御书房", "朝堂", "百司", "天工院实验", "内府"];
+const PRIMARY_NAVIGATION = [
+  "中枢",
+  "御书房",
+  "朝堂",
+  "百司",
+  "天工院实验",
+  "内府",
+];
 
 function SidebarRouteHarness() {
   const navigate = useNavigate();
@@ -177,19 +192,25 @@ describe("S4 desktop brand shell contract", () => {
       </MemoryRouter>,
     );
 
-    const rootItems = Array.from(container.querySelector(".ant-menu-root")?.children ?? []);
-    expect(rootItems.map((item) => {
-      const ownTitle = item.matches(".ant-menu-submenu")
-        ? item.querySelector(":scope > .ant-menu-submenu-title")
-        : item;
-      return ownTitle?.textContent?.trim() ?? "";
-    })).toEqual(PRIMARY_NAVIGATION);
+    const rootItems = Array.from(
+      container.querySelector(".ant-menu-root")?.children ?? [],
+    );
+    expect(
+      rootItems.map((item) => {
+        const ownTitle = item.matches(".ant-menu-submenu")
+          ? item.querySelector(":scope > .ant-menu-submenu-title")
+          : item;
+        return ownTitle?.textContent?.trim() ?? "";
+      }),
+    ).toEqual(PRIMARY_NAVIGATION);
     expect(rootItems[1]).toHaveClass("ant-menu-submenu-open");
     expect(rootItems[2]).not.toHaveClass("ant-menu-submenu-open");
     expect(rootItems[3]).not.toHaveClass("ant-menu-submenu-open");
     expect(rootItems[4]).not.toHaveClass("ant-menu-submenu-open");
     expect(rootItems[5]).not.toHaveClass("ant-menu-submenu-open");
-    expect(screen.getByRole("menuitem", { name: "全部敕令" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: "全部敕令" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("正式能力")).not.toBeInTheDocument();
     expect(screen.queryByText("实验室")).not.toBeInTheDocument();
 
@@ -203,24 +224,44 @@ describe("S4 desktop brand shell contract", () => {
     await user.click(screen.getByRole("button", { name: "go-to-memory" }));
     expect(rootItems[2]).not.toHaveClass("ant-menu-submenu-open");
     expect(rootItems[3]).toHaveClass("ant-menu-submenu-open");
-    expect(screen.getByRole("menuitem", { name: "翰林院" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "鸿胪寺" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "通政司" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: "翰林院" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: "鸿胪寺" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: "通政司" }),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("menuitem", { name: /天工院.*实验/ }));
     expect(rootItems[3]).not.toHaveClass("ant-menu-submenu-open");
     expect(rootItems[4]).toHaveClass("ant-menu-submenu-open");
-    expect(screen.getByRole("menuitem", { name: /演化司.*实验/ })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /诸界台.*实验/ })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /考功司.*试行/ })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /客卿馆.*实验/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /演化司.*实验/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /诸界台.*实验/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /考功司.*试行/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /客卿馆.*实验/ }),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("menuitem", { name: "内府" }));
     expect(rootItems[4]).not.toHaveClass("ant-menu-submenu-open");
     expect(rootItems[5]).toHaveClass("ant-menu-submenu-open");
-    expect(screen.getByRole("menuitem", { name: "藏兵阁" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "权印司" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "户部账房" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: "藏兵阁" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: "权印司" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: "户部账房" }),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "切换浅色" }));
     expect(toggleTheme).toHaveBeenCalledOnce();
@@ -229,11 +270,17 @@ describe("S4 desktop brand shell contract", () => {
     expect(sider).not.toHaveClass("ant-layout-sider-collapsed");
     await user.click(screen.getByRole("button", { name: /收起侧栏/ }));
     expect(sider).toHaveClass("ant-layout-sider-collapsed");
-    expect(screen.getByRole("button", { name: "切换浅色" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "切换浅色" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "展开" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "中枢" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "御书房" })).toBeInTheDocument();
-    expect(container.querySelectorAll(".ant-menu-submenu-open")).toHaveLength(0);
+    expect(
+      screen.getByRole("menuitem", { name: "御书房" }),
+    ).toBeInTheDocument();
+    expect(container.querySelectorAll(".ant-menu-submenu-open")).toHaveLength(
+      0,
+    );
 
     await user.click(screen.getByRole("button", { name: "展开" }));
     expect(sider).not.toHaveClass("ant-layout-sider-collapsed");
@@ -245,7 +292,9 @@ describe("S4 desktop brand shell contract", () => {
     const renderSidebar = () =>
       render(
         <MemoryRouter initialEntries={["/personas"]}>
-          <ThemeContext.Provider value={{ mode: "light", toggleTheme: vi.fn() }}>
+          <ThemeContext.Provider
+            value={{ mode: "light", toggleTheme: vi.fn() }}
+          >
             <AppSidebar />
           </ThemeContext.Provider>
         </MemoryRouter>,
@@ -259,8 +308,12 @@ describe("S4 desktop brand shell contract", () => {
     expect(second.container.querySelector(".ant-layout-sider")).toHaveClass(
       "ant-layout-sider-collapsed",
     );
-    expect(screen.getByRole("button", { name: "切换深色" })).toBeInTheDocument();
-    expect(second.container.querySelectorAll(".ant-menu-submenu-open")).toHaveLength(0);
+    expect(
+      screen.getByRole("button", { name: "切换深色" }),
+    ).toBeInTheDocument();
+    expect(
+      second.container.querySelectorAll(".ant-menu-submenu-open"),
+    ).toHaveLength(0);
   });
 
   it("uses 裁决 for Chinese governance and rejects historical alternatives", () => {

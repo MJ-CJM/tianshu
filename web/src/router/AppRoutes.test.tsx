@@ -8,17 +8,32 @@ import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Outlet, useLocation, useNavigationType } from "react-router-dom";
+import {
+  MemoryRouter,
+  Outlet,
+  useLocation,
+  useNavigationType,
+} from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../components/layout/AppLayout", () => ({ default: () => <Outlet /> }));
-vi.mock("../pages/ControlCenterPage", () => ({ default: () => <h1>中枢总览</h1> }));
+vi.mock("../components/layout/AppLayout", () => ({
+  default: () => <Outlet />,
+}));
+vi.mock("../pages/ControlCenterPage", () => ({
+  default: () => <h1>中枢总览</h1>,
+}));
 vi.mock("../pages/RoyalStudyPage", () => ({ default: () => <h1>御书房</h1> }));
 vi.mock("../pages/TaskListPage", () => ({ default: () => <h1>御书房</h1> }));
-vi.mock("../pages/OnboardingPage", () => ({ default: () => <h1>初启中枢</h1> }));
-vi.mock("../pages/EvolutionCenterPage", () => ({ default: () => <h1>演化中心</h1> }));
+vi.mock("../pages/OnboardingPage", () => ({
+  default: () => <h1>初启中枢</h1>,
+}));
+vi.mock("../pages/EvolutionCenterPage", () => ({
+  default: () => <h1>演化中心</h1>,
+}));
 vi.mock("../pages/UniversePage", () => ({ default: () => <h1>位面</h1> }));
-vi.mock("../pages/NotFoundPage", () => ({ default: () => <h1>未找到页面</h1> }));
+vi.mock("../pages/NotFoundPage", () => ({
+  default: () => <h1>未找到页面</h1>,
+}));
 const onboardingApi = vi.hoisted(() => ({ getOnboardingState: vi.fn() }));
 vi.mock("../api/onboarding", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/onboarding")>()),
@@ -76,7 +91,9 @@ describe("desktop application routes", () => {
     renderAppRoutes("/");
 
     expect(await screen.findByText("/control:REPLACE")).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "中枢总览" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "中枢总览" }),
+    ).toBeInTheDocument();
   });
 
   it("replaces an authoritatively fresh root entry with onboarding", async () => {
@@ -90,7 +107,9 @@ describe("desktop application routes", () => {
     renderAppRoutes("/");
 
     expect(await screen.findByText("/onboarding:REPLACE")).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "初启中枢" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "初启中枢" }),
+    ).toBeInTheDocument();
   });
 
   it("keeps a root readiness failure in service-unavailable", async () => {
@@ -105,7 +124,9 @@ describe("desktop application routes", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("服务暂不可用");
     expect(screen.getByText("/:POP")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "中枢总览" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "中枢总览" }),
+    ).not.toBeInTheDocument();
   });
 
   it("does not redirect from cached onboarding data when the current refresh fails", async () => {
@@ -168,33 +189,46 @@ describe("desktop application routes", () => {
   it("keeps approvals as the canonical Royal Study route", async () => {
     renderAppRoutes("/approvals");
 
-    expect(await screen.findByRole("heading", { name: "御书房" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "御书房" }),
+    ).toBeInTheDocument();
   });
 
   it("keeps the legacy all-tasks route compatible with the workspace", async () => {
     renderAppRoutes("/edicts");
 
-    expect(await screen.findByRole("heading", { name: "御书房" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "御书房" }),
+    ).toBeInTheDocument();
   });
 
   it("routes Evolution Center separately without replacing Universes", async () => {
     const evolution = renderAppRoutes("/evolution");
-    expect(await screen.findByRole("heading", { name: "演化中心" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "演化中心" }),
+    ).toBeInTheDocument();
     evolution.unmount();
 
     renderAppRoutes("/universes");
-    expect(await screen.findByRole("heading", { name: "位面" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "位面" }),
+    ).toBeInTheDocument();
   });
 
   it("renders a clear not-found page for unknown routes", async () => {
     renderAppRoutes("/does-not-exist");
 
-    expect(await screen.findByRole("heading", { name: "未找到页面" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "未找到页面" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("/does-not-exist:POP")).toBeInTheDocument();
   });
 
   it("loads every page module through a route-level lazy boundary", () => {
-    const source = readFileSync(resolve(process.cwd(), "src/router/AppRoutes.tsx"), "utf8");
+    const source = readFileSync(
+      resolve(process.cwd(), "src/router/AppRoutes.tsx"),
+      "utf8",
+    );
     const pageModules = [
       "ControlCenterPage",
       "RoyalStudyPage",
@@ -231,12 +265,16 @@ describe("desktop application routes", () => {
 
   it("turns a rejected dynamic import into a retryable service state", async () => {
     const onRetry = vi.fn();
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     const privateChunkUrl =
       "https://cdn.example/private/chunk.js?token=chunk-secret";
     const FailedChunk = lazy(() =>
       Promise.reject(
-        new TypeError(`Failed to fetch dynamically imported module: ${privateChunkUrl}`),
+        new TypeError(
+          `Failed to fetch dynamically imported module: ${privateChunkUrl}`,
+        ),
       ),
     );
 
@@ -259,7 +297,9 @@ describe("desktop application routes", () => {
 
   it("masks an unexpected render failure and logs the original error internally", async () => {
     const onRetry = vi.fn();
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     const secret = "postgres://admin:super-secret@db.internal/prod";
     function BrokenPage(): never {
       throw new Error(`page render exploded: ${secret}`);
@@ -273,7 +313,9 @@ describe("desktop application routes", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("请求失败");
     expect(screen.getByRole("alert")).toHaveTextContent("页面发生异常，请重试");
-    expect(screen.getByRole("alert")).not.toHaveTextContent("page render exploded");
+    expect(screen.getByRole("alert")).not.toHaveTextContent(
+      "page render exploded",
+    );
     expect(screen.getByRole("alert")).not.toHaveTextContent(secret);
     expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
     expect(consoleError).toHaveBeenCalledWith(

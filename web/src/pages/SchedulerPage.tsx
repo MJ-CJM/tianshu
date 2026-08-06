@@ -97,13 +97,24 @@ function editValues(job: SchedulerJob): EditValues {
     return { mode: "interval", interval_seconds: job.interval_seconds ?? 3600 };
   }
   const parts = (job.cron_expr ?? "").trim().split(/\s+/);
-  if (parts.length === 5 && /^\d+$/.test(parts[0]!) && /^\d+$/.test(parts[1]!)) {
-    const time = dayjs().hour(Number(parts[1])).minute(Number(parts[0])).second(0);
+  if (
+    parts.length === 5 &&
+    /^\d+$/.test(parts[0]!) &&
+    /^\d+$/.test(parts[1]!)
+  ) {
+    const time = dayjs()
+      .hour(Number(parts[1]))
+      .minute(Number(parts[0]))
+      .second(0);
     if (parts[2] === "*" && parts[3] === "*" && parts[4] === "*") {
       return { mode: "daily", time };
     }
     if (parts[2] === "*" && parts[3] === "*" && /^[0-7]$/.test(parts[4]!)) {
-      return { mode: "weekly", time, weekday: parts[4] === "7" ? 0 : Number(parts[4]) };
+      return {
+        mode: "weekly",
+        time,
+        weekday: parts[4] === "7" ? 0 : Number(parts[4]),
+      };
     }
   }
   return { mode: "custom", cron: job.cron_expr ?? "" };
@@ -127,7 +138,11 @@ export default function SchedulerPage() {
   const runMutation = useRunJobNow();
   const updateMutation = useUpdateJob();
 
-  const notify = async (action: () => Promise<unknown>, success: string, failure: string) => {
+  const notify = async (
+    action: () => Promise<unknown>,
+    success: string,
+    failure: string,
+  ) => {
     try {
       await action();
       message.success(success);
@@ -163,7 +178,9 @@ export default function SchedulerPage() {
       setHistory(result.data ?? []);
     } catch (cause) {
       setHistoryError(
-        cause instanceof Error ? cause : new Error(t("scheduler.toast.historyFailed")),
+        cause instanceof Error
+          ? cause
+          : new Error(t("scheduler.toast.historyFailed")),
       );
       message.error(t("scheduler.toast.historyFailed"));
     } finally {
@@ -179,14 +196,19 @@ export default function SchedulerPage() {
   const openEdit = (job: SchedulerJob) => {
     const values = editValues(job);
     setEditing(job);
-    setAdvancedScheduleOpen(values.mode === "interval" || values.mode === "custom");
+    setAdvancedScheduleOpen(
+      values.mode === "interval" || values.mode === "custom",
+    );
     editForm.setFieldsValue(values);
   };
 
   const saveEdit = async () => {
     if (!editing) return;
     const values = await editForm.validateFields();
-    const timezone = editing.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    const timezone =
+      editing.timezone ||
+      Intl.DateTimeFormat().resolvedOptions().timeZone ||
+      "UTC";
     let schedule: EdictSchedule;
     if (values.mode === "once") {
       schedule = {
@@ -282,7 +304,9 @@ export default function SchedulerPage() {
       render: (run: SchedulerRun | null) =>
         run ? (
           <Space size={4}>
-            <Tag>{t(`scheduler.runStatus.${run.execution_status ?? run.status}`)}</Tag>
+            <Tag>
+              {t(`scheduler.runStatus.${run.execution_status ?? run.status}`)}
+            </Tag>
             <span>{formatTime(run.started_at)}</span>
           </Space>
         ) : (
@@ -332,7 +356,8 @@ export default function SchedulerPage() {
                   key: "run",
                   icon: <ThunderboltOutlined />,
                   label: t("scheduler.action.runNow"),
-                  disabled: record.status === "failed" || record.status === "completed",
+                  disabled:
+                    record.status === "failed" || record.status === "completed",
                   onClick: () =>
                     notify(
                       () => runMutation.mutateAsync(record.job_id),
@@ -344,7 +369,8 @@ export default function SchedulerPage() {
                   key: "edit",
                   icon: <EditOutlined />,
                   label: t("scheduler.action.edit"),
-                  disabled: record.status === "failed" || record.status === "completed",
+                  disabled:
+                    record.status === "failed" || record.status === "completed",
                   onClick: () => openEdit(record),
                 },
                 {
@@ -364,7 +390,11 @@ export default function SchedulerPage() {
               ],
             }}
           >
-            <Button size="small" icon={<MoreOutlined />} aria-label={t("scheduler.action.more")} />
+            <Button
+              size="small"
+              icon={<MoreOutlined />}
+              aria-label={t("scheduler.action.more")}
+            />
           </Dropdown>
         </Space>
       ),
@@ -395,7 +425,9 @@ export default function SchedulerPage() {
           showIcon
           message={t("scheduler.loadFailed")}
           description={error instanceof Error ? error.message : undefined}
-          action={<Button onClick={() => refetch()}>{t("action.retry")}</Button>}
+          action={
+            <Button onClick={() => refetch()}>{t("action.retry")}</Button>
+          }
           style={{ marginBottom: 16 }}
         />
       )}
@@ -442,7 +474,11 @@ export default function SchedulerPage() {
                   validator: (_, value: Dayjs | undefined) =>
                     !value || value.isAfter(dayjs())
                       ? Promise.resolve()
-                      : Promise.reject(new Error(t("form.edict.validation.scheduleAtFuture"))),
+                      : Promise.reject(
+                          new Error(
+                            t("form.edict.validation.scheduleAtFuture"),
+                          ),
+                        ),
                 },
               ]}
             >
@@ -455,12 +491,19 @@ export default function SchedulerPage() {
             </Form.Item>
           )}
           {(editMode === "daily" || editMode === "weekly") && (
-            <Form.Item name="time" label={t("form.edict.field.repeatTime")} rules={[{ required: true }]}>
+            <Form.Item
+              name="time"
+              label={t("form.edict.field.repeatTime")}
+              rules={[{ required: true }]}
+            >
               <TimePicker format="HH:mm" style={{ width: "100%" }} />
             </Form.Item>
           )}
           {editMode === "weekly" && (
-            <Form.Item name="weekday" label={t("form.edict.field.repeatWeekday")}>
+            <Form.Item
+              name="weekday"
+              label={t("form.edict.field.repeatWeekday")}
+            >
               <Select
                 options={[1, 2, 3, 4, 5, 6, 0].map((value) => ({
                   value,
@@ -492,8 +535,14 @@ export default function SchedulerPage() {
                       }
                       optionType="button"
                       options={[
-                        { value: "interval", label: t("scheduler.edit.interval") },
-                        { value: "custom", label: t("form.edict.option.repeatCustom") },
+                        {
+                          value: "interval",
+                          label: t("scheduler.edit.interval"),
+                        },
+                        {
+                          value: "custom",
+                          label: t("form.edict.option.repeatCustom"),
+                        },
                       ]}
                       style={{ marginBottom: 16 }}
                     />
@@ -512,7 +561,9 @@ export default function SchedulerPage() {
                         label={t("form.edict.field.customCron")}
                         rules={[{ required: true }]}
                       >
-                        <Input placeholder={t("form.edict.placeholder.cronExpr")} />
+                        <Input
+                          placeholder={t("form.edict.placeholder.cronExpr")}
+                        />
                       </Form.Item>
                     )}
                   </>
@@ -537,7 +588,9 @@ export default function SchedulerPage() {
             message={t("scheduler.toast.historyFailed")}
             description={historyError.message}
             action={
-              <Button onClick={() => historyJob && void loadHistory(historyJob)}>
+              <Button
+                onClick={() => historyJob && void loadHistory(historyJob)}
+              >
                 {t("action.retry")}
               </Button>
             }
@@ -558,7 +611,9 @@ export default function SchedulerPage() {
                 title: t("scheduler.table.status"),
                 dataIndex: "status",
                 render: (value: string, run) => (
-                  <Tag>{t(`scheduler.runStatus.${run.execution_status ?? value}`)}</Tag>
+                  <Tag>
+                    {t(`scheduler.runStatus.${run.execution_status ?? value}`)}
+                  </Tag>
                 ),
               },
               {

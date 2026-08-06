@@ -9,7 +9,9 @@ export interface EngineStatus {
 }
 
 export async function getEngineStatus(): Promise<EngineStatus> {
-  const { data } = await apiClient.get<EngineStatus>("/hongluisi/engine-status");
+  const { data } = await apiClient.get<EngineStatus>(
+    "/hongluisi/engine-status",
+  );
   return data;
 }
 

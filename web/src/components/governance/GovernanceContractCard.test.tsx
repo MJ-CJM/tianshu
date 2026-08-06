@@ -16,15 +16,27 @@ describe("GovernanceContractCard", () => {
         requestedExecutor="codex"
         effectiveExecutor="codex-managed"
         capabilities={[
-          { id: "workspace_control", label: "工作区控制", requested: "mandatory", effective: "enforced" },
-          { id: "network_control", label: "网络边界", requested: "mandatory", effective: "unsupported" },
+          {
+            id: "workspace_control",
+            label: "工作区控制",
+            requested: "mandatory",
+            effective: "enforced",
+          },
+          {
+            id: "network_control",
+            label: "网络边界",
+            requested: "mandatory",
+            effective: "unsupported",
+          },
         ]}
         mandatoryMismatches={["网络边界不可强制"]}
         advisoryGaps={["缺少预运行恢复点"]}
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "治理契约" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "治理契约" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("网络边界不可强制")).toBeInTheDocument();
     expect(screen.getByText("缺少预运行恢复点")).toBeInTheDocument();
     expect(screen.getByText("不支持")).toBeInTheDocument();
@@ -37,13 +49,48 @@ describe("GovernanceContractCard", () => {
         requestedExecutor="claude-cli"
         effectiveExecutor="claude-cli-contained"
         capabilities={[
-          { id: "action_interception", label: "启动边界", requested: "mandatory", effective: "enforced" },
-          { id: "decision_bridge", label: "逐工具裁决", requested: "mandatory", effective: "enforced" },
-          { id: "budget_enforcement", label: "硬成本上限", requested: "mandatory", effective: "enforced" },
-          { id: "workspace_control", label: "工作区控制", requested: "mandatory", effective: "enforced" },
-          { id: "network_control", label: "网络边界", requested: "mandatory", effective: "best_effort" },
-          { id: "governed_apply_merge", label: "受治理应用", requested: "advisory", effective: "observed" },
-          { id: "pause", label: "暂停控制", requested: "advisory", effective: "unsupported" },
+          {
+            id: "action_interception",
+            label: "启动边界",
+            requested: "mandatory",
+            effective: "enforced",
+          },
+          {
+            id: "decision_bridge",
+            label: "逐工具裁决",
+            requested: "mandatory",
+            effective: "enforced",
+          },
+          {
+            id: "budget_enforcement",
+            label: "硬成本上限",
+            requested: "mandatory",
+            effective: "enforced",
+          },
+          {
+            id: "workspace_control",
+            label: "工作区控制",
+            requested: "mandatory",
+            effective: "enforced",
+          },
+          {
+            id: "network_control",
+            label: "网络边界",
+            requested: "mandatory",
+            effective: "best_effort",
+          },
+          {
+            id: "governed_apply_merge",
+            label: "受治理应用",
+            requested: "advisory",
+            effective: "observed",
+          },
+          {
+            id: "pause",
+            label: "暂停控制",
+            requested: "advisory",
+            effective: "unsupported",
+          },
         ]}
         mandatoryMismatches={[]}
         advisoryGaps={[]}
@@ -57,6 +104,8 @@ describe("GovernanceContractCard", () => {
     expect(screen.getByText("网络边界")).toBeInTheDocument();
     expect(screen.getByText("工作区控制")).toBeInTheDocument();
     expect(screen.getByText("受治理应用")).toBeInTheDocument();
-    expect(screen.getByText("仅展示可验证的容器边界，不承诺托管级控制。")).toBeInTheDocument();
+    expect(
+      screen.getByText("仅展示可验证的容器边界，不承诺托管级控制。"),
+    ).toBeInTheDocument();
   });
 });

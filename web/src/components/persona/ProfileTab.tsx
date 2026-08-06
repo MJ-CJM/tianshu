@@ -12,10 +12,7 @@ import {
   Input,
   notification,
 } from "antd";
-import {
-  ReloadOutlined,
-  EditOutlined,
-} from "@ant-design/icons";
+import { ReloadOutlined, EditOutlined } from "@ant-design/icons";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { usePersonaProfile } from "../../hooks/usePersonaProfile";
@@ -88,13 +85,21 @@ export default function ProfileTab({ personaId }: Props) {
         if (terminal) break;
       }
       if (terminal === "profile.synthesis.completed") {
-        notification.success({ message: t("comp.profile.toast.synthesisCompleted") });
+        notification.success({
+          message: t("comp.profile.toast.synthesisCompleted"),
+        });
       } else if (terminal === "profile.synthesis.degraded") {
-        notification.warning({ message: t("comp.profile.toast.synthesisDegraded") });
+        notification.warning({
+          message: t("comp.profile.toast.synthesisDegraded"),
+        });
       } else if (terminal === "profile.synthesis.failed") {
-        notification.error({ message: t("comp.profile.toast.synthesisFailed") });
+        notification.error({
+          message: t("comp.profile.toast.synthesisFailed"),
+        });
       } else if (terminal === "profile.synthesis.skipped") {
-        notification.info({ message: t("comp.profile.toast.synthesisSkipped") });
+        notification.info({
+          message: t("comp.profile.toast.synthesisSkipped"),
+        });
       }
       await qc.invalidateQueries({
         queryKey: ["persona", "profile", personaId],
@@ -164,10 +169,7 @@ export default function ProfileTab({ personaId }: Props) {
 
   if (!data?.exists) {
     return (
-      <Empty
-        description={t("comp.profile.empty")}
-        style={{ padding: 48 }}
-      >
+      <Empty description={t("comp.profile.empty")} style={{ padding: 48 }}>
         <Button
           type="primary"
           icon={<ReloadOutlined spin={syncing} />}
@@ -213,12 +215,18 @@ export default function ProfileTab({ personaId }: Props) {
         {fm && <Tag color="blue">v{fm.version}</Tag>}
         {fm?.data_window && <Tag>window {fm.data_window}</Tag>}
         {fm?.last_synthesized && (
-          <Tag color="default">{t("comp.profile.synthesizedAt", { date: fm.last_synthesized.slice(0, 10) })}</Tag>
+          <Tag color="default">
+            {t("comp.profile.synthesizedAt", {
+              date: fm.last_synthesized.slice(0, 10),
+            })}
+          </Tag>
         )}
         {fm?.synthesizer_model && (
           <Tag color="purple">{fm.synthesizer_model}</Tag>
         )}
-        {fm?.manually_edited && <Tag color="cyan">{t("comp.profile.userEdited")}</Tag>}
+        {fm?.manually_edited && (
+          <Tag color="cyan">{t("comp.profile.userEdited")}</Tag>
+        )}
         {degraded && <Tag color="warning">{t("comp.profile.degraded")}</Tag>}
       </Space>
 

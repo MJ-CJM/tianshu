@@ -26,7 +26,8 @@ export default function NetworkCapabilitySection(props: Props) {
   );
   const [credHosts, setCredHosts] = useState<string[]>([]);
   const [credentialsLoading, setCredentialsLoading] = useState(true);
-  const [credentialsProblem, setCredentialsProblem] = useState<ApiProblem | null>(null);
+  const [credentialsProblem, setCredentialsProblem] =
+    useState<ApiProblem | null>(null);
 
   const loadCredentials = useCallback(() => {
     setCredentialsLoading(true);
@@ -71,12 +72,22 @@ export default function NetworkCapabilitySection(props: Props) {
   }
 
   return (
-    <Card size="small" title={t("comp.network.title")} style={{ marginTop: 16 }}>
+    <Card
+      size="small"
+      title={t("comp.network.title")}
+      style={{ marginTop: 16 }}
+    >
       <Space direction="vertical" style={{ width: "100%" }}>
         <Tooltip title={disabled ? t("comp.network.tooltipDisabled") : ""}>
           <div>
             <Text strong>{t("comp.network.allowedHosts")}</Text>
-            <div style={{ color: "var(--ts-color-text-secondary)", fontSize: 12, marginBottom: 4 }}>
+            <div
+              style={{
+                color: "var(--ts-color-text-secondary)",
+                fontSize: 12,
+                marginBottom: 4,
+              }}
+            >
               {t("comp.network.allowedHostsDesc")}
             </div>
             <Select

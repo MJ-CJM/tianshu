@@ -6,17 +6,28 @@ interface ConnectionIndicatorProps {
   isConnected: boolean;
 }
 
-export default function ConnectionIndicator({ isConnected }: ConnectionIndicatorProps) {
+export default function ConnectionIndicator({
+  isConnected,
+}: ConnectionIndicatorProps) {
   const t = useT();
-  const color = isConnected ? "var(--ts-color-success)" : "var(--ts-color-error)";
-  const title = isConnected ? t("comp.connection.onlineTitle") : t("comp.connection.offlineTitle");
+  const color = isConnected
+    ? "var(--ts-color-success)"
+    : "var(--ts-color-error)";
+  const title = isConnected
+    ? t("comp.connection.onlineTitle")
+    : t("comp.connection.offlineTitle");
 
   return (
     <Tooltip title={title}>
       <span
         role="status"
         aria-label={title}
-        style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 8 }}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          marginRight: 8,
+        }}
       >
         <span
           style={{

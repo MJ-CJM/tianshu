@@ -4,9 +4,11 @@ import {
   createConfig,
   deleteConfig,
   getAgentConfig,
+  getWorkspaceDir,
   getConfig,
   listConfigs,
   updateAgentConfig,
+  updateWorkspaceDir,
   updateConfig,
   updateNamedConfig,
 } from "../api/config";
@@ -18,6 +20,23 @@ import type {
 
 const CONFIGS_KEY = ["configs"];
 const AGENT_CONFIG_KEY = ["agent-config"];
+const WORKSPACE_DIR_KEY = ["workspace-dir"];
+
+// --- Workspace 全局边界 ---
+
+export function useWorkspaceDir() {
+  return useQuery({ queryKey: WORKSPACE_DIR_KEY, queryFn: getWorkspaceDir });
+}
+
+export function useUpdateWorkspaceDir() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (dir: string) => updateWorkspaceDir(dir),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: WORKSPACE_DIR_KEY });
+    },
+  });
+}
 
 // --- Agent Config ---
 
@@ -80,8 +99,13 @@ export function useCreateConfig() {
 export function useUpdateNamedConfig() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ name, req }: { name: string; req: LLMConfigUpdateRequest }) =>
-      updateNamedConfig(name, req),
+    mutationFn: ({
+      name,
+      req,
+    }: {
+      name: string;
+      req: LLMConfigUpdateRequest;
+    }) => updateNamedConfig(name, req),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: CONFIGS_KEY });
     },

@@ -64,7 +64,10 @@ function buildLineage(rows: Universe[]): DataNode[] {
   rows.forEach((u) => {
     // 父位面被硬删除后 parent_universe_id 会指向不存在的 id：
     // 此时当作伪根渲染，避免整棵子树从谱系树消失（但仍在表格中列出）
-    const k = u.parent_universe_id && ids.has(u.parent_universe_id) ? u.parent_universe_id : null;
+    const k =
+      u.parent_universe_id && ids.has(u.parent_universe_id)
+        ? u.parent_universe_id
+        : null;
     byParent.set(k, [...(byParent.get(k) ?? []), u]);
   });
   const toNode = (u: Universe): DataNode => ({
@@ -121,7 +124,8 @@ export default function UniversePage() {
         getUniverseStatus(),
       ]);
       if (listRes.success && listRes.data) setRows(listRes.data);
-      if (statusRes.success && statusRes.data) setEnabled(statusRes.data.enabled);
+      if (statusRes.success && statusRes.data)
+        setEnabled(statusRes.data.enabled);
     } finally {
       setLoading(false);
     }
@@ -235,7 +239,10 @@ export default function UniversePage() {
     }
     setProposing(true);
     try {
-      const res = await proposeCodeVariant(proposeTargetPath, proposeHypothesis);
+      const res = await proposeCodeVariant(
+        proposeTargetPath,
+        proposeHypothesis,
+      );
       if (!res.success || !res.data) {
         void message.error("提案失败");
         return;
@@ -244,7 +251,9 @@ export default function UniversePage() {
       const status = d.status as string;
       const detail = d.detail as string | undefined;
       if (status === "disabled") {
-        void message.warning("代码变体功能未开启（code_variant_enabled=False）");
+        void message.warning(
+          "代码变体功能未开启（code_variant_enabled=False）",
+        );
       } else if (status === "no_champion") {
         void message.warning("无冠军位面");
       } else if (status === "no_mutation") {
@@ -337,7 +346,9 @@ export default function UniversePage() {
       if (skipped) {
         void message.info(`跳过:${skipped}`);
       } else {
-        void message.success(`已提案 ${(d.proposed as number | undefined) ?? 0} 个`);
+        void message.success(
+          `已提案 ${(d.proposed as number | undefined) ?? 0} 个`,
+        );
       }
       void load();
     } finally {
@@ -423,17 +434,31 @@ export default function UniversePage() {
             <Space>
               {u.status === "challenger" && (
                 <>
-                  <Button size="small" onClick={() => void onShowDiff(u)}>代码Diff</Button>
-                  <Button size="small" onClick={() => void onShowEvalRuns(u)}>评估记录</Button>
-                  <Button size="small" danger onClick={() => void onArchive(u)}>归档</Button>
-                  <Button size="small" danger onClick={() => onDelete(u)}>删除</Button>
+                  <Button size="small" onClick={() => void onShowDiff(u)}>
+                    代码Diff
+                  </Button>
+                  <Button size="small" onClick={() => void onShowEvalRuns(u)}>
+                    评估记录
+                  </Button>
+                  <Button size="small" danger onClick={() => void onArchive(u)}>
+                    归档
+                  </Button>
+                  <Button size="small" danger onClick={() => onDelete(u)}>
+                    删除
+                  </Button>
                 </>
               )}
               {u.status === "archived" && (
                 <>
-                  <Button size="small" onClick={() => void onRestore(u)}>恢复</Button>
-                  <Button size="small" onClick={() => void onShowEvalRuns(u)}>评估记录</Button>
-                  <Button size="small" danger onClick={() => onDelete(u)}>删除</Button>
+                  <Button size="small" onClick={() => void onRestore(u)}>
+                    恢复
+                  </Button>
+                  <Button size="small" onClick={() => void onShowEvalRuns(u)}>
+                    评估记录
+                  </Button>
+                  <Button size="small" danger onClick={() => onDelete(u)}>
+                    删除
+                  </Button>
                 </>
               )}
             </Space>
@@ -443,7 +468,9 @@ export default function UniversePage() {
         return (
           <Space>
             {u.status !== "archived" && (
-              <Button size="small" onClick={() => onBranch(u)}>分支</Button>
+              <Button size="small" onClick={() => onBranch(u)}>
+                分支
+              </Button>
             )}
             {u.status === "challenger" && (
               <Button size="small" danger onClick={() => void onArchive(u)}>
@@ -456,10 +483,14 @@ export default function UniversePage() {
               </Button>
             )}
             {u.status === "archived" && (
-              <Button size="small" onClick={() => void onRestore(u)}>恢复</Button>
+              <Button size="small" onClick={() => void onRestore(u)}>
+                恢复
+              </Button>
             )}
             {u.status === "archived" && (
-              <Button size="small" danger onClick={() => onDelete(u)}>删除</Button>
+              <Button size="small" danger onClick={() => onDelete(u)}>
+                删除
+              </Button>
             )}
           </Space>
         );
@@ -474,17 +505,17 @@ export default function UniversePage() {
       extra={
         <Space>
           {!enabled && (
-            <Button type="primary" loading={enabling} onClick={() => void onEnable()}>
+            <Button
+              type="primary"
+              loading={enabling}
+              onClick={() => void onEnable()}
+            >
               开启平行位面
             </Button>
           )}
           {enabled && (
             <>
-              <Button
-                onClick={() => setProposeOpen(true)}
-              >
-                代码演化
-              </Button>
+              <Button onClick={() => setProposeOpen(true)}>代码演化</Button>
               <Button
                 loading={autoProposing}
                 onClick={() => void onProposeAuto()}
@@ -522,14 +553,19 @@ export default function UniversePage() {
         size="small"
         title="太医奏折"
         extra={
-          <Button loading={taiyiGenerating} onClick={() => void onGenerateTaiyi()}>
+          <Button
+            loading={taiyiGenerating}
+            onClick={() => void onGenerateTaiyi()}
+          >
             {taiyiState?.status === "ready" ? "重新巡诊" : "生成奏折"}
           </Button>
         }
         style={{ marginBottom: 16 }}
       >
         {taiyiLoading && !taiyiState ? (
-          <Typography.Text type="secondary">正在读取最近奏折...</Typography.Text>
+          <Typography.Text type="secondary">
+            正在读取最近奏折...
+          </Typography.Text>
         ) : taiyiState?.status === "ready" && taiyiState.report ? (
           <Space direction="vertical" size="small">
             <Typography.Text>{taiyiState.report.summary}</Typography.Text>
@@ -544,14 +580,17 @@ export default function UniversePage() {
             )}
             {taiyiState.generated_at && (
               <Typography.Text type="secondary">
-                生成于 {new Date(taiyiState.generated_at).toLocaleString("zh-CN")}
+                生成于{" "}
+                {new Date(taiyiState.generated_at).toLocaleString("zh-CN")}
               </Typography.Text>
             )}
           </Space>
         ) : (
           <Space direction="vertical" size={0}>
             <Typography.Text>尚未生成太医奏折</Typography.Text>
-            <Typography.Text type="secondary">仅点击“生成奏折”时才会调用模型。</Typography.Text>
+            <Typography.Text type="secondary">
+              仅点击“生成奏折”时才会调用模型。
+            </Typography.Text>
           </Space>
         )}
       </Card>
@@ -565,7 +604,9 @@ export default function UniversePage() {
       {!loading && rows.length === 0 ? (
         <Card size="small" style={{ textAlign: "center" }}>
           <Typography.Text>
-            {enabled ? "暂无位面" : "平行位面未开启，点击「开启平行位面」按钮开始"}
+            {enabled
+              ? "暂无位面"
+              : "平行位面未开启，点击「开启平行位面」按钮开始"}
           </Typography.Text>
         </Card>
       ) : (
@@ -583,7 +624,10 @@ export default function UniversePage() {
       <Modal
         title="代码演化"
         open={proposeOpen}
-        onCancel={() => { setProposeOpen(false); setProposeHypothesis(""); }}
+        onCancel={() => {
+          setProposeOpen(false);
+          setProposeHypothesis("");
+        }}
         onOk={() => void onPropose()}
         confirmLoading={proposing}
         okText="提交"
@@ -621,7 +665,14 @@ export default function UniversePage() {
         {diffLoading ? (
           <div>加载中...</div>
         ) : (
-          <pre style={{ fontFamily: "monospace", fontSize: 12, whiteSpace: "pre-wrap", overflowX: "auto" }}>
+          <pre
+            style={{
+              fontFamily: "monospace",
+              fontSize: 12,
+              whiteSpace: "pre-wrap",
+              overflowX: "auto",
+            }}
+          >
             {diffContent || "无差异"}
           </pre>
         )}
@@ -645,7 +696,6 @@ export default function UniversePage() {
           locale={{ emptyText: "暂无评估记录" }}
         />
       </Modal>
-
     </PageContainer>
   );
 }

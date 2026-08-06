@@ -28,34 +28,103 @@ import { useT, type TFunction } from "../../i18n";
 import type { ReactNode } from "react";
 
 const EVENT_VISUALS: Record<string, { color: string; icon: ReactNode }> = {
-  "edict.submitted": { color: "var(--ts-color-warning)", icon: <SendOutlined /> },
-  "execution.started": { color: "var(--ts-color-info)", icon: <SyncOutlined spin /> },
-  "execution.completed": { color: "var(--ts-color-success)", icon: <CheckCircleOutlined /> },
-  "execution.failed": { color: "var(--ts-color-error)", icon: <CloseCircleOutlined /> },
-  "execution.cancelled": { color: "var(--ts-status-cancelled)", icon: <CloseCircleOutlined /> },
-  "iteration.started": { color: "var(--ts-color-info)", icon: <SyncOutlined spin /> },
+  "edict.submitted": {
+    color: "var(--ts-color-warning)",
+    icon: <SendOutlined />,
+  },
+  "execution.started": {
+    color: "var(--ts-color-info)",
+    icon: <SyncOutlined spin />,
+  },
+  "execution.completed": {
+    color: "var(--ts-color-success)",
+    icon: <CheckCircleOutlined />,
+  },
+  "execution.failed": {
+    color: "var(--ts-color-error)",
+    icon: <CloseCircleOutlined />,
+  },
+  "execution.cancelled": {
+    color: "var(--ts-status-cancelled)",
+    icon: <CloseCircleOutlined />,
+  },
+  "iteration.started": {
+    color: "var(--ts-color-info)",
+    icon: <SyncOutlined spin />,
+  },
   "tool.completed": { color: "var(--ts-color-info)", icon: <ToolOutlined /> },
-  "tool.failed": { color: "var(--ts-color-error)", icon: <ExclamationCircleOutlined /> },
-  "followup.submitted": { color: "var(--ts-status-planning)", icon: <PlusCircleOutlined /> },
+  "tool.failed": {
+    color: "var(--ts-color-error)",
+    icon: <ExclamationCircleOutlined />,
+  },
+  "followup.submitted": {
+    color: "var(--ts-status-planning)",
+    icon: <PlusCircleOutlined />,
+  },
   "edict.updated": { color: "var(--ts-color-warning)", icon: <SendOutlined /> },
   "edict.closed": { color: "var(--ts-color-success)", icon: <StopOutlined /> },
-  "edict.scheduled": { color: "var(--ts-color-warning)", icon: <ScheduleOutlined /> },
-  "plan.completed": { color: "var(--ts-status-planning)", icon: <BulbOutlined /> },
-  "plan.pending_review": { color: "var(--ts-color-warning)", icon: <ExclamationCircleOutlined /> },
-  "plan.approved": { color: "var(--ts-color-success)", icon: <CheckCircleOutlined /> },
-  "plan.rejected": { color: "var(--ts-color-error)", icon: <CloseCircleOutlined /> },
-  "audit.completed": { color: "var(--ts-status-auditing)", icon: <SafetyCertificateOutlined /> },
-  "decree.approved": { color: "var(--ts-color-success)", icon: <CheckCircleOutlined /> },
-  "decree.rejected": { color: "var(--ts-color-error)", icon: <CloseCircleOutlined /> },
+  "edict.scheduled": {
+    color: "var(--ts-color-warning)",
+    icon: <ScheduleOutlined />,
+  },
+  "plan.completed": {
+    color: "var(--ts-status-planning)",
+    icon: <BulbOutlined />,
+  },
+  "plan.pending_review": {
+    color: "var(--ts-color-warning)",
+    icon: <ExclamationCircleOutlined />,
+  },
+  "plan.approved": {
+    color: "var(--ts-color-success)",
+    icon: <CheckCircleOutlined />,
+  },
+  "plan.rejected": {
+    color: "var(--ts-color-error)",
+    icon: <CloseCircleOutlined />,
+  },
+  "audit.completed": {
+    color: "var(--ts-status-auditing)",
+    icon: <SafetyCertificateOutlined />,
+  },
+  "decree.approved": {
+    color: "var(--ts-color-success)",
+    icon: <CheckCircleOutlined />,
+  },
+  "decree.rejected": {
+    color: "var(--ts-color-error)",
+    icon: <CloseCircleOutlined />,
+  },
   "decree.retry": { color: "var(--ts-color-warning)", icon: <RedoOutlined /> },
-  "decree.cancelled": { color: "var(--ts-status-cancelled)", icon: <StopOutlined /> },
+  "decree.cancelled": {
+    color: "var(--ts-status-cancelled)",
+    icon: <StopOutlined />,
+  },
   "tool.blocked": { color: "var(--ts-color-error)", icon: <StopOutlined /> },
-  "edict.audit.executed": { color: "var(--ts-status-auditing)", icon: <AuditOutlined /> },
-  "edict.continuation.injected": { color: "var(--ts-status-planning)", icon: <RollbackOutlined /> },
-  "edict.wind_down.entered": { color: "var(--ts-color-warning)", icon: <WarningOutlined /> },
-  "edict.lifecycle.changed": { color: "var(--ts-color-info)", icon: <SwapOutlined /> },
-  "outer_loop.paused": { color: "var(--ts-color-warning)", icon: <PauseCircleOutlined /> },
-  "outer_loop.resumed": { color: "var(--ts-color-success)", icon: <PlayCircleOutlined /> },
+  "edict.audit.executed": {
+    color: "var(--ts-status-auditing)",
+    icon: <AuditOutlined />,
+  },
+  "edict.continuation.injected": {
+    color: "var(--ts-status-planning)",
+    icon: <RollbackOutlined />,
+  },
+  "edict.wind_down.entered": {
+    color: "var(--ts-color-warning)",
+    icon: <WarningOutlined />,
+  },
+  "edict.lifecycle.changed": {
+    color: "var(--ts-color-info)",
+    icon: <SwapOutlined />,
+  },
+  "outer_loop.paused": {
+    color: "var(--ts-color-warning)",
+    icon: <PauseCircleOutlined />,
+  },
+  "outer_loop.resumed": {
+    color: "var(--ts-color-success)",
+    icon: <PlayCircleOutlined />,
+  },
 };
 
 function eventLabel(t: TFunction, eventType: string): string {
@@ -69,12 +138,16 @@ function getGroupStatus(
 ): { label: string; color: string } | null {
   for (let i = events.length - 1; i >= 0; i--) {
     const et = events[i]!.event_type;
-    if (et === "execution.completed") return { label: t("event.group.status.completed"), color: "success" };
-    if (et === "execution.failed") return { label: t("event.group.status.failed"), color: "error" };
-    if (et === "execution.cancelled") return { label: t("event.group.status.cancelled"), color: "default" };
+    if (et === "execution.completed")
+      return { label: t("event.group.status.completed"), color: "success" };
+    if (et === "execution.failed")
+      return { label: t("event.group.status.failed"), color: "error" };
+    if (et === "execution.cancelled")
+      return { label: t("event.group.status.cancelled"), color: "default" };
   }
   const hasStarted = events.some((e) => e.event_type === "execution.started");
-  if (hasStarted) return { label: t("event.group.status.running"), color: "processing" };
+  if (hasStarted)
+    return { label: t("event.group.status.running"), color: "processing" };
   return null;
 }
 
@@ -135,10 +208,15 @@ function groupEvents(events: EdictEvent[], t: TFunction): EventGroup[] {
   for (const group of groups) {
     const instruction = getGroupInstruction(group.events, t);
     const isFirst = group === groups[0];
-    const prefix = isFirst ? t("event.group.label.initial") : t("event.group.label.followUp");
+    const prefix = isFirst
+      ? t("event.group.label.initial")
+      : t("event.group.label.followUp");
     const truncated =
       instruction.length > 40 ? instruction.slice(0, 40) + "..." : instruction;
-    group.label = group.key === "__edict__" ? t("event.group.label.edictAction") : `${prefix}: ${truncated}`;
+    group.label =
+      group.key === "__edict__"
+        ? t("event.group.label.edictAction")
+        : `${prefix}: ${truncated}`;
     group.status = getGroupStatus(group.events, t);
   }
 
@@ -161,20 +239,27 @@ function renderTimelineItem(
 
   let detail = baseLabel;
   if (
-    (event.event_type === "tool.completed" || event.event_type === "tool.failed") &&
+    (event.event_type === "tool.completed" ||
+      event.event_type === "tool.failed") &&
     toolName
   ) {
     detail = `${baseLabel}: ${toolName}`;
     if (iteration !== undefined) {
       detail += ` (${t("event.detail.iteration")} ${iteration})`;
     }
-  } else if (event.event_type === "iteration.started" && iteration !== undefined) {
+  } else if (
+    event.event_type === "iteration.started" &&
+    iteration !== undefined
+  ) {
     detail = `${baseLabel} #${iteration}`;
   } else if (event.event_type === "edict.wind_down.entered") {
     const field = payload.trigger_field as string | undefined;
     const ratio = payload.usage_ratio as number | undefined;
     const fieldLabel = field ? t(`event.field.${field}`) : "?";
-    const pct = ratio != null ? ` (${t("event.detail.usagePct", { pct: Math.round(ratio * 100) })})` : "";
+    const pct =
+      ratio != null
+        ? ` (${t("event.detail.usagePct", { pct: Math.round(ratio * 100) })})`
+        : "";
     detail = `${baseLabel}：${fieldLabel} ${t("event.detail.dimension")}${pct}`;
   } else if (event.event_type === "edict.lifecycle.changed") {
     const from = payload.from_phase as string | undefined;
@@ -214,7 +299,9 @@ function renderTimelineItem(
           {detail}
         </Typography.Text>
         <br />
-        <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
+        <Typography.Text
+          style={{ color: token.colorTextSecondary, fontSize: 12 }}
+        >
           {formatTime(event.created_at)}
         </Typography.Text>
         {payload && Object.keys(payload).length > 0 && (
@@ -275,17 +362,25 @@ export default function EventTimeline({ events }: EventTimelineProps) {
           {group.label}
         </Typography.Text>
         {group.status && (
-          <Tag color={group.status.color} bordered={false} style={{ marginRight: 0 }}>
+          <Tag
+            color={group.status.color}
+            bordered={false}
+            style={{ marginRight: 0 }}
+          >
             {group.status.label}
           </Tag>
         )}
-        <Typography.Text style={{ color: token.colorTextTertiary, fontSize: 12 }}>
+        <Typography.Text
+          style={{ color: token.colorTextTertiary, fontSize: 12 }}
+        >
           {t("event.group.itemsCount", { n: group.events.length })}
         </Typography.Text>
       </Space>
     ),
     children: (
-      <Timeline items={group.events.map((e) => renderTimelineItem(e, token, t))} />
+      <Timeline
+        items={group.events.map((e) => renderTimelineItem(e, token, t))}
+      />
     ),
   }));
 
@@ -304,7 +399,9 @@ export default function EventTimeline({ events }: EventTimelineProps) {
         <Collapse
           ghost
           activeKey={activeKeys}
-          onChange={(keys) => setActiveKeys(Array.isArray(keys) ? keys : [keys])}
+          onChange={(keys) =>
+            setActiveKeys(Array.isArray(keys) ? keys : [keys])
+          }
           items={collapseItems}
         />
       )}

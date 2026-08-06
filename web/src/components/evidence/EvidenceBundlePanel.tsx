@@ -49,7 +49,10 @@ function StringList({ values }: { values: readonly string[] }) {
   );
 }
 
-export default function EvidenceBundlePanel({ bundle, onReplay }: EvidenceBundlePanelProps) {
+export default function EvidenceBundlePanel({
+  bundle,
+  onReplay,
+}: EvidenceBundlePanelProps) {
   const t = useT();
   return (
     <section aria-labelledby={`evidence-title-${bundle.id}`}>
@@ -60,7 +63,11 @@ export default function EvidenceBundlePanel({ bundle, onReplay }: EvidenceBundle
         <dd>{bundle.version}</dd>
         <dt>{t("evidenceUi.digest")}</dt>
         <dd>
-          {bundle.digest ? <code>{bundle.digest}</code> : t("evidenceUi.digestPending")}
+          {bundle.digest ? (
+            <code>{bundle.digest}</code>
+          ) : (
+            t("evidenceUi.digestPending")
+          )}
         </dd>
       </dl>
       {bundle.status === "closed" && bundle.downloadUrl ? (
@@ -86,7 +93,8 @@ export default function EvidenceBundlePanel({ bundle, onReplay }: EvidenceBundle
         <ul>
           {bundle.artifacts.map((artifact) => (
             <li key={artifact.digest}>
-              <code>{artifact.digest}</code> · {artifact.mediaType} · {artifact.sizeBytes} B
+              <code>{artifact.digest}</code> · {artifact.mediaType} ·{" "}
+              {artifact.sizeBytes} B
             </li>
           ))}
         </ul>
@@ -130,7 +138,9 @@ export default function EvidenceBundlePanel({ bundle, onReplay }: EvidenceBundle
         <div>
           <p>{t("evidenceUi.replayWarning")}</p>
           {onReplay ? (
-            <Button onClick={() => onReplay(bundle.id)}>{t("evidenceUi.replay")}</Button>
+            <Button onClick={() => onReplay(bundle.id)}>
+              {t("evidenceUi.replay")}
+            </Button>
           ) : null}
         </div>
       ) : null}

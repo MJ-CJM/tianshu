@@ -95,8 +95,13 @@ export function useMemoryStats() {
 export function useCompactMemory() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ personaId, maxAgeDays }: { personaId: string; maxAgeDays?: number }) =>
-      compactMemory(personaId, maxAgeDays),
+    mutationFn: ({
+      personaId,
+      maxAgeDays,
+    }: {
+      personaId: string;
+      maxAgeDays?: number;
+    }) => compactMemory(personaId, maxAgeDays),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["memoryStats"] });
     },

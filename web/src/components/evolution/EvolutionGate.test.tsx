@@ -22,15 +22,17 @@ describe("EvolutionGate", () => {
           artifact_hash: "a".repeat(64),
           promotion_allowed: false,
           rollback_state: "ready",
-          gates: [{
-            code: "minimum_samples",
-            status: "failed",
-            blocking: true,
-            current: 18,
-            required: 50,
-            evidence_bundle_id: "evidence:gate-samples",
-            evidence_hash: "b".repeat(64),
-          }],
+          gates: [
+            {
+              code: "minimum_samples",
+              status: "failed",
+              blocking: true,
+              current: 18,
+              required: 50,
+              evidence_bundle_id: "evidence:gate-samples",
+              evidence_hash: "b".repeat(64),
+            },
+          ],
         }}
         routing={{
           candidate_id: "candidate-skill-7",

@@ -24,7 +24,8 @@ describe("EDICT_PRESETS 定义完整性", () => {
       const f = p.fields as Record<string, string>;
       if (f.review_policy) expect(VALID_REVIEW.has(f.review_policy)).toBe(true);
       if (f.executor) expect(VALID_EXECUTOR.has(f.executor)).toBe(true);
-      if (f.execution_profile) expect(VALID_PROFILE.has(f.execution_profile)).toBe(true);
+      if (f.execution_profile)
+        expect(VALID_PROFILE.has(f.execution_profile)).toBe(true);
     }
   });
 

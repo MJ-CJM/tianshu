@@ -2316,7 +2316,13 @@
       "agentRetryLimit": "默认再试上限",
       "agentCostBudget": "默认度支(¥/敕)",
       "agentTokenBudget": "默认字元度支",
-      "unlimited": "空=不限"
+      "unlimited": "空=不限",
+      "workspaceSection": "疆界",
+      "workspaceDir": "衙署所在",
+      "workspaceHelp": "百官平日只得在此境内行走。越界须于官员处另行给凭。改此须重启方验。",
+      "workspacePendingRestart": "已录，重启后方验",
+      "workspaceSaved": "疆界已录",
+      "workspaceFailed": "疆界录入未成"
     },
     "externalCreds": {
       "edictAuthLabel": "Edict 凭证",

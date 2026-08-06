@@ -45,10 +45,12 @@ export default function EdictActivityCard({
     0,
     pendingDecisionCount - pendingToolCalls.length,
   );
-  const hasPendingDecision = pendingDecisionCount > 0 || phase === "needs_review";
-  const borderColor = hasPendingDecision || hasPendingTool
-    ? "var(--ts-color-warning)"
-    : PHASE_COLORS[phase];
+  const hasPendingDecision =
+    pendingDecisionCount > 0 || phase === "needs_review";
+  const borderColor =
+    hasPendingDecision || hasPendingTool
+      ? "var(--ts-color-warning)"
+      : PHASE_COLORS[phase];
 
   return (
     <GlowCard
@@ -58,17 +60,28 @@ export default function EdictActivityCard({
         <Space>
           <span>{edict.title}</span>
           {edict.priority === "urgent" && (
-            <SemanticTag colorVar="var(--ts-color-error)">{t("priority.urgent")}</SemanticTag>
+            <SemanticTag colorVar="var(--ts-color-error)">
+              {t("priority.urgent")}
+            </SemanticTag>
           )}
-          <SemanticTag colorVar={PHASE_COLORS[phase]} solid={phase === "needs_review"}>
+          <SemanticTag
+            colorVar={PHASE_COLORS[phase]}
+            solid={phase === "needs_review"}
+          >
             {PHASE_LABELS[phase]}
           </SemanticTag>
           {hasPendingTool && (
-            <Tag color="orange">{t("comp.edictActivity.pendingTool", { n: pendingToolCalls.length })}</Tag>
+            <Tag color="orange">
+              {t("comp.edictActivity.pendingTool", {
+                n: pendingToolCalls.length,
+              })}
+            </Tag>
           )}
           {otherPendingDecisionCount > 0 && (
             <Tag color="orange">
-              {t("comp.edictActivity.pendingDecision", { n: otherPendingDecisionCount })}
+              {t("comp.edictActivity.pendingDecision", {
+                n: otherPendingDecisionCount,
+              })}
             </Tag>
           )}
           <Typography.Text
@@ -85,7 +98,14 @@ export default function EdictActivityCard({
       onClick={handleClick}
     >
       {hasPendingTool && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            marginBottom: 12,
+          }}
+        >
           {pendingToolCalls.map((p) => (
             <Space key={p.decision_request_id} size={6} wrap>
               <Typography.Text code>{p.tool_name}</Typography.Text>
@@ -106,8 +126,15 @@ export default function EdictActivityCard({
         t={t}
       />
       {(hasPendingDecision || hasPendingTool) && (
-        <div style={{ marginTop: 12 }} onClick={(event) => event.stopPropagation()}>
-          <Button size="small" icon={<ArrowRightOutlined />} onClick={handleClick}>
+        <div
+          style={{ marginTop: 12 }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <Button
+            size="small"
+            icon={<ArrowRightOutlined />}
+            onClick={handleClick}
+          >
             {t("comp.edictActivity.openDecision")}
           </Button>
         </div>
@@ -116,7 +143,9 @@ export default function EdictActivityCard({
         <Typography.Text
           style={{ color: token.colorTextTertiary, fontSize: 12 }}
         >
-          {t("comp.edictActivity.createdAt", { time: formatTime(edict.created_at) })}
+          {t("comp.edictActivity.createdAt", {
+            time: formatTime(edict.created_at),
+          })}
         </Typography.Text>
       </div>
     </GlowCard>
@@ -181,7 +210,11 @@ function PhaseContent({
             {memorial.audit.reasons.map((r, i) => (
               <div
                 key={i}
-                style={{ fontSize: 12, color: token.colorWarning, marginTop: 2 }}
+                style={{
+                  fontSize: 12,
+                  color: token.colorWarning,
+                  marginTop: 2,
+                }}
               >
                 {r}
               </div>
@@ -204,7 +237,9 @@ function PhaseContent({
         </Typography.Paragraph>
       )}
       {!memorial.summary && memorial.instruction && (
-        <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 13 }}>
+        <Typography.Text
+          style={{ color: token.colorTextSecondary, fontSize: 13 }}
+        >
           {memorial.instruction}
         </Typography.Text>
       )}

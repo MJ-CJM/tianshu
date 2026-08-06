@@ -118,7 +118,9 @@ function OverviewTab({
 }) {
   const t = useT();
   const { token } = theme.useToken();
-  const { data: metrics, isLoading: metricsLoading } = usePersonaMetrics(persona.id);
+  const { data: metrics, isLoading: metricsLoading } = usePersonaMetrics(
+    persona.id,
+  );
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -134,22 +136,30 @@ function OverviewTab({
           <Descriptions.Item label={t("persona.detail.field.id")}>
             <Tag>{persona.id}</Tag>
           </Descriptions.Item>
-          <Descriptions.Item label={t("persona.detail.field.name")}>{persona.name}</Descriptions.Item>
+          <Descriptions.Item label={t("persona.detail.field.name")}>
+            {persona.name}
+          </Descriptions.Item>
           <Descriptions.Item label={t("persona.detail.field.dept")}>
-            <Tag color="blue">{persona.department_name ?? persona.department}</Tag>
+            <Tag color="blue">
+              {persona.department_name ?? persona.department}
+            </Tag>
           </Descriptions.Item>
           <Descriptions.Item label={t("persona.detail.field.title")}>
             {persona.title ? (
               <Tag color="purple">{persona.title}</Tag>
             ) : (
-              <Text type="secondary">{t("persona.detail.value.notAssigned")}</Text>
+              <Text type="secondary">
+                {t("persona.detail.value.notAssigned")}
+              </Text>
             )}
           </Descriptions.Item>
           <Descriptions.Item label={t("persona.detail.field.llmConfig")}>
             {persona.llm_config_name ? (
               <Tag color="orange">{persona.llm_config_name}</Tag>
             ) : (
-              <Text type="secondary">{t("persona.detail.value.globalConfig")}</Text>
+              <Text type="secondary">
+                {t("persona.detail.value.globalConfig")}
+              </Text>
             )}
           </Descriptions.Item>
         </Descriptions>
@@ -184,38 +194,56 @@ function OverviewTab({
 
         <Row gutter={16}>
           <Col span={8}>
-            <Text style={{ fontSize: 12, color: token.colorTextSecondary }}>{t("persona.detail.field.toolsAllowed")}</Text>
+            <Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
+              {t("persona.detail.field.toolsAllowed")}
+            </Text>
             <div style={{ marginTop: 4 }}>
               {persona.tools_allowed.length > 0 ? (
                 persona.tools_allowed.map((tool) => (
-                  <Tag key={tool} style={{ marginBottom: 4 }}>{tool}</Tag>
+                  <Tag key={tool} style={{ marginBottom: 4 }}>
+                    {tool}
+                  </Tag>
                 ))
               ) : (
-                <Text type="secondary" style={{ fontSize: 12 }}>{t("persona.detail.value.noSpecified")}</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {t("persona.detail.value.noSpecified")}
+                </Text>
               )}
             </div>
           </Col>
           <Col span={8}>
-            <Text style={{ fontSize: 12, color: token.colorTextSecondary }}>{t("persona.detail.field.toolsDenied")}</Text>
+            <Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
+              {t("persona.detail.field.toolsDenied")}
+            </Text>
             <div style={{ marginTop: 4 }}>
               {persona.tools_denied.length > 0 ? (
                 persona.tools_denied.map((tool) => (
-                  <Tag key={tool} color="red" style={{ marginBottom: 4 }}>{tool}</Tag>
+                  <Tag key={tool} color="red" style={{ marginBottom: 4 }}>
+                    {tool}
+                  </Tag>
                 ))
               ) : (
-                <Text type="secondary" style={{ fontSize: 12 }}>{t("persona.detail.value.none")}</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {t("persona.detail.value.none")}
+                </Text>
               )}
             </div>
           </Col>
           <Col span={8}>
-            <Text style={{ fontSize: 12, color: token.colorTextSecondary }}>{t("persona.detail.field.skills")}</Text>
+            <Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
+              {t("persona.detail.field.skills")}
+            </Text>
             <div style={{ marginTop: 4 }}>
               {persona.skills_allowed.length > 0 ? (
                 persona.skills_allowed.map((s) => (
-                  <Tag key={s} color="purple" style={{ marginBottom: 4 }}>{s}</Tag>
+                  <Tag key={s} color="purple" style={{ marginBottom: 4 }}>
+                    {s}
+                  </Tag>
                 ))
               ) : (
-                <Text type="secondary" style={{ fontSize: 12 }}>{t("persona.detail.value.allSkills")}</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {t("persona.detail.value.allSkills")}
+                </Text>
               )}
             </div>
           </Col>
@@ -225,15 +253,25 @@ function OverviewTab({
       <GlowCard title={t("persona.detail.section.delegation")}>
         <Descriptions column={2} size="small">
           <Descriptions.Item label={t("persona.detail.field.canDelegate")}>
-            {persona.can_delegate ? <Tag color="green">{t("persona.detail.value.yes")}</Tag> : <Tag>{t("persona.detail.value.no")}</Tag>}
+            {persona.can_delegate ? (
+              <Tag color="green">{t("persona.detail.value.yes")}</Tag>
+            ) : (
+              <Tag>{t("persona.detail.value.no")}</Tag>
+            )}
           </Descriptions.Item>
           <Descriptions.Item label={t("persona.detail.field.memoryGlobalRead")}>
-            {persona.memory_global_read ? <Tag color="orange">{t("persona.detail.value.yes")}</Tag> : <Tag>{t("persona.detail.value.no")}</Tag>}
+            {persona.memory_global_read ? (
+              <Tag color="orange">{t("persona.detail.value.yes")}</Tag>
+            ) : (
+              <Tag>{t("persona.detail.value.no")}</Tag>
+            )}
           </Descriptions.Item>
           <Descriptions.Item label={t("persona.detail.field.delegatesTo")}>
             {persona.delegates_to.length > 0 ? (
               persona.delegates_to.map((d) => (
-                <Tag key={d} color="cyan" style={{ marginBottom: 4 }}>{d}</Tag>
+                <Tag key={d} color="cyan" style={{ marginBottom: 4 }}>
+                  {d}
+                </Tag>
               ))
             ) : (
               <Text type="secondary">{t("persona.detail.value.none")}</Text>
@@ -251,7 +289,10 @@ function OverviewTab({
           <Space direction="vertical" size="small" style={{ width: "100%" }}>
             <Row gutter={16}>
               <Col span={6}>
-                <Statistic title={t("persona.metric.total")} value={metrics.total_executions} />
+                <Statistic
+                  title={t("persona.metric.total")}
+                  value={metrics.total_executions}
+                />
               </Col>
               <Col span={6}>
                 <Statistic
@@ -269,7 +310,9 @@ function OverviewTab({
               </Col>
               <Col span={6}>
                 <div>
-                  <Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
+                  <Text
+                    style={{ fontSize: 12, color: token.colorTextSecondary }}
+                  >
                     {t("persona.metric.successRate")}
                   </Text>
                   <Progress
@@ -282,10 +325,16 @@ function OverviewTab({
             </Row>
             <Row gutter={16}>
               <Col span={6}>
-                <Statistic title={t("persona.metric.totalTokens")} value={metrics.total_tokens} />
+                <Statistic
+                  title={t("persona.metric.totalTokens")}
+                  value={metrics.total_tokens}
+                />
               </Col>
               <Col span={6}>
-                <Statistic title={t("persona.metric.avgTokens")} value={metrics.avg_tokens_per_execution} />
+                <Statistic
+                  title={t("persona.metric.avgTokens")}
+                  value={metrics.avg_tokens_per_execution}
+                />
               </Col>
               <Col span={6}>
                 <Statistic
@@ -407,7 +456,10 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
                   {f.size} bytes
                 </Text>
                 {f.modified && (
-                  <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                  <Text
+                    type="secondary"
+                    style={{ fontSize: 12, marginLeft: 8 }}
+                  >
                     {new Date(f.modified).toLocaleString("zh-CN")}
                   </Text>
                 )}
@@ -418,40 +470,87 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
       </GlowCard>
 
       {layers && (
-        <Card title={t("system.prompt.layeredAnalysis")} size="small" loading={layersLoading}>
+        <Card
+          title={t("system.prompt.layeredAnalysis")}
+          size="small"
+          loading={layersLoading}
+        >
           <Row gutter={16} style={{ marginBottom: 16 }}>
             <Col span={8}>
-              <Statistic title={t("system.prompt.totalChars")} value={layers.total_chars} />
+              <Statistic
+                title={t("system.prompt.totalChars")}
+                value={layers.total_chars}
+              />
             </Col>
             <Col span={8}>
-              <Statistic title={t("system.prompt.estTokens")} value={layers.total_tokens_est} />
+              <Statistic
+                title={t("system.prompt.estTokens")}
+                value={layers.total_tokens_est}
+              />
             </Col>
             <Col span={8}>
-              <Statistic title={t("system.prompt.layerCount")} value={layers.layers.length} />
+              <Statistic
+                title={t("system.prompt.layerCount")}
+                value={layers.layers.length}
+              />
             </Col>
           </Row>
           <Table
             columns={[
-              { title: t("system.prompt.table.layer"), dataIndex: "layer", key: "layer", width: 60, align: "center" as const },
-              { title: t("system.prompt.table.name"), dataIndex: "name", key: "name", width: 150 },
+              {
+                title: t("system.prompt.table.layer"),
+                dataIndex: "layer",
+                key: "layer",
+                width: 60,
+                align: "center" as const,
+              },
+              {
+                title: t("system.prompt.table.name"),
+                dataIndex: "name",
+                key: "name",
+                width: 150,
+              },
               {
                 title: t("system.prompt.table.source"),
                 dataIndex: "source",
                 key: "source",
                 ellipsis: true,
-                render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text>,
+                render: (v: string) => (
+                  <Text style={{ fontSize: 12 }}>{v}</Text>
+                ),
               },
-              { title: t("system.prompt.table.chars"), dataIndex: "chars", key: "chars", width: 80, align: "right" as const },
-              { title: t("system.prompt.table.tokensEst"), dataIndex: "tokens_est", key: "tokens_est", width: 100, align: "right" as const },
+              {
+                title: t("system.prompt.table.chars"),
+                dataIndex: "chars",
+                key: "chars",
+                width: 80,
+                align: "right" as const,
+              },
+              {
+                title: t("system.prompt.table.tokensEst"),
+                dataIndex: "tokens_est",
+                key: "tokens_est",
+                width: 100,
+                align: "right" as const,
+              },
               {
                 title: t("system.prompt.table.percent"),
                 key: "percent",
                 width: 120,
-                render: (_: unknown, record: { chars: number; name: string }) => (
+                render: (
+                  _: unknown,
+                  record: { chars: number; name: string },
+                ) => (
                   <Progress
-                    percent={Math.round((record.chars / (layers.total_chars || 1)) * 100)}
+                    percent={Math.round(
+                      (record.chars / (layers.total_chars || 1)) * 100,
+                    )}
                     size="small"
-                    strokeColor={record.chars > 5000 ? "var(--ts-color-warning)" : "var(--ts-color-info)"}
+                    strokeColor={
+                      record.chars > 5000
+                        ? "var(--ts-color-warning)"
+                        : "var(--ts-color-info)"
+                    }
                   />
                 ),
               },
@@ -460,8 +559,14 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
                 key: "actions",
                 width: 70,
                 align: "center" as const,
-                render: (_: unknown, record: { chars: number; name: string }) => {
-                  const editableMap: Record<string, { pid: string; filename: string }> = {
+                render: (
+                  _: unknown,
+                  record: { chars: number; name: string },
+                ) => {
+                  const editableMap: Record<
+                    string,
+                    { pid: string; filename: string }
+                  > = {
                     "COURT.md": { pid: "court", filename: "COURT.md" },
                     "Court MEMORY.md": { pid: "court", filename: "MEMORY.md" },
                     "SOUL.md": { pid: personaId, filename: "SOUL.md" },
@@ -491,7 +596,10 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
       <Drawer
         title={
           editingFile
-            ? t("system.prompt.editFileTitle", { personaId: editingFile.personaId, filename: editingFile.filename })
+            ? t("system.prompt.editFileTitle", {
+                personaId: editingFile.personaId,
+                filename: editingFile.filename,
+              })
             : t("system.prompt.editFile")
         }
         open={!!editingFile}
@@ -554,7 +662,13 @@ function MemorialBubble({ memorial }: { memorial: MemorialBrief }) {
   return (
     <div style={{ marginBottom: 16 }}>
       {memorial.instruction && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            marginBottom: 8,
+          }}
+        >
           <div
             style={{
               maxWidth: "80%",
@@ -583,16 +697,24 @@ function MemorialBubble({ memorial }: { memorial: MemorialBrief }) {
           }}
         >
           {isFailed && memorial.error ? (
-            <Text type="danger" style={{ fontSize: 13 }}>{memorial.error}</Text>
+            <Text type="danger" style={{ fontSize: 13 }}>
+              {memorial.error}
+            </Text>
           ) : memorial.result ? (
             <Paragraph
-              ellipsis={{ rows: 6, expandable: true, symbol: t("memory.history.expand") }}
+              ellipsis={{
+                rows: 6,
+                expandable: true,
+                symbol: t("memory.history.expand"),
+              }}
               style={{ marginBottom: 0, fontSize: 13, whiteSpace: "pre-wrap" }}
             >
               {memorial.result}
             </Paragraph>
           ) : memorial.summary ? (
-            <Text type="secondary" style={{ fontSize: 13 }}>{memorial.summary}</Text>
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              {memorial.summary}
+            </Text>
           ) : (
             <Tag color={statusColors[memorial.status] ?? "default"}>
               {memorial.status}
@@ -671,7 +793,9 @@ function ExecutionHistoryTab({ personaId }: { personaId: string }) {
 function MemoryTab({ personaId }: { personaId: string }) {
   const t = useT();
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<MemoryEntry[] | null>(null);
+  const [searchResults, setSearchResults] = useState<MemoryEntry[] | null>(
+    null,
+  );
 
   const { data: memories, isLoading } = usePersonaMemory(personaId);
   const deleteMutation = useDeleteMemory();
@@ -683,14 +807,20 @@ function MemoryTab({ personaId }: { personaId: string }) {
       return;
     }
     recallMutation.mutate(
-      { persona_id: personaId, query: searchQuery, include_shared: true, limit: 30 },
+      {
+        persona_id: personaId,
+        query: searchQuery,
+        include_shared: true,
+        limit: 30,
+      },
       { onSuccess: (data) => setSearchResults(data) },
     );
   };
 
   const handleDelete = (entryId: string) => {
     deleteMutation.mutate(entryId, {
-      onSuccess: () => notification.success({ message: t("memory.toast.deleted") }),
+      onSuccess: () =>
+        notification.success({ message: t("memory.toast.deleted") }),
     });
   };
 
@@ -702,7 +832,9 @@ function MemoryTab({ personaId }: { personaId: string }) {
       dataIndex: "category",
       key: "category",
       width: 110,
-      render: (v: string) => <Tag color={categoryColors[v] ?? "default"}>{v}</Tag>,
+      render: (v: string) => (
+        <Tag color={categoryColors[v] ?? "default"}>{v}</Tag>
+      ),
       filters: [
         { text: t("memory.category.observation"), value: "observation" },
         { text: t("memory.category.insight"), value: "insight" },
@@ -711,13 +843,20 @@ function MemoryTab({ personaId }: { personaId: string }) {
       ],
       onFilter: (value, record) => record.category === value,
     },
-    { title: t("memory.table.content"), dataIndex: "content", key: "content", ellipsis: true },
+    {
+      title: t("memory.table.content"),
+      dataIndex: "content",
+      key: "content",
+      ellipsis: true,
+    },
     {
       title: t("memory.table.source"),
       dataIndex: "source",
       key: "source",
       width: 100,
-      render: (v: string) => <Tag color={sourceColors[v] ?? "default"}>{v}</Tag>,
+      render: (v: string) => (
+        <Tag color={sourceColors[v] ?? "default"}>{v}</Tag>
+      ),
     },
     {
       title: t("memory.table.confidence"),
@@ -739,7 +878,10 @@ function MemoryTab({ personaId }: { personaId: string }) {
       key: "actions",
       width: 50,
       render: (_, record) => (
-        <Popconfirm title={t("memory.selection.confirmDelete")} onConfirm={() => handleDelete(record.id)}>
+        <Popconfirm
+          title={t("memory.selection.confirmDelete")}
+          onConfirm={() => handleDelete(record.id)}
+        >
           <Button type="text" danger size="small" icon={<DeleteOutlined />} />
         </Popconfirm>
       ),
@@ -759,20 +901,31 @@ function MemoryTab({ personaId }: { personaId: string }) {
             allowClear
             onClear={() => setSearchResults(null)}
           />
-          <Button type="primary" loading={recallMutation.isPending} onClick={handleSearch}>
+          <Button
+            type="primary"
+            loading={recallMutation.isPending}
+            onClick={handleSearch}
+          >
             {t("memory.search.submit")}
           </Button>
         </Space.Compact>
         {searchResults && (
           <Text type="secondary" style={{ marginTop: 8, display: "block" }}>
-            {t("memory.search.summary", { n: searchResults.length, q: searchQuery })}
+            {t("memory.search.summary", {
+              n: searchResults.length,
+              q: searchQuery,
+            })}
           </Text>
         )}
       </Card>
 
       <Card
         title={t("persona.detail.section.memoryEntries")}
-        extra={<Text type="secondary">{t("persona.detail.memory.count", { n: displayData.length })}</Text>}
+        extra={
+          <Text type="secondary">
+            {t("persona.detail.memory.count", { n: displayData.length })}
+          </Text>
+        }
       >
         {displayData.length === 0 && !isLoading ? (
           <Empty description={t("memory.empty")} />
@@ -855,7 +1008,9 @@ export default function PersonaDetailPage() {
         });
       },
       onError: (err: Error) => {
-        notification.error({ message: err.message ?? t("persona.toast.regenerateFailed") });
+        notification.error({
+          message: err.message ?? t("persona.toast.regenerateFailed"),
+        });
       },
     });
   };
@@ -876,7 +1031,14 @@ export default function PersonaDetailPage() {
 
   if (isLoading) {
     return (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "50vh" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "50vh",
+        }}
+      >
         <Spin size="large" />
       </div>
     );
@@ -920,7 +1082,11 @@ export default function PersonaDetailPage() {
 
   const dept = persona.department_name ?? persona.department;
   const pageTitle = persona.title
-    ? t("persona.detail.pageTitleWithTitle", { name: persona.name, title: persona.title, dept })
+    ? t("persona.detail.pageTitleWithTitle", {
+        name: persona.name,
+        title: persona.title,
+        dept,
+      })
     : t("persona.detail.pageTitle", { name: persona.name, dept });
 
   return (
@@ -945,7 +1111,10 @@ export default function PersonaDetailPage() {
               {t("persona.detail.regenerate")}
             </Button>
           </Popconfirm>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/personas")}>
+          <Button
+            icon={<ArrowLeftOutlined />}
+            onClick={() => navigate("/personas")}
+          >
             {t("persona.detail.back", { name: t("persona.title") })}
           </Button>
         </Space>
@@ -1017,21 +1186,53 @@ export default function PersonaDetailPage() {
         width={560}
       >
         <Form form={form} layout="vertical" onFinish={handleSave}>
-          <Form.Item name="name" label={t("persona.form.persona.field.name")} rules={[{ required: true, message: t("persona.form.persona.validation.nameRequired") }]}>
+          <Form.Item
+            name="name"
+            label={t("persona.form.persona.field.name")}
+            rules={[
+              {
+                required: true,
+                message: t("persona.form.persona.validation.nameRequired"),
+              },
+            ]}
+          >
             <Input />
           </Form.Item>
           <Form.Item
             name="title"
             label={t("persona.form.persona.field.title")}
-            rules={[{ max: 32, message: t("persona.form.persona.validation.titleMax") }]}
+            rules={[
+              {
+                max: 32,
+                message: t("persona.form.persona.validation.titleMax"),
+              },
+            ]}
             tooltip={t("persona.form.persona.tooltip.title")}
           >
-            <Input placeholder={t("persona.form.persona.placeholder.title")} maxLength={32} allowClear />
+            <Input
+              placeholder={t("persona.form.persona.placeholder.title")}
+              maxLength={32}
+              allowClear
+            />
           </Form.Item>
-          <Form.Item name="department" label={t("persona.form.persona.field.department")} rules={[{ required: true, message: t("persona.form.persona.validation.departmentRequired") }]}>
+          <Form.Item
+            name="department"
+            label={t("persona.form.persona.field.department")}
+            rules={[
+              {
+                required: true,
+                message: t(
+                  "persona.form.persona.validation.departmentRequired",
+                ),
+              },
+            ]}
+          >
             <Select options={deptOptions} showSearch optionFilterProp="label" />
           </Form.Item>
-          <Form.Item name="llm_config_name" label={t("persona.form.persona.field.llmConfig")}>
+          <Form.Item
+            name="llm_config_name"
+            label={t("persona.form.persona.field.llmConfig")}
+          >
             <Select options={llmConfigOptions} allowClear />
           </Form.Item>
           <Form.Item
@@ -1062,19 +1263,43 @@ export default function PersonaDetailPage() {
               tokenSeparators={[",", " "]}
             />
           </Form.Item>
-          <Form.Item name="skills_allowed" label={t("persona.form.persona.field.skills")}>
-            <Select mode="multiple" options={skillOptions} showSearch optionFilterProp="label" placeholder={t("persona.form.persona.placeholder.skills")} />
+          <Form.Item
+            name="skills_allowed"
+            label={t("persona.form.persona.field.skills")}
+          >
+            <Select
+              mode="multiple"
+              options={skillOptions}
+              showSearch
+              optionFilterProp="label"
+              placeholder={t("persona.form.persona.placeholder.skills")}
+            />
           </Form.Item>
-          <Form.Item name="tool_tier_max" label={t("persona.form.persona.field.tierMax")}>
+          <Form.Item
+            name="tool_tier_max"
+            label={t("persona.form.persona.field.tierMax")}
+          >
             <InputNumber min={0} max={10} style={{ width: "100%" }} />
           </Form.Item>
-          <Form.Item name="can_delegate" label={t("persona.form.persona.field.canDelegate")} valuePropName="checked">
+          <Form.Item
+            name="can_delegate"
+            label={t("persona.form.persona.field.canDelegate")}
+            valuePropName="checked"
+          >
             <Switch />
           </Form.Item>
-          <Form.Item name="memory_global_read" label={t("persona.form.persona.field.memoryGlobalRead")} valuePropName="checked" extra={t("persona.form.persona.fieldHint.memoryGlobalRead")}>
+          <Form.Item
+            name="memory_global_read"
+            label={t("persona.form.persona.field.memoryGlobalRead")}
+            valuePropName="checked"
+            extra={t("persona.form.persona.fieldHint.memoryGlobalRead")}
+          >
             <Switch />
           </Form.Item>
-          <Form.Item name="delegates_to" label={t("persona.form.persona.field.delegatesTo")}>
+          <Form.Item
+            name="delegates_to"
+            label={t("persona.form.persona.field.delegatesTo")}
+          >
             <Select
               mode="multiple"
               placeholder={t("persona.form.persona.placeholder.delegatesTo")}

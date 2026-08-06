@@ -1,4 +1,9 @@
-import { createContext, useContext, useCallback, useSyncExternalStore } from "react";
+import {
+  createContext,
+  useContext,
+  useCallback,
+  useSyncExternalStore,
+} from "react";
 import { palettes } from "../theme/palette";
 
 export type ThemeMode = "light" | "dark";

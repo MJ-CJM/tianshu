@@ -2316,7 +2316,13 @@
       "agentRetryLimit": "Default retry limit",
       "agentCostBudget": "Default cost budget (¥/edict)",
       "agentTokenBudget": "Default token budget",
-      "unlimited": "blank = unlimited"
+      "unlimited": "blank = unlimited",
+      "workspaceSection": "Workspace boundary",
+      "workspaceDir": "Workspace root",
+      "workspaceHelp": "All officials are confined to this directory by default. Going beyond it requires a per-official grant. Takes effect after restart.",
+      "workspacePendingRestart": "Saved — takes effect after restart",
+      "workspaceSaved": "Workspace saved",
+      "workspaceFailed": "Failed to save workspace"
     },
     "externalCreds": {
       "edictAuthLabel": "Task credentials",

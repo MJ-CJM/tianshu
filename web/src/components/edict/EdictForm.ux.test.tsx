@@ -2,7 +2,13 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -82,7 +88,8 @@ describe("EdictForm UX defaults", () => {
 
     expect(quickPreset).toBeChecked();
     expect(
-      quickPreset.compareDocumentPosition(goal) & Node.DOCUMENT_POSITION_FOLLOWING,
+      quickPreset.compareDocumentPosition(goal) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 
@@ -96,7 +103,9 @@ describe("EdictForm UX defaults", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /颁发敕令$/ }));
 
-    await waitFor(() => expect(edictsApi.previewEdictGovernance).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(edictsApi.previewEdictGovernance).toHaveBeenCalledOnce(),
+    );
     expect(edictsApi.previewEdictGovernance.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({ review_policy: "on_failure" }),
     );
@@ -141,7 +150,9 @@ describe("EdictForm UX defaults", () => {
       expect(screen.getByRole("radio", { name: "定时执行" })).toBeChecked(),
     );
     expect(recurring).toBeDisabled();
-    expect(screen.getByText(/长任务不支持重复执行|长任务不可循期执行/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/长任务不支持重复执行|长任务不可循期执行/),
+    ).toBeInTheDocument();
   });
 
   it("does not revive research-only settings after switching presets", async () => {

@@ -50,8 +50,12 @@ export default function PolicyProfilePanel({
   const t = useT();
   const [templates, setTemplates] = useState<PolicyTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(true);
-  const [templatesProblem, setTemplatesProblem] = useState<ApiProblem | null>(null);
-  const [local, setLocal] = useState<PolicyProfileValue>(value ?? DEFAULT_VALUE);
+  const [templatesProblem, setTemplatesProblem] = useState<ApiProblem | null>(
+    null,
+  );
+  const [local, setLocal] = useState<PolicyProfileValue>(
+    value ?? DEFAULT_VALUE,
+  );
 
   const loadTemplates = useCallback(() => {
     setTemplatesLoading(true);
@@ -145,7 +149,10 @@ export default function PolicyProfilePanel({
           ),
           children: (
             <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-              <Form.Item label={t("comp.policyProfile.templateLabel")} style={{ marginBottom: 0 }}>
+              <Form.Item
+                label={t("comp.policyProfile.templateLabel")}
+                style={{ marginBottom: 0 }}
+              >
                 <Select
                   allowClear
                   placeholder={t("comp.policyProfile.templatePlaceholder")}
@@ -161,7 +168,10 @@ export default function PolicyProfilePanel({
                 </Text>
               </Form.Item>
 
-              <Form.Item label={t("comp.policyProfile.pathsLabel")} style={{ marginBottom: 0 }}>
+              <Form.Item
+                label={t("comp.policyProfile.pathsLabel")}
+                style={{ marginBottom: 0 }}
+              >
                 <Input.TextArea
                   rows={3}
                   placeholder={t("comp.policyProfile.pathsPlaceholder")}
@@ -177,7 +187,10 @@ export default function PolicyProfilePanel({
                 />
               </Form.Item>
 
-              <Form.Item label={t("comp.policyProfile.bashLabel")} style={{ marginBottom: 0 }}>
+              <Form.Item
+                label={t("comp.policyProfile.bashLabel")}
+                style={{ marginBottom: 0 }}
+              >
                 <Input.TextArea
                   rows={3}
                   placeholder={t("comp.policyProfile.bashPlaceholder")}
@@ -220,9 +233,7 @@ export default function PolicyProfilePanel({
                   min={60}
                   placeholder={t("comp.policyProfile.expiresPlaceholder")}
                   value={local.expires_after_seconds ?? undefined}
-                  onChange={(v) =>
-                    update({ expires_after_seconds: v ?? null })
-                  }
+                  onChange={(v) => update({ expires_after_seconds: v ?? null })}
                 />
               </Form.Item>
             </Space>

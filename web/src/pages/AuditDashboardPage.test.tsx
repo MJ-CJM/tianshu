@@ -3,7 +3,13 @@
 import "@testing-library/jest-dom/vitest";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiProblem } from "../contracts/api";
@@ -233,10 +239,9 @@ describe("AuditDashboardPage truthful data states", () => {
 
     renderPage("/audit?tab=network");
 
-    expect(await screen.findByRole("link", { name: "联网敕令" })).toHaveAttribute(
-      "href",
-      "/edicts/edict-network",
-    );
+    expect(
+      await screen.findByRole("link", { name: "联网敕令" }),
+    ).toHaveAttribute("href", "/edicts/edict-network");
   });
 
   it("shows rules loading instead of a successful empty table", () => {
@@ -270,7 +275,9 @@ describe("AuditDashboardPage truthful data states", () => {
 
   it("maps 403 stats failures to an explicit permission state", () => {
     apiMocks.useAuditStats.mockReturnValue(
-      queryState({ error: problem(403, "permission-denied", "无权读取审计统计") }),
+      queryState({
+        error: problem(403, "permission-denied", "无权读取审计统计"),
+      }),
     );
 
     renderPage();
@@ -282,7 +289,9 @@ describe("AuditDashboardPage truthful data states", () => {
 
   it("maps 503 rules failures to an explicit service state", () => {
     apiMocks.useAuditRules.mockReturnValue(
-      queryState({ error: problem(503, "service-unavailable", "规则服务暂不可用") }),
+      queryState({
+        error: problem(503, "service-unavailable", "规则服务暂不可用"),
+      }),
     );
 
     renderPage("/audit?tab=rules");
@@ -309,7 +318,9 @@ describe("AuditDashboardPage truthful data states", () => {
 
     renderPage("/audit?tab=policy");
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("无权查看此内容");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "无权查看此内容",
+    );
     expect(screen.getByRole("alert")).toHaveTextContent("登录已失效");
     expect(screen.queryByText("Allow")).not.toBeInTheDocument();
   });
@@ -328,7 +339,9 @@ describe("AuditDashboardPage truthful data states", () => {
     await waitFor(() =>
       expect(within(card!).getByRole("alert")).toHaveTextContent("请求失败"),
     );
-    expect(within(card!).getByRole("alert")).toHaveTextContent("失事统计读取失败");
+    expect(within(card!).getByRole("alert")).toHaveTextContent(
+      "失事统计读取失败",
+    );
     expect(within(card!).queryByText("未有失事")).not.toBeInTheDocument();
   });
 });

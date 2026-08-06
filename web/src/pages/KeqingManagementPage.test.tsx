@@ -45,7 +45,10 @@ describe("KeqingManagementPage data truth", () => {
     });
     apiMocks.getAgentConfig.mockResolvedValue({});
     const client = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     });
 
     render(
@@ -58,7 +61,8 @@ describe("KeqingManagementPage data truth", () => {
     const statusQuery = client
       .getQueryCache()
       .find({ queryKey: ["keqing-status"] });
-    const statusOptions = statusQuery?.options as Record<string, unknown> | undefined;
+    const statusOptions = statusQuery?.options as
+      Record<string, unknown> | undefined;
     expect(statusOptions?.refetchInterval).toBe(15_000);
     expect(statusOptions?.refetchIntervalInBackground).toBe(false);
     expect(statusOptions?.refetchOnMount).toBe("always");
@@ -77,7 +81,10 @@ describe("KeqingManagementPage data truth", () => {
       keqing_model_allowlist: "openai/gpt-5",
     });
     const client = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     });
 
     render(
@@ -113,7 +120,10 @@ describe("KeqingManagementPage data truth", () => {
     });
     apiMocks.getAgentConfig.mockResolvedValue({});
     const client = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     });
 
     render(

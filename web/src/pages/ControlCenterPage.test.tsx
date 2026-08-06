@@ -94,8 +94,12 @@ function LocaleControls() {
   const locale = useLocaleProvider();
   return (
     <>
-      <button type="button" onClick={() => locale.setLocale("en")}>switch-English</button>
-      <button type="button" onClick={() => locale.setLocale("zh-classic")}>switch-classic</button>
+      <button type="button" onClick={() => locale.setLocale("en")}>
+        switch-English
+      </button>
+      <button type="button" onClick={() => locale.setLocale("zh-classic")}>
+        switch-classic
+      </button>
     </>
   );
 }
@@ -127,11 +131,17 @@ afterEach(() => cleanup());
 
 describe("real Control Center snapshot", () => {
   it("shows loading while the single aggregate request is pending", () => {
-    controlApi.getControlCenterSnapshot.mockReturnValue(new Promise(() => undefined));
+    controlApi.getControlCenterSnapshot.mockReturnValue(
+      new Promise(() => undefined),
+    );
     renderPage();
 
-    expect(screen.getByRole("heading", { name: "中枢总览" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "正在加载" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "中枢总览" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "正在加载" }),
+    ).toBeInTheDocument();
     expect(controlApi.getControlCenterSnapshot).toHaveBeenCalledTimes(1);
   });
 
@@ -139,7 +149,9 @@ describe("real Control Center snapshot", () => {
     controlApi.getControlCenterSnapshot.mockResolvedValue(EMPTY_SNAPSHOT);
     renderPage();
 
-    expect(await screen.findByText("当前没有进行中的治理运行。")).toBeInTheDocument();
+    expect(
+      await screen.findByText("当前没有进行中的治理运行。"),
+    ).toBeInTheDocument();
     expect(screen.getByText("当前没有待裁决事项。")).toBeInTheDocument();
     expect(screen.getByText("当前还没有可核验的证据束。")).toBeInTheDocument();
     expect(screen.getAllByText("0")).toHaveLength(4);
@@ -165,13 +177,18 @@ describe("real Control Center snapshot", () => {
     const edictLink = await screen.findByRole("link", { name: "查看敕令" });
     const decisionLink = screen.getByRole("link", { name: "查看并裁决" });
     const evidenceLink = screen.getByRole("link", { name: "下载证据" });
-    const longGovernanceLink = screen.getByRole("link", { name: "查看 长程治理" });
+    const longGovernanceLink = screen.getByRole("link", {
+      name: "查看 长程治理",
+    });
     const evolutionLink = screen.getByRole("link", { name: "查看 自进化" });
     const universeLink = screen.getByRole("link", { name: "查看 平行位面" });
     const keqingLink = screen.getByRole("link", { name: "查看 客卿" });
     expect(edictLink).toHaveAttribute("href", "/edicts/edict-1");
     expect(decisionLink).toHaveAttribute("href", "/approvals");
-    expect(evidenceLink).toHaveAttribute("href", "/api/evidence/bundle-1/download");
+    expect(evidenceLink).toHaveAttribute(
+      "href",
+      "/api/evidence/bundle-1/download",
+    );
     await user.tab();
     expect(document.activeElement).toBe(longGovernanceLink);
     await user.tab();
@@ -186,7 +203,9 @@ describe("real Control Center snapshot", () => {
     expect(screen.getByText("24")).toBeInTheDocument();
     expect(screen.getByText("23")).toBeInTheDocument();
     expect(screen.getByText("尚未启用")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "独特能力" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "独特能力" }),
+    ).toBeInTheDocument();
     expect(longGovernanceLink).toHaveAttribute("href", "/edicts/create");
     expect(evolutionLink).toHaveAttribute("href", "/evolution");
     expect(universeLink).toHaveAttribute("href", "/universes");
@@ -196,14 +215,18 @@ describe("real Control Center snapshot", () => {
   });
 
   it("keeps the previous snapshot visible when refresh becomes stale", async () => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     client.setQueryData(CONTROL_CENTER_QUERY_KEY, SNAPSHOT);
     controlApi.getControlCenterSnapshot.mockRejectedValue(
       problem(500, "control-refresh-failed", "刷新中枢快照失败"),
     );
     renderPage(client);
 
-    expect(await screen.findByRole("heading", { name: "数据可能已过期" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "数据可能已过期" }),
+    ).toBeInTheDocument();
     expect(screen.getAllByText("验证发布候选")).toHaveLength(3);
     expect(screen.getByText("刷新中枢快照失败")).toBeInTheDocument();
   });
@@ -214,7 +237,9 @@ describe("real Control Center snapshot", () => {
     );
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "请求失败" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "请求失败" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 
@@ -224,7 +249,9 @@ describe("real Control Center snapshot", () => {
     );
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "无权查看此内容" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "无权查看此内容" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("关联标识: corr-control")).toBeInTheDocument();
   });
 
@@ -234,9 +261,13 @@ describe("real Control Center snapshot", () => {
     );
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "服务暂不可用" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "服务暂不可用" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
-    await waitFor(() => expect(controlApi.getControlCenterSnapshot).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(controlApi.getControlCenterSnapshot).toHaveBeenCalledTimes(1),
+    );
   });
 
   it("does not offer the closed-bundle download for open evidence", async () => {
@@ -255,7 +286,9 @@ describe("real Control Center snapshot", () => {
 
     expect(await screen.findByText("生成中")).toBeInTheDocument();
     expect(screen.getByText("等待封存")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "下载证据" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "下载证据" }),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps evolution not enabled when overall readiness is degraded", async () => {
@@ -288,11 +321,21 @@ describe("real Control Center snapshot", () => {
     renderPage(undefined, true);
     await user.click(screen.getByRole("button", { name: "switch-English" }));
 
-    expect(screen.getByRole("heading", { name: "Control Center" })).toBeInTheDocument();
-    expect(await screen.findByText("There are no active governance runs.")).toBeInTheDocument();
-    expect(screen.getByText("There are no pending decisions.")).toBeInTheDocument();
-    expect(screen.getByText("There are no verifiable evidence bundles yet.")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Distinctive capabilities" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Control Center" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("There are no active governance runs."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("There are no pending decisions."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("There are no verifiable evidence bundles yet."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Distinctive capabilities" }),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "switch-classic" }));
   });
 });

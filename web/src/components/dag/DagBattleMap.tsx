@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo } from "react";
 import {
   ReactFlow,
   Background,
@@ -8,18 +8,18 @@ import {
   type Edge,
   MarkerType,
   BackgroundVariant,
-} from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
-import { Empty } from 'antd';
-import DagNodeComponent from './DagNode';
-import DagToolbar from './DagToolbar';
-import WorkerPanel from './WorkerPanel';
-import type { DAGExecution, DAGNode as DAGNodeType } from '../../api/types';
-import { usePersonas } from '../../hooks/usePersonas';
-import { useDepartments } from '../../hooks/useDepartments';
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import { Empty } from "antd";
+import DagNodeComponent from "./DagNode";
+import DagToolbar from "./DagToolbar";
+import WorkerPanel from "./WorkerPanel";
+import type { DAGExecution, DAGNode as DAGNodeType } from "../../api/types";
+import { usePersonas } from "../../hooks/usePersonas";
+import { useDepartments } from "../../hooks/useDepartments";
 import { useT } from "../../i18n";
-import { useThemeMode, type ThemeMode } from '../../hooks/useTheme';
-import { palettes } from '../../theme/palette';
+import { useThemeMode, type ThemeMode } from "../../hooks/useTheme";
+import { palettes } from "../../theme/palette";
 
 const nodeTypes = { dagNode: DagNodeComponent };
 
@@ -73,7 +73,9 @@ function layoutNodes(
       depthMap.set(nodeId, 0);
       return 0;
     }
-    const maxParent = Math.max(...node.depends_on.map((d) => getDepth(d, visited)));
+    const maxParent = Math.max(
+      ...node.depends_on.map((d) => getDepth(d, visited)),
+    );
     const depth = maxParent + 1;
     depthMap.set(nodeId, depth);
     return depth;
@@ -94,12 +96,14 @@ function layoutNodes(
   const edges: Edge[] = [];
 
   layers.forEach((layerNodes, depth) => {
-    const startX = -(layerNodes.length - 1) * X_GAP / 2;
+    const startX = (-(layerNodes.length - 1) * X_GAP) / 2;
     layerNodes.forEach((n, i) => {
-      const official = n.assigned_official ? officials.get(n.assigned_official) : undefined;
+      const official = n.assigned_official
+        ? officials.get(n.assigned_official)
+        : undefined;
       nodes.push({
         id: n.node_id,
-        type: 'dagNode',
+        type: "dagNode",
         position: { x: startX + i * X_GAP, y: depth * Y_GAP },
         data: {
           label: n.description,
@@ -118,12 +122,12 @@ function layoutNodes(
           id: `${depId}-${n.node_id}`,
           source: depId,
           target: n.node_id,
-          type: 'smoothstep',
-          animated: n.status === 'running' || n.status === 'ready',
+          type: "smoothstep",
+          animated: n.status === "running" || n.status === "ready",
           style: {
             stroke: colors[n.status] || fallbackColor,
             strokeWidth: 1.5,
-            ...(preview ? { strokeDasharray: '6 4' } : {}),
+            ...(preview ? { strokeDasharray: "6 4" } : {}),
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
@@ -159,7 +163,12 @@ export default function DagBattleMap({
   // 官员 id → 姓名/部门中文名(落款用);部门名去掉英文括注
   const officials = useMemo(() => {
     const deptNames = new Map<string, string>(
-      (departments ?? []).map((d: any) => [d.id, String(d.name || d.id).split('(')[0]!.trim()]),
+      (departments ?? []).map((d: any) => [
+        d.id,
+        String(d.name || d.id)
+          .split("(")[0]!
+          .trim(),
+      ]),
     );
     const map = new Map<string, OfficialMeta>();
     (personas ?? []).forEach((p: any) => {
@@ -172,7 +181,14 @@ export default function DagBattleMap({
   }, [personas, departments]);
 
   const { nodes: layoutedNodes, edges: layoutedEdges } = useMemo(
-    () => layoutNodes(execution?.nodes || [], colors, fallbackColor, officials, preview),
+    () =>
+      layoutNodes(
+        execution?.nodes || [],
+        colors,
+        fallbackColor,
+        officials,
+        preview,
+      ),
     [execution?.nodes, colors, fallbackColor, officials, preview],
   );
 
@@ -181,29 +197,39 @@ export default function DagBattleMap({
   }
 
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       {preview ? (
         <div
           style={{
-            padding: '6px 14px',
-            display: 'flex',
-            alignItems: 'center',
+            padding: "6px 14px",
+            display: "flex",
+            alignItems: "center",
             gap: 10,
-            borderBottom: '1px dashed var(--ts-color-border)',
-            background: 'color-mix(in srgb, var(--ts-color-accent) 4%, var(--ts-color-bg-container))',
+            borderBottom: "1px dashed var(--ts-color-border)",
+            background:
+              "color-mix(in srgb, var(--ts-color-accent) 4%, var(--ts-color-bg-container))",
           }}
         >
           <span
             style={{
               fontSize: 12,
               fontWeight: 600,
-              color: 'var(--ts-color-accent)',
-              letterSpacing: '0.04em',
+              color: "var(--ts-color-accent)",
+              letterSpacing: "0.04em",
             }}
           >
             {t("comp.dag.previewBadge")}
           </span>
-          <span style={{ fontSize: 12, color: 'var(--ts-color-text-secondary)' }}>
+          <span
+            style={{ fontSize: 12, color: "var(--ts-color-text-secondary)" }}
+          >
             {t("comp.dag.previewHint")}
           </span>
         </div>
@@ -217,7 +243,7 @@ export default function DagBattleMap({
           retryLoading={retryLoading}
         />
       )}
-      <div style={{ flex: 1, position: 'relative' }}>
+      <div style={{ flex: 1, position: "relative" }}>
         <ReactFlow
           nodes={layoutedNodes}
           edges={layoutedEdges}
@@ -238,7 +264,7 @@ export default function DagBattleMap({
           />
         </ReactFlow>
         {!preview && (
-          <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 10 }}>
+          <div style={{ position: "absolute", top: 8, right: 8, zIndex: 10 }}>
             <WorkerPanel poolStatus={poolStatus} laneStatus={laneStatus} />
           </div>
         )}

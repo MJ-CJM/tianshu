@@ -1,10 +1,7 @@
 import apiClient from "./client";
 
 export type PendingDecisionKind =
-  | "tool"
-  | "outer_loop"
-  | "plan_review"
-  | "governed_apply";
+  "tool" | "outer_loop" | "plan_review" | "governed_apply";
 
 export interface PendingDecision {
   decision_request_id: string;
@@ -28,7 +25,9 @@ interface PendingDecisionsResponse {
   correlation_id: string;
 }
 
-export async function listPendingDecisions(limit = 200): Promise<PendingDecision[]> {
+export async function listPendingDecisions(
+  limit = 200,
+): Promise<PendingDecision[]> {
   const { data } = await apiClient.get<PendingDecisionsResponse>("/decisions", {
     params: { limit },
   });

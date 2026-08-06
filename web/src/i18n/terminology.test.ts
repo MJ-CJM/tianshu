@@ -38,12 +38,13 @@ const ENGLISH_GOVERNANCE_TERMS: Record<string, string> = {
   "decree.actionOption.approve": "Allow — Confirm execution",
   "page.edictDetail.planApprove": "Allow (execute plan)",
   "page.edictDetail.decreePrompt": "Run pending decision, choose an action:",
-  "page.sessionRules.alertTitle": "Session Rules record reusable tool decisions",
+  "page.sessionRules.alertTitle":
+    "Session Rules record reusable tool decisions",
   "page.sessionRules.alertDesc":
-    "When allowing a tool call in the Decision Center with scope \"This task\" or \"Global\", a session rule is automatically created. You can also add rules manually to pre-authorize permissions. Note: shell_exec/bash tools cannot receive global authorization.",
+    'When allowing a tool call in the Decision Center with scope "This task" or "Global", a session rule is automatically created. You can also add rules manually to pre-authorize permissions. Note: shell_exec/bash tools cannot receive global authorization.',
   "page.sessionRules.addModalTitle": "Add Pre-Authorization Rule",
   "page.sessionRules.empty":
-    "No rules — click \"Add Rule\" in the top right to create manually, or select \"This task / Global\" when allowing tool calls to auto-generate",
+    'No rules — click "Add Rule" in the top right to create manually, or select "This task / Global" when allowing tool calls to auto-generate',
   "form.edict.field.planReview": "Plan Decision",
   "form.edict.tooltip.planReview":
     "When enabled, plans require a human decision before execution",
@@ -79,10 +80,16 @@ describe("governance terminology contract", () => {
       .map(({ path }) => path)
       .sort();
 
-    expect(stringEntries(zhModern).map(({ path }) => path).sort()).toEqual(
-      anchorPaths,
-    );
-    expect(stringEntries(en).map(({ path }) => path).sort()).toEqual(anchorPaths);
+    expect(
+      stringEntries(zhModern)
+        .map(({ path }) => path)
+        .sort(),
+    ).toEqual(anchorPaths);
+    expect(
+      stringEntries(en)
+        .map(({ path }) => path)
+        .sort(),
+    ).toEqual(anchorPaths);
   });
 
   it.each([
@@ -93,25 +100,30 @@ describe("governance terminology contract", () => {
     expect(valueAt(locale, "nav.approvals")).toBeTypeOf("string");
     expect(valueAt(locale, "status.needs_review")).toBeTypeOf("string");
     expect(valueAt(locale, "event.label.decree.approved")).toBeTypeOf("string");
-    expect(valueAt(locale, "sessionRules.source.approval")).toBeTypeOf("string");
+    expect(valueAt(locale, "sessionRules.source.approval")).toBeTypeOf(
+      "string",
+    );
   });
 
   it.each([
     ["zh-classic", zhClassic],
     ["zh-modern", zhModern],
-  ])("removes historical approval terms from %s user-facing values", (_, locale) => {
-    const violations = stringEntries(locale).filter(({ value }) =>
-      /批红|朱批|司礼监代批|审批|待批/.test(value),
-    );
+  ])(
+    "removes historical approval terms from %s user-facing values",
+    (_, locale) => {
+      const violations = stringEntries(locale).filter(({ value }) =>
+        /批红|朱批|司礼监代批|审批|待批/.test(value),
+      );
 
-    expect(violations).toEqual([]);
-    expect(valueAt(locale, "comp.policyProfile.autoApproveLabel")).toBe(
-      "自动裁决最高 Tier",
-    );
-    expect(valueAt(locale, "comp.policyProfile.autoApproveTooltip")).toBe(
-      "规则将对 Tier ≤ 该值的工具自动作出允许裁决，不再请求人工裁决",
-    );
-  });
+      expect(violations).toEqual([]);
+      expect(valueAt(locale, "comp.policyProfile.autoApproveLabel")).toBe(
+        "自动裁决最高 Tier",
+      );
+      expect(valueAt(locale, "comp.policyProfile.autoApproveTooltip")).toBe(
+        "规则将对 Tier ≤ 该值的工具自动作出允许裁决，不再请求人工裁决",
+      );
+    },
+  );
 
   it("uses decision language for English governance while keeping quality review", () => {
     for (const [path, expected] of Object.entries(ENGLISH_GOVERNANCE_TERMS)) {

@@ -20,21 +20,24 @@ import {
 function moveMenuFocus(event: KeyboardEvent<HTMLElement>) {
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
   const items = Array.from(
-    event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])'),
+    event.currentTarget.querySelectorAll<HTMLElement>(
+      '[role="menuitem"]:not([aria-disabled="true"])',
+    ),
   );
   if (items.length === 0) return;
   event.preventDefault();
   event.stopPropagation();
   const current = items.indexOf(document.activeElement as HTMLElement);
-  const next = event.key === "Home"
-    ? 0
-    : event.key === "End"
-      ? items.length - 1
-      : event.key === "ArrowDown"
-        ? (current + 1 + items.length) % items.length
-        : current < 0
-          ? items.length - 1
-          : (current - 1 + items.length) % items.length;
+  const next =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? items.length - 1
+        : event.key === "ArrowDown"
+          ? (current + 1 + items.length) % items.length
+          : current < 0
+            ? items.length - 1
+            : (current - 1 + items.length) % items.length;
   items[next]?.focus();
 }
 
@@ -46,16 +49,22 @@ export default function AppSidebar() {
   const { collapsed, setCollapsed } = useSidebarState();
   const t = useT();
   const { data: reviewData } = useNeedsReview();
-  const reviewCount = reviewData?.metadata?.total ?? reviewData?.data?.length ?? 0;
-  const themeAction = mode === "light" ? t("sidebar.switchToDark") : t("sidebar.switchToLight");
-  const collapseAction = collapsed ? t("sidebar.expand") : t("sidebar.collapse");
+  const reviewCount =
+    reviewData?.metadata?.total ?? reviewData?.data?.length ?? 0;
+  const themeAction =
+    mode === "light" ? t("sidebar.switchToDark") : t("sidebar.switchToLight");
+  const collapseAction = collapsed
+    ? t("sidebar.expand")
+    : t("sidebar.collapse");
   const routeSection = sidebarSectionForPath(location.pathname);
   const [openOverride, setOpenOverride] = useState<{
     locationKey: string;
     section: string | null;
   } | null>(null);
   const openSection =
-    openOverride?.locationKey === location.key ? openOverride.section : routeSection;
+    openOverride?.locationKey === location.key
+      ? openOverride.section
+      : routeSection;
   const handleCollapsedChange = (nextCollapsed: boolean) => {
     if (nextCollapsed) setOpenOverride(null);
     setCollapsed(nextCollapsed);
@@ -118,7 +127,11 @@ export default function AppSidebar() {
                 justifyContent: collapsed ? "center" : "flex-start",
               }}
             >
-              {collapsed ? null : mode === "light" ? t("sidebar.darkMode") : t("sidebar.lightMode")}
+              {collapsed
+                ? null
+                : mode === "light"
+                  ? t("sidebar.darkMode")
+                  : t("sidebar.lightMode")}
             </Button>
           </Tooltip>
           <Tooltip title={collapsed ? collapseAction : ""} placement="right">

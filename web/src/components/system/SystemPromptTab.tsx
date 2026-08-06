@@ -71,61 +71,123 @@ function PromptLayersCard({
   const editableMap: Record<string, { pid: string; filename: string }> = {
     "COURT.md": { pid: "court", filename: "COURT.md" },
     "Court MEMORY.md": { pid: "court", filename: "MEMORY.md" },
-    ...(deptId ? {
-      "SOUL.md": { pid: deptId, filename: "SOUL.md" },
-      "ROLE.md": { pid: deptId, filename: "ROLE.md" },
-      "MEMORY.md": { pid: deptId, filename: "MEMORY.md" },
-    } : {}),
+    ...(deptId
+      ? {
+          "SOUL.md": { pid: deptId, filename: "SOUL.md" },
+          "ROLE.md": { pid: deptId, filename: "ROLE.md" },
+          "MEMORY.md": { pid: deptId, filename: "MEMORY.md" },
+        }
+      : {}),
   };
 
   return (
-    <Card title={title ?? t("system.prompt.layeredAnalysis")} size="small" loading={isLoading} style={{ marginTop: 16 }}>
+    <Card
+      title={title ?? t("system.prompt.layeredAnalysis")}
+      size="small"
+      loading={isLoading}
+      style={{ marginTop: 16 }}
+    >
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}>
-          <Statistic title={t("system.prompt.totalChars")} value={layers.total_chars} />
+          <Statistic
+            title={t("system.prompt.totalChars")}
+            value={layers.total_chars}
+          />
         </Col>
         <Col span={8}>
-          <Statistic title={t("system.prompt.estTokens")} value={layers.total_tokens_est} />
+          <Statistic
+            title={t("system.prompt.estTokens")}
+            value={layers.total_tokens_est}
+          />
         </Col>
         <Col span={8}>
-          <Statistic title={t("system.prompt.layerCount")} value={layers.layers.length} />
+          <Statistic
+            title={t("system.prompt.layerCount")}
+            value={layers.layers.length}
+          />
         </Col>
       </Row>
       <Table
         columns={[
-          { title: t("system.prompt.table.layer"), dataIndex: "layer", key: "layer", width: 60, align: "center" as const },
-          { title: t("system.prompt.table.name"), dataIndex: "name", key: "name", width: 150 },
-          { title: t("system.prompt.table.source"), dataIndex: "source", key: "source", ellipsis: true,
-            render: (v: string) => <Typography.Text style={{ fontSize: 12 }}>{v}</Typography.Text> },
-          { title: t("system.prompt.table.chars"), dataIndex: "chars", key: "chars", width: 80, align: "right" as const },
-          { title: t("system.prompt.table.tokensEst"), dataIndex: "tokens_est", key: "tokens_est", width: 100, align: "right" as const },
-          { title: t("system.prompt.table.percent"), key: "percent", width: 120,
+          {
+            title: t("system.prompt.table.layer"),
+            dataIndex: "layer",
+            key: "layer",
+            width: 60,
+            align: "center" as const,
+          },
+          {
+            title: t("system.prompt.table.name"),
+            dataIndex: "name",
+            key: "name",
+            width: 150,
+          },
+          {
+            title: t("system.prompt.table.source"),
+            dataIndex: "source",
+            key: "source",
+            ellipsis: true,
+            render: (v: string) => (
+              <Typography.Text style={{ fontSize: 12 }}>{v}</Typography.Text>
+            ),
+          },
+          {
+            title: t("system.prompt.table.chars"),
+            dataIndex: "chars",
+            key: "chars",
+            width: 80,
+            align: "right" as const,
+          },
+          {
+            title: t("system.prompt.table.tokensEst"),
+            dataIndex: "tokens_est",
+            key: "tokens_est",
+            width: 100,
+            align: "right" as const,
+          },
+          {
+            title: t("system.prompt.table.percent"),
+            key: "percent",
+            width: 120,
             render: (_: unknown, record: { chars: number; name: string }) => (
               <Progress
-                percent={Math.round((record.chars / (layers.total_chars || 1)) * 100)}
+                percent={Math.round(
+                  (record.chars / (layers.total_chars || 1)) * 100,
+                )}
                 size="small"
-                strokeColor={record.chars > 5000 ? "var(--ts-color-warning)" : "var(--ts-color-info)"}
+                strokeColor={
+                  record.chars > 5000
+                    ? "var(--ts-color-warning)"
+                    : "var(--ts-color-info)"
+                }
               />
             ),
           },
-          ...(onEditFile ? [{
-            title: t("system.prompt.table.actions") as string,
-            key: "actions" as const,
-            width: 70,
-            align: "center" as const,
-            render: (_: unknown, record: { chars: number; name: string }) => {
-              const target = editableMap[record.name];
-              if (!target) return null;
-              return (
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<EditOutlined />}
-                  onClick={() => onEditFile(target.pid, target.filename)}
-                />
-              );
-            },
-          }] : []),
+          ...(onEditFile
+            ? [
+                {
+                  title: t("system.prompt.table.actions") as string,
+                  key: "actions" as const,
+                  width: 70,
+                  align: "center" as const,
+                  render: (
+                    _: unknown,
+                    record: { chars: number; name: string },
+                  ) => {
+                    const target = editableMap[record.name];
+                    if (!target) return null;
+                    return (
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<EditOutlined />}
+                        onClick={() => onEditFile(target.pid, target.filename)}
+                      />
+                    );
+                  },
+                },
+              ]
+            : []),
         ]}
         dataSource={layers.layers.map((l) => ({ key: l.layer, ...l }))}
         size="small"
@@ -157,9 +219,10 @@ export default function SystemPromptTab() {
 
   const personaIds = (personas ?? []).map((p) => p.id);
   // Also include "court" if it has prompt files
-  const allPersonaIds = promptFiles.length > 0
-    ? [...new Set(promptFiles.map((f) => f.persona_id))]
-    : [];
+  const allPersonaIds =
+    promptFiles.length > 0
+      ? [...new Set(promptFiles.map((f) => f.persona_id))]
+      : [];
   const displayIds =
     allPersonaIds.length > 0
       ? allPersonaIds
@@ -175,9 +238,7 @@ export default function SystemPromptTab() {
   );
   const { data: fileContent, isLoading: contentLoading } = fileContentQuery;
   const updateMutation = useUpdatePromptFile();
-  const previewQuery = usePromptPreview(
-    previewOpen ? previewPersona : null,
-  );
+  const previewQuery = usePromptPreview(previewOpen ? previewPersona : null);
   const { data: previewData, isLoading: previewLoading } = previewQuery;
 
   const personaFiles = (promptFiles ?? []).filter(
@@ -233,7 +294,10 @@ export default function SystemPromptTab() {
         <div style={{ marginBottom: 16 }}>
           <Segmented
             value={activePersona ?? ""}
-            onChange={(val) => { setSelectedPersona(val as string); setSelectedOfficer(null); }}
+            onChange={(val) => {
+              setSelectedPersona(val as string);
+              setSelectedOfficer(null);
+            }}
             options={displayIds.map((id) => {
               const label = departments[id] ?? id;
               return { value: id, label };
@@ -283,10 +347,7 @@ export default function SystemPromptTab() {
                       onClick={() => handleEdit(f.persona_id, f.filename)}
                     />
                   </div>
-                  <Typography.Text
-                    type="secondary"
-                    style={{ fontSize: 12 }}
-                  >
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                     {f.size} bytes
                   </Typography.Text>
                 </div>
@@ -295,54 +356,62 @@ export default function SystemPromptTab() {
           </div>
 
           {/* Personas belonging to this department */}
-          {activePersona !== "court" && (() => {
-            const deptPersonas = (personas ?? []).filter(
-              (p) => p.department === activePersona,
-            );
-            if (deptPersonas.length === 0) return null;
-            return (
-              <div style={{ marginTop: 24 }}>
-                <Typography.Text
-                  type="secondary"
-                  style={{ display: "block", marginBottom: 8, fontSize: 12 }}
-                >
-                  {t("system.prompt.usingTemplate")}
-                </Typography.Text>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-                  {deptPersonas.map((p) => {
-                    const isSelected = selectedOfficer === p.id;
-                    return (
-                      <div
-                        key={p.id}
-                        onClick={() => setSelectedOfficer(isSelected ? null : p.id)}
-                        style={{
-                          border: `1px solid ${isSelected ? token.colorPrimary : token.colorBorder}`,
-                          borderRadius: token.borderRadius,
-                          padding: "10px 16px",
-                          background: isSelected ? token.colorPrimaryBg : token.colorBgContainer,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 12,
-                          cursor: "pointer",
-                          transition: "all 0.2s",
-                        }}
-                      >
-                        <Typography.Text strong>{p.name}</Typography.Text>
-                        <Tag style={{ marginRight: 0 }}>{p.id}</Tag>
-                        <Button
-                          size="small"
-                          icon={<EyeOutlined />}
-                          onClick={(e) => { e.stopPropagation(); handlePreview(p.id); }}
+          {activePersona !== "court" &&
+            (() => {
+              const deptPersonas = (personas ?? []).filter(
+                (p) => p.department === activePersona,
+              );
+              if (deptPersonas.length === 0) return null;
+              return (
+                <div style={{ marginTop: 24 }}>
+                  <Typography.Text
+                    type="secondary"
+                    style={{ display: "block", marginBottom: 8, fontSize: 12 }}
+                  >
+                    {t("system.prompt.usingTemplate")}
+                  </Typography.Text>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                    {deptPersonas.map((p) => {
+                      const isSelected = selectedOfficer === p.id;
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() =>
+                            setSelectedOfficer(isSelected ? null : p.id)
+                          }
+                          style={{
+                            border: `1px solid ${isSelected ? token.colorPrimary : token.colorBorder}`,
+                            borderRadius: token.borderRadius,
+                            padding: "10px 16px",
+                            background: isSelected
+                              ? token.colorPrimaryBg
+                              : token.colorBgContainer,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 12,
+                            cursor: "pointer",
+                            transition: "all 0.2s",
+                          }}
                         >
-                          {t("system.prompt.preview")}
-                        </Button>
-                      </div>
-                    );
-                  })}
+                          <Typography.Text strong>{p.name}</Typography.Text>
+                          <Tag style={{ marginRight: 0 }}>{p.id}</Tag>
+                          <Button
+                            size="small"
+                            icon={<EyeOutlined />}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePreview(p.id);
+                            }}
+                          >
+                            {t("system.prompt.preview")}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            );
-          })()}
+              );
+            })()}
         </>
       )}
 
@@ -350,7 +419,10 @@ export default function SystemPromptTab() {
       <Drawer
         title={
           editingFile
-            ? t("system.prompt.editFileTitle", { personaId: editingFile.personaId, filename: editingFile.filename })
+            ? t("system.prompt.editFileTitle", {
+                personaId: editingFile.personaId,
+                filename: editingFile.filename,
+              })
             : t("system.prompt.editFile")
         }
         open={!!editingFile}
@@ -386,7 +458,9 @@ export default function SystemPromptTab() {
 
       {/* Preview Modal */}
       <Modal
-        title={t("system.prompt.previewModalTitle", { persona: previewPersona ?? "" })}
+        title={t("system.prompt.previewModalTitle", {
+          persona: previewPersona ?? "",
+        })}
         open={previewOpen}
         onCancel={() => setPreviewOpen(false)}
         footer={null}
@@ -407,7 +481,9 @@ export default function SystemPromptTab() {
             style={monoStyle}
           />
         ) : (
-          <Typography.Text type="secondary">{t("system.prompt.previewEmpty")}</Typography.Text>
+          <Typography.Text type="secondary">
+            {t("system.prompt.previewEmpty")}
+          </Typography.Text>
         )}
       </Modal>
 
@@ -417,7 +493,11 @@ export default function SystemPromptTab() {
           deptId={activePersona ?? undefined}
           title={
             selectedOfficer
-              ? t("system.prompt.layeredFor", { name: (personas ?? []).find((p) => p.id === selectedOfficer)?.name ?? selectedOfficer })
+              ? t("system.prompt.layeredFor", {
+                  name:
+                    (personas ?? []).find((p) => p.id === selectedOfficer)
+                      ?.name ?? selectedOfficer,
+                })
               : t("system.prompt.layeredAnalysis")
           }
           onEditFile={handleEdit}

@@ -56,10 +56,7 @@ export default function SkillsTab() {
   };
 
   // Compute char budget stats
-  const totalChars = loadedSkills.reduce(
-    (acc, s) => acc + s.content_length,
-    0,
-  );
+  const totalChars = loadedSkills.reduce((acc, s) => acc + s.content_length, 0);
 
   const columns = [
     {
@@ -126,14 +123,18 @@ export default function SkillsTab() {
         record.created_by === "agent" ? (
           <Tooltip
             title={
-              record.pinned ? t("skillsPage.action.unpin") : t("skillsPage.action.pin")
+              record.pinned
+                ? t("skillsPage.action.unpin")
+                : t("skillsPage.action.pin")
             }
           >
             <Button
               size="small"
               type="text"
               aria-label={
-                record.pinned ? t("skillsPage.action.unpin") : t("skillsPage.action.pin")
+                record.pinned
+                  ? t("skillsPage.action.unpin")
+                  : t("skillsPage.action.pin")
               }
               icon={record.pinned ? <PushpinFilled /> : <PushpinOutlined />}
               onClick={(event) => {
@@ -179,7 +180,11 @@ export default function SkillsTab() {
 
       {/* Skill Detail Drawer */}
       <Drawer
-        title={selectedSkill ? t("system.skills.detailWithName", { name: selectedSkill }) : t("system.skills.detail")}
+        title={
+          selectedSkill
+            ? t("system.skills.detailWithName", { name: selectedSkill })
+            : t("system.skills.detail")
+        }
         open={!!selectedSkill}
         onClose={() => setSelectedSkill(null)}
         width={640}
@@ -207,9 +212,7 @@ export default function SkillsTab() {
                   {detail.source}
                 </Tag>
                 {detail.always && <Tag color="orange">always</Tag>}
-                {detail.tool_tier && (
-                  <Tag>tier: {detail.tool_tier}</Tag>
-                )}
+                {detail.tool_tier && <Tag>tier: {detail.tool_tier}</Tag>}
               </Space>
             </div>
             {detail.description && (
@@ -228,7 +231,9 @@ export default function SkillsTab() {
             />
           </div>
         ) : (
-          <Typography.Text type="secondary">{t("system.skills.notFound")}</Typography.Text>
+          <Typography.Text type="secondary">
+            {t("system.skills.notFound")}
+          </Typography.Text>
         )}
       </Drawer>
     </>

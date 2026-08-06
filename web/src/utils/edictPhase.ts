@@ -4,7 +4,10 @@ export type EdictPhase = "running" | "needs_review" | "idle" | "no_memorial";
 
 export function deriveEdictPhase(memorial: Memorial | null): EdictPhase {
   if (!memorial) return "no_memorial";
-  if (memorial.review_status === "pending" || memorial.status === "needs_review")
+  if (
+    memorial.review_status === "pending" ||
+    memorial.status === "needs_review"
+  )
     return "needs_review";
   if (
     memorial.status === "submitted" ||

@@ -26,7 +26,13 @@ const factStyle = {
   margin: "12px 0 0",
 } as const;
 
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
+function Fact({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
       <Typography.Text type="secondary">{label}</Typography.Text>
@@ -35,14 +41,26 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-export default function EvolutionGate({ candidate, routing }: EvolutionGateProps) {
+export default function EvolutionGate({
+  candidate,
+  routing,
+}: EvolutionGateProps) {
   const t = useT();
   const blockingGates = candidate.gates.filter((gate) => gate.blocking);
   return (
-    <article aria-labelledby={`candidate-${candidate.candidate_id}`} style={panelStyle}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
+    <article
+      aria-labelledby={`candidate-${candidate.candidate_id}`}
+      style={panelStyle}
+    >
+      <div
+        style={{ display: "flex", justifyContent: "space-between", gap: 16 }}
+      >
         <div>
-          <Typography.Title id={`candidate-${candidate.candidate_id}`} level={4} style={{ margin: 0 }}>
+          <Typography.Title
+            id={`candidate-${candidate.candidate_id}`}
+            level={4}
+            style={{ margin: 0 }}
+          >
             {candidate.candidate_id}
           </Typography.Title>
           <Typography.Text type="secondary">
@@ -60,16 +78,27 @@ export default function EvolutionGate({ candidate, routing }: EvolutionGateProps
       </div>
 
       <div style={factStyle}>
-        <Fact label={t("evolutionUi.artifactHash")}><MonoText>{candidate.artifact_hash}</MonoText></Fact>
-        <Fact label={t("evolutionUi.rollbackState")}>{candidate.rollback_state}</Fact>
+        <Fact label={t("evolutionUi.artifactHash")}>
+          <MonoText>{candidate.artifact_hash}</MonoText>
+        </Fact>
+        <Fact label={t("evolutionUi.rollbackState")}>
+          {candidate.rollback_state}
+        </Fact>
         <Fact label={t("evolutionUi.routingVersion")}>
-          {routing ? routing.routing_version : t("evolutionUi.routingUnavailable")}
+          {routing
+            ? routing.routing_version
+            : t("evolutionUi.routingUnavailable")}
         </Fact>
       </div>
 
       {routing ? (
-        <section aria-label={t("evolutionUi.routingTitle")} style={{ ...factStyle, marginTop: 16 }}>
-          <Fact label={t("evolutionUi.allocation")}>{routing.allocation_percent}%</Fact>
+        <section
+          aria-label={t("evolutionUi.routingTitle")}
+          style={{ ...factStyle, marginTop: 16 }}
+        >
+          <Fact label={t("evolutionUi.allocation")}>
+            {routing.allocation_percent}%
+          </Fact>
           <Fact label={t("evolutionUi.championAssignments")}>
             {routing.champion_assignment_count}
           </Fact>
@@ -80,8 +109,15 @@ export default function EvolutionGate({ candidate, routing }: EvolutionGateProps
       ) : null}
 
       {blockingGates.length > 0 ? (
-        <section aria-labelledby={`blocking-${candidate.candidate_id}`} style={{ marginTop: 18 }}>
-          <Typography.Title id={`blocking-${candidate.candidate_id}`} level={5} style={{ margin: 0 }}>
+        <section
+          aria-labelledby={`blocking-${candidate.candidate_id}`}
+          style={{ marginTop: 18 }}
+        >
+          <Typography.Title
+            id={`blocking-${candidate.candidate_id}`}
+            level={5}
+            style={{ margin: 0 }}
+          >
             {t("evolutionUi.blockingGates")}
           </Typography.Title>
           <ul style={{ margin: "10px 0 0", paddingLeft: 20 }}>
@@ -92,14 +128,16 @@ export default function EvolutionGate({ candidate, routing }: EvolutionGateProps
                   {gate.current !== null && gate.required !== null ? (
                     <>
                       {" · "}
-                      <span>{gate.current} / {gate.required}</span>
+                      <span>
+                        {gate.current} / {gate.required}
+                      </span>
                     </>
                   ) : null}
                 </div>
                 {gate.evidence_hash ? (
                   <div style={{ marginTop: 4 }}>
                     <Typography.Text type="secondary">
-                      {t("evolutionUi.evidenceHash")}: {" "}
+                      {t("evolutionUi.evidenceHash")}:{" "}
                     </Typography.Text>
                     <MonoText>{gate.evidence_hash}</MonoText>
                     {gate.evidence_bundle_id ? (

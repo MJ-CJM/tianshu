@@ -15,7 +15,9 @@ export async function listSkills(): Promise<ApiResponse<SkillInfo[]>> {
   return data;
 }
 
-export async function getSkill(name: string): Promise<ApiResponse<SkillDetail>> {
+export async function getSkill(
+  name: string,
+): Promise<ApiResponse<SkillDetail>> {
   const { data } = await apiClient.get<ApiResponse<SkillDetail>>(
     `/skills/${encodeURIComponent(name)}`,
   );
@@ -26,10 +28,9 @@ export async function pinSkill(
   name: string,
   pinned: boolean,
 ): Promise<ApiResponse<{ name: string; pinned: boolean }>> {
-  const { data } = await apiClient.post<ApiResponse<{ name: string; pinned: boolean }>>(
-    `/skills/${encodeURIComponent(name)}/pin`,
-    { pinned },
-  );
+  const { data } = await apiClient.post<
+    ApiResponse<{ name: string; pinned: boolean }>
+  >(`/skills/${encodeURIComponent(name)}/pin`, { pinned });
   return data;
 }
 
@@ -75,7 +76,9 @@ export async function updatePromptFile(
   personaId: string,
   filename: string,
   content: string,
-): Promise<ApiResponse<{ persona_id: string; filename: string; size: number }>> {
+): Promise<
+  ApiResponse<{ persona_id: string; filename: string; size: number }>
+> {
   const { data } = await apiClient.put<
     ApiResponse<{ persona_id: string; filename: string; size: number }>
   >(

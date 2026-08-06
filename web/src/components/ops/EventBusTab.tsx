@@ -13,7 +13,11 @@ import { ReloadOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import MonoText from "../common/MonoText";
 import { formatTime, truncateId } from "../../utils/format";
-import { useEventBusHandlers, useEventBusStats, useRecentEvents } from "../../hooks/useOps";
+import {
+  useEventBusHandlers,
+  useEventBusStats,
+  useRecentEvents,
+} from "../../hooks/useOps";
 import type { RecentEvent } from "../../api/types";
 import { useT } from "../../i18n";
 
@@ -25,7 +29,11 @@ export function EventBusTab() {
   const t = useT();
   const { data: handlers, isLoading: handlersLoading } = useEventBusHandlers();
   const { data: stats, isLoading: statsLoading } = useEventBusStats();
-  const { data: recentEvents, isLoading: eventsLoading, refetch } = useRecentEvents(30);
+  const {
+    data: recentEvents,
+    isLoading: eventsLoading,
+    refetch,
+  } = useRecentEvents(30);
 
   // Build handler registration table data
   const handlerRows = handlers
@@ -35,12 +43,14 @@ export function EventBusTab() {
           event_type: eventType,
           handler: entry.handler,
           priority: entry.priority,
-        }))
+        })),
       )
     : [];
 
   // Build stats cards data
-  const totalEvents = stats ? Object.values(stats).reduce((a, b) => a + b, 0) : 0;
+  const totalEvents = stats
+    ? Object.values(stats).reduce((a, b) => a + b, 0)
+    : 0;
   const eventTypes = stats ? Object.keys(stats).length : 0;
 
   const eventColumns: ColumnsType<RecentEvent> = [
@@ -50,10 +60,15 @@ export function EventBusTab() {
       key: "event_type",
       width: 200,
       render: (v: string) => {
-        const color = v.startsWith("hook.") ? "orange" :
-          v.includes("completed") ? "green" :
-          v.includes("failed") ? "red" :
-          v.includes("submitted") ? "blue" : "default";
+        const color = v.startsWith("hook.")
+          ? "orange"
+          : v.includes("completed")
+            ? "green"
+            : v.includes("failed")
+              ? "red"
+              : v.includes("submitted")
+                ? "blue"
+                : "default";
         return <Tag color={color}>{v}</Tag>;
       },
       filters: recentEvents
@@ -69,7 +84,9 @@ export function EventBusTab() {
       dataIndex: "edict_id",
       key: "edict_id",
       width: 120,
-      render: (v: string) => <MonoText style={{ fontSize: 11 }}>{truncateId(v)}</MonoText>,
+      render: (v: string) => (
+        <MonoText style={{ fontSize: 11 }}>{truncateId(v)}</MonoText>
+      ),
     },
     {
       title: t("ops.eventbus.table.memorial"),
@@ -77,7 +94,11 @@ export function EventBusTab() {
       key: "memorial_id",
       width: 120,
       render: (v: string | null) =>
-        v ? <MonoText style={{ fontSize: 11 }}>{truncateId(v)}</MonoText> : <Text type="secondary">—</Text>,
+        v ? (
+          <MonoText style={{ fontSize: 11 }}>{truncateId(v)}</MonoText>
+        ) : (
+          <Text type="secondary">—</Text>
+        ),
     },
     {
       title: t("ops.eventbus.table.detail"),
@@ -85,9 +106,13 @@ export function EventBusTab() {
       key: "payload",
       ellipsis: true,
       render: (v: Record<string, unknown>) => {
-        if (!v || Object.keys(v).length === 0) return <Text type="secondary">—</Text>;
+        if (!v || Object.keys(v).length === 0)
+          return <Text type="secondary">—</Text>;
         const summary = Object.entries(v)
-          .map(([k, val]) => `${k}: ${typeof val === "object" ? JSON.stringify(val) : val}`)
+          .map(
+            ([k, val]) =>
+              `${k}: ${typeof val === "object" ? JSON.stringify(val) : val}`,
+          )
           .join(", ");
         return <Text style={{ fontSize: 12 }}>{summary}</Text>;
       },
@@ -97,7 +122,9 @@ export function EventBusTab() {
       dataIndex: "created_at",
       key: "created_at",
       width: 170,
-      render: (v: string) => <Text style={{ fontSize: 12 }}>{formatTime(v)}</Text>,
+      render: (v: string) => (
+        <Text style={{ fontSize: 12 }}>{formatTime(v)}</Text>
+      ),
     },
   ];
 
@@ -106,12 +133,18 @@ export function EventBusTab() {
       <Row gutter={16}>
         <Col span={6}>
           <Card size="small">
-            <Statistic title={t("ops.eventbus.stat.total")} value={totalEvents} />
+            <Statistic
+              title={t("ops.eventbus.stat.total")}
+              value={totalEvents}
+            />
           </Card>
         </Col>
         <Col span={6}>
           <Card size="small">
-            <Statistic title={t("ops.eventbus.stat.types")} value={eventTypes} />
+            <Statistic
+              title={t("ops.eventbus.stat.types")}
+              value={eventTypes}
+            />
           </Card>
         </Col>
         <Col span={6}>
@@ -125,20 +158,34 @@ export function EventBusTab() {
         </Col>
         <Col span={6}>
           <Card size="small">
-            <Statistic title={t("ops.eventbus.stat.recent")} value={recentEvents?.length ?? 0} loading={eventsLoading} />
+            <Statistic
+              title={t("ops.eventbus.stat.recent")}
+              value={recentEvents?.length ?? 0}
+              loading={eventsLoading}
+            />
           </Card>
         </Col>
       </Row>
 
       {/* Event type distribution */}
       {stats && (
-        <Card title={t("ops.eventbus.dist")} size="small" loading={statsLoading}>
+        <Card
+          title={t("ops.eventbus.dist")}
+          size="small"
+          loading={statsLoading}
+        >
           <Row gutter={[8, 8]}>
             {Object.entries(stats)
               .sort(([, a], [, b]) => b - a)
               .map(([type, count]) => (
                 <Col key={type} span={8}>
-                  <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      padding: "4px 0",
+                    }}
+                  >
                     <Tag>{type}</Tag>
                     <Text strong>{count}</Text>
                   </div>
@@ -149,7 +196,11 @@ export function EventBusTab() {
       )}
 
       {/* Handler registration table */}
-      <Card title={t("ops.eventbus.handlersTitle")} size="small" loading={handlersLoading}>
+      <Card
+        title={t("ops.eventbus.handlersTitle")}
+        size="small"
+        loading={handlersLoading}
+      >
         <Table
           columns={[
             {
@@ -163,7 +214,9 @@ export function EventBusTab() {
               title: t("ops.eventbus.handlerCol"),
               dataIndex: "handler",
               key: "handler",
-              render: (v: string) => <MonoText style={{ fontSize: 12 }}>{v}</MonoText>,
+              render: (v: string) => (
+                <MonoText style={{ fontSize: 12 }}>{v}</MonoText>
+              ),
             },
             {
               title: t("ops.eventbus.priority"),
@@ -172,11 +225,22 @@ export function EventBusTab() {
               width: 100,
               align: "center" as const,
               render: (v: number) => (
-                <Tag color={v <= 10 ? "red" : v <= 50 ? "orange" : v <= 100 ? "blue" : "default"}>
+                <Tag
+                  color={
+                    v <= 10
+                      ? "red"
+                      : v <= 50
+                        ? "orange"
+                        : v <= 100
+                          ? "blue"
+                          : "default"
+                  }
+                >
                   {v}
                 </Tag>
               ),
-              sorter: (a: { priority: number }, b: { priority: number }) => a.priority - b.priority,
+              sorter: (a: { priority: number }, b: { priority: number }) =>
+                a.priority - b.priority,
             },
           ]}
           dataSource={handlerRows}
@@ -191,7 +255,15 @@ export function EventBusTab() {
       <Card
         title={t("ops.eventbus.recentTitle")}
         size="small"
-        extra={<Button icon={<ReloadOutlined />} size="small" onClick={() => refetch()}>{t("action.refresh")}</Button>}
+        extra={
+          <Button
+            icon={<ReloadOutlined />}
+            size="small"
+            onClick={() => refetch()}
+          >
+            {t("action.refresh")}
+          </Button>
+        }
       >
         <Table<RecentEvent>
           columns={eventColumns}

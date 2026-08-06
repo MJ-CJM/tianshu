@@ -90,9 +90,7 @@ export default function ModelSelect({
                 {badges && <span style={{ marginLeft: 6 }}>{badges}</span>}
               </span>
               {meta && (
-                <span
-                  style={{ fontSize: 11, color: token.colorTextTertiary }}
-                >
+                <span style={{ fontSize: 11, color: token.colorTextTertiary }}>
                   {meta}
                 </span>
               )}

@@ -34,7 +34,12 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
         className={styles.brand}
         to="/control"
         aria-label="天枢中枢总览"
-        style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          textDecoration: "none",
+        }}
       >
         {/* 品牌标:TS×轨道(与 README/favicon 同一枚 logo) */}
         <img
@@ -74,7 +79,12 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
       </div>
       <div
         className={styles.statuses}
-        style={{ display: "flex", alignItems: "center", gap: 12, lineHeight: 1.5 }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          lineHeight: 1.5,
+        }}
       >
         <LocaleSwitcher />
         {principal ? (

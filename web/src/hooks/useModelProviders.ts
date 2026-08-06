@@ -50,8 +50,13 @@ export function useCreateModelProvider() {
 export function useUpdateModelProvider() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, req }: { id: string; req: ModelProviderUpdateRequest }) =>
-      updateModelProvider(id, req),
+    mutationFn: ({
+      id,
+      req,
+    }: {
+      id: string;
+      req: ModelProviderUpdateRequest;
+    }) => updateModelProvider(id, req),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: MODEL_PROVIDERS_KEY });
     },

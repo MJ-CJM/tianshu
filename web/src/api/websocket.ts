@@ -14,7 +14,10 @@ interface WebSocketManagerOptions {
   getUrl: () => string;
   createSocket: (url: string) => ManagedWebSocket;
   refreshSession: () => Promise<boolean>;
-  schedule?: (callback: () => void, delay: number) => ReturnType<typeof setTimeout>;
+  schedule?: (
+    callback: () => void,
+    delay: number,
+  ) => ReturnType<typeof setTimeout>;
   cancelSchedule?: (timer: ReturnType<typeof setTimeout>) => void;
 }
 
@@ -35,8 +38,10 @@ export class WebSocketManager {
   constructor(options: WebSocketManagerOptions) {
     this.options = {
       ...options,
-      schedule: options.schedule ?? ((callback, delay) => setTimeout(callback, delay)),
-      cancelSchedule: options.cancelSchedule ?? ((timer) => clearTimeout(timer)),
+      schedule:
+        options.schedule ?? ((callback, delay) => setTimeout(callback, delay)),
+      cancelSchedule:
+        options.cancelSchedule ?? ((timer) => clearTimeout(timer)),
     };
   }
 
@@ -64,7 +69,8 @@ export class WebSocketManager {
   }
 
   private connect(): void {
-    if (this.blocked || this.connectionListeners.size === 0 || this.socket) return;
+    if (this.blocked || this.connectionListeners.size === 0 || this.socket)
+      return;
     const socket = this.options.createSocket(this.options.getUrl());
     this.socket = socket;
     socket.onopen = () => {

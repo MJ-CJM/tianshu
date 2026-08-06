@@ -194,7 +194,12 @@ function ConfigPanelBody({
         }}
       >
         <div style={{ display: "flex", gap: 8 }}>
-          <Button size="small" type="primary" loading={applyLoading} onClick={onApply}>
+          <Button
+            size="small"
+            type="primary"
+            loading={applyLoading}
+            onClick={onApply}
+          >
             {t("system.globalConfig.apply")}
           </Button>
           {!isActive && (
@@ -274,13 +279,22 @@ export default function ProvidersTab() {
         payload.model = form.model;
       if (form.api_base !== undefined && form.api_base !== config.api_base)
         payload.api_base = form.api_base;
-      if (form.max_retries !== undefined && form.max_retries !== config.max_retries)
+      if (
+        form.max_retries !== undefined &&
+        form.max_retries !== config.max_retries
+      )
         payload.max_retries = form.max_retries;
-      if (form.temperature !== undefined && form.temperature !== config.temperature)
+      if (
+        form.temperature !== undefined &&
+        form.temperature !== config.temperature
+      )
         payload.temperature = form.temperature;
       if (form.top_p !== undefined && form.top_p !== config.top_p)
         payload.top_p = form.top_p;
-      if (form.max_tokens !== undefined && form.max_tokens !== config.max_tokens)
+      if (
+        form.max_tokens !== undefined &&
+        form.max_tokens !== config.max_tokens
+      )
         payload.max_tokens = form.max_tokens;
       if (form.enabled !== undefined && form.enabled !== config.enabled)
         payload.enabled = form.enabled;
@@ -294,7 +308,9 @@ export default function ProvidersTab() {
         { name, req: payload },
         {
           onSuccess: () => {
-            notification.success({ message: t("system.toast.llmConfigUpdated") });
+            notification.success({
+              message: t("system.toast.llmConfigUpdated"),
+            });
             setForms((prev) => ({
               ...prev,
               [name]: { ...prev[name], api_key: undefined },
@@ -310,12 +326,17 @@ export default function ProvidersTab() {
     addForm.validateFields().then((values) => {
       createMutation.mutate(values, {
         onSuccess: () => {
-          notification.success({ message: t("system.toast.llmConfigAdded", { name: values.name }) });
+          notification.success({
+            message: t("system.toast.llmConfigAdded", { name: values.name }),
+          });
           setAddModalOpen(false);
           addForm.resetFields();
         },
         onError: (err: unknown) => {
-          const msg = err instanceof Error ? err.message : t("system.toast.llmConfigDuplicate");
+          const msg =
+            err instanceof Error
+              ? err.message
+              : t("system.toast.llmConfigDuplicate");
           notification.error({ message: msg });
         },
       });
@@ -324,7 +345,10 @@ export default function ProvidersTab() {
 
   const handleDeleteProvider = (name: string) => {
     deleteProviderMutation.mutate(name, {
-      onSuccess: () => notification.success({ message: t("system.toast.providerDeleted", { name }) }),
+      onSuccess: () =>
+        notification.success({
+          message: t("system.toast.providerDeleted", { name }),
+        }),
     });
   };
 
@@ -347,26 +371,55 @@ export default function ProvidersTab() {
   const activeName = configsData?.active_name ?? "";
 
   const providerColumns: import("antd/es/table").ColumnsType<ProviderInfo> = [
-    { title: t("system.providers.table.name"), dataIndex: "name", key: "name", width: 140 },
-    { title: t("system.providers.table.model"), dataIndex: "model", key: "model", width: 160 },
     {
-      title: t("system.providers.table.status"), dataIndex: "status", key: "status", width: 100,
+      title: t("system.providers.table.name"),
+      dataIndex: "name",
+      key: "name",
+      width: 140,
+    },
+    {
+      title: t("system.providers.table.model"),
+      dataIndex: "model",
+      key: "model",
+      width: 160,
+    },
+    {
+      title: t("system.providers.table.status"),
+      dataIndex: "status",
+      key: "status",
+      width: 100,
       render: (v: string) => {
-        const color = v === "active" ? "green" : v === "degraded" ? "orange" : "red";
+        const color =
+          v === "active" ? "green" : v === "degraded" ? "orange" : "red";
         return <Tag color={color}>{v}</Tag>;
       },
     },
-    { title: t("system.providers.table.priority"), dataIndex: "priority", key: "priority", width: 80, align: "right" },
     {
-      title: t("system.providers.table.rpm"), dataIndex: "rpm_limit", key: "rpm_limit", width: 80, align: "right",
+      title: t("system.providers.table.priority"),
+      dataIndex: "priority",
+      key: "priority",
+      width: 80,
+      align: "right",
+    },
+    {
+      title: t("system.providers.table.rpm"),
+      dataIndex: "rpm_limit",
+      key: "rpm_limit",
+      width: 80,
+      align: "right",
       render: (v: number | null) => v ?? "—",
     },
     {
-      title: t("system.providers.table.cost"), key: "cost", width: 200, align: "right",
+      title: t("system.providers.table.cost"),
+      key: "cost",
+      width: 200,
+      align: "right",
       render: (_, r) => {
         const eff = r.pricing_effective;
         if (eff?.billing === "subscription") {
-          return <Tag color="purple">{t("system.providers.costSubscription")}</Tag>;
+          return (
+            <Tag color="purple">{t("system.providers.costSubscription")}</Tag>
+          );
         }
         const miss = eff ? eff.miss : r.cost_per_1k_prompt;
         const hit = eff ? eff.hit : r.cost_per_1k_cache_read;
@@ -376,9 +429,10 @@ export default function ProvidersTab() {
           source === "custom"
             ? t("system.providers.costAllCustom")
             : source === "mixed"
-            ? t("system.providers.costPartial")
-            : t("system.providers.costNoCustom");
-        const fmt = (v: number | null) => (v != null ? v.toFixed(5).replace(/0+$/, "").replace(/\.$/, "") : "—");
+              ? t("system.providers.costPartial")
+              : t("system.providers.costNoCustom");
+        const fmt = (v: number | null) =>
+          v != null ? v.toFixed(5).replace(/0+$/, "").replace(/\.$/, "") : "—";
         return (
           <Tooltip title={tooltip}>
             <span style={{ fontSize: 12, fontFamily: "monospace" }}>
@@ -389,9 +443,14 @@ export default function ProvidersTab() {
       },
     },
     {
-      title: "", key: "actions", width: 50,
+      title: "",
+      key: "actions",
+      width: 50,
       render: (_, record) => (
-        <Popconfirm title={t("system.providers.confirmDeleteProvider")} onConfirm={() => handleDeleteProvider(record.name)}>
+        <Popconfirm
+          title={t("system.providers.confirmDeleteProvider")}
+          onConfirm={() => handleDeleteProvider(record.name)}
+        >
           <Button type="text" danger size="small" icon={<DeleteOutlined />} />
         </Popconfirm>
       ),
@@ -439,13 +498,17 @@ export default function ProvidersTab() {
         onActivate={() =>
           activateMutation.mutate(c.name, {
             onSuccess: () =>
-              notification.success({ message: t("system.toast.llmConfigSwitched", { name: c.name }) }),
+              notification.success({
+                message: t("system.toast.llmConfigSwitched", { name: c.name }),
+              }),
           })
         }
         onDelete={() =>
           deleteMutation.mutate(c.name, {
             onSuccess: () =>
-              notification.success({ message: t("system.toast.llmConfigDeleted", { name: c.name }) }),
+              notification.success({
+                message: t("system.toast.llmConfigDeleted", { name: c.name }),
+              }),
           })
         }
         applyLoading={updateMutation.isPending}
@@ -462,7 +525,9 @@ export default function ProvidersTab() {
       <Divider />
 
       {/* Provider 列表 */}
-      <Typography.Title level={5} style={{ marginBottom: 12 }}>{t("system.providers.listTitle")}</Typography.Title>
+      <Typography.Title level={5} style={{ marginBottom: 12 }}>
+        {t("system.providers.listTitle")}
+      </Typography.Title>
       <Table<ProviderInfo>
         columns={providerColumns}
         dataSource={providers ?? []}
@@ -484,7 +549,9 @@ export default function ProvidersTab() {
           marginBottom: 12,
         }}
       >
-        <Typography.Title level={5} style={{ margin: 0 }}>{t("system.providers.llmConfigTitle")}</Typography.Title>
+        <Typography.Title level={5} style={{ margin: 0 }}>
+          {t("system.providers.llmConfigTitle")}
+        </Typography.Title>
         <Button
           type="primary"
           size="small"
@@ -527,7 +594,12 @@ export default function ProvidersTab() {
           <Form.Item
             name="name"
             label={t("system.providers.form.name")}
-            rules={[{ required: true, message: t("system.providers.form.nameRequired") }]}
+            rules={[
+              {
+                required: true,
+                message: t("system.providers.form.nameRequired"),
+              },
+            ]}
           >
             <Input placeholder={t("system.providers.form.namePlaceholder")} />
           </Form.Item>
@@ -538,7 +610,9 @@ export default function ProvidersTab() {
             <Select
               allowClear
               loading={modelProvidersQuery.isLoading}
-              placeholder={t("system.providers.registry.providerSelectPlaceholder")}
+              placeholder={t(
+                "system.providers.registry.providerSelectPlaceholder",
+              )}
               options={(modelProviders ?? []).map((p) => ({
                 value: p.id,
                 label: `${p.display_name} (${p.id})`,
@@ -548,12 +622,19 @@ export default function ProvidersTab() {
           <Form.Item
             name="model"
             label={t("system.providers.form.model")}
-            rules={[{ required: true, message: t("system.providers.form.modelRequired") }]}
+            rules={[
+              {
+                required: true,
+                message: t("system.providers.form.modelRequired"),
+              },
+            ]}
           >
             {addProviderId ? (
               <ModelSelect providerId={addProviderId} />
             ) : (
-              <Input placeholder={t("system.providers.form.modelPlaceholder")} />
+              <Input
+                placeholder={t("system.providers.form.modelPlaceholder")}
+              />
             )}
           </Form.Item>
           <Form.Item name="api_key" label="API Key">
@@ -567,7 +648,9 @@ export default function ProvidersTab() {
           </Form.Item>
           {!addProviderId && (
             <Form.Item name="api_base" label="API Base" preserve={false}>
-              <Input placeholder={t("system.providers.form.apiBasePlaceholder")} />
+              <Input
+                placeholder={t("system.providers.form.apiBasePlaceholder")}
+              />
             </Form.Item>
           )}
           <Form.Item name="max_retries" label="Max Retries" initialValue={3}>

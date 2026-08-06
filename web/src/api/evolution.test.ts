@@ -18,7 +18,9 @@ describe("Evolution Center API", () => {
       routing: [],
       last_gate_hash: null,
     };
-    get.mockResolvedValue({ data: { data: snapshot, correlation_id: "corr-evolution" } });
+    get.mockResolvedValue({
+      data: { data: snapshot, correlation_id: "corr-evolution" },
+    });
 
     await expect(getEvolutionCenterSnapshot()).resolves.toEqual(snapshot);
     expect(get).toHaveBeenCalledWith("/evolution");

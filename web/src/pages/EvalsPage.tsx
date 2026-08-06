@@ -30,7 +30,8 @@ import { problemPageStatus } from "../components/states/problemPageStatus";
 
 function DeltaTag({ delta }: { delta: number | null }) {
   const t = useT();
-  if (delta === null || delta === undefined) return <Tag>{t("evals.firstRun")}</Tag>;
+  if (delta === null || delta === undefined)
+    return <Tag>{t("evals.firstRun")}</Tag>;
   const color = delta > 0 ? "success" : delta < 0 ? "error" : "default";
   const sign = delta > 0 ? "+" : "";
   return <Tag color={color}>{`${sign}${delta.toFixed(4)}`}</Tag>;
@@ -76,7 +77,11 @@ function RunDetail({ runId }: { runId: string }) {
       width: 120,
       render: (s: string) => {
         const color =
-          s === "completed" || s === "approved" ? "success" : s === "failed" ? "error" : "default";
+          s === "completed" || s === "approved"
+            ? "success"
+            : s === "failed"
+              ? "error"
+              : "default";
         return <Tag color={color}>{s}</Tag>;
       },
     },
@@ -173,7 +178,10 @@ function RunDetail({ runId }: { runId: string }) {
         <Col span={8}>
           <Card title={t("evals.failureDistribution")} size="small">
             {(run.failure_distribution ?? []).length === 0 ? (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("evals.noFailures")} />
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={t("evals.noFailures")}
+              />
             ) : (
               (run.failure_distribution ?? []).map((d) => {
                 const total = (run.goal_results ?? []).filter(
@@ -262,7 +270,12 @@ export default function EvalsPage() {
     {
       title: t("evals.evalSet"),
       dataIndex: "eval_set_name",
-      render: (n: string | null) => n ?? <Typography.Text type="secondary">{t("evals.adhocSample")}</Typography.Text>,
+      render: (n: string | null) =>
+        n ?? (
+          <Typography.Text type="secondary">
+            {t("evals.adhocSample")}
+          </Typography.Text>
+        ),
     },
     {
       title: t("evals.score"),
@@ -296,16 +309,24 @@ export default function EvalsPage() {
         canDo={t("evals.capabilityCanDo")}
         boundary={t("evals.capabilityBoundary")}
       />
-      <Typography.Paragraph type="secondary" style={{ marginTop: -12, marginBottom: 16 }}>
+      <Typography.Paragraph
+        type="secondary"
+        style={{ marginTop: -12, marginBottom: 16 }}
+      >
         {t("evals.subtitle")}
       </Typography.Paragraph>
       {runs.length === 0 && !isLoading ? (
         <Card>
           <Empty
-            image={<ExperimentOutlined style={{ fontSize: 48, opacity: 0.4 }} />}
+            image={
+              <ExperimentOutlined style={{ fontSize: 48, opacity: 0.4 }} />
+            }
             description={
               <div>
-                <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                <Typography.Paragraph
+                  type="secondary"
+                  style={{ marginBottom: 8 }}
+                >
                   {t("evals.emptyHint")}
                 </Typography.Paragraph>
                 <MonoText>tianshu evals run</MonoText>
@@ -327,7 +348,9 @@ export default function EvalsPage() {
                 onClick: () => setSelectedRunId(record.id),
                 style: { cursor: "pointer" },
               })}
-              rowClassName={(record) => (record.id === effectiveRunId ? "ant-table-row-selected" : "")}
+              rowClassName={(record) =>
+                record.id === effectiveRunId ? "ant-table-row-selected" : ""
+              }
             />
           </Card>
           {effectiveRunId && <RunDetail runId={effectiveRunId} />}
@@ -335,26 +358,32 @@ export default function EvalsPage() {
       )}
 
       {sets.length > 0 && (
-        <Card title={t("evals.savedSets")} size="small" style={{ marginTop: 16 }}>
+        <Card
+          title={t("evals.savedSets")}
+          size="small"
+          style={{ marginTop: 16 }}
+        >
           <Table
             rowKey="name"
-            columns={[
-              { title: t("evals.setName"), dataIndex: "name" },
-              {
-                title: t("evals.goalCount"),
-                dataIndex: "goals",
-                width: 100,
-                align: "right" as const,
-                render: (goals: string[]) => goals.length,
-              },
-              { title: t("evals.source"), dataIndex: "source", width: 120 },
-              {
-                title: t("evals.time"),
-                dataIndex: "created_at",
-                width: 170,
-                render: (ts: string) => formatTime(ts),
-              },
-            ] as ColumnsType<EvalSet>}
+            columns={
+              [
+                { title: t("evals.setName"), dataIndex: "name" },
+                {
+                  title: t("evals.goalCount"),
+                  dataIndex: "goals",
+                  width: 100,
+                  align: "right" as const,
+                  render: (goals: string[]) => goals.length,
+                },
+                { title: t("evals.source"), dataIndex: "source", width: 120 },
+                {
+                  title: t("evals.time"),
+                  dataIndex: "created_at",
+                  width: 170,
+                  render: (ts: string) => formatTime(ts),
+                },
+              ] as ColumnsType<EvalSet>
+            }
             dataSource={sets}
             size="small"
             pagination={false}

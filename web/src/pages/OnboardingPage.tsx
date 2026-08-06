@@ -17,9 +17,13 @@ import { EdictCreationForm } from "./EdictCreatePage";
 
 function OnboardingContent({ state }: { state: OnboardingState }) {
   const t = useT();
-  const [acknowledgedProfile, setAcknowledgedProfile] = useState<"demo" | "live" | null>(null);
+  const [acknowledgedProfile, setAcknowledgedProfile] = useState<
+    "demo" | "live" | null
+  >(null);
   const profileLabel =
-    state.profile === "demo" ? t("page.onboarding.demoLabel") : t("page.onboarding.liveLabel");
+    state.profile === "demo"
+      ? t("page.onboarding.demoLabel")
+      : t("page.onboarding.liveLabel");
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
@@ -36,7 +40,9 @@ function OnboardingContent({ state }: { state: OnboardingState }) {
         <Typography.Paragraph type="secondary">
           {t("page.onboarding.resourcesDescription")}
         </Typography.Paragraph>
-        <Typography.Title level={5}>{t("page.onboarding.departmentsTitle")}</Typography.Title>
+        <Typography.Title level={5}>
+          {t("page.onboarding.departmentsTitle")}
+        </Typography.Title>
         <ul aria-label={t("page.onboarding.departmentsTitle")}>
           {state.packagedPersonas.map((persona) => (
             <li key={persona.id}>
@@ -45,7 +51,9 @@ function OnboardingContent({ state }: { state: OnboardingState }) {
             </li>
           ))}
         </ul>
-        <Typography.Title level={5}>{t("page.onboarding.skillsTitle")}</Typography.Title>
+        <Typography.Title level={5}>
+          {t("page.onboarding.skillsTitle")}
+        </Typography.Title>
         <ul aria-label={t("page.onboarding.skillsTitle")}>
           {state.builtinSkills.map((skill) => (
             <li key={skill.name}>
@@ -56,7 +64,9 @@ function OnboardingContent({ state }: { state: OnboardingState }) {
       </Card>
 
       <Card title={t("page.onboarding.profileTitle")}>
-        <Typography.Paragraph>{t("page.onboarding.profileDescription")}</Typography.Paragraph>
+        <Typography.Paragraph>
+          {t("page.onboarding.profileDescription")}
+        </Typography.Paragraph>
         <Radio
           checked={acknowledgedProfile === state.profile}
           onChange={() => setAcknowledgedProfile(state.profile)}
@@ -98,7 +108,8 @@ export default function OnboardingPage() {
       : toApiProblem(query.error)
     : null;
 
-  const hasCurrentSuccess = query.isFetchedAfterMount && !query.isFetching && !problem;
+  const hasCurrentSuccess =
+    query.isFetchedAfterMount && !query.isFetching && !problem;
   if (hasCurrentSuccess && query.data && !query.data.required) {
     return <Navigate to="/control" replace />;
   }

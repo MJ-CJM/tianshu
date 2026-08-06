@@ -19,7 +19,9 @@ describe("durable Edict detail API", () => {
 
   it("reads the single principal-scoped composed detail endpoint", async () => {
     const snapshot = { schema_version: 1, edict: { id: "edict/1" } };
-    get.mockResolvedValue({ data: { data: snapshot, correlation_id: "corr-1" } });
+    get.mockResolvedValue({
+      data: { data: snapshot, correlation_id: "corr-1" },
+    });
 
     await expect(getEdictDetailSnapshot("edict/1")).resolves.toEqual(snapshot);
     expect(get).toHaveBeenCalledWith("/edicts/edict%2F1/detail");
@@ -39,13 +41,19 @@ describe("durable Edict detail API", () => {
       },
     });
 
-    await expect(resolveEdictDecision({
-      decisionRequestId: "decision/1",
-      kind: "governed_apply",
-      action: "approve",
-      reason: "已核验恢复点",
-      expectedVersion: 4,
-    })).resolves.toMatchObject({ status: "resolved", version: 5, actor: "user:owner" });
+    await expect(
+      resolveEdictDecision({
+        decisionRequestId: "decision/1",
+        kind: "governed_apply",
+        action: "approve",
+        reason: "已核验恢复点",
+        expectedVersion: 4,
+      }),
+    ).resolves.toMatchObject({
+      status: "resolved",
+      version: 5,
+      actor: "user:owner",
+    });
     expect(post).toHaveBeenCalledWith("/decisions/decision%2F1/resolve", {
       action: "approve",
       reason: "已核验恢复点",
@@ -85,20 +93,31 @@ describe("durable Edict detail API", () => {
   });
 
   it("replay creates a new governed request with no browser actor or execution call", async () => {
-    vi.stubGlobal("crypto", { randomUUID: vi.fn(() => "replay-idempotency-key") });
+    vi.stubGlobal("crypto", {
+      randomUUID: vi.fn(() => "replay-idempotency-key"),
+    });
     const requestedContract = {
       schema_version: "1",
-      objective: { goal: "verify release", context: null, constraints: [], output_format: null },
+      objective: {
+        goal: "verify release",
+        context: null,
+        constraints: [],
+        output_format: null,
+      },
     };
-    post.mockResolvedValue({ data: { success: true, data: { id: "edict-replay" } } });
+    post.mockResolvedValue({
+      data: { success: true, data: { id: "edict-replay" } },
+    });
 
-    await expect(replayGovernedEdict({
-      title: "Release validation",
-      goal: "verify release",
-      context: null,
-      priority: "normal",
-      governanceContract: requestedContract,
-    })).resolves.toEqual("edict-replay");
+    await expect(
+      replayGovernedEdict({
+        title: "Release validation",
+        goal: "verify release",
+        context: null,
+        priority: "normal",
+        governanceContract: requestedContract,
+      }),
+    ).resolves.toEqual("edict-replay");
 
     expect(post).toHaveBeenCalledTimes(1);
     const [url, body, config] = post.mock.calls[0]!;
@@ -112,6 +131,8 @@ describe("durable Edict detail API", () => {
     });
     expect(body).not.toHaveProperty("actor");
     expect(body).not.toHaveProperty("submitter");
-    expect(config).toEqual({ headers: { "Idempotency-Key": "replay-idempotency-key" } });
+    expect(config).toEqual({
+      headers: { "Idempotency-Key": "replay-idempotency-key" },
+    });
   });
 });

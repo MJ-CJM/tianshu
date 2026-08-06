@@ -10,7 +10,16 @@
  */
 
 import { useMemo, useState } from "react";
-import { Alert, Collapse, Form, InputNumber, Radio, Select, Switch, Typography } from "antd";
+import {
+  Alert,
+  Collapse,
+  Form,
+  InputNumber,
+  Radio,
+  Select,
+  Switch,
+  Typography,
+} from "antd";
 import { usePersonas } from "../../hooks/usePersonas";
 import type { AcceptanceCriteria, EdictRuntime } from "../../api/types";
 import { useT } from "../../i18n";
@@ -25,7 +34,10 @@ interface Props {
   assignedPersonaId?: string | null;
 }
 
-export default function FollowUpOverridePanel({ onChange, assignedPersonaId }: Props) {
+export default function FollowUpOverridePanel({
+  onChange,
+  assignedPersonaId,
+}: Props) {
   const t = useT();
   const [form] = Form.useForm();
   const [longTaskEnabled, setLongTaskEnabled] = useState(false);
@@ -59,7 +71,10 @@ export default function FollowUpOverridePanel({ onChange, assignedPersonaId }: P
       onValuesChange={handleValuesChange}
       style={{ marginTop: 12 }}
     >
-      <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
+      <Typography.Text
+        type="secondary"
+        style={{ fontSize: 12, display: "block", marginBottom: 8 }}
+      >
         {t("comp.followUp.hint")}
       </Typography.Text>
 
@@ -72,17 +87,48 @@ export default function FollowUpOverridePanel({ onChange, assignedPersonaId }: P
             label: t("comp.followUp.advanced"),
             children: (
               <>
-                <Form.Item name="timeout_seconds" label={t("comp.followUp.timeoutLabel")}>
-                  <InputNumber min={10} max={3600} style={{ width: "100%" }} placeholder={t("comp.followUp.placeholderInherit")} />
+                <Form.Item
+                  name="timeout_seconds"
+                  label={t("comp.followUp.timeoutLabel")}
+                >
+                  <InputNumber
+                    min={10}
+                    max={3600}
+                    style={{ width: "100%" }}
+                    placeholder={t("comp.followUp.placeholderInherit")}
+                  />
                 </Form.Item>
-                <Form.Item name="max_iterations" label={t("comp.followUp.maxIterLabel")}>
-                  <InputNumber min={1} max={200} style={{ width: "100%" }} placeholder={t("comp.followUp.placeholderInherit")} />
+                <Form.Item
+                  name="max_iterations"
+                  label={t("comp.followUp.maxIterLabel")}
+                >
+                  <InputNumber
+                    min={1}
+                    max={200}
+                    style={{ width: "100%" }}
+                    placeholder={t("comp.followUp.placeholderInherit")}
+                  />
                 </Form.Item>
-                <Form.Item name="token_budget" label={t("comp.followUp.tokenBudgetLabel")}>
-                  <InputNumber min={1} style={{ width: "100%" }} placeholder={t("comp.followUp.placeholderInherit")} />
+                <Form.Item
+                  name="token_budget"
+                  label={t("comp.followUp.tokenBudgetLabel")}
+                >
+                  <InputNumber
+                    min={1}
+                    style={{ width: "100%" }}
+                    placeholder={t("comp.followUp.placeholderInherit")}
+                  />
                 </Form.Item>
-                <Form.Item name="cost_budget_cny" label={t("comp.followUp.costBudgetLabel")}>
-                  <InputNumber min={0} step={0.01} style={{ width: "100%" }} placeholder={t("comp.followUp.placeholderInherit")} />
+                <Form.Item
+                  name="cost_budget_cny"
+                  label={t("comp.followUp.costBudgetLabel")}
+                >
+                  <InputNumber
+                    min={0}
+                    step={0.01}
+                    style={{ width: "100%" }}
+                    placeholder={t("comp.followUp.placeholderInherit")}
+                  />
                 </Form.Item>
               </>
             ),
@@ -92,7 +138,10 @@ export default function FollowUpOverridePanel({ onChange, assignedPersonaId }: P
             label: t("comp.followUp.longTask"),
             children: (
               <>
-                <Form.Item label={t("comp.followUp.longTaskEnableLabel")} tooltip={t("comp.followUp.longTaskEnableTooltip")}>
+                <Form.Item
+                  label={t("comp.followUp.longTaskEnableLabel")}
+                  tooltip={t("comp.followUp.longTaskEnableTooltip")}
+                >
                   <Switch
                     checked={longTaskEnabled}
                     onChange={handleLongTaskToggle}
@@ -106,7 +155,14 @@ export default function FollowUpOverridePanel({ onChange, assignedPersonaId }: P
                     <Form.Item
                       name="critic_persona_ids"
                       label={t("comp.followUp.criticLabel")}
-                      rules={[{ required: true, type: "array", min: 1, message: t("comp.followUp.criticRequired") }]}
+                      rules={[
+                        {
+                          required: true,
+                          type: "array",
+                          min: 1,
+                          message: t("comp.followUp.criticRequired"),
+                        },
+                      ]}
                     >
                       <Select
                         mode="multiple"
@@ -119,11 +175,15 @@ export default function FollowUpOverridePanel({ onChange, assignedPersonaId }: P
 
                     <Form.Item
                       noStyle
-                      shouldUpdate={(p, c) => p.critic_persona_ids !== c.critic_persona_ids}
+                      shouldUpdate={(p, c) =>
+                        p.critic_persona_ids !== c.critic_persona_ids
+                      }
                     >
                       {({ getFieldValue }) => {
                         if (!assignedPersonaId) return null;
-                        const critics = (getFieldValue("critic_persona_ids") as string[] | undefined) ?? [];
+                        const critics =
+                          (getFieldValue("critic_persona_ids") as
+                            string[] | undefined) ?? [];
                         if (!critics.includes(assignedPersonaId)) return null;
                         return (
                           <Alert
@@ -131,15 +191,23 @@ export default function FollowUpOverridePanel({ onChange, assignedPersonaId }: P
                             showIcon
                             style={{ marginBottom: 16 }}
                             message={t("comp.followUp.criticOverlapTitle")}
-                            description={t("comp.followUp.criticOverlapDesc", { id: assignedPersonaId })}
+                            description={t("comp.followUp.criticOverlapDesc", {
+                              id: assignedPersonaId,
+                            })}
                           />
                         );
                       }}
                     </Form.Item>
-                    <Form.Item name="critic_strictness" label={t("comp.followUp.strictnessLabel")} initialValue="lenient">
+                    <Form.Item
+                      name="critic_strictness"
+                      label={t("comp.followUp.strictnessLabel")}
+                      initialValue="lenient"
+                    >
                       <Radio.Group>
                         <Radio value="lenient">{t("strictness.lenient")}</Radio>
-                        <Radio value="balanced">{t("strictness.balanced")}</Radio>
+                        <Radio value="balanced">
+                          {t("strictness.balanced")}
+                        </Radio>
                         <Radio value="strict">{t("strictness.strict")}</Radio>
                       </Radio.Group>
                     </Form.Item>
@@ -155,12 +223,25 @@ export default function FollowUpOverridePanel({ onChange, assignedPersonaId }: P
                       label={t("comp.followUp.minOuterLabel")}
                       tooltip={t("comp.followUp.minOuterTooltip")}
                     >
-                      <InputNumber min={1} max={20} style={{ width: "100%" }} placeholder={t("comp.followUp.placeholderInherit")} />
+                      <InputNumber
+                        min={1}
+                        max={20}
+                        style={{ width: "100%" }}
+                        placeholder={t("comp.followUp.placeholderInherit")}
+                      />
                     </Form.Item>
-                    <Form.Item name="on_exhaustion" label={t("comp.followUp.exhaustionLabel")} initialValue="escalate">
+                    <Form.Item
+                      name="on_exhaustion"
+                      label={t("comp.followUp.exhaustionLabel")}
+                      initialValue="escalate"
+                    >
                       <Radio.Group>
-                        <Radio value="escalate">{t("exhaustion.shortEscalate")}</Radio>
-                        <Radio value="best_effort">{t("exhaustion.shortBestEffort")}</Radio>
+                        <Radio value="escalate">
+                          {t("exhaustion.shortEscalate")}
+                        </Radio>
+                        <Radio value="best_effort">
+                          {t("exhaustion.shortBestEffort")}
+                        </Radio>
                         <Radio value="fail">{t("exhaustion.shortFail")}</Radio>
                       </Radio.Group>
                     </Form.Item>
@@ -199,13 +280,12 @@ function buildOverride(
     const acceptance: AcceptanceCriteria = {};
     const personaIds = values.critic_persona_ids as string[] | undefined;
     const strictness = values.critic_strictness as
-      | "lenient"
-      | "balanced"
-      | "strict"
-      | undefined;
+      "lenient" | "balanced" | "strict" | undefined;
     if ((personaIds && personaIds.length > 0) || strictness) {
       acceptance.critic = {
-        ...(personaIds && personaIds.length > 0 ? { persona_ids: personaIds } : {}),
+        ...(personaIds && personaIds.length > 0
+          ? { persona_ids: personaIds }
+          : {}),
         ...(strictness ? { strictness } : {}),
       };
     }
@@ -218,10 +298,7 @@ function buildOverride(
       acceptance.min_outer_iterations = minOuter;
     }
     const onExhaustion = values.on_exhaustion as
-      | "escalate"
-      | "best_effort"
-      | "fail"
-      | undefined;
+      "escalate" | "best_effort" | "fail" | undefined;
     if (onExhaustion) acceptance.on_exhaustion = onExhaustion;
     result.acceptance_override = acceptance;
   }

@@ -13,9 +13,11 @@ export default function LocaleSwitcher() {
   const selectLocale = (next: Locale) => {
     setLocale(next);
     requestAnimationFrame(() => {
-      document.querySelector<HTMLInputElement>(
-        `.ant-segmented-item-input[value="${next}"]`,
-      )?.focus({ preventScroll: true });
+      document
+        .querySelector<HTMLInputElement>(
+          `.ant-segmented-item-input[value="${next}"]`,
+        )
+        ?.focus({ preventScroll: true });
     });
   };
   return (

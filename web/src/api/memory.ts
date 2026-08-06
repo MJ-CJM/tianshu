@@ -61,8 +61,9 @@ export async function getPersonaMemorials(
 export async function getMemoryPolicies(): Promise<
   Record<string, MemoryPolicy>
 > {
-  const { data } = await apiClient.get<ApiResponse<Record<string, MemoryPolicy>>>(
-    "/memory/policies",
-  );
+  const { data } =
+    await apiClient.get<ApiResponse<Record<string, MemoryPolicy>>>(
+      "/memory/policies",
+    );
   return data.data ?? {};
 }

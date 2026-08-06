@@ -28,7 +28,9 @@ describe("Royal Study task workspace", () => {
 
     expect(screen.getByRole("heading", { name: "御书房" })).toBeInTheDocument();
     expect(screen.getByText("all tasks")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /颁发敕令/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /颁发敕令/ }),
+    ).toBeInTheDocument();
   });
 
   it("keeps the old all-tab bookmark inside the workspace", () => {

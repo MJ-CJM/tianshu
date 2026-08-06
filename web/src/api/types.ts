@@ -250,7 +250,8 @@ export interface GovernanceCapabilityMismatch {
   reason: string;
 }
 
-export type GovernanceCapabilityState = "enforced" | "best_effort" | "observed" | "unsupported";
+export type GovernanceCapabilityState =
+  "enforced" | "best_effort" | "observed" | "unsupported";
 
 export interface GovernanceEffectiveControl {
   capability: string;
@@ -299,8 +300,8 @@ export interface OuterLoopIteration {
   iteration: number;
   level: "L0" | "L1" | "L2" | "L3";
   actor_output: string | null;
-  checks_result: string | null;  // JSON string
-  critic_result: string | null;  // JSON string
+  checks_result: string | null; // JSON string
+  critic_result: string | null; // JSON string
   cost_cny: number;
   started_at: string;
   finished_at: string;
@@ -689,7 +690,8 @@ export interface PluginInfo {
 
 // --- DAG types (Phase 3) ---
 
-export type DAGNodeStatus = "pending" | "ready" | "running" | "completed" | "failed" | "cancelled";
+export type DAGNodeStatus =
+  "pending" | "ready" | "running" | "completed" | "failed" | "cancelled";
 
 export interface DAGNode {
   node_id: string;
@@ -1253,4 +1255,11 @@ export interface FailureDistributionItem {
   reason: string;
   count: number;
   last_seen?: string | null;
+}
+
+/** 全局工作区边界。effective = 本次启动实际生效值；改动需重启才生效。 */
+export interface WorkspaceDirInfo {
+  workspace_dir: string | null;
+  effective: string;
+  pending_restart: boolean;
 }

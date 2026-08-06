@@ -36,17 +36,19 @@ describe("browser authentication transport", () => {
   it("uses credentialed requests and shares one refresh across concurrent 401s", async () => {
     let apiCalls = 0;
     let refreshCalls = 0;
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      expect(init?.credentials).toBe("include");
-      if (url === "/api/auth/refresh") {
-        refreshCalls += 1;
-        await Promise.resolve();
-        return new Response("{}", { status: 200 });
-      }
-      apiCalls += 1;
-      return new Response("{}", { status: apiCalls <= 2 ? 401 : 200 });
-    });
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        expect(init?.credentials).toBe("include");
+        if (url === "/api/auth/refresh") {
+          refreshCalls += 1;
+          await Promise.resolve();
+          return new Response("{}", { status: 200 });
+        }
+        apiCalls += 1;
+        return new Response("{}", { status: apiCalls <= 2 ? 401 : 200 });
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const [first, second] = await Promise.all([
@@ -108,11 +110,15 @@ describe("browser authentication transport", () => {
   it("does not refresh or report expiry for a Request targeting session login", async () => {
     const expired = vi.fn();
     const unsubscribe = subscribeAuthExpired(expired);
-    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 401 }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response("{}", { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await authFetch(
-      new Request("https://tianshu.example.com/api/auth/session", { method: "POST" }),
+      new Request("https://tianshu.example.com/api/auth/session", {
+        method: "POST",
+      }),
     );
 
     expect(response.status).toBe(401);
@@ -132,11 +138,9 @@ describe("browser authentication transport", () => {
     const response = await authFetch("/api/auth/session", { method: "DELETE" });
 
     expect(response.status).toBe(204);
-    expect(fetchMock.mock.calls.map(([, init]) => init?.method ?? "GET")).toEqual([
-      "DELETE",
-      "POST",
-      "DELETE",
-    ]);
+    expect(
+      fetchMock.mock.calls.map(([, init]) => init?.method ?? "GET"),
+    ).toEqual(["DELETE", "POST", "DELETE"]);
   });
 
   it("serializes cross-tab refresh and skips rotation when the cookie is already fresh", async () => {

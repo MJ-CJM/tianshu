@@ -73,13 +73,18 @@ export default function EdictForm({
   const t = useT();
   const [form] = Form.useForm();
   const defaultPreset = getPreset("quick")!;
-  const scheduleMode = Form.useWatch("schedule_mode", form) ?? initialScheduleMode;
+  const scheduleMode =
+    Form.useWatch("schedule_mode", form) ?? initialScheduleMode;
   const repeatPattern = Form.useWatch("repeat_pattern", form) ?? "daily";
   const [assignMode, setAssignMode] = useState<"auto" | "direct">(
     defaultPreset.assignMode ?? "auto",
   );
-  const [policyProfile, setPolicyProfile] = useState<PolicyProfileValue | null>(null);
-  const [longTaskEnabled, setLongTaskEnabled] = useState(defaultPreset.longTask);
+  const [policyProfile, setPolicyProfile] = useState<PolicyProfileValue | null>(
+    null,
+  );
+  const [longTaskEnabled, setLongTaskEnabled] = useState(
+    defaultPreset.longTask,
+  );
   const [selectedPreset, setSelectedPreset] = useState(defaultPreset.key);
   const [expertMode, setExpertMode] = useState(false);
   const [nlText, setNlText] = useState("");
@@ -87,10 +92,13 @@ export default function EdictForm({
   const [nlNotes, setNlNotes] = useState<string | null>(null);
   const [nlError, setNlError] = useState<string | null>(null);
   const [governanceError, setGovernanceError] = useState<string | null>(null);
-  const [governanceAdvisory, setGovernanceAdvisory] = useState<string | null>(null);
+  const [governanceAdvisory, setGovernanceAdvisory] = useState<string | null>(
+    null,
+  );
   const [pendingGovernanceDispatch, setPendingGovernanceDispatch] =
     useState<PendingGovernanceDispatch | null>(null);
-  const [governancePreviewLoading, setGovernancePreviewLoading] = useState(false);
+  const [governancePreviewLoading, setGovernancePreviewLoading] =
+    useState(false);
   const [netState, setNetState] = useState<{
     api_request_hosts: string[];
     api_request_write_hosts: string[];
@@ -108,7 +116,9 @@ export default function EdictForm({
     label: `${p.name} (${p.id})`,
   }));
 
-  const cabinetPersonas = (personas ?? []).filter((p) => p.department === "neige");
+  const cabinetPersonas = (personas ?? []).filter(
+    (p) => p.department === "neige",
+  );
   const plannerOptions = cabinetPersonas.map((p) => ({
     value: p.id,
     label: `${p.name}${p.llm_config_name ? ` (${p.llm_config_name})` : ""}`,
@@ -179,7 +189,8 @@ export default function EdictForm({
         };
       }
     } else if (scheduleMode === "cron") {
-      const time = (values.repeat_time as Dayjs | undefined) ?? dayjs().hour(9).minute(0);
+      const time =
+        (values.repeat_time as Dayjs | undefined) ?? dayjs().hour(9).minute(0);
       const minute = time.minute();
       const hour = time.hour();
       let cron = `${minute} ${hour} * * *`;
@@ -247,7 +258,9 @@ export default function EdictForm({
     const executor = values.executor as string | undefined;
     if (executor && executor !== "native") {
       runtime.executor = executor;
-      const executorModel = (values.executor_model as string | undefined)?.trim();
+      const executorModel = (
+        values.executor_model as string | undefined
+      )?.trim();
       if (executorModel) {
         runtime.executor_model = executorModel;
       }
@@ -290,22 +303,28 @@ export default function EdictForm({
         acceptance.max_outer_iterations = maxOuter;
       }
       const deadlineHours = (values.deadline_hours as number | undefined) ?? 0;
-      const deadlineMinutes = (values.deadline_minutes as number | undefined) ?? 0;
+      const deadlineMinutes =
+        (values.deadline_minutes as number | undefined) ?? 0;
       const deadlineSeconds = deadlineHours * 3600 + deadlineMinutes * 60;
       if (deadlineSeconds > 0) {
         acceptance.deadline_seconds = deadlineSeconds;
       }
-      const onExhaustion = values.on_exhaustion as "escalate" | "best_effort" | "fail" | undefined;
+      const onExhaustion = values.on_exhaustion as
+        "escalate" | "best_effort" | "fail" | undefined;
       if (onExhaustion && onExhaustion !== "escalate") {
         acceptance.on_exhaustion = onExhaustion;
       }
-      const onCriticUnavail = values.on_critic_unavailable as "escalate" | "skip" | undefined;
+      const onCriticUnavail = values.on_critic_unavailable as
+        "escalate" | "skip" | undefined;
       if (onCriticUnavail && onCriticUnavail !== "skip") {
         acceptance.on_critic_unavailable = onCriticUnavail;
       }
-      const sameIssueThreshold = values.same_issue_threshold as number | undefined;
-      const criticPersonaIds = values.critic_persona_ids as string[] | undefined;
-      const strictness = values.critic_strictness as "lenient" | "balanced" | "strict" | undefined;
+      const sameIssueThreshold = values.same_issue_threshold as
+        number | undefined;
+      const criticPersonaIds = values.critic_persona_ids as
+        string[] | undefined;
+      const strictness = values.critic_strictness as
+        "lenient" | "balanced" | "strict" | undefined;
       if (
         (sameIssueThreshold !== undefined && sameIssueThreshold !== 2) ||
         (criticPersonaIds && criticPersonaIds.length > 0) ||
@@ -331,10 +350,17 @@ export default function EdictForm({
       }
       const l1Max = values.l1_max_rounds as number | undefined;
       const l2Max = values.l2_max_rounds as number | undefined;
-      if ((l1Max !== undefined && l1Max !== 2) || (l2Max !== undefined && l2Max !== 1)) {
+      if (
+        (l1Max !== undefined && l1Max !== 2) ||
+        (l2Max !== undefined && l2Max !== 1)
+      ) {
         acceptance.escalation = {
-          ...(l1Max !== undefined && l1Max !== 2 ? { l1_max_rounds: l1Max } : {}),
-          ...(l2Max !== undefined && l2Max !== 1 ? { l2_max_rounds: l2Max } : {}),
+          ...(l1Max !== undefined && l1Max !== 2
+            ? { l1_max_rounds: l1Max }
+            : {}),
+          ...(l2Max !== undefined && l2Max !== 1
+            ? { l2_max_rounds: l2Max }
+            : {}),
         };
       }
       req.acceptance = acceptance;
@@ -351,7 +377,9 @@ export default function EdictForm({
       const preview = await previewEdictGovernance(req);
       if (!preview.compatible) {
         const incompatible =
-          preview.mandatory_mismatches.map((item) => item.capability).join(", ") ||
+          preview.mandatory_mismatches
+            .map((item) => item.capability)
+            .join(", ") ||
           preview.execution_mode_mismatches
             .map((item) => `${item.adapter_id}:${item.requested_mode}`)
             .join(", ");
@@ -366,7 +394,10 @@ export default function EdictForm({
         setGovernanceError(t("form.edict.warning.governanceEffectiveMissing"));
         return;
       }
-      if (governanceConfirmation === "always" || preview.advisory_gaps.length > 0) {
+      if (
+        governanceConfirmation === "always" ||
+        preview.advisory_gaps.length > 0
+      ) {
         setGovernanceAdvisory(
           preview.advisory_gaps.length > 0
             ? t("form.edict.warning.governanceAdvisory", {
@@ -400,26 +431,45 @@ export default function EdictForm({
     setGovernanceAdvisory(null);
   };
 
-  const effectiveContract = pendingGovernanceDispatch?.preview.effective_contract;
+  const effectiveContract =
+    pendingGovernanceDispatch?.preview.effective_contract;
   const effectiveControlCounts = effectiveContract?.effective_controls.reduce(
-    (counts, control) => ({ ...counts, [control.state]: counts[control.state] + 1 }),
+    (counts, control) => ({
+      ...counts,
+      [control.state]: counts[control.state] + 1,
+    }),
     { enforced: 0, best_effort: 0, observed: 0, unsupported: 0 },
   );
-  const requestedContract = pendingGovernanceDispatch?.preview.requested_contract;
-  const requestedExecutor = requestedContract?.executor as Record<string, unknown> | undefined;
-  const requestedWorkspace = requestedContract?.workspace as Record<string, unknown> | undefined;
-  const requestedNetwork = requestedContract?.network as Record<string, unknown> | undefined;
-  const requestedPermissions = requestedContract?.permissions as Record<string, unknown> | undefined;
-  const requestedCapabilities = requestedContract?.capabilities as Record<string, unknown> | undefined;
-  const requestedBudget = requestedContract?.budget as Record<string, unknown> | undefined;
-  const requestedAcceptance = requestedContract?.acceptance as Record<string, unknown> | undefined;
-  const requestedRecovery = requestedContract?.recovery as Record<string, unknown> | undefined;
-  const effectiveWorkspace = effectiveContract?.workspace as Record<string, unknown> | undefined;
-  const effectiveNetwork = effectiveContract?.network as Record<string, unknown> | undefined;
-  const effectivePermissions = effectiveContract?.permissions as Record<string, unknown> | undefined;
-  const effectiveBudget = effectiveContract?.budget as Record<string, unknown> | undefined;
-  const effectiveAcceptance = effectiveContract?.acceptance as Record<string, unknown> | undefined;
-  const effectiveRecovery = effectiveContract?.recovery as Record<string, unknown> | undefined;
+  const requestedContract =
+    pendingGovernanceDispatch?.preview.requested_contract;
+  const requestedExecutor = requestedContract?.executor as
+    Record<string, unknown> | undefined;
+  const requestedWorkspace = requestedContract?.workspace as
+    Record<string, unknown> | undefined;
+  const requestedNetwork = requestedContract?.network as
+    Record<string, unknown> | undefined;
+  const requestedPermissions = requestedContract?.permissions as
+    Record<string, unknown> | undefined;
+  const requestedCapabilities = requestedContract?.capabilities as
+    Record<string, unknown> | undefined;
+  const requestedBudget = requestedContract?.budget as
+    Record<string, unknown> | undefined;
+  const requestedAcceptance = requestedContract?.acceptance as
+    Record<string, unknown> | undefined;
+  const requestedRecovery = requestedContract?.recovery as
+    Record<string, unknown> | undefined;
+  const effectiveWorkspace = effectiveContract?.workspace as
+    Record<string, unknown> | undefined;
+  const effectiveNetwork = effectiveContract?.network as
+    Record<string, unknown> | undefined;
+  const effectivePermissions = effectiveContract?.permissions as
+    Record<string, unknown> | undefined;
+  const effectiveBudget = effectiveContract?.budget as
+    Record<string, unknown> | undefined;
+  const effectiveAcceptance = effectiveContract?.acceptance as
+    Record<string, unknown> | undefined;
+  const effectiveRecovery = effectiveContract?.recovery as
+    Record<string, unknown> | undefined;
 
   const capabilityNames = (value: unknown): string[] =>
     Array.isArray(value)
@@ -436,7 +486,9 @@ export default function EdictForm({
       if (value.length === 0) return "—";
       return value
         .map((item) =>
-          typeof item === "object" && item !== null && typeof item.name === "string"
+          typeof item === "object" &&
+          item !== null &&
+          typeof item.name === "string"
             ? item.name
             : String(item),
         )
@@ -465,7 +517,12 @@ export default function EdictForm({
       {assignMode === "direct" && (
         <Form.Item
           name="assigned_persona_id"
-          rules={[{ required: true, message: t("form.edict.validation.assignedPersonaRequired") }]}
+          rules={[
+            {
+              required: true,
+              message: t("form.edict.validation.assignedPersonaRequired"),
+            },
+          ]}
         >
           <Select
             placeholder={t("form.edict.placeholder.assignedPersona")}
@@ -505,12 +562,19 @@ export default function EdictForm({
 
       <Row gutter={16}>
         <Col xs={24} sm={12}>
-          <Form.Item name="executor" label={t("form.edict.field.executor")} tooltip={t("form.edict.tooltip.executor")}>
+          <Form.Item
+            name="executor"
+            label={t("form.edict.field.executor")}
+            tooltip={t("form.edict.tooltip.executor")}
+          >
             <Select
               options={[
                 { value: "native", label: t("executor.native") },
                 { value: "keqing:pi", label: t("executor.pi") },
-                { value: "keqing:claude-code", label: t("executor.claudeCode") },
+                {
+                  value: "keqing:claude-code",
+                  label: t("executor.claudeCode"),
+                },
                 { value: "keqing:codex", label: t("executor.codex") },
                 { value: "keqing:opencode", label: t("executor.opencode") },
               ]}
@@ -529,7 +593,10 @@ export default function EdictForm({
                   label={t("form.edict.field.executorModel")}
                   tooltip={t("form.edict.tooltip.executorModel")}
                 >
-                  <Input placeholder="anthropic/claude-opus-4-5:high" allowClear />
+                  <Input
+                    placeholder="anthropic/claude-opus-4-5:high"
+                    allowClear
+                  />
                 </Form.Item>
               ) : null
             }
@@ -548,7 +615,10 @@ export default function EdictForm({
 
       <Row gutter={16}>
         <Col xs={24} sm={12}>
-          <Form.Item name="review_policy" label={t("form.edict.field.reviewPolicy")}>
+          <Form.Item
+            name="review_policy"
+            label={t("form.edict.field.reviewPolicy")}
+          >
             <Select
               options={[
                 { value: "always", label: t("reviewPolicy.always") },
@@ -573,40 +643,87 @@ export default function EdictForm({
       </Row>
 
       <Form.Item name="context" label={t("form.edict.field.context")}>
-        <Input.TextArea rows={3} placeholder={t("form.edict.placeholder.context")} style={{ resize: "vertical" }} />
+        <Input.TextArea
+          rows={3}
+          placeholder={t("form.edict.placeholder.context")}
+          style={{ resize: "vertical" }}
+        />
       </Form.Item>
 
       <Form.Item name="constraints" label={t("form.edict.field.constraints")}>
-        <Select mode="tags" placeholder={t("form.edict.placeholder.constraints")} tokenSeparators={[","]} />
+        <Select
+          mode="tags"
+          placeholder={t("form.edict.placeholder.constraints")}
+          tokenSeparators={[","]}
+        />
       </Form.Item>
 
-      <Form.Item name="output_format" label={t("form.edict.field.outputFormat")}>
-        <Input.TextArea rows={2} placeholder={t("form.edict.placeholder.outputFormat")} style={{ resize: "vertical" }} />
+      <Form.Item
+        name="output_format"
+        label={t("form.edict.field.outputFormat")}
+      >
+        <Input.TextArea
+          rows={2}
+          placeholder={t("form.edict.placeholder.outputFormat")}
+          style={{ resize: "vertical" }}
+        />
       </Form.Item>
 
       <Divider style={{ margin: "12px 0" }} />
 
       <Row gutter={16}>
         <Col xs={24} sm={12}>
-          <Form.Item name="timeout_seconds" label={t("form.edict.field.timeoutSeconds")}>
-            <InputNumber min={10} max={3600} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.timeoutSeconds")} />
+          <Form.Item
+            name="timeout_seconds"
+            label={t("form.edict.field.timeoutSeconds")}
+          >
+            <InputNumber
+              min={10}
+              max={3600}
+              style={{ width: "100%" }}
+              placeholder={t("form.edict.placeholder.timeoutSeconds")}
+            />
           </Form.Item>
         </Col>
         <Col xs={24} sm={12}>
-          <Form.Item name="max_iterations" label={t("form.edict.field.maxIterations")}>
-            <InputNumber min={1} max={200} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.maxIterations")} />
+          <Form.Item
+            name="max_iterations"
+            label={t("form.edict.field.maxIterations")}
+          >
+            <InputNumber
+              min={1}
+              max={200}
+              style={{ width: "100%" }}
+              placeholder={t("form.edict.placeholder.maxIterations")}
+            />
           </Form.Item>
         </Col>
       </Row>
       <Row gutter={16}>
         <Col xs={24} sm={12}>
-          <Form.Item name="max_concurrency" label={t("form.edict.field.maxConcurrency")}>
-            <InputNumber min={1} max={8} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.maxConcurrency")} />
+          <Form.Item
+            name="max_concurrency"
+            label={t("form.edict.field.maxConcurrency")}
+          >
+            <InputNumber
+              min={1}
+              max={8}
+              style={{ width: "100%" }}
+              placeholder={t("form.edict.placeholder.maxConcurrency")}
+            />
           </Form.Item>
         </Col>
         <Col xs={24} sm={12}>
-          <Form.Item name="retry_limit" label={t("form.edict.field.retryLimit")}>
-            <InputNumber min={0} max={10} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.retryLimit")} />
+          <Form.Item
+            name="retry_limit"
+            label={t("form.edict.field.retryLimit")}
+          >
+            <InputNumber
+              min={0}
+              max={10}
+              style={{ width: "100%" }}
+              placeholder={t("form.edict.placeholder.retryLimit")}
+            />
           </Form.Item>
         </Col>
       </Row>
@@ -616,13 +733,28 @@ export default function EdictForm({
   const budgetGroup = (
     <Row gutter={16}>
       <Col xs={24} sm={12}>
-        <Form.Item name="cost_budget_cny" label={t("form.edict.field.costBudget")}>
-          <InputNumber min={0} step={0.01} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.costBudget")} />
+        <Form.Item
+          name="cost_budget_cny"
+          label={t("form.edict.field.costBudget")}
+        >
+          <InputNumber
+            min={0}
+            step={0.01}
+            style={{ width: "100%" }}
+            placeholder={t("form.edict.placeholder.costBudget")}
+          />
         </Form.Item>
       </Col>
       <Col xs={24} sm={12}>
-        <Form.Item name="token_budget" label={t("form.edict.field.tokenBudget")}>
-          <InputNumber min={1} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.tokenBudget")} />
+        <Form.Item
+          name="token_budget"
+          label={t("form.edict.field.tokenBudget")}
+        >
+          <InputNumber
+            min={1}
+            style={{ width: "100%" }}
+            placeholder={t("form.edict.placeholder.tokenBudget")}
+          />
         </Form.Item>
       </Col>
     </Row>
@@ -630,7 +762,10 @@ export default function EdictForm({
 
   const permissionGroup = (
     <>
-      <PolicyProfilePanel value={policyProfile ?? undefined} onChange={setPolicyProfile} />
+      <PolicyProfilePanel
+        value={policyProfile ?? undefined}
+        onChange={setPolicyProfile}
+      />
       <NetworkCapabilitySection
         profileTemplate={policyProfile?.template_name ?? null}
         apiRequestHosts={netState.api_request_hosts}
@@ -677,7 +812,10 @@ export default function EdictForm({
                 <span style={{ display: "block", fontWeight: 500 }}>
                   {p.icon} {t(`preset.${p.key}.label`)}
                 </span>
-                <Typography.Text type="secondary" style={{ display: "block", fontSize: 12 }}>
+                <Typography.Text
+                  type="secondary"
+                  style={{ display: "block", fontSize: 12 }}
+                >
                   {t(`preset.${p.key}.summary`)}
                 </Typography.Text>
               </Radio.Button>
@@ -693,15 +831,24 @@ export default function EdictForm({
       <Form.Item
         name="goal"
         label={t("form.edict.field.goal")}
-        rules={[{ required: true, message: t("form.edict.validation.goalRequired") }]}
+        rules={[
+          { required: true, message: t("form.edict.validation.goalRequired") },
+        ]}
       >
-        <Input.TextArea rows={4} placeholder={t("form.edict.placeholder.goal")} style={{ resize: "vertical" }} />
+        <Input.TextArea
+          rows={4}
+          placeholder={t("form.edict.placeholder.goal")}
+          style={{ resize: "vertical" }}
+        />
       </Form.Item>
 
       <Form.Item name="schedule_mode" label={t("form.edict.field.when")}>
         <Radio.Group
           options={[
-            { value: "immediate", label: t("form.edict.option.scheduleImmediate") },
+            {
+              value: "immediate",
+              label: t("form.edict.option.scheduleImmediate"),
+            },
             { value: "once", label: t("form.edict.option.scheduleOnce") },
             {
               value: "cron",
@@ -729,12 +876,17 @@ export default function EdictForm({
           name="schedule_at"
           label={t("form.edict.field.scheduleAt")}
           rules={[
-            { required: true, message: t("form.edict.validation.scheduleAtRequired") },
+            {
+              required: true,
+              message: t("form.edict.validation.scheduleAtRequired"),
+            },
             {
               validator: (_, value: Dayjs | undefined) =>
                 !value || value.isAfter(dayjs())
                   ? Promise.resolve()
-                  : Promise.reject(new Error(t("form.edict.validation.scheduleAtFuture"))),
+                  : Promise.reject(
+                      new Error(t("form.edict.validation.scheduleAtFuture")),
+                    ),
             },
           ]}
         >
@@ -750,13 +902,24 @@ export default function EdictForm({
       {scheduleMode === "cron" && (
         <Row gutter={16}>
           <Col xs={24} sm={12}>
-            <Form.Item name="repeat_pattern" label={t("form.edict.field.repeatPattern")}>
+            <Form.Item
+              name="repeat_pattern"
+              label={t("form.edict.field.repeatPattern")}
+            >
               <Select
                 options={[
                   { value: "daily", label: t("form.edict.option.repeatDaily") },
-                  { value: "weekly", label: t("form.edict.option.repeatWeekly") },
+                  {
+                    value: "weekly",
+                    label: t("form.edict.option.repeatWeekly"),
+                  },
                   ...(expertMode
-                    ? [{ value: "custom", label: t("form.edict.option.repeatCustom") }]
+                    ? [
+                        {
+                          value: "custom",
+                          label: t("form.edict.option.repeatCustom"),
+                        },
+                      ]
                     : []),
                 ]}
               />
@@ -764,14 +927,24 @@ export default function EdictForm({
           </Col>
           {repeatPattern !== "custom" && (
             <Col xs={24} sm={12}>
-              <Form.Item name="repeat_time" label={t("form.edict.field.repeatTime")}>
-                <TimePicker format="HH:mm" minuteStep={5} style={{ width: "100%" }} />
+              <Form.Item
+                name="repeat_time"
+                label={t("form.edict.field.repeatTime")}
+              >
+                <TimePicker
+                  format="HH:mm"
+                  minuteStep={5}
+                  style={{ width: "100%" }}
+                />
               </Form.Item>
             </Col>
           )}
           {repeatPattern === "weekly" && (
             <Col xs={24} sm={12}>
-              <Form.Item name="repeat_weekday" label={t("form.edict.field.repeatWeekday")}>
+              <Form.Item
+                name="repeat_weekday"
+                label={t("form.edict.field.repeatWeekday")}
+              >
                 <Select
                   options={[1, 2, 3, 4, 5, 6, 0].map((value) => ({
                     value,
@@ -786,7 +959,12 @@ export default function EdictForm({
               <Form.Item
                 name="custom_cron"
                 label={t("form.edict.field.customCron")}
-                rules={[{ required: true, message: t("form.edict.validation.cronExprRequired") }]}
+                rules={[
+                  {
+                    required: true,
+                    message: t("form.edict.validation.cronExprRequired"),
+                  },
+                ]}
               >
                 <Input placeholder={t("form.edict.placeholder.cronExpr")} />
               </Form.Item>
@@ -812,12 +990,30 @@ export default function EdictForm({
                     placeholder={t("form.edict.field.nlPlaceholder")}
                     style={{ resize: "vertical" }}
                   />
-                  <Button type="primary" loading={nlLoading} onClick={handleSmartFill}>
+                  <Button
+                    type="primary"
+                    loading={nlLoading}
+                    onClick={handleSmartFill}
+                  >
                     {t("form.edict.field.nlButton")}
                   </Button>
                 </Space.Compact>
-                {nlNotes && <Alert type="info" showIcon style={{ marginTop: 8 }} message={nlNotes} />}
-                {nlError && <Alert type="warning" showIcon style={{ marginTop: 8 }} message={nlError} />}
+                {nlNotes && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginTop: 8 }}
+                    message={nlNotes}
+                  />
+                )}
+                {nlError && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginTop: 8 }}
+                    message={nlError}
+                  />
+                )}
               </>
             ),
           },
@@ -846,9 +1042,21 @@ export default function EdictForm({
           defaultActiveKey={["execution"]}
           style={{ marginBottom: 16 }}
           items={[
-            { key: "execution", label: t("form.edict.group.execution"), children: executionGroup },
-            { key: "budget", label: t("form.edict.group.budget"), children: budgetGroup },
-            { key: "permission", label: t("form.edict.group.permission"), children: permissionGroup },
+            {
+              key: "execution",
+              label: t("form.edict.group.execution"),
+              children: executionGroup,
+            },
+            {
+              key: "budget",
+              label: t("form.edict.group.budget"),
+              children: budgetGroup,
+            },
+            {
+              key: "permission",
+              label: t("form.edict.group.permission"),
+              children: permissionGroup,
+            },
             {
               key: "acceptance",
               label: t("form.edict.group.acceptance"),
@@ -864,7 +1072,9 @@ export default function EdictForm({
         />
       )}
 
-      {governanceError && <Alert type="error" showIcon message={governanceError} />}
+      {governanceError && (
+        <Alert type="error" showIcon message={governanceError} />
+      )}
       {governanceAdvisory && pendingGovernanceDispatch && (
         <Alert
           type="warning"
@@ -886,8 +1096,14 @@ export default function EdictForm({
                   alignItems: "start",
                 }}
               >
-                <section role="region" aria-labelledby="requested-governance-contract-title">
-                  <Typography.Title level={5} id="requested-governance-contract-title">
+                <section
+                  role="region"
+                  aria-labelledby="requested-governance-contract-title"
+                >
+                  <Typography.Title
+                    level={5}
+                    id="requested-governance-contract-title"
+                  >
                     {t("form.edict.warning.governanceRequestedTitle")}
                   </Typography.Title>
                   <Descriptions
@@ -896,15 +1112,33 @@ export default function EdictForm({
                     bordered
                     labelStyle={{ whiteSpace: "nowrap" }}
                   >
-                    <Descriptions.Item label={t("form.edict.warning.governanceExecutorLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceExecutorLabel")}
+                    >
                       {contractValue(requestedExecutor?.adapter_id)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceCapabilitiesLabel")}>
-                      <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                    <Descriptions.Item
+                      label={t(
+                        "form.edict.warning.governanceCapabilitiesLabel",
+                      )}
+                    >
+                      <Space
+                        direction="vertical"
+                        size={4}
+                        style={{ width: "100%" }}
+                      >
                         {(
                           [
-                            ["governanceCapMandatory", requestedCapabilities?.mandatory, undefined],
-                            ["governanceCapAdvisory", requestedCapabilities?.advisory, "orange"],
+                            [
+                              "governanceCapMandatory",
+                              requestedCapabilities?.mandatory,
+                              undefined,
+                            ],
+                            [
+                              "governanceCapAdvisory",
+                              requestedCapabilities?.advisory,
+                              "orange",
+                            ],
                           ] as const
                         ).map(([labelKey, raw, color]) => {
                           const names = capabilityNames(raw);
@@ -918,63 +1152,109 @@ export default function EdictForm({
                               </Typography.Text>
                               {names.length ? (
                                 names.map((c) => (
-                                  <Tag key={c} color={color} style={{ marginBottom: 4 }}>
+                                  <Tag
+                                    key={c}
+                                    color={color}
+                                    style={{ marginBottom: 4 }}
+                                  >
                                     {c}
                                   </Tag>
                                 ))
                               ) : (
-                                <Typography.Text type="secondary">—</Typography.Text>
+                                <Typography.Text type="secondary">
+                                  —
+                                </Typography.Text>
                               )}
                             </div>
                           );
                         })}
                       </Space>
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceAllowedPathsLabel")}>
+                    <Descriptions.Item
+                      label={t(
+                        "form.edict.warning.governanceAllowedPathsLabel",
+                      )}
+                    >
                       {contractValue(requestedPermissions?.allowed_paths)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceReviewPolicyLabel")}>
+                    <Descriptions.Item
+                      label={t(
+                        "form.edict.warning.governanceReviewPolicyLabel",
+                      )}
+                    >
                       {contractValue(requestedPermissions?.review_policy)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceWorkspaceLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceWorkspaceLabel")}
+                    >
                       {contractValue(requestedWorkspace?.source_id)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceRevisionLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceRevisionLabel")}
+                    >
                       {contractValue(requestedWorkspace?.base_revision)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceNetworkLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceNetworkLabel")}
+                    >
                       {contractValue(requestedNetwork?.mode)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceHostsLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceHostsLabel")}
+                    >
                       {contractValue(requestedNetwork?.allowed_hosts)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceBudgetLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceBudgetLabel")}
+                    >
                       {t("form.edict.warning.governanceBudgetValue", {
                         tokens: contractValue(requestedBudget?.token_limit),
                         cost: contractValue(requestedBudget?.cost_limit_cny),
-                        seconds: contractValue(requestedBudget?.wall_clock_seconds),
+                        seconds: contractValue(
+                          requestedBudget?.wall_clock_seconds,
+                        ),
                       })}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceAcceptanceLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceAcceptanceLabel")}
+                    >
                       {contractValue(requestedAcceptance?.checks)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceDeadlineLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceDeadlineLabel")}
+                    >
                       {contractValue(requestedAcceptance?.deadline_seconds)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceExhaustionLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceExhaustionLabel")}
+                    >
                       {contractValue(requestedAcceptance?.on_exhaustion)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceRecoveryLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceRecoveryLabel")}
+                    >
                       {t("form.edict.warning.governanceRecoveryValue", {
-                        restore: contractValue(requestedRecovery?.require_restore_point),
-                        cleanup: contractValue(requestedRecovery?.failure_cleanup),
-                        rollback: contractValue(requestedRecovery?.rollback_on_apply_failure),
+                        restore: contractValue(
+                          requestedRecovery?.require_restore_point,
+                        ),
+                        cleanup: contractValue(
+                          requestedRecovery?.failure_cleanup,
+                        ),
+                        rollback: contractValue(
+                          requestedRecovery?.rollback_on_apply_failure,
+                        ),
                       })}
                     </Descriptions.Item>
                   </Descriptions>
                 </section>
-                <section role="region" aria-labelledby="effective-governance-contract-title">
-                  <Typography.Title level={5} id="effective-governance-contract-title">
+                <section
+                  role="region"
+                  aria-labelledby="effective-governance-contract-title"
+                >
+                  <Typography.Title
+                    level={5}
+                    id="effective-governance-contract-title"
+                  >
                     {t("form.edict.warning.governanceEffectiveContractTitle")}
                   </Typography.Title>
                   <Descriptions
@@ -983,60 +1263,102 @@ export default function EdictForm({
                     bordered
                     labelStyle={{ whiteSpace: "nowrap" }}
                   >
-                    <Descriptions.Item label={t("form.edict.warning.governanceExecutorLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceExecutorLabel")}
+                    >
                       {effectiveContract?.executor_manifest_id ??
                         effectiveContract?.executor.adapter_id ??
                         "-"}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceLevelLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceLevelLabel")}
+                    >
                       {pendingGovernanceDispatch.preview.executor_level}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceAllowedPathsLabel")}>
+                    <Descriptions.Item
+                      label={t(
+                        "form.edict.warning.governanceAllowedPathsLabel",
+                      )}
+                    >
                       {contractValue(effectivePermissions?.allowed_paths)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceReviewPolicyLabel")}>
+                    <Descriptions.Item
+                      label={t(
+                        "form.edict.warning.governanceReviewPolicyLabel",
+                      )}
+                    >
                       {contractValue(effectivePermissions?.review_policy)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceWorkspaceLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceWorkspaceLabel")}
+                    >
                       {contractValue(
-                        effectiveContract?.resolved_source_id ?? effectiveWorkspace?.source_id,
+                        effectiveContract?.resolved_source_id ??
+                          effectiveWorkspace?.source_id,
                       )}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceRevisionLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceRevisionLabel")}
+                    >
                       {contractValue(
-                        effectiveContract?.resolved_base_revision ?? effectiveWorkspace?.base_revision,
+                        effectiveContract?.resolved_base_revision ??
+                          effectiveWorkspace?.base_revision,
                       )}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceNetworkLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceNetworkLabel")}
+                    >
                       {contractValue(effectiveNetwork?.mode)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceHostsLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceHostsLabel")}
+                    >
                       {contractValue(effectiveNetwork?.allowed_hosts)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceBudgetLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceBudgetLabel")}
+                    >
                       {t("form.edict.warning.governanceBudgetValue", {
                         tokens: contractValue(effectiveBudget?.token_limit),
                         cost: contractValue(effectiveBudget?.cost_limit_cny),
-                        seconds: contractValue(effectiveBudget?.wall_clock_seconds),
+                        seconds: contractValue(
+                          effectiveBudget?.wall_clock_seconds,
+                        ),
                       })}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceAcceptanceLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceAcceptanceLabel")}
+                    >
                       {contractValue(effectiveAcceptance?.checks)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceDeadlineLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceDeadlineLabel")}
+                    >
                       {contractValue(effectiveAcceptance?.deadline_seconds)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceExhaustionLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceExhaustionLabel")}
+                    >
                       {contractValue(effectiveAcceptance?.on_exhaustion)}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceRecoveryLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceRecoveryLabel")}
+                    >
                       {t("form.edict.warning.governanceRecoveryValue", {
-                        restore: contractValue(effectiveRecovery?.require_restore_point),
-                        cleanup: contractValue(effectiveRecovery?.failure_cleanup),
-                        rollback: contractValue(effectiveRecovery?.rollback_on_apply_failure),
+                        restore: contractValue(
+                          effectiveRecovery?.require_restore_point,
+                        ),
+                        cleanup: contractValue(
+                          effectiveRecovery?.failure_cleanup,
+                        ),
+                        rollback: contractValue(
+                          effectiveRecovery?.rollback_on_apply_failure,
+                        ),
                       })}
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceControlsLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceControlsLabel")}
+                    >
                       {t("form.edict.warning.governanceEffectiveControls", {
                         enforced: effectiveControlCounts?.enforced ?? 0,
                         bestEffort: effectiveControlCounts?.best_effort ?? 0,
@@ -1044,19 +1366,29 @@ export default function EdictForm({
                         unsupported: effectiveControlCounts?.unsupported ?? 0,
                       })}
                       <ul
-                        aria-label={t("form.edict.warning.governanceCapabilitySupportLabel")}
+                        aria-label={t(
+                          "form.edict.warning.governanceCapabilitySupportLabel",
+                        )}
                         style={{ margin: "8px 0 0", paddingInlineStart: 20 }}
                       >
-                        {effectiveContract?.effective_controls.map((control) => (
-                          <li key={control.capability}>
-                            {control.capability} · {control.requested_mode} → {control.state}
-                          </li>
-                        ))}
+                        {effectiveContract?.effective_controls.map(
+                          (control) => (
+                            <li key={control.capability}>
+                              {control.capability} · {control.requested_mode} →{" "}
+                              {control.state}
+                            </li>
+                          ),
+                        )}
                       </ul>
                     </Descriptions.Item>
-                    <Descriptions.Item label={t("form.edict.warning.governanceHashLabel")}>
+                    <Descriptions.Item
+                      label={t("form.edict.warning.governanceHashLabel")}
+                    >
                       {t("form.edict.warning.governanceEffectiveHash", {
-                        hash: pendingGovernanceDispatch.preview.requested_contract_hash.slice(0, 12),
+                        hash: pendingGovernanceDispatch.preview.requested_contract_hash.slice(
+                          0,
+                          12,
+                        ),
                       })}
                     </Descriptions.Item>
                   </Descriptions>

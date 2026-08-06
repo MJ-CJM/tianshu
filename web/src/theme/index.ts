@@ -62,8 +62,9 @@ function buildTheme(mode: ThemeMode): ThemeConfig {
       colorWarning: p.warning,
       colorError: p.error,
       colorPrimaryBorder: p.border,
-      boxShadowSecondary:
-        dark ? "none" : `0 8px 24px color-mix(in srgb, ${p.text} 8%, transparent)`,
+      boxShadowSecondary: dark
+        ? "none"
+        : `0 8px 24px color-mix(in srgb, ${p.text} 8%, transparent)`,
       // 状态淡染底/描边与 SemanticTag 同一配方(11% / 30% 混入容器底),
       // 避免算法推导出浑浊底色
       colorInfoBg: mix(p.info, p.bgContainer, dark ? 0.16 : 0.11),
@@ -95,7 +96,9 @@ function buildTheme(mode: ThemeMode): ThemeConfig {
       Table: {
         headerBg: p.bgSubtle,
         headerSplitColor: "transparent",
-        rowHoverBg: dark ? "rgba(255, 255, 255, 0.03)" : "rgba(31, 30, 27, 0.025)",
+        rowHoverBg: dark
+          ? "rgba(255, 255, 255, 0.03)"
+          : "rgba(31, 30, 27, 0.025)",
       },
       Card: {
         colorBgContainer: p.bgContainer,

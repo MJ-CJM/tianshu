@@ -77,6 +77,46 @@ class TestSafePathHonoursAllowlist:
         assert safe_path(workspace, "a.txt") == inside.resolve()
 
 
+class TestSensitivePathsAreNeverReachable:
+    """凭证黑名单：workspace 与 allowed_paths 怎么配都读不到。
+
+    workspace_dir 可在网页上改成 ~，那时 ~/.ssh 就"在工作区内"——若黑名单
+    只管界外，等于没管。故黑名单先于工作区判定，且不受 allowed_paths 影响。
+    """
+
+    @pytest.mark.parametrize(
+        "rel",
+        [".ssh/id_rsa", ".aws/credentials", ".tianshu/tianshu.db", "proj/.env", ".gnupg/secring"],
+        ids=["ssh-key", "aws-creds", "tianshu-db", "dotenv", "gnupg"],
+    )
+    def test_sensitive_path_denied_even_inside_workspace(self, tmp_path: Path, rel: str) -> None:
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("secret", encoding="utf-8")
+
+        # workspace 就是 tmp_path，目标在工作区**内**
+        with pytest.raises(PermissionError, match="protected credential path"):
+            safe_path(tmp_path, rel)
+
+    def test_allowlist_cannot_unlock_sensitive_path(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "ws"
+        workspace.mkdir()
+        secrets_dir = tmp_path / ".ssh"
+        secrets_dir.mkdir()
+
+        with (
+            bind_edict(_edict_allowing(f"{tmp_path.resolve()}/**")),
+            pytest.raises(PermissionError, match="protected credential path"),
+        ):
+            safe_path(workspace, str(secrets_dir / "id_rsa"))
+
+    def test_ordinary_dotfiles_unaffected(self, tmp_path: Path) -> None:
+        """只挡凭证，不要误伤普通点文件。"""
+        for name in [".gitignore", ".editorconfig", ".python-version"]:
+            (tmp_path / name).write_text("x", encoding="utf-8")
+            assert safe_path(tmp_path, name) == (tmp_path / name).resolve()
+
+
 class TestReadFileEndToEnd:
     """真正调用 read_file 工具——上一轮 9 个测试全绿却漏掉的那一层。"""
 

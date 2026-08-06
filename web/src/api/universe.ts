@@ -32,7 +32,9 @@ export async function branchUniverse(
   return data;
 }
 
-export async function archiveUniverse(id: string): Promise<ApiResponse<Universe>> {
+export async function archiveUniverse(
+  id: string,
+): Promise<ApiResponse<Universe>> {
   const { data } = await apiClient.post<ApiResponse<Universe>>(
     `/universes/${id}/archive`,
     {},
@@ -40,7 +42,9 @@ export async function archiveUniverse(id: string): Promise<ApiResponse<Universe>
   return data;
 }
 
-export async function restoreUniverse(id: string): Promise<ApiResponse<Universe>> {
+export async function restoreUniverse(
+  id: string,
+): Promise<ApiResponse<Universe>> {
   const { data } = await apiClient.post<ApiResponse<Universe>>(
     `/universes/${id}/restore`,
     {},
@@ -49,12 +53,20 @@ export async function restoreUniverse(id: string): Promise<ApiResponse<Universe>
 }
 
 export async function enableParallelUniverse(): Promise<ApiResponse<Universe>> {
-  const { data } = await apiClient.post<ApiResponse<Universe>>("/universes/enable", {});
+  const { data } = await apiClient.post<ApiResponse<Universe>>(
+    "/universes/enable",
+    {},
+  );
   return data;
 }
 
-export async function getUniverseStatus(): Promise<ApiResponse<{ enabled: boolean }>> {
-  const { data } = await apiClient.get<ApiResponse<{ enabled: boolean }>>("/universes/_status");
+export async function getUniverseStatus(): Promise<
+  ApiResponse<{ enabled: boolean }>
+> {
+  const { data } =
+    await apiClient.get<ApiResponse<{ enabled: boolean }>>(
+      "/universes/_status",
+    );
   return data;
 }
 
@@ -65,7 +77,9 @@ export async function getTaiyiReport(): Promise<ApiResponse<TaiyiReportState>> {
   return data;
 }
 
-export async function generateTaiyiReport(): Promise<ApiResponse<TaiyiReportState>> {
+export async function generateTaiyiReport(): Promise<
+  ApiResponse<TaiyiReportState>
+> {
   const { data } = await apiClient.post<ApiResponse<TaiyiReportState>>(
     "/universes/taiyi/report",
     {},
@@ -74,23 +88,31 @@ export async function generateTaiyiReport(): Promise<ApiResponse<TaiyiReportStat
 }
 
 export async function submitUniverseFeedback(
-  memorialId: string, score: number,
+  memorialId: string,
+  score: number,
 ): Promise<ApiResponse<{ universe_id: string | null; score: number }>> {
-  const { data } = await apiClient.post<ApiResponse<{ universe_id: string | null; score: number }>>(
-    "/universes/feedback", { memorial_id: memorialId, score },
-  );
+  const { data } = await apiClient.post<
+    ApiResponse<{ universe_id: string | null; score: number }>
+  >("/universes/feedback", { memorial_id: memorialId, score });
   return data;
 }
 
-export async function triggerEvolve(): Promise<ApiResponse<Record<string, unknown>>> {
-  const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>("/universes/evolve", {});
+export async function triggerEvolve(): Promise<
+  ApiResponse<Record<string, unknown>>
+> {
+  const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(
+    "/universes/evolve",
+    {},
+  );
   return data;
 }
 
 export async function diffUniverses(
   a: string,
   b: string,
-): Promise<ApiResponse<{ personas: unknown; skills: unknown; config: unknown }>> {
+): Promise<
+  ApiResponse<{ personas: unknown; skills: unknown; config: unknown }>
+> {
   const { data } = await apiClient.get<
     ApiResponse<{ personas: unknown; skills: unknown; config: unknown }>
   >("/universes/_diff", { params: { a, b } });
@@ -98,7 +120,9 @@ export async function diffUniverses(
 }
 
 export async function proposeCodeVariant(
-  targetPath: string, hypothesis: string, parentId?: string,
+  targetPath: string,
+  hypothesis: string,
+  parentId?: string,
 ): Promise<ApiResponse<Record<string, unknown>>> {
   const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(
     "/universes/propose-code",
@@ -107,28 +131,38 @@ export async function proposeCodeVariant(
   return data;
 }
 
-export async function proposeAutoCode(): Promise<ApiResponse<Record<string, unknown>>> {
+export async function proposeAutoCode(): Promise<
+  ApiResponse<Record<string, unknown>>
+> {
   const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(
     "/universes/propose-auto",
   );
   return data;
 }
 
-export async function getCodeDiff(id: string): Promise<ApiResponse<{ diff: string }>> {
+export async function getCodeDiff(
+  id: string,
+): Promise<ApiResponse<{ diff: string }>> {
   const { data } = await apiClient.get<ApiResponse<{ diff: string }>>(
     `/universes/${id}/code-diff`,
   );
   return data;
 }
 
-export async function listEvalRuns(id: string): Promise<ApiResponse<VariantEvalRun[]>> {
+export async function listEvalRuns(
+  id: string,
+): Promise<ApiResponse<VariantEvalRun[]>> {
   const { data } = await apiClient.get<ApiResponse<VariantEvalRun[]>>(
     `/universes/${id}/eval-runs`,
   );
   return data;
 }
 
-export async function deleteUniverse(id: string): Promise<ApiResponse<{ id: string }>> {
-  const { data } = await apiClient.delete<ApiResponse<{ id: string }>>(`/universes/${id}`);
+export async function deleteUniverse(
+  id: string,
+): Promise<ApiResponse<{ id: string }>> {
+  const { data } = await apiClient.delete<ApiResponse<{ id: string }>>(
+    `/universes/${id}`,
+  );
   return data;
 }

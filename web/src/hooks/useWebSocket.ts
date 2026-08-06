@@ -27,7 +27,8 @@ export function useWebSocket(): {
   }, []);
 
   useEffect(() => {
-    const unsubscribeConnection = sharedWebSocket.subscribeConnection(setIsConnected);
+    const unsubscribeConnection =
+      sharedWebSocket.subscribeConnection(setIsConnected);
     const unsubscribeMessage = sharedWebSocket.subscribe((msg) => {
       listenersRef.current.forEach((listener) => listener(msg));
       setLastMessage(msg);

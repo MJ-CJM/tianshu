@@ -35,36 +35,26 @@ describe("sidebar information architecture", () => {
       "nav-settings",
     ]);
 
-    expect(itemByKey(items, "nav-tasks").children?.map((item) => item.key)).toEqual([
-      "/approvals",
-      "/edicts/create",
-      "/scheduler",
-      "/audit",
-    ]);
-    expect(itemByKey(items, "nav-court").children?.map((item) => item.key)).toEqual([
-      "/personas",
-      "/consultation",
-      "/cabinet",
-    ]);
-    expect(itemByKey(items, "nav-offices").children?.map((item) => item.key)).toEqual([
-      "/memory",
-      "/hongluisi",
-      "/tongzheng",
-    ]);
-    expect(itemByKey(items, "nav-lab").children?.map((item) => item.key)).toEqual([
-      "/evolution",
-      "/universes",
-      "/evals",
-      "/keqing",
-    ]);
-    expect(itemByKey(items, "nav-settings").children?.map((item) => item.key)).toEqual([
-      "/system",
-      "/session-rules",
-      "/cost",
-    ]);
+    expect(
+      itemByKey(items, "nav-tasks").children?.map((item) => item.key),
+    ).toEqual(["/approvals", "/edicts/create", "/scheduler", "/audit"]);
+    expect(
+      itemByKey(items, "nav-court").children?.map((item) => item.key),
+    ).toEqual(["/personas", "/consultation", "/cabinet"]);
+    expect(
+      itemByKey(items, "nav-offices").children?.map((item) => item.key),
+    ).toEqual(["/memory", "/hongluisi", "/tongzheng"]);
+    expect(
+      itemByKey(items, "nav-lab").children?.map((item) => item.key),
+    ).toEqual(["/evolution", "/universes", "/evals", "/keqing"]);
+    expect(
+      itemByKey(items, "nav-settings").children?.map((item) => item.key),
+    ).toEqual(["/system", "/session-rules", "/cost"]);
 
     const children = items.flatMap((item) => item.children ?? []);
-    expect(children.every((item) => item.type !== "group" && !item.children)).toBe(true);
+    expect(
+      children.every((item) => item.type !== "group" && !item.children),
+    ).toBe(true);
   });
 
   it.each([

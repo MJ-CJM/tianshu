@@ -2316,7 +2316,13 @@
       "agentRetryLimit": "默认重试上限",
       "agentCostBudget": "默认成本预算(¥/敕令)",
       "agentTokenBudget": "默认 token 预算",
-      "unlimited": "空=不限"
+      "unlimited": "空=不限",
+      "workspaceSection": "工作区边界",
+      "workspaceDir": "工作区根目录",
+      "workspaceHelp": "所有官员默认只能在此目录内活动。越界须在官员页单独授权。改动需重启服务生效。",
+      "workspacePendingRestart": "已保存，重启服务后生效",
+      "workspaceSaved": "工作区已保存",
+      "workspaceFailed": "工作区保存失败"
     },
     "externalCreds": {
       "edictAuthLabel": "任务凭证",

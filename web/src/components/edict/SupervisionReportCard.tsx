@@ -4,16 +4,7 @@
  */
 
 import { useEffect, useState, useCallback } from "react";
-import {
-  Card,
-  Empty,
-  List,
-  Space,
-  Spin,
-  Tabs,
-  Tag,
-  Typography,
-} from "antd";
+import { Card, Empty, List, Space, Spin, Tabs, Tag, Typography } from "antd";
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -38,7 +29,13 @@ interface Props {
   memorialId?: string;
 }
 
-function ReportContent({ report, t }: { report: SupervisionReport; t: TFunction }) {
+function ReportContent({
+  report,
+  t,
+}: {
+  report: SupervisionReport;
+  t: TFunction;
+}) {
   const allEmpty =
     report.issues_observed.length === 0 &&
     report.well_done.length === 0 &&
@@ -59,9 +56,14 @@ function ReportContent({ report, t }: { report: SupervisionReport; t: TFunction 
               whiteSpace: "pre-wrap",
               textAlign: "left",
             }}
-            ellipsis={{ rows: 5, expandable: true, symbol: t("comp.supervision.expand") }}
+            ellipsis={{
+              rows: 5,
+              expandable: true,
+              symbol: t("comp.supervision.expand"),
+            }}
           >
-            {t("comp.supervision.rawOutput")}{report.raw_feedback}
+            {t("comp.supervision.rawOutput")}
+            {report.raw_feedback}
           </Typography.Paragraph>
         )}
       </Empty>
@@ -73,7 +75,9 @@ function ReportContent({ report, t }: { report: SupervisionReport; t: TFunction 
       {report.issues_observed.length > 0 && (
         <div>
           <Typography.Text strong>
-            <CloseCircleOutlined style={{ color: "var(--ts-color-error)", marginRight: 6 }} />
+            <CloseCircleOutlined
+              style={{ color: "var(--ts-color-error)", marginRight: 6 }}
+            />
             {t("comp.supervision.issues", { n: report.issues_observed.length })}
           </Typography.Text>
           <List
@@ -91,7 +95,9 @@ function ReportContent({ report, t }: { report: SupervisionReport; t: TFunction 
       {report.well_done.length > 0 && (
         <div>
           <Typography.Text strong>
-            <CheckCircleOutlined style={{ color: "var(--ts-color-success)", marginRight: 6 }} />
+            <CheckCircleOutlined
+              style={{ color: "var(--ts-color-success)", marginRight: 6 }}
+            />
             {t("comp.supervision.wellDone", { n: report.well_done.length })}
           </Typography.Text>
           <List
@@ -129,7 +135,9 @@ function ReportContent({ report, t }: { report: SupervisionReport; t: TFunction 
       {report.recommendation && (
         <div>
           <Typography.Text strong>
-            <BulbOutlined style={{ color: "var(--ts-color-info)", marginRight: 6 }} />
+            <BulbOutlined
+              style={{ color: "var(--ts-color-info)", marginRight: 6 }}
+            />
             {t("comp.supervision.recommendation")}
           </Typography.Text>
           <Typography.Paragraph
@@ -187,7 +195,11 @@ export default function SupervisionReportCard({ edictId, memorialId }: Props) {
 
   if (loading) {
     return (
-      <Card size="small" title={t("comp.supervision.title")} style={{ marginTop: 16 }}>
+      <Card
+        size="small"
+        title={t("comp.supervision.title")}
+        style={{ marginTop: 16 }}
+      >
         <Spin />
       </Card>
     );
@@ -211,7 +223,10 @@ export default function SupervisionReportCard({ edictId, memorialId }: Props) {
               {t(`comp.supervision.status.${r.final_status}`)}
             </Tag>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {t("comp.supervision.iterCost", { n: r.iterations_count, cost: r.total_cost_cny.toFixed(4) })}
+              {t("comp.supervision.iterCost", {
+                n: r.iterations_count,
+                cost: r.total_cost_cny.toFixed(4),
+              })}
             </Typography.Text>
           </Space>
         }
@@ -231,12 +246,17 @@ export default function SupervisionReportCard({ edictId, memorialId }: Props) {
       title={
         <Space wrap>
           <span>{t("comp.supervision.title")}</span>
-          <Tag color="purple">{t("comp.supervision.supervisorCount", { n: reports.length })}</Tag>
+          <Tag color="purple">
+            {t("comp.supervision.supervisorCount", { n: reports.length })}
+          </Tag>
           <Tag color={STATUS_COLORS[first.final_status] ?? "default"}>
             {t(`comp.supervision.status.${first.final_status}`)}
           </Tag>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {t("comp.supervision.iterTotalCost", { n: first.iterations_count, cost: totalCost.toFixed(4) })}
+            {t("comp.supervision.iterTotalCost", {
+              n: first.iterations_count,
+              cost: totalCost.toFixed(4),
+            })}
           </Typography.Text>
         </Space>
       }

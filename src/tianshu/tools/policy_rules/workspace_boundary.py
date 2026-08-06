@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from tianshu.tools.path_utils import path_allowed_outside
+from tianshu.tools.path_utils import is_sensitive_path, path_allowed_outside
 from tianshu.tools.policy import PolicyContext, PolicyDecision
 
 # 参数名白名单：这些字段被当作 path 处理
@@ -48,6 +48,16 @@ class WorkspaceBoundaryRule:
                 continue
 
             resolved = self._resolve(raw, workspace)
+
+            # 敏感资产先判：黑名单管界内也管界外，且不受 allowed_paths 影响。
+            # 执行层 safe_path 同样会拒，此处先行是为了让官员早知道而非试错。
+            if is_sensitive_path(resolved):
+                return PolicyDecision(
+                    verdict="deny",
+                    rule_id=self.rule_id,
+                    reason=f"path {raw!r} is a protected credential path",
+                    metadata={"arg_key": key, "resolved": str(resolved)},
+                )
 
             if self._is_inside(resolved, workspace):
                 continue

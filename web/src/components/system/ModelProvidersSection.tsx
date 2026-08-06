@@ -183,92 +183,96 @@ function AddProviderModal({
           onRetry={() => void profilesQuery.refetch()}
         />
       ) : (
-      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Form.Item
-          name="profile_id"
-          label={t("system.providers.registry.form.profile")}
-          rules={[
-            {
-              required: true,
-              message: t("system.providers.registry.form.profileRequired"),
-            },
-          ]}
-        >
-          <Select
-            showSearch
-            placeholder={t("system.providers.registry.form.profilePlaceholder")}
-            options={profileOptions}
-            filterOption={(input, option) =>
-              String(option?.searchText ?? "").includes(input.toLowerCase())
-            }
-          />
-        </Form.Item>
-        {selectedProfile && (
-          <div
-            style={{
-              fontSize: 12,
-              color: token.colorTextTertiary,
-              marginTop: -16,
-              marginBottom: 12,
-            }}
+        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item
+            name="profile_id"
+            label={t("system.providers.registry.form.profile")}
+            rules={[
+              {
+                required: true,
+                message: t("system.providers.registry.form.profileRequired"),
+              },
+            ]}
           >
-            {selectedProfile.key_env && (
-              <div>
-                {t("system.providers.registry.form.keyEnvHint", {
-                  env: selectedProfile.key_env,
-                })}
-              </div>
-            )}
-            {selectedProfile.notes && <div>{selectedProfile.notes}</div>}
-          </div>
-        )}
-        <Form.Item name="id" label={t("system.providers.registry.form.id")}>
-          <Input
-            placeholder={t("system.providers.registry.form.idPlaceholder", {
-              id: selectedProfile?.id ?? "profile id",
-            })}
-          />
-        </Form.Item>
-        <Form.Item
-          name="display_name"
-          label={t("system.providers.registry.form.displayName")}
-        >
-          <Input
-            placeholder={t(
-              "system.providers.registry.form.displayNamePlaceholder",
-            )}
-          />
-        </Form.Item>
-        <Form.Item
-          name="base_url"
-          label="Base URL"
-          rules={
-            isCustom
-              ? [
-                  {
-                    required: true,
-                    whitespace: true,
-                    message: t(
-                      "system.providers.registry.form.baseUrlRequired",
-                    ),
-                  },
-                ]
-              : []
-          }
-        >
-          <Input
-            placeholder={
-              selectedProfile?.default_base_url ||
-              t("system.providers.registry.form.baseUrlPlaceholder")
+            <Select
+              showSearch
+              placeholder={t(
+                "system.providers.registry.form.profilePlaceholder",
+              )}
+              options={profileOptions}
+              filterOption={(input, option) =>
+                String(option?.searchText ?? "").includes(input.toLowerCase())
+              }
+            />
+          </Form.Item>
+          {selectedProfile && (
+            <div
+              style={{
+                fontSize: 12,
+                color: token.colorTextTertiary,
+                marginTop: -16,
+                marginBottom: 12,
+              }}
+            >
+              {selectedProfile.key_env && (
+                <div>
+                  {t("system.providers.registry.form.keyEnvHint", {
+                    env: selectedProfile.key_env,
+                  })}
+                </div>
+              )}
+              {selectedProfile.notes && <div>{selectedProfile.notes}</div>}
+            </div>
+          )}
+          <Form.Item name="id" label={t("system.providers.registry.form.id")}>
+            <Input
+              placeholder={t("system.providers.registry.form.idPlaceholder", {
+                id: selectedProfile?.id ?? "profile id",
+              })}
+            />
+          </Form.Item>
+          <Form.Item
+            name="display_name"
+            label={t("system.providers.registry.form.displayName")}
+          >
+            <Input
+              placeholder={t(
+                "system.providers.registry.form.displayNamePlaceholder",
+              )}
+            />
+          </Form.Item>
+          <Form.Item
+            name="base_url"
+            label="Base URL"
+            rules={
+              isCustom
+                ? [
+                    {
+                      required: true,
+                      whitespace: true,
+                      message: t(
+                        "system.providers.registry.form.baseUrlRequired",
+                      ),
+                    },
+                  ]
+                : []
             }
-          />
-        </Form.Item>
-        <Form.Item name="api_key" label="API Key">
-          <Input.Password
-            placeholder={t("system.providers.registry.form.apiKeyPlaceholder")}
-          />
-        </Form.Item>
-      </Form>
+          >
+            <Input
+              placeholder={
+                selectedProfile?.default_base_url ||
+                t("system.providers.registry.form.baseUrlPlaceholder")
+              }
+            />
+          </Form.Item>
+          <Form.Item name="api_key" label="API Key">
+            <Input.Password
+              placeholder={t(
+                "system.providers.registry.form.apiKeyPlaceholder",
+              )}
+            />
+          </Form.Item>
+        </Form>
       )}
     </Modal>
   );
@@ -502,9 +506,7 @@ export default function ModelProvidersSection() {
           <Input.Password
             value={keyValue}
             onChange={(e) => setKeyValue(e.target.value)}
-            placeholder={t(
-              "system.providers.registry.form.apiKeyPlaceholder",
-            )}
+            placeholder={t("system.providers.registry.form.apiKeyPlaceholder")}
           />
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {t("system.providers.registry.keyHint")}

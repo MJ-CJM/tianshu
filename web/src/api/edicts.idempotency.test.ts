@@ -32,7 +32,12 @@ describe("Edict submission idempotency", () => {
       }
       return {
         config,
-        data: { success: true, data: { id: "edict-1" }, error: null, metadata: null },
+        data: {
+          success: true,
+          data: { id: "edict-1" },
+          error: null,
+          metadata: null,
+        },
         headers: {},
         status: 202,
         statusText: "Accepted",
@@ -45,7 +50,9 @@ describe("Edict submission idempotency", () => {
     expect(randomUUID).toHaveBeenCalledTimes(1);
     expect(requests).toHaveLength(2);
     const bodies = requests.map((request) => JSON.parse(String(request.data)));
-    const keys = requests.map((request) => request.headers?.["Idempotency-Key"]);
+    const keys = requests.map(
+      (request) => request.headers?.["Idempotency-Key"],
+    );
     expect(keys).toEqual([
       "00000000-0000-4000-8000-000000000001",
       "00000000-0000-4000-8000-000000000001",
@@ -61,7 +68,12 @@ describe("Edict submission idempotency", () => {
       requests.push(config);
       return {
         config,
-        data: { success: true, data: { id: "m-1" }, error: null, metadata: null },
+        data: {
+          success: true,
+          data: { id: "m-1" },
+          error: null,
+          metadata: null,
+        },
         headers: {},
         status: 202,
         statusText: "Accepted",
@@ -88,7 +100,12 @@ describe("Edict submission idempotency", () => {
       requestBody = JSON.parse(String(config.data)) as Record<string, unknown>;
       return {
         config,
-        data: { success: true, data: { id: "edict-2" }, error: null, metadata: null },
+        data: {
+          success: true,
+          data: { id: "edict-2" },
+          error: null,
+          metadata: null,
+        },
         headers: {},
         status: 202,
         statusText: "Accepted",
@@ -99,7 +116,10 @@ describe("Edict submission idempotency", () => {
       goal: "derive authority on the server",
       actor: "browser-forged-actor",
       submitter: "browser-forged-submitter",
-    } as Parameters<typeof createEdict>[0] & { actor: string; submitter: string });
+    } as Parameters<typeof createEdict>[0] & {
+      actor: string;
+      submitter: string;
+    });
 
     expect(requestBody).not.toHaveProperty("actor");
     expect(requestBody).not.toHaveProperty("submitter");

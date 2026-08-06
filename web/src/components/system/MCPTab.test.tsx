@@ -51,8 +51,14 @@ describe("MCPTab query states", () => {
       },
       refetch,
     });
-    hookMocks.useReloadMCP.mockReturnValue({ mutateAsync: vi.fn(), isPending: false });
-    hookMocks.usePatchMCPServer.mockReturnValue({ mutateAsync: vi.fn(), isPending: false });
+    hookMocks.useReloadMCP.mockReturnValue({
+      mutateAsync: vi.fn(),
+      isPending: false,
+    });
+    hookMocks.usePatchMCPServer.mockReturnValue({
+      mutateAsync: vi.fn(),
+      isPending: false,
+    });
 
     render(<MCPTab />);
 

@@ -1,4 +1,13 @@
-import { Button, Card, Empty, Popconfirm, Table, Tag, Typography, message } from "antd";
+import {
+  Button,
+  Card,
+  Empty,
+  Popconfirm,
+  Table,
+  Tag,
+  Typography,
+  message,
+} from "antd";
 import { RollbackOutlined } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ColumnsType } from "antd/es/table";
@@ -52,9 +61,19 @@ export default function ShadowSnapshotPanel({ edictId }: { edictId: string }) {
   };
 
   const columns: ColumnsType<ShadowSnapshot> = [
-    { title: "SHA", dataIndex: "sha", width: 110, render: (s: string) => <MonoText>{s.slice(0, 10)}</MonoText> },
+    {
+      title: "SHA",
+      dataIndex: "sha",
+      width: 110,
+      render: (s: string) => <MonoText>{s.slice(0, 10)}</MonoText>,
+    },
     { title: t("shadow.label"), dataIndex: "label", ellipsis: true },
-    { title: t("shadow.time"), dataIndex: "created_at", width: 170, render: (ts: string) => formatTime(ts) },
+    {
+      title: t("shadow.time"),
+      dataIndex: "created_at",
+      width: 170,
+      render: (ts: string) => formatTime(ts),
+    },
     {
       title: "",
       key: "action",

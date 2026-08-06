@@ -1,20 +1,41 @@
 import apiClient from "./client";
-import type { AcceptanceCriteria, ApiResponse, Edict, EdictCreateRequest, EdictRuntime, EdictStatus, EdictUpdateRequest, GovernanceContractPreview, Memorial, EdictEvent, OuterLoopIteration, SupervisionReport } from "./types";
+import type {
+  AcceptanceCriteria,
+  ApiResponse,
+  Edict,
+  EdictCreateRequest,
+  EdictRuntime,
+  EdictStatus,
+  EdictUpdateRequest,
+  GovernanceContractPreview,
+  Memorial,
+  EdictEvent,
+  OuterLoopIteration,
+  SupervisionReport,
+} from "./types";
 
-function withoutServerOwnedIdentity(body: EdictCreateRequest): EdictCreateRequest {
+function withoutServerOwnedIdentity(
+  body: EdictCreateRequest,
+): EdictCreateRequest {
   return Object.fromEntries(
-    Object.entries(body).filter(([key]) => key !== "actor" && key !== "submitter"),
+    Object.entries(body).filter(
+      ([key]) => key !== "actor" && key !== "submitter",
+    ),
   ) as EdictCreateRequest;
 }
 
-export async function getOuterLoopIterations(edictId: string): Promise<ApiResponse<OuterLoopIteration[]>> {
+export async function getOuterLoopIterations(
+  edictId: string,
+): Promise<ApiResponse<OuterLoopIteration[]>> {
   const { data } = await apiClient.get<ApiResponse<OuterLoopIteration[]>>(
     `/edicts/${edictId}/iterations`,
   );
   return data;
 }
 
-export async function getSupervisionReports(edictId: string): Promise<SupervisionReport[]> {
+export async function getSupervisionReports(
+  edictId: string,
+): Promise<SupervisionReport[]> {
   const { data } = await apiClient.get<ApiResponse<SupervisionReport[]>>(
     `/edicts/${edictId}/supervision-reports`,
   );
@@ -22,12 +43,16 @@ export async function getSupervisionReports(edictId: string): Promise<Supervisio
 }
 
 /** @deprecated 用 getSupervisionReports 复数版（多监督官） */
-export async function getSupervisionReport(edictId: string): Promise<SupervisionReport | null> {
+export async function getSupervisionReport(
+  edictId: string,
+): Promise<SupervisionReport | null> {
   const list = await getSupervisionReports(edictId);
   return list.length > 0 ? list[0]! : null;
 }
 
-export async function createEdict(body: EdictCreateRequest): Promise<ApiResponse<Edict>> {
+export async function createEdict(
+  body: EdictCreateRequest,
+): Promise<ApiResponse<Edict>> {
   const idempotencyKey = body.idempotency_key ?? crypto.randomUUID();
   const safeBody = withoutServerOwnedIdentity(body);
   const { data } = await apiClient.post<ApiResponse<Edict>>(
@@ -88,10 +113,9 @@ export async function getEdictMemorials(
 export async function getLatestMemorialsBatch(
   edictIds: string[],
 ): Promise<ApiResponse<Record<string, Memorial | null>>> {
-  const { data } = await apiClient.post<ApiResponse<Record<string, Memorial | null>>>(
-    "/edicts/latest-memorials",
-    { edict_ids: edictIds },
-  );
+  const { data } = await apiClient.post<
+    ApiResponse<Record<string, Memorial | null>>
+  >("/edicts/latest-memorials", { edict_ids: edictIds });
   return data;
 }
 
@@ -104,8 +128,10 @@ export async function getEdictEvents(
   return data;
 }
 
-export type DurableDecisionKind = "tool" | "outer_loop" | "plan_review" | "governed_apply";
-export type DurableDecisionStatus = "pending" | "resolved" | "expired" | "cancelled";
+export type DurableDecisionKind =
+  "tool" | "outer_loop" | "plan_review" | "governed_apply";
+export type DurableDecisionStatus =
+  "pending" | "resolved" | "expired" | "cancelled";
 export type DurableDecisionAction =
   | "approve"
   | "reject"
@@ -324,7 +350,9 @@ export interface GovernedReplaySource {
   governanceContract: Record<string, unknown>;
 }
 
-export async function replayGovernedEdict(source: GovernedReplaySource): Promise<string> {
+export async function replayGovernedEdict(
+  source: GovernedReplaySource,
+): Promise<string> {
   const response = await createEdict({
     title: source.title,
     goal: source.goal,
@@ -332,7 +360,8 @@ export async function replayGovernedEdict(source: GovernedReplaySource): Promise
     priority: source.priority,
     governance_contract: source.governanceContract,
   });
-  if (!response.data?.id) throw new Error("governed replay did not return an Edict id");
+  if (!response.data?.id)
+    throw new Error("governed replay did not return an Edict id");
   return response.data.id;
 }
 
@@ -393,18 +422,18 @@ export async function updateEdictStatus(
 export async function pauseEdict(
   edictId: string,
 ): Promise<ApiResponse<{ id: string; lifecycle_phase: string }>> {
-  const { data } = await apiClient.post<ApiResponse<{ id: string; lifecycle_phase: string }>>(
-    `/edicts/${edictId}/pause`,
-  );
+  const { data } = await apiClient.post<
+    ApiResponse<{ id: string; lifecycle_phase: string }>
+  >(`/edicts/${edictId}/pause`);
   return data;
 }
 
 export async function resumeEdict(
   edictId: string,
 ): Promise<ApiResponse<{ id: string; lifecycle_phase: string }>> {
-  const { data } = await apiClient.post<ApiResponse<{ id: string; lifecycle_phase: string }>>(
-    `/edicts/${edictId}/resume`,
-  );
+  const { data } = await apiClient.post<
+    ApiResponse<{ id: string; lifecycle_phase: string }>
+  >(`/edicts/${edictId}/resume`);
   return data;
 }
 
@@ -413,10 +442,9 @@ export async function steerEdict(
   edictId: string,
   note: string,
 ): Promise<ApiResponse<{ id: string; steered: boolean }>> {
-  const { data } = await apiClient.post<ApiResponse<{ id: string; steered: boolean }>>(
-    `/edicts/${edictId}/steer`,
-    { note },
-  );
+  const { data } = await apiClient.post<
+    ApiResponse<{ id: string; steered: boolean }>
+  >(`/edicts/${edictId}/steer`, { note });
   return data;
 }
 
@@ -439,9 +467,9 @@ export interface ParseEdictResult {
 }
 
 export async function parseEdict(text: string): Promise<ParseEdictResult> {
-  const { data } = await apiClient.post<{ success: boolean; data: ParseEdictResult }>(
-    "/edicts/parse",
-    { text },
-  );
+  const { data } = await apiClient.post<{
+    success: boolean;
+    data: ParseEdictResult;
+  }>("/edicts/parse", { text });
   return data.data;
 }

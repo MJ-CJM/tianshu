@@ -133,7 +133,8 @@ export default function SessionRulesPage() {
       await load();
     } catch (err: unknown) {
       if (err && typeof err === "object" && "errorFields" in err) return;
-      const msg = err instanceof Error ? err.message : t("toast.ruleCreateFailed");
+      const msg =
+        err instanceof Error ? err.message : t("toast.ruleCreateFailed");
       message.error(msg);
     } finally {
       setAddSubmitting(false);
@@ -169,7 +170,9 @@ export default function SessionRulesPage() {
       dataIndex: "scope",
       width: 100,
       render: (v: string) => (
-        <Tag color={SCOPE_COLORS[v] ?? "default"}>{t(`sessionRules.scope.${v}`)}</Tag>
+        <Tag color={SCOPE_COLORS[v] ?? "default"}>
+          {t(`sessionRules.scope.${v}`)}
+        </Tag>
       ),
     },
     {
@@ -177,7 +180,9 @@ export default function SessionRulesPage() {
       dataIndex: "source",
       width: 110,
       render: (v: string) => (
-        <Tag color={SOURCE_COLORS[v] ?? "default"}>{t(`sessionRules.source.${v}`)}</Tag>
+        <Tag color={SOURCE_COLORS[v] ?? "default"}>
+          {t(`sessionRules.source.${v}`)}
+        </Tag>
       ),
     },
     {
@@ -280,43 +285,55 @@ export default function SessionRulesPage() {
       {loadError ? (
         <PageQueryError error={loadError} onRetry={() => void load()} />
       ) : (
-      <Card size="small">
-        <Space style={{ marginBottom: 16 }} wrap>
-          <Select
-            value={scope}
-            onChange={(v: "edict" | "always" | "all") => setScope(v)}
-            style={{ width: 160 }}
-            options={[
-              { value: "all", label: t("sessionRules.scopeFilter.all") },
-              { value: "always", label: t("sessionRules.scopeFilter.always") },
-              { value: "edict", label: t("sessionRules.scopeFilter.edict") },
-            ]}
+        <Card size="small">
+          <Space style={{ marginBottom: 16 }} wrap>
+            <Select
+              value={scope}
+              onChange={(v: "edict" | "always" | "all") => setScope(v)}
+              style={{ width: 160 }}
+              options={[
+                { value: "all", label: t("sessionRules.scopeFilter.all") },
+                {
+                  value: "always",
+                  label: t("sessionRules.scopeFilter.always"),
+                },
+                { value: "edict", label: t("sessionRules.scopeFilter.edict") },
+              ]}
+            />
+            <Select
+              value={sourceFilter}
+              onChange={setSourceFilter}
+              style={{ width: 160 }}
+              options={[
+                { value: "all", label: t("sessionRules.sourceFilter.all") },
+                {
+                  value: "approval",
+                  label: t("sessionRules.sourceFilter.approval"),
+                },
+                {
+                  value: "profile",
+                  label: t("sessionRules.sourceFilter.profile"),
+                },
+                {
+                  value: "manual",
+                  label: t("sessionRules.sourceFilter.manual"),
+                },
+              ]}
+            />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t("page.sessionRules.summary", { n: filtered.length })}
+            </Text>
+          </Space>
+          <Table<SessionRule>
+            columns={columns}
+            dataSource={filtered}
+            rowKey="rule_id"
+            loading={loading}
+            pagination={{ pageSize: 20 }}
+            locale={{ emptyText: t("page.sessionRules.empty") }}
+            size="small"
           />
-          <Select
-            value={sourceFilter}
-            onChange={setSourceFilter}
-            style={{ width: 160 }}
-            options={[
-              { value: "all", label: t("sessionRules.sourceFilter.all") },
-              { value: "approval", label: t("sessionRules.sourceFilter.approval") },
-              { value: "profile", label: t("sessionRules.sourceFilter.profile") },
-              { value: "manual", label: t("sessionRules.sourceFilter.manual") },
-            ]}
-          />
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {t("page.sessionRules.summary", { n: filtered.length })}
-          </Text>
-        </Space>
-        <Table<SessionRule>
-          columns={columns}
-          dataSource={filtered}
-          rowKey="rule_id"
-          loading={loading}
-          pagination={{ pageSize: 20 }}
-          locale={{ emptyText: t("page.sessionRules.empty") }}
-          size="small"
-        />
-      </Card>
+        </Card>
       )}
 
       <Modal
@@ -342,7 +359,12 @@ export default function SessionRulesPage() {
           <Form.Item
             name="tool_name"
             label={t("form.sessionRule.field.toolName")}
-            rules={[{ required: true, message: t("form.sessionRule.validation.toolNameRequired") }]}
+            rules={[
+              {
+                required: true,
+                message: t("form.sessionRule.validation.toolNameRequired"),
+              },
+            ]}
           >
             <Select
               showSearch
@@ -363,8 +385,14 @@ export default function SessionRulesPage() {
           >
             <Select
               options={[
-                { value: "always", label: t("form.sessionRule.scopeOption.always") },
-                { value: "edict", label: t("form.sessionRule.scopeOption.edict") },
+                {
+                  value: "always",
+                  label: t("form.sessionRule.scopeOption.always"),
+                },
+                {
+                  value: "edict",
+                  label: t("form.sessionRule.scopeOption.edict"),
+                },
               ]}
             />
           </Form.Item>
@@ -382,7 +410,10 @@ export default function SessionRulesPage() {
             />
           </Form.Item>
           <Form.Item name="reason" label={t("form.sessionRule.field.reason")}>
-            <Input.TextArea rows={2} placeholder={t("form.sessionRule.placeholder.reason")} />
+            <Input.TextArea
+              rows={2}
+              placeholder={t("form.sessionRule.placeholder.reason")}
+            />
           </Form.Item>
         </Form>
       </Modal>

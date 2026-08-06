@@ -26,8 +26,13 @@ export function useCreateProvider() {
 export function useUpdateProvider() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ name, data }: { name: string; data: Partial<ProviderInfo> }) =>
-      updateProvider(name, data),
+    mutationFn: ({
+      name,
+      data,
+    }: {
+      name: string;
+      data: Partial<ProviderInfo>;
+    }) => updateProvider(name, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["providers"] }),
   });
 }

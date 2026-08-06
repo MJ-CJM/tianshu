@@ -16,7 +16,9 @@ vi.mock("../hooks/useCost", () => ({
   useSetCostBudget: vi.fn(),
 }));
 
-vi.mock("../components/cost/ProviderPricingCard", () => ({ default: () => null }));
+vi.mock("../components/cost/ProviderPricingCard", () => ({
+  default: () => null,
+}));
 
 import CostDashboardPage from "./CostDashboardPage";
 

@@ -36,7 +36,9 @@ function headerValue(headers: unknown, name: string): string | null {
     const value = getter.call(headers, name);
     if (typeof value === "string" && value) return value;
   }
-  const entry = Object.entries(headers).find(([key]) => key.toLowerCase() === name.toLowerCase());
+  const entry = Object.entries(headers).find(
+    ([key]) => key.toLowerCase() === name.toLowerCase(),
+  );
   const value = entry?.[1];
   return typeof value === "string" && value ? value : null;
 }
@@ -59,12 +61,19 @@ function problemFromParts(
 
   return {
     status,
-    code: typeof codeValue === "string" && codeValue ? codeValue : defaultProblemCode(status),
+    code:
+      typeof codeValue === "string" && codeValue
+        ? codeValue
+        : defaultProblemCode(status),
     message:
-      typeof messageValue === "string" && messageValue ? messageValue : fallbackMessage,
+      typeof messageValue === "string" && messageValue
+        ? messageValue
+        : fallbackMessage,
     correlationId:
       headerValue(headers, "x-correlation-id") ??
-      (typeof correlationValue === "string" && correlationValue ? correlationValue : null),
+      (typeof correlationValue === "string" && correlationValue
+        ? correlationValue
+        : null),
     retryable: isRetryable(status),
   };
 }
@@ -125,17 +134,14 @@ apiClient.interceptors.response.use(
     return response;
   },
   async (error) => {
-    const original = error.config as (typeof error.config & { _authRetried?: boolean }) | undefined;
+    const original = error.config as
+      (typeof error.config & { _authRetried?: boolean }) | undefined;
     const url = String(original?.url ?? "");
     const isProtectedUnauthorized =
       error.response?.status === 401 &&
       !url.includes("/auth/session") &&
       !url.includes("/auth/refresh");
-    if (
-      isProtectedUnauthorized &&
-      original &&
-      !original._authRetried
-    ) {
+    if (isProtectedUnauthorized && original && !original._authRetried) {
       original._authRetried = true;
       if (await refreshAuthSession()) return apiClient.request(original);
     }

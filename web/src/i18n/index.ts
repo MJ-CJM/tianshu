@@ -24,9 +24,12 @@ function lookup(dict: Dict, key: string): string | undefined {
   return typeof cur === "string" ? cur : undefined;
 }
 
-function interpolate(template: string, vars: Record<string, string | number>): string {
+function interpolate(
+  template: string,
+  vars: Record<string, string | number>,
+): string {
   return template.replace(/\{(\w+)\}/g, (match, name) =>
-    name in vars ? String(vars[name]) : match
+    name in vars ? String(vars[name]) : match,
   );
 }
 

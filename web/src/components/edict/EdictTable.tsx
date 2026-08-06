@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { Button, Input, Popconfirm, Popover, Space, Table, message, theme } from "antd";
+import {
+  Button,
+  Input,
+  Popconfirm,
+  Popover,
+  Space,
+  Table,
+  message,
+  theme,
+} from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { DeleteOutlined, EditOutlined } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
@@ -8,10 +17,7 @@ import { updateEdict } from "../../api/edicts";
 import MonoText from "../common/MonoText";
 import SemanticTag from "../common/SemanticTag";
 import { truncateId, formatTime } from "../../utils/format";
-import {
-  PRIORITY_LABELS,
-  PRIORITY_COLORS,
-} from "../../utils/constants";
+import { PRIORITY_LABELS, PRIORITY_COLORS } from "../../utils/constants";
 import { useT } from "../../i18n";
 import {
   deriveEdictWorkspacePhase,
@@ -109,7 +115,9 @@ export default function EdictTable({
     setBatchDeleting(true);
     try {
       await onBatchDelete(selectedRowKeys as string[]);
-      message.success(t("comp.edictTable.toastBatchDeleted", { n: selectedRowKeys.length }));
+      message.success(
+        t("comp.edictTable.toastBatchDeleted", { n: selectedRowKeys.length }),
+      );
       setSelectedRowKeys([]);
     } catch {
       message.error(t("comp.edictTable.toastBatchDeleteFailed"));
@@ -166,7 +174,8 @@ export default function EdictTable({
           to={`/edicts/${record.id}`}
           onClick={(event) => event.stopPropagation()}
         >
-          {record.title || record.goal.slice(0, 20) + (record.goal.length > 20 ? "…" : "")}
+          {record.title ||
+            record.goal.slice(0, 20) + (record.goal.length > 20 ? "…" : "")}
         </Link>
       ),
     },
@@ -200,7 +209,10 @@ export default function EdictTable({
           pendingDecisionCounts[record.id] ?? 0,
         );
         return (
-          <SemanticTag colorVar={workspacePhaseColors[phase]} solid={phase === "needs_review"}>
+          <SemanticTag
+            colorVar={workspacePhaseColors[phase]}
+            solid={phase === "needs_review"}
+          >
             {workspacePhaseLabels[phase]}
           </SemanticTag>
         );
@@ -211,7 +223,9 @@ export default function EdictTable({
       dataIndex: "priority",
       width: 80,
       render: (priority: string) => (
-        <SemanticTag colorVar={PRIORITY_COLORS[priority] ?? "var(--ts-color-info)"}>
+        <SemanticTag
+          colorVar={PRIORITY_COLORS[priority] ?? "var(--ts-color-info)"}
+        >
           {PRIORITY_LABELS[priority] ?? priority}
         </SemanticTag>
       ),
@@ -221,7 +235,9 @@ export default function EdictTable({
       dataIndex: "created_at",
       width: 180,
       render: (v: string) => (
-        <span style={{ color: token.colorTextSecondary, fontSize: 13 }}>{formatTime(v)}</span>
+        <span style={{ color: token.colorTextSecondary, fontSize: 13 }}>
+          {formatTime(v)}
+        </span>
       ),
     },
     {
@@ -277,7 +293,9 @@ export default function EdictTable({
               <Popconfirm
                 title={t("comp.edictTable.deleteConfirm")}
                 description={t("comp.edictTable.deleteDesc")}
-                onConfirm={(e) => handleDelete(e as unknown as React.MouseEvent, record.id)}
+                onConfirm={(e) =>
+                  handleDelete(e as unknown as React.MouseEvent, record.id)
+                }
                 onCancel={(e) => e?.stopPropagation()}
                 okText={t("common.confirm")}
                 cancelText={t("common.cancel")}
@@ -301,12 +319,21 @@ export default function EdictTable({
   return (
     <>
       {selectedRowKeys.length > 0 && (
-        <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 12 }}>
+        <div
+          style={{
+            marginBottom: 12,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
           <span style={{ color: token.colorTextSecondary, fontSize: 13 }}>
             {t("comp.edictTable.selected", { n: selectedRowKeys.length })}
           </span>
           <Popconfirm
-            title={t("comp.edictTable.batchDeleteConfirm", { n: selectedRowKeys.length })}
+            title={t("comp.edictTable.batchDeleteConfirm", {
+              n: selectedRowKeys.length,
+            })}
             description={t("comp.edictTable.deleteDesc")}
             onConfirm={handleBatchDelete}
             okText={t("common.confirm")}

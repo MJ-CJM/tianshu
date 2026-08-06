@@ -52,7 +52,8 @@ async function readError(response: Response): Promise<string> {
 }
 
 async function expectJson<T>(response: Response): Promise<T> {
-  if (!response.ok) throw new AuthApiError(response.status, await readError(response));
+  if (!response.ok)
+    throw new AuthApiError(response.status, await readError(response));
   return (await response.json()) as T;
 }
 
@@ -61,7 +62,9 @@ export async function getAuthMode(): Promise<AuthModeResponse> {
   return expectJson<AuthModeResponse>(response);
 }
 
-export async function createAuthSession(token: string): Promise<AuthSessionResponse> {
+export async function createAuthSession(
+  token: string,
+): Promise<AuthSessionResponse> {
   const response = await authFetch("/api/auth/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -77,6 +80,7 @@ export async function getAuthMe(): Promise<AuthMeResponse> {
 
 export async function deleteAuthSession(): Promise<void> {
   const response = await authFetch("/api/auth/session", { method: "DELETE" });
-  if (!response.ok) throw new AuthApiError(response.status, await readError(response));
+  if (!response.ok)
+    throw new AuthApiError(response.status, await readError(response));
   notifyAuthExpired();
 }

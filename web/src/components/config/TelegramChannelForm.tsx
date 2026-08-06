@@ -118,14 +118,18 @@ export default function TelegramChannelForm() {
           <Space>
             <span>{t("tongzheng.tg.section.bot")}</span>
             {status?.running ? (
-              <Tag color="green">{t("tongzheng.status.running", { mode: status.mode ?? "" })}</Tag>
+              <Tag color="green">
+                {t("tongzheng.status.running", { mode: status.mode ?? "" })}
+              </Tag>
             ) : (
               <Tag>{t("tongzheng.status.off")}</Tag>
             )}
             {channel?._source === "env" && (
               <Tag color="orange">{t("tongzheng.status.fromEnv")}</Tag>
             )}
-            {channel?._source === "db" && <Tag color="blue">{t("tongzheng.status.fromDb")}</Tag>}
+            {channel?._source === "db" && (
+              <Tag color="blue">{t("tongzheng.status.fromDb")}</Tag>
+            )}
           </Space>
         }
         loading={isLoading}
@@ -162,17 +166,29 @@ export default function TelegramChannelForm() {
 
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item label={t("tongzheng.tg.field.connectionMode")} name="connection_mode">
+            <Form.Item
+              label={t("tongzheng.tg.field.connectionMode")}
+              name="connection_mode"
+            >
               <Select
                 options={[
-                  { value: "polling", label: t("tongzheng.tg.option.modePolling") },
-                  { value: "webhook", label: t("tongzheng.tg.option.modeWebhook") },
+                  {
+                    value: "polling",
+                    label: t("tongzheng.tg.option.modePolling"),
+                  },
+                  {
+                    value: "webhook",
+                    label: t("tongzheng.tg.option.modeWebhook"),
+                  },
                 ]}
               />
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item label={t("tongzheng.tg.field.webhookPath")} name="webhook_path">
+            <Form.Item
+              label={t("tongzheng.tg.field.webhookPath")}
+              name="webhook_path"
+            >
               <Input placeholder="/channels/telegram/webhook" />
             </Form.Item>
           </Col>
@@ -197,25 +213,44 @@ export default function TelegramChannelForm() {
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item label={t("tongzheng.tg.field.webhookSecret")} name="webhook_secret">
-              <Input.Password placeholder={t("tongzheng.tg.placeholder.webhookSecret")} />
+            <Form.Item
+              label={t("tongzheng.tg.field.webhookSecret")}
+              name="webhook_secret"
+            >
+              <Input.Password
+                placeholder={t("tongzheng.tg.placeholder.webhookSecret")}
+              />
             </Form.Item>
           </Col>
         </Row>
 
         <Row gutter={16}>
           <Col span={8}>
-            <Form.Item label={t("tongzheng.tg.field.pollTimeout")} name="poll_timeout">
+            <Form.Item
+              label={t("tongzheng.tg.field.pollTimeout")}
+              name="poll_timeout"
+            >
               <InputNumber min={1} max={120} style={{ width: "100%" }} />
             </Form.Item>
           </Col>
           <Col span={8}>
-            <Form.Item label={t("tongzheng.tg.field.textBatchDelay")} name="text_batch_delay">
-              <InputNumber min={0} max={5} step={0.1} style={{ width: "100%" }} />
+            <Form.Item
+              label={t("tongzheng.tg.field.textBatchDelay")}
+              name="text_batch_delay"
+            >
+              <InputNumber
+                min={0}
+                max={5}
+                step={0.1}
+                style={{ width: "100%" }}
+              />
             </Form.Item>
           </Col>
           <Col span={8}>
-            <Form.Item label={t("tongzheng.tg.field.dedupCacheSize")} name="dedup_cache_size">
+            <Form.Item
+              label={t("tongzheng.tg.field.dedupCacheSize")}
+              name="dedup_cache_size"
+            >
               <InputNumber min={128} max={65536} style={{ width: "100%" }} />
             </Form.Item>
           </Col>
@@ -223,7 +258,11 @@ export default function TelegramChannelForm() {
       </Card>
 
       <Card
-        title={<Space><span>{t("tongzheng.tg.section.assistant")}</span></Space>}
+        title={
+          <Space>
+            <span>{t("tongzheng.tg.section.assistant")}</span>
+          </Space>
+        }
         style={{ marginTop: 16 }}
       >
         <Form.Item
@@ -259,7 +298,9 @@ export default function TelegramChannelForm() {
             >
               {t("tongzheng.action.save")}
             </Button>
-            <Button onClick={() => form.resetFields()}>{t("tongzheng.action.reset")}</Button>
+            <Button onClick={() => form.resetFields()}>
+              {t("tongzheng.action.reset")}
+            </Button>
           </Space>
         </Form.Item>
       </Card>

@@ -8,7 +8,10 @@ interface PageQueryErrorProps {
 }
 
 /** Render a query failure without converting it into a successful empty state. */
-export default function PageQueryError({ error, onRetry }: PageQueryErrorProps) {
+export default function PageQueryError({
+  error,
+  onRetry,
+}: PageQueryErrorProps) {
   const problem = isApiProblem(error) ? error : toApiProblem(error);
   return (
     <PageDataState

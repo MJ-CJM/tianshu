@@ -85,9 +85,7 @@ describe("ProvidersTab data truth", () => {
 
     render(<ProvidersTab />);
 
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "模型供应商暂不可用",
-    );
+    expect(screen.getByRole("alert")).toHaveTextContent("模型供应商暂不可用");
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 });

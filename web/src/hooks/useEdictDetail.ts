@@ -52,16 +52,21 @@ export function useEdictDetail(edictId: string) {
 
   const invalidateAuthoritativeConsumers = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: EDICT_DETAIL_QUERY_KEY(edictId) }),
+      queryClient.invalidateQueries({
+        queryKey: EDICT_DETAIL_QUERY_KEY(edictId),
+      }),
       queryClient.invalidateQueries({ queryKey: ["decisions", edictId] }),
       queryClient.invalidateQueries({ queryKey: ["run-state", edictId] }),
       queryClient.invalidateQueries({ queryKey: ["evidence", edictId] }),
-      queryClient.invalidateQueries({ queryKey: ["control-center", "snapshot-v1"] }),
+      queryClient.invalidateQueries({
+        queryKey: ["control-center", "snapshot-v1"],
+      }),
     ]);
   };
 
   const resolveMutation = useMutation({
-    mutationFn: (input: ResolveEdictDecisionInput) => resolveEdictDecision(input),
+    mutationFn: (input: ResolveEdictDecisionInput) =>
+      resolveEdictDecision(input),
     onSuccess: invalidateAuthoritativeConsumers,
   });
   const replayMutation = useMutation({
@@ -98,6 +103,7 @@ export function useEdictDetail(edictId: string) {
     },
     resolveDecision: (input: ResolveEdictDecisionInput) =>
       resolveMutation.mutateAsync(input),
-    replay: (source: GovernedReplaySource) => replayMutation.mutateAsync(source),
+    replay: (source: GovernedReplaySource) =>
+      replayMutation.mutateAsync(source),
   };
 }
