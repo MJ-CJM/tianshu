@@ -1874,7 +1874,8 @@
           "delegatesTo": "Delegation targets",
           "template": "Role template",
           "templateLang": "Template language",
-          "createMode": "Create mode"
+          "createMode": "Create mode",
+          "allowedPaths": "Paths outside workspace"
         },
         "placeholder": {
           "id": "e.g. bingbu, neige",
@@ -1886,7 +1887,8 @@
           "toolsDenied": "Select denied tools",
           "skills": "Select skills (empty = all injected)",
           "delegatesTo": "Select delegation targets",
-          "template": "Optional: pick a role template to auto-generate persona & role"
+          "template": "Optional: pick a role template to auto-generate persona & role",
+          "allowedPaths": "/data/shared/**"
         },
         "validation": {
           "idRequired": "ID is required",
@@ -1906,6 +1908,9 @@
         "rolePreview": "ROLE · role preview",
         "fieldHint": {
           "memoryGlobalRead": "High privilege: reads all personas' memory. Enable with caution."
+        },
+        "help": {
+          "allowedPaths": "One absolute path glob per line, e.g. /data/shared/**. Pre-authorised only; empty means no out-of-workspace access"
         }
       },
       "department": {

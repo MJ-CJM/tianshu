@@ -1874,7 +1874,8 @@
           "delegatesTo": "可委派目标",
           "template": "角色模板",
           "templateLang": "模板语言",
-          "createMode": "创建方式"
+          "createMode": "创建方式",
+          "allowedPaths": "工作区外可访问路径"
         },
         "placeholder": {
           "id": "如 bingbu, neige",
@@ -1886,7 +1887,8 @@
           "toolsDenied": "选择禁用的工具",
           "skills": "选择技能（留空 = 全部注入）",
           "delegatesTo": "选择可委派的角色",
-          "template": "可选：选一个角色模板自动生成人格与职责"
+          "template": "可选：选一个角色模板自动生成人格与职责",
+          "allowedPaths": "/data/shared/**"
         },
         "validation": {
           "idRequired": "请输入 ID",
@@ -1906,6 +1908,9 @@
         "rolePreview": "ROLE · 职责预览",
         "fieldHint": {
           "memoryGlobalRead": "高权限：可读全体角色记忆，谨慎开启"
+        },
+        "help": {
+          "allowedPaths": "每行一条绝对路径 glob，如 /data/shared/**。仅事前授权，留空则该成员无法访问工作区外文件"
         }
       },
       "department": {

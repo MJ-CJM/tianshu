@@ -21,6 +21,10 @@ class AgentPersona(BaseModel):
     skills_dir: Path | None = None
     tools_allowed: list[str] = Field(default_factory=list)
     tools_denied: list[str] = Field(default_factory=list)
+    #: 允许访问的工作区外路径（绝对 glob，如 ``/data/shared/**``）。事前授权，
+    #: 由 WorkspaceBoundaryRule 消费；相对 glob 无效（工作区内本就可访问）。
+    #: 越界访问不走审批——审批按钮本身是诱导攻击面，见 issue #32。
+    allowed_paths: list[str] = Field(default_factory=list)
     skills_allowed: list[str] = Field(default_factory=list)
     tool_tier_max: int = 0
     can_delegate: bool = False
