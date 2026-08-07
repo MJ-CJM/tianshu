@@ -1,13 +1,5 @@
 import { useState } from "react";
-import {
-  Table,
-  Tag,
-  Switch,
-  Space,
-  Typography,
-  Alert,
-  notification,
-} from "antd";
+import { Table, Tag, Switch, Space, Typography, Alert, notification } from "antd";
 import { useTools, useSetToolEnabled } from "../../hooks/useSystem";
 import type { ToolInfo } from "../../api/types";
 import { useT } from "../../i18n";
@@ -37,9 +29,7 @@ export default function ToolsTab() {
       {
         onSuccess: () => {
           notification.success({
-            message: enabled
-              ? t("system.toast.toolEnabled", { name })
-              : t("system.toast.toolDisabled", { name }),
+            message: enabled ? t("system.toast.toolEnabled", { name }) : t("system.toast.toolDisabled", { name }),
           });
         },
         onError: (err: unknown) => {
@@ -120,7 +110,11 @@ export default function ToolsTab() {
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      <Alert type="info" showIcon message={t("system.tools.liveAlert")} />
+      <Alert
+        type="info"
+        showIcon
+        message={t("system.tools.liveAlert")}
+      />
       <Table
         dataSource={tools}
         columns={columns}

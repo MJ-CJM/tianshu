@@ -56,27 +56,18 @@ export function WorkersTab() {
               title={t("ops.workers.active")}
               value={pool?.active_count ?? 0}
               suffix={`/ ${pool?.max_concurrency ?? 0}`}
-              valueStyle={{
-                color:
-                  pool?.active_count > 0 ? "var(--ts-color-info)" : undefined,
-              }}
+              valueStyle={{ color: pool?.active_count > 0 ? "var(--ts-color-info)" : undefined }}
             />
           </Card>
         </Col>
         <Col span={4}>
           <Card size="small">
-            <Statistic
-              title={t("ops.workers.maxConcurrency")}
-              value={pool?.max_concurrency ?? 0}
-            />
+            <Statistic title={t("ops.workers.maxConcurrency")} value={pool?.max_concurrency ?? 0} />
           </Card>
         </Col>
         <Col span={4}>
           <Card size="small">
-            <Statistic
-              title={t("ops.workers.queue")}
-              value={pool?.pending_count ?? 0}
-            />
+            <Statistic title={t("ops.workers.queue")} value={pool?.pending_count ?? 0} />
           </Card>
         </Col>
         <Col span={4}>
@@ -93,10 +84,7 @@ export function WorkersTab() {
             <Statistic
               title={t("ops.workers.failed")}
               value={pool?.failed_count ?? 0}
-              valueStyle={{
-                color:
-                  pool?.failed_count > 0 ? "var(--ts-color-error)" : undefined,
-              }}
+              valueStyle={{ color: pool?.failed_count > 0 ? "var(--ts-color-error)" : undefined }}
             />
           </Card>
         </Col>
@@ -123,9 +111,7 @@ export function WorkersTab() {
                   {globalLane.max_concurrency}
                 </Descriptions.Item>
                 <Descriptions.Item label={t("ops.workers.active2")}>
-                  <Badge
-                    status={globalLane.active > 0 ? "processing" : "default"}
-                  />
+                  <Badge status={globalLane.active > 0 ? "processing" : "default"} />
                   {globalLane.active}
                 </Descriptions.Item>
                 <Descriptions.Item label={t("ops.workers.available")}>
@@ -135,22 +121,13 @@ export function WorkersTab() {
             </Col>
             <Col span={16}>
               <div style={{ padding: "0 24px" }}>
-                <Text
-                  type="secondary"
-                  style={{ display: "block", marginBottom: 8 }}
-                >
+                <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
                   {t("ops.workers.slotUsage")}
                 </Text>
                 <Progress
-                  percent={Math.round(
-                    (globalLane.active / globalLane.max_concurrency) * 100,
-                  )}
+                  percent={Math.round((globalLane.active / globalLane.max_concurrency) * 100)}
                   steps={globalLane.max_concurrency}
-                  strokeColor={
-                    globalLane.active > globalLane.max_concurrency * 0.8
-                      ? "var(--ts-color-error)"
-                      : "var(--ts-color-info)"
-                  }
+                  strokeColor={globalLane.active > globalLane.max_concurrency * 0.8 ? "var(--ts-color-error)" : "var(--ts-color-info)"}
                 />
               </div>
             </Col>
@@ -167,9 +144,7 @@ export function WorkersTab() {
                 title: t("ops.workers.edictId"),
                 dataIndex: "edict_id",
                 key: "edict_id",
-                render: (v) => (
-                  <MonoText style={{ fontSize: 12 }}>{truncateId(v)}</MonoText>
-                ),
+                render: (v) => <MonoText style={{ fontSize: 12 }}>{truncateId(v)}</MonoText>,
               },
               {
                 title: t("ops.workers.maxConcurrency"),
@@ -185,11 +160,7 @@ export function WorkersTab() {
                 width: 100,
                 align: "center" as const,
                 render: (v, record) => (
-                  <Tag
-                    color={
-                      v === 0 ? "red" : v < record.max ? "orange" : "green"
-                    }
-                  >
+                  <Tag color={v === 0 ? "red" : v < record.max ? "orange" : "green"}>
                     {v} / {record.max}
                   </Tag>
                 ),
@@ -200,10 +171,7 @@ export function WorkersTab() {
                 width: 100,
                 render: (_, record) =>
                   record.available < record.max ? (
-                    <Badge
-                      status="processing"
-                      text={t("ops.workers.running")}
-                    />
+                    <Badge status="processing" text={t("ops.workers.running")} />
                   ) : (
                     <Badge status="default" text={t("ops.workers.idle")} />
                   ),

@@ -10,9 +10,7 @@ export function formatTime(iso: string | null | undefined): string {
 
 export function formatRelative(iso: string | null | undefined): string {
   if (!iso) return "—";
-  return (
-    dayjs(iso) as ReturnType<typeof dayjs> & { fromNow: () => string }
-  ).fromNow();
+  return (dayjs(iso) as ReturnType<typeof dayjs> & { fromNow: () => string }).fromNow();
 }
 
 export function truncateId(id: string, len = 8): string {

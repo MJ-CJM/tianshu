@@ -15,11 +15,7 @@ export default function HealthDot() {
         : "err";
 
   const dotClass =
-    state === "ready"
-      ? styles.ok
-      : state === "degraded"
-        ? styles.warn
-        : styles.err;
+    state === "ready" ? styles.ok : state === "degraded" ? styles.warn : styles.err;
   const label =
     state === "ready"
       ? t("comp.healthDot.ok")
@@ -33,7 +29,9 @@ export default function HealthDot() {
   return (
     <span className={styles.wrapper} role="status" aria-label={accessibleLabel}>
       <span className={`${styles.dot} ${dotClass}`} />
-      <span className={styles.label}>{FROZEN_HEALTH_LABEL}</span>
+      <span className={styles.label}>
+        {FROZEN_HEALTH_LABEL}
+      </span>
     </span>
   );
 }

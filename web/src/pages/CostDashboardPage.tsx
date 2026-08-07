@@ -5,11 +5,7 @@ import CostTrendChart from "../components/cost/CostTrendChart";
 import CostRecordTable from "../components/cost/CostRecordTable";
 import BudgetProgressBar from "../components/cost/BudgetProgressBar";
 import ProviderPricingCard from "../components/cost/ProviderPricingCard";
-import {
-  useCostSummary,
-  useCostRecords,
-  useCostBudget,
-} from "../hooks/useCost";
+import { useCostSummary, useCostRecords, useCostBudget } from "../hooks/useCost";
 import { useT } from "../i18n";
 import PageQueryError from "../components/states/PageQueryError";
 
@@ -28,8 +24,7 @@ export default function CostDashboardPage() {
     (page - 1) * pageSize,
   );
   const budgetQuery = useCostBudget();
-  const queryError =
-    summaryQuery.error ?? recordsQuery.error ?? budgetQuery.error;
+  const queryError = summaryQuery.error ?? recordsQuery.error ?? budgetQuery.error;
 
   if (queryError) {
     return (
@@ -53,13 +48,7 @@ export default function CostDashboardPage() {
   return (
     <div style={{ padding: 24 }}>
       <Space direction="vertical" size="large" style={{ width: "100%" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <Title level={4} style={{ margin: 0 }}>
             {t("cost.title")}
           </Title>

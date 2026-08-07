@@ -18,20 +18,14 @@ import type { PersonaInfo, PlannerHistoryItem } from "../api/types";
 import { useT } from "../i18n";
 import PageQueryError from "../components/states/PageQueryError";
 
-function CabinetOverview({
-  cabinetPersonas,
-}: {
-  cabinetPersonas: PersonaInfo[];
-}) {
+function CabinetOverview({ cabinetPersonas }: { cabinetPersonas: PersonaInfo[] }) {
   const t = useT();
   const { token } = theme.useToken();
 
   if (cabinetPersonas.length === 0) {
     return (
       <Card title={t("cabinet.overview")} size="small">
-        <Typography.Text type="secondary">
-          {t("cabinet.noPersonas")}
-        </Typography.Text>
+        <Typography.Text type="secondary">{t("cabinet.noPersonas")}</Typography.Text>
       </Card>
     );
   }
@@ -41,15 +35,8 @@ function CabinetOverview({
       <Row gutter={[16, 12]}>
         {cabinetPersonas.map((p) => (
           <Col key={p.id} span={8}>
-            <Card
-              size="small"
-              style={{ background: token.colorBgContainerDisabled }}
-            >
-              <Statistic
-                title={p.name}
-                value={p.id}
-                valueStyle={{ fontSize: 14 }}
-              />
+            <Card size="small" style={{ background: token.colorBgContainerDisabled }}>
+              <Statistic title={p.name} value={p.id} valueStyle={{ fontSize: 14 }} />
               <Tag color="orange" style={{ marginTop: 4, fontSize: 11 }}>
                 {p.llm_config_name || t("cabinet.globalDefault")}
               </Tag>
@@ -89,9 +76,7 @@ export default function CabinetPage() {
     );
   }
 
-  const cabinetPersonas = (personas ?? []).filter(
-    (p: PersonaInfo) => p.department === "neige",
-  );
+  const cabinetPersonas = (personas ?? []).filter((p: PersonaInfo) => p.department === "neige");
 
   const historyColumns = [
     {
@@ -110,9 +95,7 @@ export default function CabinetPage() {
       width: 120,
       render: (v: string) => (
         <Tag color={v === "dag" ? "blue" : "green"}>
-          {v === "dag"
-            ? t("cabinet.planType.dag")
-            : t("cabinet.planType.passthrough")}
+          {v === "dag" ? t("cabinet.planType.dag") : t("cabinet.planType.passthrough")}
         </Tag>
       ),
     },
@@ -122,11 +105,7 @@ export default function CabinetPage() {
       key: "planner_persona_id",
       width: 120,
       render: (v: string | null) =>
-        v ? (
-          <Tag color="purple">{v}</Tag>
-        ) : (
-          <Tag>{t("cabinet.tag.global")}</Tag>
-        ),
+        v ? <Tag color="purple">{v}</Tag> : <Tag>{t("cabinet.tag.global")}</Tag>,
     },
     {
       title: t("cabinet.table.assigned"),
@@ -170,10 +149,7 @@ export default function CabinetPage() {
           {plannerStats && (
             <Row gutter={16}>
               <Col span={6}>
-                <Statistic
-                  title={t("cabinet.stat.total")}
-                  value={plannerStats.total_edicts}
-                />
+                <Statistic title={t("cabinet.stat.total")} value={plannerStats.total_edicts} />
               </Col>
               <Col span={6}>
                 <Statistic

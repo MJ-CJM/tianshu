@@ -56,9 +56,7 @@ describe("BudgetProgressBar editing", () => {
       />,
     );
 
-    await user.click(
-      screen.getByRole("button", { name: /修改预算|Edit budget/ }),
-    );
+    await user.click(screen.getByRole("button", { name: /修改预算|Edit budget/ }));
     const amount = screen.getByRole("spinbutton");
     await user.clear(amount);
     await user.type(amount, "21");

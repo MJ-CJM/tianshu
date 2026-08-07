@@ -1,21 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  Button,
-  Card,
-  Row,
-  Col,
-  Statistic,
-  Table,
-  Tag,
-  Tooltip,
-  Timeline,
-  Tabs,
-  Space,
-  Descriptions,
-  Select,
-  Input,
-  Typography,
-} from "antd";
+import { Button, Card, Row, Col, Statistic, Table, Tag, Tooltip, Timeline, Tabs, Space, Descriptions, Select, Input, Typography } from "antd";
 import {
   ReloadOutlined,
   ThunderboltOutlined,
@@ -46,11 +30,7 @@ import {
   VERDICT_COLORS,
   REVIEW_STATUS_LABELS,
 } from "../utils/constants";
-import type {
-  EdictUsageRow,
-  RecentAuditRow,
-  ReviewPolicyInfo,
-} from "../api/types";
+import type { EdictUsageRow, RecentAuditRow, ReviewPolicyInfo } from "../api/types";
 import apiClient, { toApiProblem } from "../api/client";
 import { listNetworkEvents } from "../api/network_events";
 import { getFailureDistribution } from "../api/evals";
@@ -143,9 +123,7 @@ function FailureAttributionCard() {
           onRetry={() => void distributionQuery.refetch()}
         />
       ) : dist.length === 0 ? (
-        <Typography.Text type="secondary">
-          {t("audit.failure.none")}
-        </Typography.Text>
+        <Typography.Text type="secondary">{t("audit.failure.none")}</Typography.Text>
       ) : (
         <Table<FailureDistributionItem>
           rowKey="reason"
@@ -199,9 +177,7 @@ function HookEventsCard() {
   });
   const recentEdicts = recentEdictsQuery.data;
 
-  const edictIds: string[] = (recentEdicts ?? []).map(
-    (e: { id: string }) => e.id,
-  );
+  const edictIds: string[] = (recentEdicts ?? []).map((e: { id: string }) => e.id);
 
   const hookEventsQuery = useQuery({
     queryKey: ["hookEvents", edictIds],
@@ -210,7 +186,7 @@ function HookEventsCard() {
       for (const eid of edictIds) {
         const resp = await apiClient.get(`/edicts/${eid}/events`);
         const events: HookEvent[] = (resp.data?.data ?? []).filter(
-          (e: HookEvent) => e.event_type.startsWith("hook."),
+          (e: HookEvent) => e.event_type.startsWith("hook.")
         );
         allEvents.push(...events);
       }
@@ -232,11 +208,7 @@ function HookEventsCard() {
       void hookEventsQuery.refetch();
     };
     return (
-      <Card
-        title={t("audit.hookEvents.title")}
-        style={{ marginTop: 24 }}
-        size="small"
-      >
+      <Card title={t("audit.hookEvents.title")} style={{ marginTop: 24 }} size="small">
         <QueryProblemState error={queryError} onRetry={retry} />
       </Card>
     );
@@ -266,9 +238,7 @@ function HookEventsCard() {
           size="small"
           onClick={() => setCollapsed((v) => !v)}
         >
-          {collapsed
-            ? t("audit.hookEvents.expand")
-            : t("audit.hookEvents.collapse")}
+          {collapsed ? t("audit.hookEvents.expand") : t("audit.hookEvents.collapse")}
         </Button>
       }
       style={{ marginTop: 24 }}
@@ -278,34 +248,14 @@ function HookEventsCard() {
       {!collapsed && (
         <Timeline
           items={events.map((evt) => ({
-            color: evt.payload.error
-              ? "red"
-              : evt.payload.blocked
-                ? "orange"
-                : "green",
+            color: evt.payload.error ? "red" : evt.payload.blocked ? "orange" : "green",
             children: (
               <div style={{ fontSize: 13 }}>
                 <Tag>{evt.event_type.replace("hook.", "")}</Tag>
-                <MonoText style={{ fontSize: 11 }}>
-                  {evt.payload.handler ?? "—"}
-                </MonoText>
-                {evt.payload.blocked && (
-                  <Tag color="orange" style={{ marginLeft: 4 }}>
-                    blocked
-                  </Tag>
-                )}
-                {evt.payload.error && (
-                  <Tag color="red" style={{ marginLeft: 4 }}>
-                    {evt.payload.error}
-                  </Tag>
-                )}
-                <span
-                  style={{
-                    color: "var(--ts-color-text-secondary)",
-                    marginLeft: 8,
-                    fontSize: 11,
-                  }}
-                >
+                <MonoText style={{ fontSize: 11 }}>{evt.payload.handler ?? "—"}</MonoText>
+                {evt.payload.blocked && <Tag color="orange" style={{ marginLeft: 4 }}>blocked</Tag>}
+                {evt.payload.error && <Tag color="red" style={{ marginLeft: 4 }}>{evt.payload.error}</Tag>}
+                <span style={{ color: "var(--ts-color-text-secondary)", marginLeft: 8, fontSize: 11 }}>
                   {formatTime(evt.created_at)}
                 </span>
               </div>
@@ -430,7 +380,9 @@ function NetworkEventsTab() {
       width: 180,
       ellipsis: true,
       render: (v: string | null, r) => (
-        <Link to={`/edicts/${r.edict_id}`}>{v || truncateId(r.edict_id)}</Link>
+        <Link to={`/edicts/${r.edict_id}`}>
+          {v || truncateId(r.edict_id)}
+        </Link>
       ),
     },
     {
@@ -445,12 +397,7 @@ function NetworkEventsTab() {
       ellipsis: true,
       render: (v: string | null) => v ?? "—",
     },
-    {
-      title: t("audit.network.table.method"),
-      dataIndex: "method",
-      width: 80,
-      render: (v) => v ?? "—",
-    },
+    { title: t("audit.network.table.method"), dataIndex: "method", width: 80, render: (v) => v ?? "—" },
     {
       title: t("audit.network.table.http"),
       dataIndex: "http_status",
@@ -544,20 +491,14 @@ export default function AuditDashboardPage() {
   const { data: stats, isLoading, refetch } = statsQuery;
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") ?? "stats";
-  const setActiveTab = (key: string) =>
-    setSearchParams({ tab: key }, { replace: true });
+  const setActiveTab = (key: string) => setSearchParams({ tab: key }, { replace: true });
   const rulesQuery = useAuditRules();
   const rulesData = rulesQuery.data;
 
   const summary = stats?.summary;
-  const audited =
-    (summary?.audit_pass ?? 0) +
-    (summary?.audit_flag ?? 0) +
-    (summary?.audit_block ?? 0);
-  const passRate =
-    audited > 0 ? ((summary?.audit_pass ?? 0) / audited) * 100 : 0;
-  const flagRate =
-    audited > 0 ? ((summary?.audit_flag ?? 0) / audited) * 100 : 0;
+  const audited = (summary?.audit_pass ?? 0) + (summary?.audit_flag ?? 0) + (summary?.audit_block ?? 0);
+  const passRate = audited > 0 ? ((summary?.audit_pass ?? 0) / audited) * 100 : 0;
+  const flagRate = audited > 0 ? ((summary?.audit_flag ?? 0) / audited) * 100 : 0;
 
   const usageColumns: ColumnsType<EdictUsageRow> = [
     {
@@ -565,9 +506,7 @@ export default function AuditDashboardPage() {
       dataIndex: "edict_title",
       ellipsis: true,
       render: (title: string, record) => (
-        <Link to={`/edicts/${record.edict_id}`}>
-          {title || truncateId(record.edict_id)}
-        </Link>
+        <Link to={`/edicts/${record.edict_id}`}>{title || truncateId(record.edict_id)}</Link>
       ),
     },
     {
@@ -613,9 +552,7 @@ export default function AuditDashboardPage() {
       width: 120,
       align: "right",
       render: (budget: number | null, record) =>
-        budget
-          ? `${formatTokens(record.total_tokens)} / ${formatTokens(budget)}`
-          : "—",
+        budget ? `${formatTokens(record.total_tokens)} / ${formatTokens(budget)}` : "—",
     },
   ];
 
@@ -633,9 +570,7 @@ export default function AuditDashboardPage() {
       dataIndex: "edict_title",
       ellipsis: true,
       render: (title: string, record) => (
-        <Link to={`/edicts/${record.edict_id}`}>
-          {title || truncateId(record.edict_id)}
-        </Link>
+        <Link to={`/edicts/${record.edict_id}`}>{title || truncateId(record.edict_id)}</Link>
       ),
     },
     {
@@ -657,11 +592,7 @@ export default function AuditDashboardPage() {
         if (!reasons || reasons.length === 0) return "—";
         const text = reasons.join("; ");
         return reasons.length > 1 ? (
-          <Tooltip
-            title={reasons.map((r, i) => (
-              <div key={i}>{r}</div>
-            ))}
-          >
+          <Tooltip title={reasons.map((r, i) => <div key={i}>{r}</div>)}>
             <span>{text}</span>
           </Tooltip>
         ) : (
@@ -673,7 +604,9 @@ export default function AuditDashboardPage() {
       title: t("audit.recentTable.reviewStatus"),
       dataIndex: "review_status",
       width: 100,
-      render: (s: string) => <Tag>{REVIEW_STATUS_LABELS[s] ?? s}</Tag>,
+      render: (s: string) => (
+        <Tag>{REVIEW_STATUS_LABELS[s] ?? s}</Tag>
+      ),
     },
     {
       title: t("audit.recentTable.time"),
@@ -720,10 +653,7 @@ export default function AuditDashboardPage() {
                   </Col>
                   <Col span={6}>
                     <Card size="small">
-                      <Statistic
-                        title={t("audit.stat.totalMemorials")}
-                        value={summary?.total_memorials ?? 0}
-                      />
+                      <Statistic title={t("audit.stat.totalMemorials")} value={summary?.total_memorials ?? 0} />
                     </Card>
                   </Col>
                   <Col span={6}>
@@ -750,11 +680,7 @@ export default function AuditDashboardPage() {
                   </Col>
                 </Row>
 
-                <Card
-                  title={t("audit.section.usage")}
-                  style={{ marginTop: 24 }}
-                  size="small"
-                >
+                <Card title={t("audit.section.usage")} style={{ marginTop: 24 }} size="small">
                   <Table<EdictUsageRow>
                     columns={usageColumns}
                     dataSource={stats?.per_edict ?? []}
@@ -766,11 +692,7 @@ export default function AuditDashboardPage() {
                   />
                 </Card>
 
-                <Card
-                  title={t("audit.section.recent")}
-                  style={{ marginTop: 24 }}
-                  size="small"
-                >
+                <Card title={t("audit.section.recent")} style={{ marginTop: 24 }} size="small">
                   <Table<RecentAuditRow>
                     columns={auditColumns}
                     dataSource={stats?.recent_audits ?? []}
@@ -844,41 +766,19 @@ export default function AuditDashboardPage() {
                 onRetry={() => void rulesQuery.refetch()}
               />
             ) : (
-              <Space
-                direction="vertical"
-                size="middle"
-                style={{ width: "100%" }}
-              >
+              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
                 <Card title={t("audit.section.auditRules")} size="small">
                   <Table
                     columns={[
-                      {
-                        title: t("audit.rulesTable.name"),
-                        dataIndex: "name",
-                        key: "name",
-                      },
-                      {
-                        title: t("audit.rulesTable.description"),
-                        dataIndex: "description",
-                        key: "description",
-                      },
+                      { title: t("audit.rulesTable.name"), dataIndex: "name", key: "name" },
+                      { title: t("audit.rulesTable.description"), dataIndex: "description", key: "description" },
                       {
                         title: t("audit.rulesTable.severity"),
                         dataIndex: "severity",
                         key: "severity",
                         width: 100,
                         render: (v: string) => (
-                          <Tag
-                            color={
-                              v === "block"
-                                ? "red"
-                                : v === "flag"
-                                  ? "orange"
-                                  : "default"
-                            }
-                          >
-                            {v}
-                          </Tag>
+                          <Tag color={v === "block" ? "red" : v === "flag" ? "orange" : "default"}>{v}</Tag>
                         ),
                       },
                       {
@@ -887,11 +787,7 @@ export default function AuditDashboardPage() {
                         key: "enabled",
                         width: 80,
                         render: (v: boolean) => (
-                          <Tag color={v ? "green" : "default"}>
-                            {v
-                              ? t("audit.rulesTable.enabled")
-                              : t("audit.rulesTable.disabled")}
-                          </Tag>
+                          <Tag color={v ? "green" : "default"}>{v ? t("audit.rulesTable.enabled") : t("audit.rulesTable.disabled")}</Tag>
                         ),
                       },
                     ]}
@@ -905,19 +801,11 @@ export default function AuditDashboardPage() {
 
                 <Card title={t("audit.section.reviewPolicies")} size="small">
                   <Descriptions column={1} bordered size="small">
-                    {(rulesData?.review_policies ?? []).map(
-                      (p: ReviewPolicyInfo) => (
-                        <Descriptions.Item
-                          key={p.value}
-                          label={<Tag color="blue">{p.label}</Tag>}
-                        >
-                          {p.description}
-                          {t("audit.reviewPolicy.valuePrefix")}
-                          <MonoText>{p.value}</MonoText>
-                          {t("audit.reviewPolicy.valueSuffix")}
-                        </Descriptions.Item>
-                      ),
-                    )}
+                    {(rulesData?.review_policies ?? []).map((p: ReviewPolicyInfo) => (
+                      <Descriptions.Item key={p.value} label={<Tag color="blue">{p.label}</Tag>}>
+                        {p.description}{t("audit.reviewPolicy.valuePrefix")}<MonoText>{p.value}</MonoText>{t("audit.reviewPolicy.valueSuffix")}
+                      </Descriptions.Item>
+                    ))}
                   </Descriptions>
                 </Card>
               </Space>

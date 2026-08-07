@@ -22,12 +22,7 @@ const EDICT = {
   created_at: "2026-07-17T08:00:00Z",
   priority: "normal",
   review_policy: "always",
-  schedule: {
-    type: "immediate",
-    at: null,
-    cron: null,
-    timezone: "Asia/Shanghai",
-  },
+  schedule: { type: "immediate", at: null, cron: null, timezone: "Asia/Shanghai" },
   runtime: {
     timeout_seconds: 300,
     max_iterations: 20,
@@ -114,28 +109,12 @@ describe("EdictActivityCard decision authority", () => {
     );
 
     expect(screen.getByText("legacy.tool")).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /pendingTool\.action/ }),
-    ).not.toBeInTheDocument();
-    for (const action of [
-      "action.approve",
-      "action.reject",
-      "action.retry",
-      "action.amend",
-      "action.cancel",
-    ]) {
-      expect(
-        screen.queryByRole("button", {
-          name: new RegExp(action.replace(".", "\\.")),
-        }),
-      ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /pendingTool\.action/ })).not.toBeInTheDocument();
+    for (const action of ["action.approve", "action.reject", "action.retry", "action.amend", "action.cancel"]) {
+      expect(screen.queryByRole("button", { name: new RegExp(action.replace(".", "\\.")) })).not.toBeInTheDocument();
     }
 
-    await user.click(
-      screen.getByRole("button", { name: /comp\.edictActivity\.openDecision/ }),
-    );
-    expect(screen.getByLabelText("location")).toHaveTextContent(
-      "/edicts/edict-read-only",
-    );
+    await user.click(screen.getByRole("button", { name: /comp\.edictActivity\.openDecision/ }));
+    expect(screen.getByLabelText("location")).toHaveTextContent("/edicts/edict-read-only");
   });
 });

@@ -2,11 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { Card, Tag, Collapse, Typography, Space, Empty, Spin } from "antd";
-import {
-  ClockCircleOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-} from "@ant-design/icons";
+import { ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined } from "@ant-design/icons";
 import { getOuterLoopIterations } from "../../api/edicts";
 import { toApiProblem } from "../../api/client";
 import { useWebSocket } from "../../hooks/useWebSocket";
@@ -116,11 +112,7 @@ export default function OuterLoopTimeline({ edictId }: Props) {
 
   if (loading) {
     return (
-      <Card
-        size="small"
-        title={t("comp.outerLoop.title")}
-        style={{ marginTop: 16 }}
-      >
+      <Card size="small" title={t("comp.outerLoop.title")} style={{ marginTop: 16 }}>
         <Spin />
       </Card>
     );
@@ -128,11 +120,7 @@ export default function OuterLoopTimeline({ edictId }: Props) {
 
   if (problem) {
     return (
-      <Card
-        size="small"
-        title={t("comp.outerLoop.title")}
-        style={{ marginTop: 16 }}
-      >
+      <Card size="small" title={t("comp.outerLoop.title")} style={{ marginTop: 16 }}>
         <PageDataState
           status={problemPageStatus(problem)}
           data={null}
@@ -156,12 +144,8 @@ export default function OuterLoopTimeline({ edictId }: Props) {
       title={
         <Space>
           <span>{t("comp.outerLoop.title")}</span>
-          <Tag color="default">
-            {t("comp.outerLoop.rounds", { n: rows.length })}
-          </Tag>
-          <Tag color="green">
-            {t("comp.outerLoop.totalCost", { cost: totalCost.toFixed(4) })}
-          </Tag>
+          <Tag color="default">{t("comp.outerLoop.rounds", { n: rows.length })}</Tag>
+          <Tag color="green">{t("comp.outerLoop.totalCost", { cost: totalCost.toFixed(4) })}</Tag>
         </Space>
       }
       style={{ marginTop: 16 }}
@@ -174,9 +158,7 @@ export default function OuterLoopTimeline({ edictId }: Props) {
           const verdict = critic?.verdict;
           const verdictIcon =
             verdict === "pass" ? (
-              <CheckCircleOutlined
-                style={{ color: "var(--ts-color-success)" }}
-              />
+              <CheckCircleOutlined style={{ color: "var(--ts-color-success)" }} />
             ) : verdict === "fail" ? (
               <CloseCircleOutlined style={{ color: "var(--ts-color-error)" }} />
             ) : (
@@ -192,10 +174,7 @@ export default function OuterLoopTimeline({ edictId }: Props) {
                 {verdictIcon}
                 {verdict && (
                   <span style={{ fontSize: 12 }}>
-                    critic:{" "}
-                    {verdict === "pass"
-                      ? t("comp.outerLoop.criticPass")
-                      : t("comp.outerLoop.criticFail")}
+                    critic: {verdict === "pass" ? t("comp.outerLoop.criticPass") : t("comp.outerLoop.criticFail")}
                     {issueClass ? ` (${issueClass})` : ""}
                   </span>
                 )}
@@ -212,11 +191,7 @@ export default function OuterLoopTimeline({ edictId }: Props) {
               </Space>
             ),
             children: (
-              <Space
-                direction="vertical"
-                style={{ width: "100%" }}
-                size="small"
-              >
+              <Space direction="vertical" style={{ width: "100%" }} size="small">
                 {checks && (
                   <div>
                     <Typography.Text strong style={{ fontSize: 12 }}>
@@ -239,11 +214,7 @@ export default function OuterLoopTimeline({ edictId }: Props) {
                           key={idx}
                           type="secondary"
                           style={{ fontSize: 12, marginTop: 4 }}
-                          ellipsis={{
-                            rows: 3,
-                            expandable: true,
-                            symbol: t("comp.outerLoop.expand"),
-                          }}
+                          ellipsis={{ rows: 3, expandable: true, symbol: t("comp.outerLoop.expand") }}
                         >
                           {o.name}: {o.detail}
                         </Typography.Paragraph>
@@ -256,16 +227,8 @@ export default function OuterLoopTimeline({ edictId }: Props) {
                       Critic
                     </Typography.Text>
                     <Typography.Paragraph
-                      style={{
-                        fontSize: 12,
-                        marginTop: 4,
-                        whiteSpace: "pre-wrap",
-                      }}
-                      ellipsis={{
-                        rows: 4,
-                        expandable: true,
-                        symbol: t("comp.outerLoop.expand"),
-                      }}
+                      style={{ fontSize: 12, marginTop: 4, whiteSpace: "pre-wrap" }}
+                      ellipsis={{ rows: 4, expandable: true, symbol: t("comp.outerLoop.expand") }}
                     >
                       {critic.feedback || t("comp.outerLoop.noFeedback")}
                     </Typography.Paragraph>
@@ -273,14 +236,9 @@ export default function OuterLoopTimeline({ edictId }: Props) {
                       <Typography.Paragraph
                         type="secondary"
                         style={{ fontSize: 12, whiteSpace: "pre-wrap" }}
-                        ellipsis={{
-                          rows: 3,
-                          expandable: true,
-                          symbol: t("comp.outerLoop.expand"),
-                        }}
+                        ellipsis={{ rows: 3, expandable: true, symbol: t("comp.outerLoop.expand") }}
                       >
-                        {t("comp.outerLoop.suggestion")}
-                        {critic.suggested_fix}
+                        {t("comp.outerLoop.suggestion")}{critic.suggested_fix}
                       </Typography.Paragraph>
                     )}
                   </div>
@@ -297,11 +255,7 @@ export default function OuterLoopTimeline({ edictId }: Props) {
                         whiteSpace: "pre-wrap",
                         fontFamily: "monospace",
                       }}
-                      ellipsis={{
-                        rows: 6,
-                        expandable: true,
-                        symbol: t("comp.outerLoop.expand"),
-                      }}
+                      ellipsis={{ rows: 6, expandable: true, symbol: t("comp.outerLoop.expand") }}
                     >
                       {r.actor_output}
                     </Typography.Paragraph>

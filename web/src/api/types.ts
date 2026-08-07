@@ -250,8 +250,7 @@ export interface GovernanceCapabilityMismatch {
   reason: string;
 }
 
-export type GovernanceCapabilityState =
-  "enforced" | "best_effort" | "observed" | "unsupported";
+export type GovernanceCapabilityState = "enforced" | "best_effort" | "observed" | "unsupported";
 
 export interface GovernanceEffectiveControl {
   capability: string;
@@ -300,8 +299,8 @@ export interface OuterLoopIteration {
   iteration: number;
   level: "L0" | "L1" | "L2" | "L3";
   actor_output: string | null;
-  checks_result: string | null; // JSON string
-  critic_result: string | null; // JSON string
+  checks_result: string | null;  // JSON string
+  critic_result: string | null;  // JSON string
   cost_cny: number;
   started_at: string;
   finished_at: string;
@@ -690,8 +689,7 @@ export interface PluginInfo {
 
 // --- DAG types (Phase 3) ---
 
-export type DAGNodeStatus =
-  "pending" | "ready" | "running" | "completed" | "failed" | "cancelled";
+export type DAGNodeStatus = "pending" | "ready" | "running" | "completed" | "failed" | "cancelled";
 
 export interface DAGNode {
   node_id: string;

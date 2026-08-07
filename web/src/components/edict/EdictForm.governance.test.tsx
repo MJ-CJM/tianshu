@@ -2,20 +2,10 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type {
-  GovernanceCapabilityState,
-  GovernanceContractPreview,
-} from "../../api/types";
+import type { GovernanceCapabilityState, GovernanceContractPreview } from "../../api/types";
 
 const edictsApi = vi.hoisted(() => ({
   parseEdict: vi.fn(),
@@ -168,8 +158,7 @@ function advisoryPreview(): GovernanceContractPreview {
       effective_controls: CAPABILITIES.map((capability, index) => ({
         schema_version: "1",
         capability,
-        requested_mode:
-          capability === "durable_resume" ? "advisory" : "unrequested",
+        requested_mode: capability === "durable_resume" ? "advisory" : "unrequested",
         state: stateAt(index),
         evidence: [],
       })),
@@ -226,9 +215,7 @@ describe("edict governance confirmation", () => {
     expect(onSubmit).not.toHaveBeenCalled();
     expect(screen.getByText("生效契约摘要")).not.toBeNull();
     expect(screen.getByText(/tianshu\.native\.v1/)).not.toBeNull();
-    expect(
-      screen.getByText(/强制 1 · 尽力 1 · 观测 1 · 不支持 10/),
-    ).not.toBeNull();
+    expect(screen.getByText(/强制 1 · 尽力 1 · 观测 1 · 不支持 10/)).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "知悉风险，继续下发" }));
 
@@ -362,9 +349,7 @@ describe("edict governance confirmation", () => {
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(onSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        governance_contract: preview.requested_contract,
-      }),
+      expect.objectContaining({ governance_contract: preview.requested_contract }),
     );
   });
 

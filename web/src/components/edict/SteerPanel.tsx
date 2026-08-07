@@ -38,12 +38,7 @@ export default function SteerPanel({ edictId }: { edictId: string }) {
           placeholder={t("steer.placeholder")}
           style={{ resize: "vertical" }}
         />
-        <Button
-          type="primary"
-          icon={<SendOutlined />}
-          loading={loading}
-          onClick={submit}
-        >
+        <Button type="primary" icon={<SendOutlined />} loading={loading} onClick={submit}>
           {t("steer.send")}
         </Button>
       </Space.Compact>

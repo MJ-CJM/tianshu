@@ -9,11 +9,7 @@ import { useWsQueryInvalidation } from "./useWsQueryInvalidation";
 
 type Listener = (message: WsMessage) => void;
 
-function Harness({
-  subscribe,
-}: {
-  subscribe: (listener: Listener) => () => void;
-}) {
+function Harness({ subscribe }: { subscribe: (listener: Listener) => () => void }) {
   useWsQueryInvalidation(subscribe);
   return null;
 }
@@ -25,12 +21,8 @@ describe("Control Center WebSocket invalidation", () => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     });
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    const invalidate = vi
-      .spyOn(client, "invalidateQueries")
-      .mockResolvedValue();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(client, "invalidateQueries").mockResolvedValue();
 
     const view = render(
       <QueryClientProvider client={client}>
@@ -42,10 +34,7 @@ describe("Control Center WebSocket invalidation", () => {
       for (const listener of listeners) {
         listener({ type: "audit.completed", edict_id: "edict-1" });
         listener({ type: "tool.approval_required", edict_id: "edict-1" });
-        listener({
-          type: "outer_loop.approval.requested",
-          edict_id: "edict-1",
-        });
+        listener({ type: "outer_loop.approval.requested", edict_id: "edict-1" });
       }
     });
 
@@ -66,12 +55,8 @@ describe("Control Center WebSocket invalidation", () => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     };
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    const invalidate = vi
-      .spyOn(client, "invalidateQueries")
-      .mockResolvedValue();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(client, "invalidateQueries").mockResolvedValue();
 
     render(
       <QueryClientProvider client={client}>

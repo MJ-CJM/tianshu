@@ -8,6 +8,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const hookMocks = vi.hoisted(() => ({
   useAgentConfig: vi.fn(),
   useUpdateAgentConfig: vi.fn(),
+  // 「疆界」与本文件断言的 agent 参数无关，给足以渲染的默认值即可。
+  useWorkspaceDir: vi.fn(() => ({ data: undefined })),
+  useUpdateWorkspaceDir: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
 
 vi.mock("../../hooks/useConfig", () => hookMocks);

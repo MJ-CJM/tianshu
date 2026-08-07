@@ -99,20 +99,17 @@ describe("onboarding state composition", () => {
     });
   });
 
-  it.each([401, 403])(
-    "preserves readiness permission failure %s",
-    async (status) => {
-      apiMocks.getReadiness.mockRejectedValue({
-        status,
-        code: status === 401 ? "auth-required" : "permission-denied",
-        message: "",
-        correlationId: null,
-        retryable: false,
-      });
+  it.each([401, 403])("preserves readiness permission failure %s", async (status) => {
+    apiMocks.getReadiness.mockRejectedValue({
+      status,
+      code: status === 401 ? "auth-required" : "permission-denied",
+      message: "",
+      correlationId: null,
+      retryable: false,
+    });
 
-      await expect(getOnboardingState()).rejects.toMatchObject({ status });
-    },
-  );
+    await expect(getOnboardingState()).rejects.toMatchObject({ status });
+  });
 
   it("rejects missing or changed packaged personas instead of presenting a partial success", async () => {
     apiMocks.listPersonas.mockResolvedValue({

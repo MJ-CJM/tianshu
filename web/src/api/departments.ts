@@ -6,11 +6,8 @@ import type {
   DepartmentUpdateRequest,
 } from "./types";
 
-export async function listDepartments(): Promise<
-  ApiResponse<DepartmentInfo[]>
-> {
-  const { data } =
-    await apiClient.get<ApiResponse<DepartmentInfo[]>>("/departments");
+export async function listDepartments(): Promise<ApiResponse<DepartmentInfo[]>> {
+  const { data } = await apiClient.get<ApiResponse<DepartmentInfo[]>>("/departments");
   return data;
 }
 

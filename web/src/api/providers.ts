@@ -53,9 +53,7 @@ export async function deleteProvider(name: string): Promise<void> {
 
 // --- Provider pricing (3 维：input miss / input hit / output) ---
 
-export async function getEffectivePricing(
-  name: string,
-): Promise<EffectivePricing> {
+export async function getEffectivePricing(name: string): Promise<EffectivePricing> {
   const resp = await fetchJson<ApiResponse<EffectivePricing>>(
     `/api/providers/${encodeURIComponent(name)}/pricing/effective`,
   );
@@ -77,9 +75,7 @@ export async function updateProviderPricing(
   return resp.data!;
 }
 
-export async function resetProviderPricing(
-  name: string,
-): Promise<EffectivePricing> {
+export async function resetProviderPricing(name: string): Promise<EffectivePricing> {
   const resp = await fetchJson<ApiResponse<EffectivePricing>>(
     `/api/providers/${encodeURIComponent(name)}/pricing`,
     { method: "DELETE" },

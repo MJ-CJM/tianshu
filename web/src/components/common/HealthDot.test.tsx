@@ -22,9 +22,7 @@ describe("HealthDot readiness states", () => {
     });
     render(<HealthDot />);
     expect(screen.getByText("通政")).toBeDefined();
-    expect(
-      screen.getByRole("status", { name: "comp.healthDot.ok" }),
-    ).toBeDefined();
+    expect(screen.getByRole("status", { name: "comp.healthDot.ok" })).toBeDefined();
   });
 
   it("renders degraded state distinctly", () => {
@@ -34,9 +32,7 @@ describe("HealthDot readiness states", () => {
     });
     render(<HealthDot />);
     expect(screen.getByText("通政")).toBeDefined();
-    expect(
-      screen.getByRole("status", { name: "comp.healthDot.degraded" }),
-    ).toBeDefined();
+    expect(screen.getByRole("status", { name: "comp.healthDot.degraded" })).toBeDefined();
   });
 
   it("renders error label when not ready", () => {
@@ -46,18 +42,14 @@ describe("HealthDot readiness states", () => {
     });
     render(<HealthDot />);
     expect(screen.getByText("通政")).toBeDefined();
-    expect(
-      screen.getByRole("status", { name: "comp.healthDot.err" }),
-    ).toBeDefined();
+    expect(screen.getByRole("status", { name: "comp.healthDot.err" })).toBeDefined();
   });
 
   it("renders error label on transport error", () => {
     mockUseHealth.mockReturnValue({ data: undefined, isError: true });
     render(<HealthDot />);
     expect(screen.getByText("通政")).toBeDefined();
-    expect(
-      screen.getByRole("status", { name: "comp.healthDot.err" }),
-    ).toBeDefined();
+    expect(screen.getByRole("status", { name: "comp.healthDot.err" })).toBeDefined();
   });
 
   it("labels demo profile visibly when trusted-local detail reports it", () => {
@@ -67,9 +59,7 @@ describe("HealthDot readiness states", () => {
     });
     render(<HealthDot />);
     expect(
-      screen.getByRole("status", {
-        name: "comp.healthDot.ok comp.healthDot.demo",
-      }),
+      screen.getByRole("status", { name: "comp.healthDot.ok comp.healthDot.demo" }),
     ).toBeDefined();
   });
 });

@@ -26,9 +26,7 @@ export default function LoginGate({ children }: { children: React.ReactNode }) {
       <main className={styles.shell}>
         <section className={styles.card}>
           <Alert type="error" showIcon message={t("auth.unavailable")} />
-          <Button block onClick={retry}>
-            {t("auth.retry")}
-          </Button>
+          <Button block onClick={retry}>{t("auth.retry")}</Button>
         </section>
       </main>
     );
@@ -61,9 +59,7 @@ export default function LoginGate({ children }: { children: React.ReactNode }) {
         </div>
         <div className={styles.rule} />
         <p className={styles.tagline}>{t("comp.appHeader.tagline")}</p>
-        {invalid ? (
-          <Alert type="error" showIcon message={t("auth.invalid")} />
-        ) : null}
+        {invalid ? <Alert type="error" showIcon message={t("auth.invalid")} /> : null}
         <Form layout="vertical" onFinish={() => void submit()}>
           <Form.Item label={t("auth.tokenLabel")} required>
             <Input.Password

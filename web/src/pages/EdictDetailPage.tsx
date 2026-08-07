@@ -1,44 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  Alert,
-  Button,
-  Input,
-  Modal,
-  Typography,
-  Tag,
-  Space,
-  Popconfirm,
-  Collapse,
-  Descriptions,
-  Table,
-  message,
-  theme,
-  Tooltip,
-} from "antd";
-import {
-  ArrowLeftOutlined,
-  SendOutlined,
-  CheckOutlined,
-  ClockCircleOutlined,
-  EditOutlined,
-  StopOutlined,
-  DeploymentUnitOutlined,
-  BulbOutlined,
-  PauseCircleOutlined,
-  PlayCircleOutlined,
-  LikeOutlined,
-  DislikeOutlined,
-} from "@ant-design/icons";
+import { Alert, Button, Input, Modal, Typography, Tag, Space, Popconfirm, Collapse, Descriptions, Table, message, theme, Tooltip } from "antd";
+import { ArrowLeftOutlined, SendOutlined, CheckOutlined, ClockCircleOutlined, EditOutlined, StopOutlined, DeploymentUnitOutlined, BulbOutlined, PauseCircleOutlined, PlayCircleOutlined, LikeOutlined, DislikeOutlined } from "@ant-design/icons";
 import { useEdictDetail } from "../hooks/useEdictDetail";
-import {
-  followUpEdict,
-  updateEdictStatus,
-  updateEdict,
-  pauseEdict,
-  resumeEdict,
-} from "../api/edicts";
+import { followUpEdict, updateEdictStatus, updateEdict, pauseEdict, resumeEdict } from "../api/edicts";
 import { submitUniverseFeedback } from "../api/universe";
 import { isApiProblem } from "../api/client";
 import PageContainer from "../components/common/PageContainer";
@@ -85,8 +51,7 @@ export default function EdictDetailPage() {
   const t = useT();
   const edictStatusLabels = useEdictStatusLabels();
   const [instruction, setInstruction] = useState("");
-  const [followUpOverride, setFollowUpOverride] =
-    useState<FollowUpOverrideValue>({});
+  const [followUpOverride, setFollowUpOverride] = useState<FollowUpOverrideValue>({});
   const [submitting, setSubmitting] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editTitle, setEditTitle] = useState("");
@@ -94,18 +59,14 @@ export default function EdictDetailPage() {
   const [editContext, setEditContext] = useState("");
   const [editSaving, setEditSaving] = useState(false);
   const { data: dagExecution } = useDagByEdict(edictId);
-  const hasDag =
-    dagExecution && dagExecution.nodes && dagExecution.nodes.length > 1;
+  const hasDag = dagExecution && dagExecution.nodes && dagExecution.nodes.length > 1;
 
   // Extract plan event for display
   const planEvent = useMemo(() => {
     // Find the most recent plan event (pending_review or completed)
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i]!;
-      if (
-        e.event_type === "plan.pending_review" ||
-        e.event_type === "plan.completed"
-      ) {
+      if (e.event_type === "plan.pending_review" || e.event_type === "plan.completed") {
         return e;
       }
     }
@@ -122,27 +83,18 @@ export default function EdictDetailPage() {
   const planFallbackReason = useMemo(() => {
     if (planPayload?.planning_mode !== "fallback") return null;
     const reason = String(planPayload.fallback_reason ?? "unknown");
-    return [
-      "llm_disabled",
-      "empty_response",
-      "invalid_response",
-      "empty_plan",
-      "llm_error",
-    ].includes(reason)
+    return ["llm_disabled", "empty_response", "invalid_response", "empty_plan", "llm_error"].includes(
+      reason,
+    )
       ? reason
       : "unknown";
   }, [planPayload]);
 
   const isPendingPlanReview = useMemo(() => {
-    const hasPending = events.some(
-      (e) => e.event_type === "plan.pending_review",
-    );
+    const hasPending = events.some((e) => e.event_type === "plan.pending_review");
     const hasResolution = events.some(
-      (e) =>
-        e.event_type === "plan.approved" ||
-        e.event_type === "plan.rejected" ||
-        (e.event_type === "plan.completed" &&
-          planEvent?.event_type !== "plan.pending_review"),
+      (e) => e.event_type === "plan.approved" || e.event_type === "plan.rejected"
+        || (e.event_type === "plan.completed" && planEvent?.event_type !== "plan.pending_review"),
     );
     return hasPending && !hasResolution;
   }, [events, planEvent]);
@@ -184,13 +136,9 @@ export default function EdictDetailPage() {
   // 预演 → 实时的切换保障:by-edict 404 后轮询即停,而 WS 断线期间的 dag.*
   // 事件会丢——多任务计划执行活跃时主动重询,拿到真实 DAGExecution 即停。
   const queryClient = useQueryClient();
-  const awaitingRealDag =
-    inlineDagIsPreview &&
-    memorials.some((m) =>
-      ["running", "submitted", "scheduled", "planning", "auditing"].includes(
-        m.status,
-      ),
-    );
+  const awaitingRealDag = inlineDagIsPreview && memorials.some((m) =>
+    ["running", "submitted", "scheduled", "planning", "auditing"].includes(m.status),
+  );
   useEffect(() => {
     if (!awaitingRealDag || !edictId) return;
     const timer = setInterval(() => {
@@ -202,20 +150,16 @@ export default function EdictDetailPage() {
   const [feedbackSent, setFeedbackSent] = useState<Record<string, number>>({});
 
   const hasActiveMemorial = memorials.some((m) =>
-    ["running", "submitted", "scheduled", "planning", "auditing"].includes(
-      m.status,
-    ),
+    ["running", "submitted", "scheduled", "planning", "auditing"].includes(m.status),
   );
   const hasPendingReview = memorials.some((m) => m.review_status === "pending");
-  const canFollowUp =
-    edict?.status === "open" && !hasActiveMemorial && !hasPendingReview;
+  const canFollowUp = edict?.status === "open" && !hasActiveMemorial && !hasPendingReview;
 
   const aggregatedUsage = useMemo<UsageSummary>(() => {
     return memorials.reduce<UsageSummary>(
       (acc, m) => ({
         prompt_tokens: acc.prompt_tokens + (m.usage?.prompt_tokens ?? 0),
-        completion_tokens:
-          acc.completion_tokens + (m.usage?.completion_tokens ?? 0),
+        completion_tokens: acc.completion_tokens + (m.usage?.completion_tokens ?? 0),
         total_tokens: acc.total_tokens + (m.usage?.total_tokens ?? 0),
         cache_read_tokens:
           (acc.cache_read_tokens ?? 0) + (m.usage?.cache_read_tokens ?? 0),
@@ -293,11 +237,7 @@ export default function EdictDetailPage() {
       message.success(t("toast.edictPauseRequested"));
     } catch (err: unknown) {
       const detail = isApiProblem(err) ? err.message : null;
-      message.error(
-        detail
-          ? `${t("toast.pauseFailed")}：${detail}`
-          : t("toast.pauseFailed"),
-      );
+      message.error(detail ? `${t("toast.pauseFailed")}：${detail}` : t("toast.pauseFailed"));
     }
   };
 
@@ -309,11 +249,7 @@ export default function EdictDetailPage() {
       message.success(t("toast.edictResumed"));
     } catch (err: unknown) {
       const detail = isApiProblem(err) ? err.message : null;
-      message.error(
-        detail
-          ? `${t("toast.resumeFailed")}：${detail}`
-          : t("toast.resumeFailed"),
-      );
+      message.error(detail ? `${t("toast.resumeFailed")}：${detail}` : t("toast.resumeFailed"));
     }
   };
 
@@ -368,9 +304,7 @@ export default function EdictDetailPage() {
   if (!edict) {
     return (
       <PageContainer title={t("page.edictDetail.title")}>
-        <Typography.Text type="secondary">
-          {t("page.edictDetail.notFound")}
-        </Typography.Text>
+        <Typography.Text type="secondary">{t("page.edictDetail.notFound")}</Typography.Text>
       </PageContainer>
     );
   }
@@ -424,8 +358,8 @@ export default function EdictDetailPage() {
                   edict.runtime.lifecycle_phase === "paused"
                     ? "warning"
                     : edict.runtime.lifecycle_phase === "winding_down"
-                      ? "orange"
-                      : "default"
+                    ? "orange"
+                    : "default"
                 }
               >
                 {t(`lifecycle.${edict.runtime.lifecycle_phase}`)}
@@ -450,9 +384,7 @@ export default function EdictDetailPage() {
         </div>
         {edict.context && (
           <div style={{ marginBottom: 12 }}>
-            <Typography.Text
-              style={{ color: token.colorTextSecondary, fontSize: 13 }}
-            >
+            <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 13 }}>
               {edict.context}
             </Typography.Text>
           </div>
@@ -466,11 +398,7 @@ export default function EdictDetailPage() {
               key: "priority",
               label: t("page.edictDetail.details.priority"),
               children: (
-                <SemanticTag
-                  colorVar={
-                    PRIORITY_COLORS[edict.priority] ?? "var(--ts-color-info)"
-                  }
-                >
+                <SemanticTag colorVar={PRIORITY_COLORS[edict.priority] ?? "var(--ts-color-info)"}>
                   {t(`priority.${edict.priority}`)}
                 </SemanticTag>
               ),
@@ -485,28 +413,14 @@ export default function EdictDetailPage() {
               label: t("page.edictDetail.details.schedule"),
               children: (
                 <span>
-                  {edict.schedule?.type
-                    ? t(`scheduleType.${edict.schedule.type}`)
-                    : t("scheduleType.immediate")}
+                  {edict.schedule?.type ? t(`scheduleType.${edict.schedule.type}`) : t("scheduleType.immediate")}
                   {edict.schedule?.cron && (
-                    <MonoText
-                      style={{
-                        marginLeft: 6,
-                        fontSize: 11,
-                        color: token.colorTextSecondary,
-                      }}
-                    >
+                    <MonoText style={{ marginLeft: 6, fontSize: 11, color: token.colorTextSecondary }}>
                       {edict.schedule.cron}
                     </MonoText>
                   )}
                   {edict.schedule?.at && (
-                    <span
-                      style={{
-                        marginLeft: 6,
-                        fontSize: 12,
-                        color: token.colorTextSecondary,
-                      }}
-                    >
+                    <span style={{ marginLeft: 6, fontSize: 12, color: token.colorTextSecondary }}>
                       {formatTime(edict.schedule.at)}
                     </span>
                   )}
@@ -527,24 +441,18 @@ export default function EdictDetailPage() {
                 t("page.edictDetail.details.cabinetDecision")
               ),
             },
-            ...(!edict.assigned_persona_id
-              ? [
-                  {
-                    key: "planner_persona",
-                    label: t("page.edictDetail.details.plannerPersona"),
-                    children: edict.planner_persona_id ? (
-                      <Tag color="purple">{edict.planner_persona_id}</Tag>
-                    ) : planEvent?.payload?.planner_persona_id ? (
-                      // 内阁决策默认规划官:实际主持规划的内阁官员(事件 payload 透出)
-                      <Tag color="purple">
-                        {String(planEvent.payload.planner_persona_id)}
-                      </Tag>
-                    ) : (
-                      t("page.edictDetail.details.globalConfig")
-                    ),
-                  },
-                ]
-              : []),
+            ...(!edict.assigned_persona_id ? [{
+              key: "planner_persona",
+              label: t("page.edictDetail.details.plannerPersona"),
+              children: edict.planner_persona_id ? (
+                <Tag color="purple">{edict.planner_persona_id}</Tag>
+              ) : (planEvent?.payload?.planner_persona_id ? (
+                // 内阁决策默认规划官:实际主持规划的内阁官员(事件 payload 透出)
+                <Tag color="purple">{String(planEvent.payload.planner_persona_id)}</Tag>
+              ) : (
+                t("page.edictDetail.details.globalConfig")
+              )),
+            }] : []),
           ]}
         />
 
@@ -559,54 +467,33 @@ export default function EdictDetailPage() {
             }}
           >
             <Space size="small" wrap>
-              <Tag color="purple" style={{ fontWeight: 600 }}>
-                {t("page.edictDetail.details.longTaskTag")}
-              </Tag>
+              <Tag color="purple" style={{ fontWeight: 600 }}>{t("page.edictDetail.details.longTaskTag")}</Tag>
               <Tag>
-                {t("page.edictDetail.details.maxOuterRounds", {
-                  n: edict.acceptance.max_outer_iterations ?? 5,
-                })}
+                {t("page.edictDetail.details.maxOuterRounds", { n: edict.acceptance.max_outer_iterations ?? 5 })}
               </Tag>
               {edict.acceptance.deadline_seconds && (
                 <Tag color="gold">
-                  {t("page.edictDetail.details.timeBudgetMin", {
-                    n: Math.round(edict.acceptance.deadline_seconds / 60),
-                  })}
+                  {t("page.edictDetail.details.timeBudgetMin", { n: Math.round(edict.acceptance.deadline_seconds / 60) })}
                 </Tag>
               )}
               <Tag color="orange">
-                {t("page.edictDetail.details.exhaustionPrefix")}
-                {t(
-                  `exhaustion.short${
-                    {
-                      escalate: "Escalate",
-                      best_effort: "BestEffort",
-                      fail: "Fail",
-                    }[edict.acceptance.on_exhaustion ?? "escalate"]
-                  }`,
-                )}
+                {t("page.edictDetail.details.exhaustionPrefix")}{t(`exhaustion.short${({
+                  escalate: "Escalate",
+                  best_effort: "BestEffort",
+                  fail: "Fail",
+                }[edict.acceptance.on_exhaustion ?? "escalate"])}`)}
               </Tag>
-              {edict.acceptance.checks &&
-                edict.acceptance.checks.length > 0 && (
-                  <Tag color="cyan">
-                    {t("page.edictDetail.details.checksCount", {
-                      n: edict.acceptance.checks.length,
-                    })}
-                  </Tag>
-                )}
+              {edict.acceptance.checks && edict.acceptance.checks.length > 0 && (
+                <Tag color="cyan">
+                  {t("page.edictDetail.details.checksCount", { n: edict.acceptance.checks.length })}
+                </Tag>
+              )}
               {(() => {
-                const ids =
-                  edict.acceptance.critic?.persona_ids ??
-                  (edict.acceptance.critic?.persona_id
-                    ? [edict.acceptance.critic.persona_id]
-                    : []);
+                const ids = edict.acceptance.critic?.persona_ids ?? (edict.acceptance.critic?.persona_id ? [edict.acceptance.critic.persona_id] : []);
                 if (ids.length === 0) return null;
                 return (
                   <span>
-                    <Typography.Text
-                      type="secondary"
-                      style={{ fontSize: 12, marginRight: 4 }}
-                    >
+                    <Typography.Text type="secondary" style={{ fontSize: 12, marginRight: 4 }}>
                       {t("page.edictDetail.details.criticLabel")}
                     </Typography.Text>
                     {ids.map((pid) => (
@@ -623,13 +510,7 @@ export default function EdictDetailPage() {
 
         {edict.constraints && edict.constraints.length > 0 && (
           <div style={{ marginBottom: 12 }}>
-            <Typography.Text
-              style={{
-                color: token.colorTextSecondary,
-                fontSize: 12,
-                marginRight: 8,
-              }}
-            >
+            <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, marginRight: 8 }}>
               {t("page.edictDetail.details.constraints")}：
             </Typography.Text>
             {edict.constraints.map((c, i) => (
@@ -640,22 +521,18 @@ export default function EdictDetailPage() {
 
         {edict.output_format && (
           <div style={{ marginBottom: 12 }}>
-            <Typography.Text
-              style={{ color: token.colorTextSecondary, fontSize: 12 }}
-            >
+            <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
               {t("page.edictDetail.details.outputFormat")}：
             </Typography.Text>
-            <pre
-              style={{
-                marginTop: 4,
-                padding: 8,
-                background: "var(--ts-color-bg-subtle)",
-                borderRadius: 4,
-                fontSize: 12,
-                border: `1px solid ${token.colorBorder}`,
-                whiteSpace: "pre-wrap",
-              }}
-            >
+            <pre style={{
+              marginTop: 4,
+              padding: 8,
+              background: "var(--ts-color-bg-subtle)",
+              borderRadius: 4,
+              fontSize: 12,
+              border: `1px solid ${token.colorBorder}`,
+              whiteSpace: "pre-wrap",
+            }}>
               {edict.output_format}
             </pre>
           </div>
@@ -668,59 +545,19 @@ export default function EdictDetailPage() {
           items={[
             {
               key: "runtime",
-              label: (
-                <Typography.Text
-                  style={{ fontSize: 12, color: token.colorTextSecondary }}
-                >
-                  {t("page.edictDetail.details.runtimeSection")}
-                </Typography.Text>
-              ),
+              label: <Typography.Text style={{ fontSize: 12, color: token.colorTextSecondary }}>{t("page.edictDetail.details.runtimeSection")}</Typography.Text>,
               children: (
                 <Descriptions
                   size="small"
                   column={{ xs: 1, sm: 2, md: 3 }}
                   items={[
-                    {
-                      key: "timeout",
-                      label: t("page.edictDetail.details.timeout"),
-                      children: `${edict.runtime?.timeout_seconds ?? 300}s`,
-                    },
-                    {
-                      key: "iterations",
-                      label: t("page.edictDetail.details.maxIterations"),
-                      children: edict.runtime?.max_iterations ?? 20,
-                    },
-                    {
-                      key: "concurrency",
-                      label: t("page.edictDetail.details.concurrency"),
-                      children: edict.runtime?.max_concurrency ?? 1,
-                    },
-                    {
-                      key: "retry",
-                      label: t("page.edictDetail.details.retry"),
-                      children: edict.runtime?.retry_limit ?? 0,
-                    },
-                    {
-                      key: "token_budget",
-                      label: t("page.edictDetail.details.tokenBudget"),
-                      children:
-                        edict.runtime?.token_budget ?? t("common2.unlimited"),
-                    },
-                    {
-                      key: "cost_budget",
-                      label: t("page.edictDetail.details.costBudget"),
-                      children:
-                        edict.runtime?.cost_budget_cny != null
-                          ? `¥${edict.runtime.cost_budget_cny}`
-                          : t("common2.unlimited"),
-                    },
-                    {
-                      key: "time_budget",
-                      label: t("page.edictDetail.details.timeBudget"),
-                      children: edict.acceptance?.deadline_seconds
-                        ? `${Math.round(edict.acceptance.deadline_seconds / 60)} ${t("unit.minutes")}`
-                        : t("common2.unlimited"),
-                    },
+                    { key: "timeout", label: t("page.edictDetail.details.timeout"), children: `${edict.runtime?.timeout_seconds ?? 300}s` },
+                    { key: "iterations", label: t("page.edictDetail.details.maxIterations"), children: edict.runtime?.max_iterations ?? 20 },
+                    { key: "concurrency", label: t("page.edictDetail.details.concurrency"), children: edict.runtime?.max_concurrency ?? 1 },
+                    { key: "retry", label: t("page.edictDetail.details.retry"), children: edict.runtime?.retry_limit ?? 0 },
+                    { key: "token_budget", label: t("page.edictDetail.details.tokenBudget"), children: edict.runtime?.token_budget ?? t("common2.unlimited") },
+                    { key: "cost_budget", label: t("page.edictDetail.details.costBudget"), children: edict.runtime?.cost_budget_cny != null ? `¥${edict.runtime.cost_budget_cny}` : t("common2.unlimited") },
+                    { key: "time_budget", label: t("page.edictDetail.details.timeBudget"), children: edict.acceptance?.deadline_seconds ? `${Math.round(edict.acceptance.deadline_seconds / 60)} ${t("unit.minutes")}` : t("common2.unlimited") },
                   ]}
                 />
               ),
@@ -728,10 +565,7 @@ export default function EdictDetailPage() {
           ]}
         />
 
-        <Space
-          size={16}
-          style={{ color: token.colorTextSecondary, fontSize: 12 }}
-        >
+        <Space size={16} style={{ color: token.colorTextSecondary, fontSize: 12 }}>
           <span title={edict.id}>
             <MonoText style={{ color: token.colorTextSecondary, fontSize: 11 }}>
               {truncateId(edict.id, 12)}
@@ -776,35 +610,23 @@ export default function EdictDetailPage() {
             <Space>
               <BulbOutlined />
               {t("page.edictDetail.planCardTitle")}
-              {isPendingPlanReview && (
-                <Tag color="warning">{t("status.needs_review")}</Tag>
+              {isPendingPlanReview && <Tag color="warning">{t("status.needs_review")}</Tag>}
+              {!isPendingPlanReview && planEvent.event_type === "plan.completed" && (
+                <Tag color="success">{t("page.edictDetail.planExecuted")}</Tag>
               )}
-              {!isPendingPlanReview &&
-                planEvent.event_type === "plan.completed" && (
-                  <Tag color="success">
-                    {t("page.edictDetail.planExecuted")}
-                  </Tag>
-                )}
               {planFallbackReason && (
-                <Tag color="warning">
-                  {t("page.edictDetail.planFallbackTag")}
-                </Tag>
+                <Tag color="warning">{t("page.edictDetail.planFallbackTag")}</Tag>
               )}
             </Space>
           }
-          style={{
-            marginBottom: 24,
-            borderLeft: "3px solid var(--ts-status-planning)",
-          }}
+          style={{ marginBottom: 24, borderLeft: "3px solid var(--ts-status-planning)" }}
         >
           {planFallbackReason && (
             <Alert
               type="warning"
               showIcon
               message={t("page.edictDetail.planFallbackMessage")}
-              description={t(
-                `page.edictDetail.planFallbackReason.${planFallbackReason}`,
-              )}
+              description={t(`page.edictDetail.planFallbackReason.${planFallbackReason}`)}
               style={{ marginBottom: 12 }}
             />
           )}
@@ -829,8 +651,7 @@ export default function EdictDetailPage() {
                 title: t("page.edictDetail.planTaskColumn.depends"),
                 dataIndex: "depends_on",
                 width: 120,
-                render: (v: string[]) =>
-                  v && v.length > 0 ? v.join(", ") : "\u2014",
+                render: (v: string[]) => (v && v.length > 0 ? v.join(", ") : "\u2014"),
               },
               {
                 title: t("page.edictDetail.planTaskColumn.tools"),
@@ -854,10 +675,7 @@ export default function EdictDetailPage() {
                 overflow: "hidden",
               }}
             >
-              <DagBattleMap
-                execution={inlineDag}
-                preview={inlineDagIsPreview}
-              />
+              <DagBattleMap execution={inlineDag} preview={inlineDagIsPreview} />
             </div>
           )}
         </GlowCard>
@@ -869,16 +687,8 @@ export default function EdictDetailPage() {
           {edictId && edict?.acceptance && (
             <SupervisionReportCard edictId={edictId} memorialId={memorial.id} />
           )}
-          {(memorial.status === "completed" ||
-            memorial.status === "failed") && (
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                marginBottom: 8,
-                gap: 6,
-              }}
-            >
+          {(memorial.status === "completed" || memorial.status === "failed") && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8, gap: 6 }}>
               <Tooltip title="好结果">
                 <Button
                   size="small"
@@ -917,10 +727,7 @@ export default function EdictDetailPage() {
         hasActiveMemorial && <SteerPanel edictId={edictId} />}
 
       {canFollowUp && (
-        <GlowCard
-          title={t("page.edictDetail.followupTitle")}
-          style={{ marginBottom: 24 }}
-        >
+        <GlowCard title={t("page.edictDetail.followupTitle")} style={{ marginBottom: 24 }}>
           <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
             <Input.TextArea
               placeholder={t("page.edictDetail.followupPlaceholder")}
@@ -939,16 +746,7 @@ export default function EdictDetailPage() {
             onChange={setFollowUpOverride}
             assignedPersonaId={edict?.assigned_persona_id ?? null}
           />
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 8,
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginTop: 12,
-            }}
-          >
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
             <div style={{ flex: 1, textAlign: "center" }}>
               <Button
                 type="primary"
@@ -965,25 +763,24 @@ export default function EdictDetailPage() {
                 {edict.acceptance &&
                   edict.runtime.lifecycle_phase === "active" &&
                   hasActiveMemorial && (
-                    <Button
-                      size="small"
-                      icon={<PauseCircleOutlined />}
-                      onClick={handlePause}
-                    >
-                      {t("button.pauseAfterRound")}
-                    </Button>
-                  )}
-                {edict.acceptance &&
-                  edict.runtime.lifecycle_phase === "paused" && (
-                    <Button
-                      size="small"
-                      type="primary"
-                      icon={<PlayCircleOutlined />}
-                      onClick={handleResume}
-                    >
-                      {t("button.resume")}
-                    </Button>
-                  )}
+                  <Button
+                    size="small"
+                    icon={<PauseCircleOutlined />}
+                    onClick={handlePause}
+                  >
+                    {t("button.pauseAfterRound")}
+                  </Button>
+                )}
+                {edict.acceptance && edict.runtime.lifecycle_phase === "paused" && (
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<PlayCircleOutlined />}
+                    onClick={handleResume}
+                  >
+                    {t("button.resume")}
+                  </Button>
+                )}
                 <Popconfirm
                   title={t("page.edictDetail.confirmClose.title")}
                   description={t("page.edictDetail.confirmClose.description")}
@@ -1022,28 +819,16 @@ export default function EdictDetailPage() {
       )}
 
       {!canFollowUp && edict.status === "open" && (
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            justifyContent: "flex-end",
-            gap: 12,
-            marginBottom: 24,
-          }}
-        >
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 12, marginBottom: 24 }}>
           {edict.acceptance &&
             edict.runtime.lifecycle_phase === "active" &&
             hasActiveMemorial && (
-              <Button icon={<PauseCircleOutlined />} onClick={handlePause}>
-                {t("button.pauseAfterRound")}
-              </Button>
-            )}
+            <Button icon={<PauseCircleOutlined />} onClick={handlePause}>
+              {t("button.pauseAfterRound")}
+            </Button>
+          )}
           {edict.acceptance && edict.runtime.lifecycle_phase === "paused" && (
-            <Button
-              type="primary"
-              icon={<PlayCircleOutlined />}
-              onClick={handleResume}
-            >
+            <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleResume}>
               {t("button.resume")}
             </Button>
           )}
@@ -1089,9 +874,7 @@ export default function EdictDetailPage() {
       >
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
           <div>
-            <Typography.Text strong>
-              {t("page.edictDetail.editModal.fieldTitle")}
-            </Typography.Text>
+            <Typography.Text strong>{t("page.edictDetail.editModal.fieldTitle")}</Typography.Text>
             <Input
               value={editTitle}
               onChange={(e) => setEditTitle(e.target.value)}
@@ -1099,9 +882,7 @@ export default function EdictDetailPage() {
             />
           </div>
           <div>
-            <Typography.Text strong>
-              {t("page.edictDetail.editModal.fieldGoal")}
-            </Typography.Text>
+            <Typography.Text strong>{t("page.edictDetail.editModal.fieldGoal")}</Typography.Text>
             <Input.TextArea
               value={editGoal}
               onChange={(e) => setEditGoal(e.target.value)}
@@ -1111,9 +892,7 @@ export default function EdictDetailPage() {
             />
           </div>
           <div>
-            <Typography.Text strong>
-              {t("page.edictDetail.editModal.fieldContext")}
-            </Typography.Text>
+            <Typography.Text strong>{t("page.edictDetail.editModal.fieldContext")}</Typography.Text>
             <Input.TextArea
               value={editContext}
               onChange={(e) => setEditContext(e.target.value)}

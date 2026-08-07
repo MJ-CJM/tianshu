@@ -40,9 +40,7 @@ function ensureAuthChannel(): BroadcastChannel | null {
   return authChannel;
 }
 
-export function subscribeAuthExpired(
-  listener: AuthExpiredListener,
-): () => void {
+export function subscribeAuthExpired(listener: AuthExpiredListener): () => void {
   authExpiredListeners.add(listener);
   ensureAuthChannel();
   return () => authExpiredListeners.delete(listener);
@@ -103,15 +101,11 @@ function requestMethod(input: RequestInfo | URL, init: RequestInit): string {
   return "GET";
 }
 
-function isPublicAuthRequest(
-  input: RequestInfo | URL,
-  init: RequestInit,
-): boolean {
+function isPublicAuthRequest(input: RequestInfo | URL, init: RequestInit): boolean {
   const path = new URL(requestUrl(input), "http://localhost").pathname;
   const method = requestMethod(input, init);
-  return (
-    method === "POST" &&
-    (path === "/api/auth/refresh" || path === "/api/auth/session")
+  return method === "POST" && (
+    path === "/api/auth/refresh" || path === "/api/auth/session"
   );
 }
 

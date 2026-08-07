@@ -8,10 +8,7 @@ import { isApiProblem, toApiProblem } from "../api/client";
 import { problemPageStatus } from "../components/states/problemPageStatus";
 import type { PageDataStatus } from "../contracts/api";
 
-export const CONTROL_CENTER_QUERY_KEY = [
-  "control-center",
-  "snapshot-v1",
-] as const;
+export const CONTROL_CENTER_QUERY_KEY = ["control-center", "snapshot-v1"] as const;
 
 function isEmpty(snapshot: ControlCenterSnapshotV1): boolean {
   return (

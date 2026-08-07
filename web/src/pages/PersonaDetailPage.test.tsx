@@ -87,18 +87,9 @@ describe("PersonaDetailPage prompt drafts", () => {
       error: null,
       refetch: vi.fn(),
     });
-    personaHooks.usePersonaMetrics.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-    });
-    personaHooks.useUpdatePersona.mockReturnValue({
-      mutate: vi.fn(),
-      isPending: false,
-    });
-    personaHooks.useRegeneratePersonaIdentity.mockReturnValue({
-      mutate: vi.fn(),
-      isPending: false,
-    });
+    personaHooks.usePersonaMetrics.mockReturnValue({ data: undefined, isLoading: false });
+    personaHooks.useUpdatePersona.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    personaHooks.useRegeneratePersonaIdentity.mockReturnValue({ mutate: vi.fn(), isPending: false });
     systemHooks.useTools.mockReturnValue({ data: [] });
     systemHooks.useSkills.mockReturnValue({ data: [] });
     systemHooks.usePromptFiles.mockReturnValue({
@@ -111,37 +102,16 @@ describe("PersonaDetailPage prompt drafts", () => {
       data: { content: "# Detail original" },
       isLoading: false,
     });
-    systemHooks.useUpdatePromptFile.mockReturnValue({
-      mutate: update,
-      isPending: false,
-    });
-    systemHooks.usePromptPreview.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-    });
-    opsHooks.usePromptLayers.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-    });
+    systemHooks.useUpdatePromptFile.mockReturnValue({ mutate: update, isPending: false });
+    systemHooks.usePromptPreview.mockReturnValue({ data: undefined, isLoading: false });
+    opsHooks.usePromptLayers.mockReturnValue({ data: undefined, isLoading: false });
     mcpHooks.useMCPServers.mockReturnValue({ data: [] });
     departmentHooks.useDepartments.mockReturnValue({ data: [] });
     configHooks.useConfigs.mockReturnValue({ data: { configs: [] } });
-    memoryHooks.usePersonaMemorials.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-    });
-    memoryHooks.usePersonaMemory.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-    });
-    memoryHooks.useDeleteMemory.mockReturnValue({
-      mutate: vi.fn(),
-      isPending: false,
-    });
-    memoryHooks.useRecallMemory.mockReturnValue({
-      mutateAsync: vi.fn(),
-      isPending: false,
-    });
+    memoryHooks.usePersonaMemorials.mockReturnValue({ data: undefined, isLoading: false });
+    memoryHooks.usePersonaMemory.mockReturnValue({ data: undefined, isLoading: false });
+    memoryHooks.useDeleteMemory.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    memoryHooks.useRecallMemory.mockReturnValue({ mutateAsync: vi.fn(), isPending: false });
 
     const user = userEvent.setup();
     render(
@@ -155,9 +125,7 @@ describe("PersonaDetailPage prompt drafts", () => {
     await user.click(screen.getByRole("tab", { name: /指令文件|Prompt/ }));
     const filename = await screen.findByText("SOUL.md");
     const fileCard = filename.closest("div[style*='width: 280px']");
-    const editButton = fileCard
-      ?.querySelector(".anticon-edit")
-      ?.closest("button");
+    const editButton = fileCard?.querySelector(".anticon-edit")?.closest("button");
     expect(editButton).not.toBeNull();
     await user.click(editButton!);
 

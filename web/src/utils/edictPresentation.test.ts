@@ -58,9 +58,7 @@ describe("edict workspace presentation", () => {
   });
 
   it("shows an open conversation with a completed run as waiting for follow-up", () => {
-    expect(deriveEdictWorkspacePhase(baseEdict, completedMemorial)).toBe(
-      "idle",
-    );
+    expect(deriveEdictWorkspacePhase(baseEdict, completedMemorial)).toBe("idle");
   });
 
   it("keeps human intervention separate and higher priority than run phase", () => {
@@ -68,9 +66,7 @@ describe("edict workspace presentation", () => {
       status: "running",
       review_status: "not_required",
     } as Memorial;
-    expect(deriveEdictWorkspacePhase(baseEdict, running, 1)).toBe(
-      "needs_review",
-    );
+    expect(deriveEdictWorkspacePhase(baseEdict, running, 1)).toBe("needs_review");
   });
 
   it("uses schedule and lifecycle state when no active run exists", () => {

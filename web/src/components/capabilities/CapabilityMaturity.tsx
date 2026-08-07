@@ -64,9 +64,7 @@ export function CapabilityBoundary({
             <Typography.Text>{canDo}</Typography.Text>
           </div>
           <div>
-            <Typography.Text strong>
-              {t("maturity.currentBoundary")}：
-            </Typography.Text>
+            <Typography.Text strong>{t("maturity.currentBoundary")}：</Typography.Text>
             <Typography.Text>{boundary}</Typography.Text>
           </div>
         </div>
@@ -110,16 +108,11 @@ export function CapabilitySummaryCard({
         </Typography.Title>
         <MaturityBadge maturity={maturity} />
       </div>
-      <Tag style={{ alignSelf: "flex-start", marginInlineEnd: 0 }}>
-        {status}
-      </Tag>
+      <Tag style={{ alignSelf: "flex-start", marginInlineEnd: 0 }}>{status}</Tag>
       <Typography.Paragraph type="secondary" style={{ margin: 0, flex: 1 }}>
         {description}
       </Typography.Paragraph>
-      <Link
-        to={to}
-        aria-label={`${t("page.controlCenter.viewCapability")} ${title}`}
-      >
+      <Link to={to} aria-label={`${t("page.controlCenter.viewCapability")} ${title}`}>
         {t("page.controlCenter.viewCapability")}
       </Link>
     </article>

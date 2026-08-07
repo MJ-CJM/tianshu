@@ -24,11 +24,7 @@ export const EDICT_PRESETS: EdictPreset[] = [
     icon: "⚡",
     longTask: false,
     assignMode: "auto",
-    fields: {
-      review_policy: "on_failure",
-      executor: "native",
-      priority: "normal",
-    },
+    fields: { review_policy: "on_failure", executor: "native", priority: "normal" },
   },
   {
     key: "analysis",

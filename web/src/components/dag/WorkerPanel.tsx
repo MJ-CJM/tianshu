@@ -1,4 +1,4 @@
-import { Card, Progress, Statistic, Space } from "antd";
+import { Card, Progress, Statistic, Space } from 'antd';
 import { useT } from "../../i18n";
 
 interface WorkerPanelProps {
@@ -14,75 +14,45 @@ interface WorkerPanelProps {
   };
 }
 
-export default function WorkerPanel({
-  poolStatus,
-  laneStatus,
-}: WorkerPanelProps) {
+export default function WorkerPanel({ poolStatus, laneStatus }: WorkerPanelProps) {
   const t = useT();
   if (!poolStatus) return null;
 
-  const utilizationPct =
-    poolStatus.max_concurrency > 0
-      ? Math.round((poolStatus.active_count / poolStatus.max_concurrency) * 100)
-      : 0;
+  const utilizationPct = poolStatus.max_concurrency > 0
+    ? Math.round((poolStatus.active_count / poolStatus.max_concurrency) * 100)
+    : 0;
 
   return (
     <Card size="small" title="Worker Pool" style={{ width: 240 }}>
       <Progress
         percent={utilizationPct}
         size="small"
-        status={utilizationPct >= 90 ? "exception" : "active"}
-        format={() =>
-          `${poolStatus.active_count}/${poolStatus.max_concurrency}`
-        }
+        status={utilizationPct >= 90 ? 'exception' : 'active'}
+        format={() => `${poolStatus.active_count}/${poolStatus.max_concurrency}`}
       />
-      <Space
-        direction="vertical"
-        size={4}
-        style={{ marginTop: 8, width: "100%" }}
-      >
+      <Space direction="vertical" size={4} style={{ marginTop: 8, width: '100%' }}>
         <Statistic
           title={t("comp.worker.completed")}
           value={poolStatus.completed_count}
-          valueStyle={{ fontSize: 16, color: "var(--ts-color-success)" }}
+          valueStyle={{ fontSize: 16, color: 'var(--ts-color-success)' }}
         />
         <Statistic
           title={t("comp.worker.failed")}
           value={poolStatus.failed_count}
-          valueStyle={{ fontSize: 16, color: "var(--ts-color-error)" }}
+          valueStyle={{ fontSize: 16, color: 'var(--ts-color-error)' }}
         />
       </Space>
       {laneStatus?.global && (
-        <div
-          style={{
-            marginTop: 8,
-            borderTop: "1px solid var(--ts-color-border)",
-            paddingTop: 8,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 12,
-              color: "var(--ts-color-text-secondary)",
-              marginBottom: 4,
-            }}
-          >
-            {t("comp.worker.globalLane")}
-          </div>
+        <div style={{ marginTop: 8, borderTop: '1px solid var(--ts-color-border)', paddingTop: 8 }}>
+          <div style={{ fontSize: 12, color: 'var(--ts-color-text-secondary)', marginBottom: 4 }}>{t("comp.worker.globalLane")}</div>
           <Progress
             percent={
               laneStatus.global.max_concurrency > 0
-                ? Math.round(
-                    (laneStatus.global.active /
-                      laneStatus.global.max_concurrency) *
-                      100,
-                  )
+                ? Math.round((laneStatus.global.active / laneStatus.global.max_concurrency) * 100)
                 : 0
             }
             size="small"
-            format={() =>
-              `${laneStatus.global.active}/${laneStatus.global.max_concurrency}`
-            }
+            format={() => `${laneStatus.global.active}/${laneStatus.global.max_concurrency}`}
           />
         </div>
       )}

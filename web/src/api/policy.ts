@@ -91,8 +91,9 @@ export async function fetchTools(): Promise<ToolInfo[]> {
 }
 
 export async function fetchPolicyStats(): Promise<PolicyStats> {
-  const { data } =
-    await apiClient.get<ApiResponse<PolicyStats>>(`/policy/stats`);
+  const { data } = await apiClient.get<ApiResponse<PolicyStats>>(
+    `/policy/stats`,
+  );
   return (
     data?.data ?? {
       allow: 0,
@@ -105,9 +106,8 @@ export async function fetchPolicyStats(): Promise<PolicyStats> {
 }
 
 export async function fetchPolicyTemplates(): Promise<PolicyTemplate[]> {
-  const { data } =
-    await apiClient.get<ApiResponse<{ templates: PolicyTemplate[] }>>(
-      `/policy/templates`,
-    );
+  const { data } = await apiClient.get<
+    ApiResponse<{ templates: PolicyTemplate[] }>
+  >(`/policy/templates`);
   return data?.data?.templates ?? [];
 }

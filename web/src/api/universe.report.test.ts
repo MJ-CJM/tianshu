@@ -17,10 +17,7 @@ describe("Taiyi report API", () => {
     const state = { status: "not_generated", report: null, generated_at: null };
     get.mockResolvedValue({ data: { success: true, data: state } });
 
-    await expect(getTaiyiReport()).resolves.toEqual({
-      success: true,
-      data: state,
-    });
+    await expect(getTaiyiReport()).resolves.toEqual({ success: true, data: state });
     expect(get).toHaveBeenCalledWith("/universes/taiyi/report");
     expect(post).not.toHaveBeenCalled();
   });
@@ -33,10 +30,7 @@ describe("Taiyi report API", () => {
     };
     post.mockResolvedValue({ data: { success: true, data: state } });
 
-    await expect(generateTaiyiReport()).resolves.toEqual({
-      success: true,
-      data: state,
-    });
+    await expect(generateTaiyiReport()).resolves.toEqual({ success: true, data: state });
     expect(post).toHaveBeenCalledWith("/universes/taiyi/report", {});
   });
 });

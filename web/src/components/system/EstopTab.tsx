@@ -1,14 +1,4 @@
-import {
-  Alert,
-  Button,
-  Card,
-  Input,
-  Space,
-  Switch,
-  Tag,
-  Typography,
-  message,
-} from "antd";
+import { Alert, Button, Card, Input, Space, Switch, Tag, Typography, message } from "antd";
 import { PoweroffOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -31,10 +21,7 @@ export default function EstopTab() {
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["estop"] });
 
-  const doEngage = async (
-    payload: Parameters<typeof engageEstop>[0],
-    label: string,
-  ) => {
+  const doEngage = async (payload: Parameters<typeof engageEstop>[0], label: string) => {
     try {
       await engageEstop({ ...payload, reason: reason || label });
       message.warning(t("estop.engaged", { what: label }));
@@ -44,10 +31,7 @@ export default function EstopTab() {
     }
   };
 
-  const doResume = async (
-    payload: Parameters<typeof resumeEstop>[0],
-    label: string,
-  ) => {
+  const doResume = async (payload: Parameters<typeof resumeEstop>[0], label: string) => {
     try {
       await resumeEstop(payload);
       message.success(t("estop.resumed", { what: label }));
@@ -66,12 +50,7 @@ export default function EstopTab() {
   }
 
   if (query.error) {
-    return (
-      <PageQueryError
-        error={query.error}
-        onRetry={() => void query.refetch()}
-      />
-    );
+    return <PageQueryError error={query.error} onRetry={() => void query.refetch()} />;
   }
 
   if (state && !state.available) {
@@ -91,9 +70,7 @@ export default function EstopTab() {
             <Space>
               {t("estop.statusEngaged")}
               {state?.kill_all && <Tag color="red">{t("estop.killAll")}</Tag>}
-              {state?.network_kill && (
-                <Tag color="orange">{t("estop.networkKill")}</Tag>
-              )}
+              {state?.network_kill && <Tag color="orange">{t("estop.networkKill")}</Tag>}
               {(state?.frozen_tools ?? []).map((tool) => (
                 <Tag key={tool} color="gold">
                   {tool}
@@ -104,14 +81,10 @@ export default function EstopTab() {
             t("estop.statusClear")
           )
         }
-        description={
-          state?.reason ? `${t("estop.reason")}: ${state.reason}` : undefined
-        }
+        description={state?.reason ? `${t("estop.reason")}: ${state.reason}` : undefined}
       />
 
-      <Typography.Paragraph type="secondary">
-        {t("estop.intro")}
-      </Typography.Paragraph>
+      <Typography.Paragraph type="secondary">{t("estop.intro")}</Typography.Paragraph>
 
       <Input
         placeholder={t("estop.reasonPlaceholder")}
@@ -131,9 +104,7 @@ export default function EstopTab() {
                 : doResume({ kill_all: true }, t("estop.killAll"))
             }
           />
-          <Typography.Text type="secondary">
-            {t("estop.killAllDesc")}
-          </Typography.Text>
+          <Typography.Text type="secondary">{t("estop.killAllDesc")}</Typography.Text>
         </Space>
       </Card>
 
@@ -147,9 +118,7 @@ export default function EstopTab() {
                 : doResume({ network_kill: true }, t("estop.networkKill"))
             }
           />
-          <Typography.Text type="secondary">
-            {t("estop.networkKillDesc")}
-          </Typography.Text>
+          <Typography.Text type="secondary">{t("estop.networkKillDesc")}</Typography.Text>
         </Space>
       </Card>
 

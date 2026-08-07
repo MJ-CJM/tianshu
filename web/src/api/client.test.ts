@@ -32,45 +32,30 @@ describe("ApiProblem client boundary", () => {
     [401, "auth-required", false],
     [403, "permission-denied", false],
     [503, "service-unavailable", true],
-  ])(
-    "maps HTTP %s without fabricating an empty success",
-    (status, code, retryable) => {
-      const problem = toApiProblem(
-        httpError(
-          status,
-          { detail: "truthful failure" },
-          { "x-correlation-id": `corr-${status}` },
-        ),
-      );
+  ])("maps HTTP %s without fabricating an empty success", (status, code, retryable) => {
+    const problem = toApiProblem(
+      httpError(status, { detail: "truthful failure" }, { "x-correlation-id": `corr-${status}` }),
+    );
 
-      expect(problem).toEqual({
-        status,
-        code,
-        message: "truthful failure",
-        correlationId: `corr-${status}`,
-        retryable,
-      });
-    },
-  );
+    expect(problem).toEqual({
+      status,
+      code,
+      message: "truthful failure",
+      correlationId: `corr-${status}`,
+      retryable,
+    });
+  });
 
   it("reads correlation ids from real AxiosHeaders", () => {
-    const headers = new axios.AxiosHeaders({
-      "X-Correlation-ID": "corr-axios",
-    });
+    const headers = new axios.AxiosHeaders({ "X-Correlation-ID": "corr-axios" });
 
-    expect(toApiProblem(httpError(503, {}, headers)).correlationId).toBe(
-      "corr-axios",
-    );
+    expect(toApiProblem(httpError(503, {}, headers)).correlationId).toBe("corr-axios");
   });
 
   it("rejects structured success:false bodies through the same mapping", async () => {
     apiClient.defaults.adapter = vi.fn(async (config) => ({
       config,
-      data: {
-        success: false,
-        error: "contract rejected",
-        code: "contract-rejected",
-      },
+      data: { success: false, error: "contract rejected", code: "contract-rejected" },
       headers: { "x-correlation-id": "corr-body" },
       status: 200,
       statusText: "OK",
@@ -90,10 +75,7 @@ describe("ApiProblem client boundary", () => {
       config,
       data: {
         success: false,
-        detail: {
-          code: "governance-blocked",
-          message: "mandatory control missing",
-        },
+        detail: { code: "governance-blocked", message: "mandatory control missing" },
       },
       headers: {},
       status: 200,

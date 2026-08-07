@@ -1,23 +1,10 @@
 import { useState } from "react";
-import {
-  Input,
-  Button,
-  Tag,
-  Spin,
-  Result,
-  Select,
-  Space,
-  Typography,
-  theme,
-} from "antd";
+import { Input, Button, Tag, Spin, Result, Select, Space, Typography, theme } from "antd";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import PageContainer from "../components/common/PageContainer";
 import GlowCard from "../components/common/GlowCard";
-import {
-  useConsultation,
-  useCreateConsultation,
-} from "../hooks/useConsultation";
+import { useConsultation, useCreateConsultation } from "../hooks/useConsultation";
 import { usePersonas } from "../hooks/usePersonas";
 import type { ConsultationRequest, PersonaOpinion } from "../api/types";
 import { useT } from "../i18n";
@@ -42,8 +29,7 @@ export default function ConsultationPage() {
   const { data: personas } = personasQuery;
   const createMutation = useCreateConsultation();
   const consultationQuery = useConsultation(activeId);
-  const { data: consultation, isLoading: consultationLoading } =
-    consultationQuery;
+  const { data: consultation, isLoading: consultationLoading } = consultationQuery;
 
   if (personasQuery.error) {
     return (
@@ -86,9 +72,7 @@ export default function ConsultationPage() {
         <GlowCard title={t("consultation.submit")}>
           <Space direction="vertical" size="middle" style={{ width: "100%" }}>
             <div>
-              <Typography.Text
-                style={{ fontSize: 13, color: token.colorTextSecondary }}
-              >
+              <Typography.Text style={{ fontSize: 13, color: token.colorTextSecondary }}>
                 {t("consultation.topic")} *
               </Typography.Text>
               <Input.TextArea
@@ -100,9 +84,7 @@ export default function ConsultationPage() {
               />
             </div>
             <div>
-              <Typography.Text
-                style={{ fontSize: 13, color: token.colorTextSecondary }}
-              >
+              <Typography.Text style={{ fontSize: 13, color: token.colorTextSecondary }}>
                 {t("consultation.context")}
               </Typography.Text>
               <Input.TextArea
@@ -114,9 +96,7 @@ export default function ConsultationPage() {
               />
             </div>
             <div>
-              <Typography.Text
-                style={{ fontSize: 13, color: token.colorTextSecondary }}
-              >
+              <Typography.Text style={{ fontSize: 13, color: token.colorTextSecondary }}>
                 {t("consultation.participants")} *
               </Typography.Text>
               <Select
@@ -136,18 +116,14 @@ export default function ConsultationPage() {
             >
               {t("consultation.submit")}
             </Button>
-            {createMutation.error && (
-              <PageQueryError error={createMutation.error} />
-            )}
+            {createMutation.error && <PageQueryError error={createMutation.error} />}
           </Space>
         </GlowCard>
 
         {/* History navigation */}
         {history.length > 1 && (
           <Space wrap>
-            <Typography.Text type="secondary">
-              {t("consultation.history")}
-            </Typography.Text>
+            <Typography.Text type="secondary">{t("consultation.history")}</Typography.Text>
             {history.map((id, i) => (
               <Button
                 key={id}
@@ -201,19 +177,11 @@ export default function ConsultationPage() {
             )}
 
             {consultation?.status === "failed" && (
-              <Result
-                status="error"
-                title={t("consultation.failedTitle")}
-                subTitle={t("consultation.failedSubtitle")}
-              />
+              <Result status="error" title={t("consultation.failedTitle")} subTitle={t("consultation.failedSubtitle")} />
             )}
 
             {consultation?.status === "completed" && (
-              <Space
-                direction="vertical"
-                size="middle"
-                style={{ width: "100%" }}
-              >
+              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
                 {/* Opinions */}
                 {consultation.opinions.map((opinion: PersonaOpinion) => (
                   <GlowCard
@@ -225,9 +193,7 @@ export default function ConsultationPage() {
                         <Tag color={STANCE_COLORS[opinion.stance] ?? "default"}>
                           {t(`consultation.stance.${opinion.stance}`)}
                         </Tag>
-                        {opinion.is_censor && (
-                          <Tag color="volcano">{t("consultation.censor")}</Tag>
-                        )}
+                        {opinion.is_censor && <Tag color="volcano">{t("consultation.censor")}</Tag>}
                       </Space>
                     }
                   >

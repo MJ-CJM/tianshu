@@ -20,10 +20,7 @@ export interface FeishuChannelConfig {
   enable_edict_submission: boolean;
 }
 
-export interface FeishuChannelView extends Omit<
-  FeishuChannelConfig,
-  "app_secret"
-> {
+export interface FeishuChannelView extends Omit<FeishuChannelConfig, "app_secret"> {
   app_secret: string; // 总是掩码 "***" 或 ""
   _source: "db" | "env";
   _has_secret: boolean;
@@ -69,10 +66,8 @@ export interface TelegramChannelConfig {
   enable_edict_submission: boolean;
 }
 
-export interface TelegramChannelView extends Omit<
-  TelegramChannelConfig,
-  "bot_token"
-> {
+export interface TelegramChannelView
+  extends Omit<TelegramChannelConfig, "bot_token"> {
   bot_token: string; // 总是掩码 "***" 或 ""
   _source: "db" | "env";
   _has_secret: boolean;

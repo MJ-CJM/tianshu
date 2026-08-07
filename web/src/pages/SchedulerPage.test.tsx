@@ -2,13 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import {
-  cleanup,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -69,9 +63,7 @@ const ACTIVE_JOB = {
 
 function LocationProbe() {
   const location = useLocation();
-  return (
-    <output data-testid="location">{`${location.pathname}${location.search}`}</output>
-  );
+  return <output data-testid="location">{`${location.pathname}${location.search}`}</output>;
 }
 
 function renderScheduler() {
@@ -113,9 +105,7 @@ describe("SchedulerPage", () => {
 
     renderScheduler();
 
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "scheduler unavailable",
-    );
+    expect(screen.getByRole("alert")).toHaveTextContent("scheduler unavailable");
     expect(screen.queryByText("暂无排期任务")).not.toBeInTheDocument();
   });
 
@@ -157,9 +147,7 @@ describe("SchedulerPage", () => {
     renderScheduler();
 
     expect(screen.getByRole("button", { name: /恢复$/ })).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /暂停$/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /暂停$/ })).not.toBeInTheDocument();
   });
 
   it("lets the user recover a failed schedule", async () => {
@@ -193,33 +181,19 @@ describe("SchedulerPage", () => {
     renderScheduler();
 
     await user.click(screen.getByRole("button", { name: "更多操作" }));
-    await user.click(
-      await screen.findByRole("menuitem", { name: /更改时刻$/ }),
-    );
+    await user.click(await screen.findByRole("menuitem", { name: /更改时刻$/ }));
 
     const dialog = await screen.findByRole("dialog", { name: "更改施行时刻" });
-    expect(
-      within(dialog).getByRole("radio", { name: "定时执行" }),
-    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: "定时执行" })).toBeInTheDocument();
     expect(within(dialog).getByRole("radio", { name: "每日" })).toBeChecked();
-    expect(
-      within(dialog).getByRole("radio", { name: "每周" }),
-    ).toBeInTheDocument();
-    expect(
-      within(dialog).queryByRole("radio", { name: "固定间隔" }),
-    ).not.toBeInTheDocument();
-    expect(
-      within(dialog).queryByRole("radio", { name: "自定 Cron" }),
-    ).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: "每周" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("radio", { name: "固定间隔" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("radio", { name: "自定 Cron" })).not.toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: /高级排期$/ }));
 
-    expect(
-      within(dialog).getByRole("radio", { name: "固定间隔" }),
-    ).toBeInTheDocument();
-    expect(
-      within(dialog).getByRole("radio", { name: "自定 Cron" }),
-    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: "固定间隔" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("radio", { name: "自定 Cron" })).toBeInTheDocument();
   });
 
   it("keeps a failed history load visible and lets the user retry", async () => {
@@ -243,9 +217,7 @@ describe("SchedulerPage", () => {
     renderScheduler();
 
     await user.click(screen.getByRole("button", { name: "更多操作" }));
-    await user.click(
-      await screen.findByRole("menuitem", { name: /施行记录$/ }),
-    );
+    await user.click(await screen.findByRole("menuitem", { name: /施行记录$/ }));
 
     const dialog = await screen.findByRole("dialog", { name: "施行记录" });
     const alert = await within(dialog).findByRole("alert");

@@ -1,12 +1,4 @@
-import {
-  Card,
-  Progress,
-  Typography,
-  Button,
-  InputNumber,
-  Space,
-  notification,
-} from "antd";
+import { Card, Progress, Typography, Button, InputNumber, Space, notification } from "antd";
 import { useState } from "react";
 import type { BudgetStatus } from "../../api/types";
 import { useSetCostBudget } from "../../hooks/useCost";
@@ -77,32 +69,22 @@ export default function BudgetProgressBar({ budget, loading }: Props) {
     );
   }
 
-  const percent =
-    budget.budget_cny > 0
-      ? Math.min(100, (budget.spent_cny / budget.budget_cny) * 100)
-      : 0;
+  const percent = budget.budget_cny > 0
+    ? Math.min(100, (budget.spent_cny / budget.budget_cny) * 100)
+    : 0;
 
-  const status = budget.exceeded
-    ? "exception"
-    : percent > 80
-      ? "active"
-      : "normal";
+  const status = budget.exceeded ? "exception" : percent > 80 ? "active" : "normal";
 
   return (
     <Card title={t("cost.budget.title")}>
       <Progress
         percent={Number(percent.toFixed(1))}
         status={status}
-        format={() =>
-          `¥${budget.spent_cny.toFixed(2)} / $${budget.budget_cny.toFixed(2)}`
-        }
+        format={() => `¥${budget.spent_cny.toFixed(2)} / $${budget.budget_cny.toFixed(2)}`}
       />
       <div style={{ marginTop: 8 }}>
         <Text type="secondary">
-          {t("cost.budget.remaining", {
-            remaining: budget.remaining_cny.toFixed(2),
-            period: budget.period,
-          })}
+          {t("cost.budget.remaining", { remaining: budget.remaining_cny.toFixed(2), period: budget.period })}
         </Text>
       </div>
       {editing ? (
@@ -116,12 +98,7 @@ export default function BudgetProgressBar({ budget, loading }: Props) {
               onChange={(v) => setNewBudget(v ?? 0)}
               style={{ width: 120 }}
             />
-            <Button
-              size="small"
-              type="primary"
-              loading={setBudgetMutation.isPending}
-              onClick={handleSave}
-            >
+            <Button size="small" type="primary" loading={setBudgetMutation.isPending} onClick={handleSave}>
               {t("button.save")}
             </Button>
             <Button size="small" onClick={() => setEditing(false)}>

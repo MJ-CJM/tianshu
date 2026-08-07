@@ -34,21 +34,13 @@ const SNAPSHOT = {
 } as unknown as EdictDetailSnapshotV1;
 
 function setup(client?: QueryClient) {
-  const queryClient =
-    client ??
-    new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false },
-      },
-    });
+  const queryClient = client ?? new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   const wrapper = ({ children }: PropsWithChildren) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
-  return {
-    queryClient,
-    ...renderHook(() => useEdictDetail("edict-1"), { wrapper }),
-  };
+  return { queryClient, ...renderHook(() => useEdictDetail("edict-1"), { wrapper }) };
 }
 
 beforeEach(() => {
@@ -73,9 +65,7 @@ describe("useEdictDetail", () => {
   });
 
   it("keeps cached authority visible when refresh becomes stale", async () => {
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     client.setQueryData(EDICT_DETAIL_QUERY_KEY("edict-1"), SNAPSHOT);
     api.getDetail.mockRejectedValue({
       status: 500,
@@ -104,9 +94,7 @@ describe("useEdictDetail", () => {
     api.resolve.mockResolvedValue({ status: "resolved", version: 2 });
     api.replay.mockResolvedValue("edict-replay");
     const { result, queryClient } = setup();
-    const invalidate = vi
-      .spyOn(queryClient, "invalidateQueries")
-      .mockResolvedValue();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
     await waitFor(() => expect(result.current.status).toBe("success-empty"));
 
     await act(async () => {

@@ -53,10 +53,7 @@ describe("SystemPromptTab prompt drafts", () => {
   it("saves the loaded content unchanged and preserves an intentional empty draft", async () => {
     const update = vi.fn();
     hookMocks.usePersonas.mockReturnValue({ data: [] });
-    hookMocks.usePromptLayers.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-    });
+    hookMocks.usePromptLayers.mockReturnValue({ data: undefined, isLoading: false });
     hookMocks.usePromptFiles.mockReturnValue({
       data: {
         files: [{ persona_id: "court", filename: "COURT.md", size: 42 }],
@@ -67,20 +64,12 @@ describe("SystemPromptTab prompt drafts", () => {
       data: { content: "# Original prompt" },
       isLoading: false,
     });
-    hookMocks.useUpdatePromptFile.mockReturnValue({
-      mutate: update,
-      isPending: false,
-    });
-    hookMocks.usePromptPreview.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-    });
+    hookMocks.useUpdatePromptFile.mockReturnValue({ mutate: update, isPending: false });
+    hookMocks.usePromptPreview.mockReturnValue({ data: undefined, isLoading: false });
 
     const user = userEvent.setup();
     const { container } = render(<SystemPromptTab />);
-    const editButton = container
-      .querySelector(".anticon-edit")
-      ?.closest("button");
+    const editButton = container.querySelector(".anticon-edit")?.closest("button");
     expect(editButton).not.toBeNull();
     await user.click(editButton!);
 
@@ -145,7 +134,9 @@ describe("SystemPromptTab prompt drafts", () => {
 
     render(<SystemPromptTab />);
 
-    expect(screen.getByRole("alert")).toHaveTextContent("提示词目录暂不可用");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "提示词目录暂不可用",
+    );
     expect(screen.queryByText(/暂无提示词文件/)).not.toBeInTheDocument();
   });
 });

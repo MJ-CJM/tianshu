@@ -1,9 +1,5 @@
 import apiClient from "./client";
-import type {
-  ApiResponse,
-  ConsultationRequest,
-  ConsultationResponse,
-} from "./types";
+import type { ApiResponse, ConsultationRequest, ConsultationResponse } from "./types";
 
 export async function createConsultation(
   body: ConsultationRequest,

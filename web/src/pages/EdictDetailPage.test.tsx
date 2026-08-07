@@ -3,13 +3,7 @@
 import "@testing-library/jest-dom/vitest";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  cleanup,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,26 +17,16 @@ const legacyApprovals = vi.hoisted(() => ({
   pendingTools: [] as Array<Record<string, unknown>>,
 }));
 
-vi.mock("../hooks/useEdictDetail", () => ({
-  useEdictDetail: detailHook.useEdictDetail,
-}));
+vi.mock("../hooks/useEdictDetail", () => ({ useEdictDetail: detailHook.useEdictDetail }));
 vi.mock("../hooks/useDag", () => ({ useDagByEdict: () => ({ data: null }) }));
 vi.mock("../hooks/useApprovals", () => ({
   usePendingToolCalls: () => ({ data: legacyApprovals.pendingTools }),
 }));
 vi.mock("../hooks/usePersonas", () => ({ usePersonas: () => ({ data: [] }) }));
-vi.mock("../components/policy/PolicyTimeline", () => ({
-  PolicyTimeline: () => null,
-}));
-vi.mock("../components/edict/OuterLoopTimeline", () => ({
-  default: () => null,
-}));
-vi.mock("../components/edict/SupervisionReportCard", () => ({
-  default: () => null,
-}));
-vi.mock("../components/edict/FollowUpOverridePanel", () => ({
-  default: () => null,
-}));
+vi.mock("../components/policy/PolicyTimeline", () => ({ PolicyTimeline: () => null }));
+vi.mock("../components/edict/OuterLoopTimeline", () => ({ default: () => null }));
+vi.mock("../components/edict/SupervisionReportCard", () => ({ default: () => null }));
+vi.mock("../components/edict/FollowUpOverridePanel", () => ({ default: () => null }));
 
 import EdictDetailPage from "./EdictDetailPage";
 
@@ -66,12 +50,7 @@ const SNAPSHOT = {
     created_at: "2026-07-17T08:00:00Z",
     priority: "normal",
     review_policy: "always",
-    schedule: {
-      type: "immediate",
-      at: null,
-      cron: null,
-      timezone: "Asia/Shanghai",
-    },
+    schedule: { type: "immediate", at: null, cron: null, timezone: "Asia/Shanghai" },
     runtime: {
       timeout_seconds: 300,
       max_iterations: 20,
@@ -117,36 +96,11 @@ const SNAPSHOT = {
         executor_manifest_version: "1",
         runtime_probe_id: "probe-1",
         effective_controls: [
-          {
-            capability: "action_interception",
-            requested_mode: "mandatory",
-            state: "enforced",
-            evidence: [],
-          },
-          {
-            capability: "workspace_control",
-            requested_mode: "mandatory",
-            state: "enforced",
-            evidence: [],
-          },
-          {
-            capability: "network_control",
-            requested_mode: "advisory",
-            state: "best_effort",
-            evidence: [],
-          },
-          {
-            capability: "pause",
-            requested_mode: "advisory",
-            state: "unsupported",
-            evidence: [],
-          },
-          {
-            capability: "budget_enforcement",
-            requested_mode: "advisory",
-            state: "unsupported",
-            evidence: [],
-          },
+          { capability: "action_interception", requested_mode: "mandatory", state: "enforced", evidence: [] },
+          { capability: "workspace_control", requested_mode: "mandatory", state: "enforced", evidence: [] },
+          { capability: "network_control", requested_mode: "advisory", state: "best_effort", evidence: [] },
+          { capability: "pause", requested_mode: "advisory", state: "unsupported", evidence: [] },
+          { capability: "budget_enforcement", requested_mode: "advisory", state: "unsupported", evidence: [] },
         ],
         unsupported_advisory: ["pause", "budget_enforcement"],
       },
@@ -160,10 +114,7 @@ const SNAPSHOT = {
         kind: "governed_apply",
         edict_id: "edict-1",
         memorial_id: "memorial-1",
-        payload: {
-          permission_boundary: "workspace",
-          restore_point: "restore-1",
-        },
+        payload: { permission_boundary: "workspace", restore_point: "restore-1" },
         requested_by: "orchestrator",
         expires_at: "2099-07-17T09:00:00Z",
         status: "pending",
@@ -212,71 +163,29 @@ const SNAPSHOT = {
         level: "contained",
         manifest_hash: "e".repeat(64),
       },
-      artifacts: [
-        {
-          digest: "f".repeat(64),
-          size_bytes: 128,
-          media_type: "application/json",
-          redaction: "none",
-        },
-      ],
-      checks: [
-        {
-          check_id: "check-1",
-          name: "release-tests",
-          status: "passed",
-          command_fingerprint: "g".repeat(64),
-          exit_code: 0,
-          output_artifact_digest: "f".repeat(64),
-          started_at: "2026-07-17T08:21:00Z",
-          completed_at: "2026-07-17T08:22:00Z",
-        },
-      ],
+      artifacts: [{ digest: "f".repeat(64), size_bytes: 128, media_type: "application/json", redaction: "none" }],
+      checks: [{
+        check_id: "check-1",
+        name: "release-tests",
+        status: "passed",
+        command_fingerprint: "g".repeat(64),
+        exit_code: 0,
+        output_artifact_digest: "f".repeat(64),
+        started_at: "2026-07-17T08:21:00Z",
+        completed_at: "2026-07-17T08:22:00Z",
+      }],
       decisions: [],
       effects: [],
-      cost: {
-        currency: "CNY",
-        requested_budget: "12",
-        effective_budget: "10",
-        actual_cost: "1.25",
-        prompt_tokens: 100,
-        completion_tokens: 50,
-        cache_read_tokens: 10,
-      },
-      environment: {
-        tianshu_version: "0.4.2",
-        python_version: "3.13",
-        platform: "darwin",
-        architecture: "arm64",
-        dependency_lock_hash: "1".repeat(64),
-        environment_fingerprint: "2".repeat(64),
-      },
-      auditor: {
-        auditor_id: "auditor-independent",
-        verdict: "pass",
-        reason: "证据完整",
-        required_evidence: [],
-        missing_evidence: [],
-        evaluated_at: "2026-07-17T08:24:00Z",
-      },
-      requirements: {
-        check_names: ["release-tests"],
-        decision_request_ids: [],
-        effect_intent_ids: [],
-        artifact_digests: ["f".repeat(64)],
-      },
+      cost: { currency: "CNY", requested_budget: "12", effective_budget: "10", actual_cost: "1.25", prompt_tokens: 100, completion_tokens: 50, cache_read_tokens: 10 },
+      environment: { tianshu_version: "0.4.2", python_version: "3.13", platform: "darwin", architecture: "arm64", dependency_lock_hash: "1".repeat(64), environment_fingerprint: "2".repeat(64) },
+      auditor: { auditor_id: "auditor-independent", verdict: "pass", reason: "证据完整", required_evidence: [], missing_evidence: [], evaluated_at: "2026-07-17T08:24:00Z" },
+      requirements: { check_names: ["release-tests"], decision_request_ids: [], effect_intent_ids: [], artifact_digests: ["f".repeat(64)] },
     },
   ],
 } as unknown as EdictDetailSnapshotV1;
 
 function problem(status: number, code: string, message: string): ApiProblem {
-  return {
-    status,
-    code,
-    message,
-    correlationId: `corr-${status}`,
-    retryable: status >= 500,
-  };
+  return { status, code, message, correlationId: `corr-${status}`, retryable: status >= 500 };
 }
 
 function hookState(
@@ -294,9 +203,7 @@ function hookState(
     isLoading: status === "loading",
     error: apiProblem,
     refetch: vi.fn(),
-    resolveDecision: vi
-      .fn()
-      .mockResolvedValue({ status: "resolved", version: 5 }),
+    resolveDecision: vi.fn().mockResolvedValue({ status: "resolved", version: 5 }),
     replay: vi.fn().mockResolvedValue("edict-replay"),
   };
 }
@@ -309,15 +216,9 @@ function LocaleControls() {
   const locale = useLocaleProvider();
   return (
     <>
-      <button type="button" onClick={() => locale.setLocale("zh-modern")}>
-        modern-locale
-      </button>
-      <button type="button" onClick={() => locale.setLocale("en")}>
-        english-locale
-      </button>
-      <button type="button" onClick={() => locale.setLocale("zh-classic")}>
-        classic-locale
-      </button>
+      <button type="button" onClick={() => locale.setLocale("zh-modern")}>modern-locale</button>
+      <button type="button" onClick={() => locale.setLocale("en")}>english-locale</button>
+      <button type="button" onClick={() => locale.setLocale("zh-classic")}>classic-locale</button>
     </>
   );
 }
@@ -395,9 +296,7 @@ describe("Edict detail durable governance workspace", () => {
         },
       ],
     } as unknown as EdictDetailSnapshotV1;
-    detailHook.useEdictDetail.mockReturnValue(
-      hookState("success-data", detail),
-    );
+    detailHook.useEdictDetail.mockReturnValue(hookState("success-data", detail));
     const user = userEvent.setup();
 
     renderPage();
@@ -479,40 +378,26 @@ describe("Edict detail durable governance workspace", () => {
     renderPage();
 
     expect(screen.getByText("旧方案任务")).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "准（执行此方案）" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "驳（驳回方案）" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "准/驳" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "待裁决" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "重办" }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "准（执行此方案）" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "驳（驳回方案）" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "准/驳" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "待裁决" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重办" })).not.toBeInTheDocument();
     expect(screen.queryByText("legacy.tool")).not.toBeInTheDocument();
 
     // 审计区默认折叠,展开后才能操作裁决表单
-    await user.click(
-      screen.getByText(/治理稽核|治理与审计|Governance & audit/),
-    );
+    await user.click(screen.getByText(/治理稽核|治理与审计|Governance & audit/));
 
     await user.type(screen.getAllByLabelText("裁决理由")[0]!, "只走权威裁决");
     await user.click(screen.getAllByRole("button", { name: "提交裁决" })[0]!);
 
-    await waitFor(() =>
-      expect(state.resolveDecision).toHaveBeenCalledWith({
-        decisionRequestId: "decision-pending",
-        kind: "governed_apply",
-        action: "approve",
-        reason: "只走权威裁决",
-        expectedVersion: 4,
-      }),
-    );
+    await waitFor(() => expect(state.resolveDecision).toHaveBeenCalledWith({
+      decisionRequestId: "decision-pending",
+      kind: "governed_apply",
+      action: "approve",
+      reason: "只走权威裁决",
+      expectedVersion: 4,
+    }));
   });
 
   it("renders one authoritative snapshot with requested/effective contract, real run lineage, durable decisions, and closed evidence", async () => {
@@ -522,24 +407,14 @@ describe("Edict detail durable governance workspace", () => {
     renderPage();
 
     // 审计区默认折叠,展开后审计内容才可见(getByRole 忽略隐藏元素)
-    await user.click(
-      screen.getByText(/治理稽核|治理与审计|Governance & audit/),
-    );
+    await user.click(screen.getByText(/治理稽核|治理与审计|Governance & audit/));
 
-    const governance = screen
-      .getByRole("heading", { name: "治理契约" })
-      .closest("section");
+    const governance = screen.getByRole("heading", { name: "治理契约" }).closest("section");
     expect(governance).not.toBeNull();
-    expect(
-      within(governance!).getByText("requested-native"),
-    ).toBeInTheDocument();
-    expect(
-      within(governance!).getByText("effective-contained"),
-    ).toBeInTheDocument();
+    expect(within(governance!).getByText("requested-native")).toBeInTheDocument();
+    expect(within(governance!).getByText("effective-contained")).toBeInTheDocument();
     expect(within(governance!).queryByText("pause")).not.toBeInTheDocument();
-    expect(
-      within(governance!).queryByText("budget_enforcement"),
-    ).not.toBeInTheDocument();
+    expect(within(governance!).queryByText("budget_enforcement")).not.toBeInTheDocument();
     expect(screen.getByText("waiting_decision")).toBeInTheDocument();
     expect(screen.getByText("7")).toBeInTheDocument();
     expect(screen.getByText("lineage-2")).toBeInTheDocument();
@@ -547,36 +422,28 @@ describe("Edict detail durable governance workspace", () => {
     expect(screen.getByText(/principal-reviewer/)).toBeInTheDocument();
     expect(screen.getByText("executor-content")).toBeInTheDocument();
     expect(screen.getByText("auditor-independent")).toBeInTheDocument();
-    expect(
-      screen.getByText("release-tests: 通过 · exit 0"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("release-tests: 通过 · exit 0")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "下载证据包" })).toHaveAttribute(
       "href",
       "/api/evidence/bundle-1/download",
     );
 
     await user.click(screen.getByRole("button", { name: "受治理重放" }));
-    await waitFor(() =>
-      expect(state.replay).toHaveBeenCalledWith({
-        title: "核验发布候选",
-        goal: "用真实治理记录核验发布候选",
-        context: "只读核验",
-        priority: "normal",
-        governanceContract: REQUESTED_CONTRACT,
-      }),
-    );
+    await waitFor(() => expect(state.replay).toHaveBeenCalledWith({
+      title: "核验发布候选",
+      goal: "用真实治理记录核验发布候选",
+      context: "只读核验",
+      priority: "normal",
+      governanceContract: REQUESTED_CONTRACT,
+    }));
     await waitFor(() => {
-      expect(screen.getByLabelText("location")).toHaveTextContent(
-        "/edicts/edict-replay",
-      );
+      expect(screen.getByLabelText("location")).toHaveTextContent("/edicts/edict-replay");
     });
   });
 
   it("shows precise successful empty copy without invented counts", () => {
     const empty = { ...SNAPSHOT, runs: [], decisions: [], evidence: [] };
-    detailHook.useEdictDetail.mockReturnValue(
-      hookState("success-empty", empty),
-    );
+    detailHook.useEdictDetail.mockReturnValue(hookState("success-empty", empty));
     renderPage();
 
     expect(screen.getByText("尚无治理运行实录。")).toBeInTheDocument();
@@ -609,14 +476,10 @@ describe("Edict detail durable governance workspace", () => {
         },
       ],
     } as unknown as EdictDetailSnapshotV1;
-    detailHook.useEdictDetail.mockReturnValue(
-      hookState("success-data", completed),
-    );
+    detailHook.useEdictDetail.mockReturnValue(hookState("success-data", completed));
     const rendered = renderPage();
 
-    expect(
-      screen.queryByRole("button", { name: /本轮.*暂停/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /本轮.*暂停/ })).not.toBeInTheDocument();
 
     rendered.unmount();
     const running = {
@@ -630,14 +493,10 @@ describe("Edict detail durable governance workspace", () => {
         },
       ],
     } as unknown as EdictDetailSnapshotV1;
-    detailHook.useEdictDetail.mockReturnValue(
-      hookState("success-data", running),
-    );
+    detailHook.useEdictDetail.mockReturnValue(hookState("success-data", running));
     renderPage();
 
-    expect(
-      screen.getByRole("button", { name: /本轮.*暂停/ }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /本轮.*暂停/ })).toBeInTheDocument();
   });
 
   it("makes planner fallback visible with localized reasons", async () => {
@@ -673,33 +532,23 @@ describe("Edict detail durable governance workspace", () => {
     renderPage(true);
 
     await user.click(screen.getByRole("button", { name: "modern-locale" }));
-    expect(
-      screen.getByText("智能规划未生效，当前按单任务执行"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("智能规划未生效，当前按单任务执行")).toBeInTheDocument();
     expect(screen.getByText("规划模型调用失败。")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "english-locale" }));
     expect(
-      screen.getByText(
-        "Smart planning was unavailable; this is running as one task",
-      ),
+      screen.getByText("Smart planning was unavailable; this is running as one task"),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText("The planning model request failed."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("The planning model request failed.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "classic-locale" }));
-    expect(
-      screen.getByText("智能筹划未成，现按单项差事施行"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("智能筹划未成，现按单项差事施行")).toBeInTheDocument();
     expect(screen.getByText("筹划模型调用未成。")).toBeInTheDocument();
   });
 
   it("provides precise durable empty states in all three locales", async () => {
     const empty = { ...SNAPSHOT, runs: [], decisions: [], evidence: [] };
-    detailHook.useEdictDetail.mockReturnValue(
-      hookState("success-empty", empty),
-    );
+    detailHook.useEdictDetail.mockReturnValue(hookState("success-empty", empty));
     const user = userEvent.setup();
     renderPage(true);
 
@@ -707,19 +556,13 @@ describe("Edict detail durable governance workspace", () => {
     await user.click(screen.getByRole("button", { name: "modern-locale" }));
     expect(screen.getByText("当前还没有治理运行记录。")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "english-locale" }));
-    expect(
-      screen.getByText("No governed run has been recorded yet."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("No governed run has been recorded yet.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "classic-locale" }));
   });
 
   it("keeps the last authoritative snapshot visible when refresh is stale", () => {
     detailHook.useEdictDetail.mockReturnValue(
-      hookState(
-        "stale",
-        SNAPSHOT,
-        problem(500, "detail-refresh-failed", "刷新失败"),
-      ),
+      hookState("stale", SNAPSHOT, problem(500, "detail-refresh-failed", "刷新失败")),
     );
     renderPage();
 
@@ -731,39 +574,26 @@ describe("Edict detail durable governance workspace", () => {
     detailHook.useEdictDetail.mockReturnValue(hookState("loading", null));
     renderPage();
 
-    expect(
-      screen.getByRole("heading", { name: "正在加载" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "正在加载" })).toBeInTheDocument();
     expect(screen.queryByText("治理契约")).not.toBeInTheDocument();
   });
 
   it.each([
     [401, "auth-required", "登录已失效"],
     [403, "permission-denied", "无权读取敕令详情"],
-  ])(
-    "shows %i as an explicit permission state",
-    (statusCode, code, message) => {
-      detailHook.useEdictDetail.mockReturnValue(
-        hookState(
-          "permission-denied",
-          null,
-          problem(statusCode, code, message),
-        ),
-      );
-      renderPage();
+  ])("shows %i as an explicit permission state", (statusCode, code, message) => {
+    detailHook.useEdictDetail.mockReturnValue(
+      hookState("permission-denied", null, problem(statusCode, code, message)),
+    );
+    renderPage();
 
-      expect(screen.getByRole("alert")).toHaveTextContent("无权查看此内容");
-      expect(screen.getByRole("alert")).toHaveTextContent(message);
-    },
-  );
+    expect(screen.getByRole("alert")).toHaveTextContent("无权查看此内容");
+    expect(screen.getByRole("alert")).toHaveTextContent(message);
+  });
 
   it("shows an explicit 503 unavailable state", () => {
     detailHook.useEdictDetail.mockReturnValue(
-      hookState(
-        "service-unavailable",
-        null,
-        problem(503, "service-unavailable", "详情服务暂不可用"),
-      ),
+      hookState("service-unavailable", null, problem(503, "service-unavailable", "详情服务暂不可用")),
     );
     renderPage();
 

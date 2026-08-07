@@ -109,9 +109,7 @@ describe("HongluisiPage truthful data states", () => {
 
     renderPage();
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "无权查看此内容",
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("无权查看此内容");
     expect(screen.getByRole("alert")).toHaveTextContent("无权读取引擎状态");
   });
 });

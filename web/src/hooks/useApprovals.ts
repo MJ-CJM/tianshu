@@ -1,6 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { getLatestMemorialsBatch } from "../api/edicts";
-import { listNeedsReview, fetchPendingToolCalls } from "../api/decrees";
+import {
+  listNeedsReview,
+  fetchPendingToolCalls,
+} from "../api/decrees";
 import { listPendingDecisions } from "../api/decisions";
 
 export function useNeedsReview(limit = 50) {

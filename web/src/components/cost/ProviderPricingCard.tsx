@@ -62,9 +62,7 @@ export default function ProviderPricingCard() {
   const [form, setForm] = useState<ProviderPricingUpdate>({});
   const [saving, setSaving] = useState(false);
   const [defaultTableOpen, setDefaultTableOpen] = useState(false);
-  const [defaultTable, setDefaultTable] = useState<DefaultPricingTable | null>(
-    null,
-  );
+  const [defaultTable, setDefaultTable] = useState<DefaultPricingTable | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -133,8 +131,7 @@ export default function ProviderPricingCard() {
     {
       title: t("cost.pricing.miss"),
       key: "miss",
-      render: (_: unknown, r: RowData) =>
-        formatPrice(r.effective?.miss ?? null),
+      render: (_: unknown, r: RowData) => formatPrice(r.effective?.miss ?? null),
     },
     {
       title: t("cost.pricing.hit"),
@@ -154,11 +151,7 @@ export default function ProviderPricingCard() {
           return <Tag color="red">{t("pageDataState.unavailableTitle")}</Tag>;
         }
         if (r.effective?.billing === "subscription") {
-          return (
-            <Tag color="purple">
-              {t("cost.pricing.sourceLabel.subscription")}
-            </Tag>
-          );
+          return <Tag color="purple">{t("cost.pricing.sourceLabel.subscription")}</Tag>;
         }
         const src = r.effective?.source ?? "default";
         const color = SOURCE_COLOR[src] ?? "default";
@@ -213,9 +206,7 @@ export default function ProviderPricingCard() {
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {t("cost.pricing.perKHint")}
           </Typography.Text>
-          <Button size="small" onClick={openDefaultTable}>
-            {t("cost.pricing.viewDefault")}
-          </Button>
+          <Button size="small" onClick={openDefaultTable}>{t("cost.pricing.viewDefault")}</Button>
         </Space>
       }
       style={{ marginTop: 16 }}
@@ -315,9 +306,9 @@ export default function ProviderPricingCard() {
             style={{ fontSize: 12, marginTop: 12 }}
           >
             {t("cost.pricing.fallback")}
-            miss <code>{formatPrice(defaultTable.fallback.miss)}</code>, hit{" "}
-            <code>{formatPrice(defaultTable.fallback.hit)}</code>, out{" "}
-            <code>{formatPrice(defaultTable.fallback.out)}</code>
+            miss <code>{formatPrice(defaultTable.fallback.miss)}</code>,
+            hit <code>{formatPrice(defaultTable.fallback.hit)}</code>,
+            out <code>{formatPrice(defaultTable.fallback.out)}</code>
           </Typography.Paragraph>
         )}
       </Modal>

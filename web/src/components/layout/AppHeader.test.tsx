@@ -19,17 +19,10 @@ const auth = vi.hoisted(() => ({
 }));
 
 vi.mock("../../auth/AuthContext", () => ({
-  useAuth: () => ({
-    ...auth.value,
-    login: vi.fn(),
-    logout: auth.logout,
-    retry: vi.fn(),
-  }),
+  useAuth: () => ({ ...auth.value, login: vi.fn(), logout: auth.logout, retry: vi.fn() }),
 }));
 vi.mock("../common/HealthDot", () => ({ default: () => <span>health</span> }));
-vi.mock("../common/ConnectionIndicator", () => ({
-  default: () => <span>connection</span>,
-}));
+vi.mock("../common/ConnectionIndicator", () => ({ default: () => <span>connection</span> }));
 vi.mock("./LocaleSwitcher", () => ({ default: () => <span>locale</span> }));
 
 import AppHeader from "./AppHeader";

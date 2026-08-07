@@ -100,9 +100,7 @@ describe("DecisionPanel", () => {
     await userEvent.type(reason, "保留本地理由");
     await userEvent.click(screen.getByRole("button", { name: "提交裁决" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "裁决已变化，请核对最新版本后重试",
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("裁决已变化，请核对最新版本后重试");
     expect(reason).toHaveValue("保留本地理由");
     expect(reason).not.toBeDisabled();
     expect(onConflict).toHaveBeenCalledTimes(1);

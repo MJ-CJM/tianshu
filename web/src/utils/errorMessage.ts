@@ -14,12 +14,11 @@
 
 import type { TFunction } from "../i18n";
 
-const FIELD_KEY: Record<string, "budgetTokens" | "budgetCost" | "budgetTime"> =
-  {
-    tokens: "budgetTokens",
-    cost: "budgetCost",
-    time: "budgetTime",
-  };
+const FIELD_KEY: Record<string, "budgetTokens" | "budgetCost" | "budgetTime"> = {
+  tokens: "budgetTokens",
+  cost: "budgetCost",
+  time: "budgetTime",
+};
 
 export interface ParsedError {
   headline: string;
@@ -27,8 +26,7 @@ export interface ParsedError {
   isBudget: boolean;
 }
 
-const BUDGET_RE =
-  /^budget_exhausted(?::\s*(\w+))?\s*(?:\(usage_ratio=([\d.]+)\))?/;
+const BUDGET_RE = /^budget_exhausted(?::\s*(\w+))?\s*(?:\(usage_ratio=([\d.]+)\))?/;
 
 export function parseErrorMessage(
   raw: string | null | undefined,
@@ -46,10 +44,9 @@ export function parseErrorMessage(
     let headline: string;
     if (fieldKey) {
       const base = t(`comp.error.${fieldKey}`);
-      const pct =
-        ratio != null
-          ? t("comp.error.usagePctSuffix", { pct: Math.round(ratio * 100) })
-          : "";
+      const pct = ratio != null
+        ? t("comp.error.usagePctSuffix", { pct: Math.round(ratio * 100) })
+        : "";
       headline = `${base}${pct}`;
     } else {
       headline = t("comp.error.budgetGeneric");
@@ -66,10 +63,7 @@ export function parseErrorMessage(
   if (trimmed === "exhausted + aborted") {
     return { headline: t("comp.error.exhaustedAbort"), raw, isBudget: false };
   }
-  if (
-    trimmed.startsWith("checks 配置错") ||
-    trimmed.startsWith("checks misconfigured")
-  ) {
+  if (trimmed.startsWith("checks 配置错") || trimmed.startsWith("checks misconfigured")) {
     return { headline: t("comp.error.checksConfig"), raw, isBudget: false };
   }
   if (trimmed.startsWith("orchestrator error")) {

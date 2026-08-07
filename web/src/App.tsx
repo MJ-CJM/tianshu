@@ -28,10 +28,7 @@ function ThemedApp() {
   return (
     <ThemeContext.Provider value={themeCtx}>
       <LocaleContext.Provider value={localeCtx}>
-        <ConfigProvider
-          theme={getThemeConfig(themeCtx.mode)}
-          locale={antdLocale}
-        >
+        <ConfigProvider theme={getThemeConfig(themeCtx.mode)} locale={antdLocale}>
           <AntApp>
             <AuthProvider>
               <BrowserRouter>

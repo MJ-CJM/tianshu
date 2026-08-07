@@ -19,7 +19,11 @@ import {
   Checkbox,
   notification,
 } from "antd";
-import { GlobalOutlined, KeyOutlined, RightOutlined } from "@ant-design/icons";
+import {
+  GlobalOutlined,
+  KeyOutlined,
+  RightOutlined,
+} from "@ant-design/icons";
 import PageContainer from "../components/common/PageContainer";
 import { useTools } from "../hooks/useSystem";
 import { listNetworkEvents } from "../api/network_events";
@@ -207,15 +211,9 @@ export default function HongluisiPage() {
           <Card size="small">
             <Statistic
               title={name}
-              value={
-                isOn
-                  ? t("hongluisi.tool.enabled")
-                  : t("hongluisi.tool.disabled")
-              }
+              value={isOn ? t("hongluisi.tool.enabled") : t("hongluisi.tool.disabled")}
               valueStyle={{
-                color: isOn
-                  ? "var(--ts-color-success)"
-                  : "var(--ts-color-text-secondary)",
+                color: isOn ? "var(--ts-color-success)" : "var(--ts-color-text-secondary)",
                 fontSize: 18,
               }}
             />
@@ -238,20 +236,14 @@ export default function HongluisiPage() {
         <Card size="small">
           <Statistic
             title={name}
-            value={
-              isOn ? t("hongluisi.tool.enabled") : t("hongluisi.tool.disabled")
-            }
+            value={isOn ? t("hongluisi.tool.enabled") : t("hongluisi.tool.disabled")}
             valueStyle={{
-              color: isOn
-                ? "var(--ts-color-success)"
-                : "var(--ts-color-text-secondary)",
+              color: isOn ? "var(--ts-color-success)" : "var(--ts-color-text-secondary)",
               fontSize: 18,
             }}
           />
           <Space size={4} style={{ marginTop: 4 }} wrap>
-            <Tag color={srcColor}>
-              {t("hongluisi.tool.keyPrefix")} {srcLabel}
-            </Tag>
+            <Tag color={srcColor}>{t("hongluisi.tool.keyPrefix")} {srcLabel}</Tag>
           </Space>
         </Card>
       </Col>
@@ -271,7 +263,9 @@ export default function HongluisiPage() {
       dataIndex: "tool",
       key: "tool",
       width: 110,
-      render: (v: string) => <Tag color={TOOL_COLORS[v] ?? "default"}>{v}</Tag>,
+      render: (v: string) => (
+        <Tag color={TOOL_COLORS[v] ?? "default"}>{v}</Tag>
+      ),
     },
     {
       title: t("hongluisi.table.host"),
@@ -325,10 +319,8 @@ export default function HongluisiPage() {
             style={{ marginTop: 12, marginBottom: 0, fontSize: 12 }}
           >
             {t("hongluisi.toolsHint1")}
-            <code>TIANSHU_SECRET_MASTER_KEY</code>
-            {t("hongluisi.toolsHint2")}
-            <code>TIANSHU_FIRECRAWL_API_KEY</code>
-            {t("hongluisi.toolsHint3")}
+            <code>TIANSHU_SECRET_MASTER_KEY</code>{t("hongluisi.toolsHint2")}
+            <code>TIANSHU_FIRECRAWL_API_KEY</code>{t("hongluisi.toolsHint3")}
           </Typography.Paragraph>
         </Card>
 
@@ -375,19 +367,10 @@ export default function HongluisiPage() {
                 value={fetchChain}
                 onChange={setFetchChain}
                 options={[
-                  {
-                    value: "scrapling",
-                    label: "scrapling (free, TLS stealth)",
-                  },
+                  { value: "scrapling", label: "scrapling (free, TLS stealth)" },
                   { value: "local", label: "local (trafilatura)" },
-                  {
-                    value: "scrapling_dynamic",
-                    label: "scrapling_dynamic (browser)",
-                  },
-                  {
-                    value: "scrapling_stealthy",
-                    label: "scrapling_stealthy (browser)",
-                  },
+                  { value: "scrapling_dynamic", label: "scrapling_dynamic (browser)" },
+                  { value: "scrapling_stealthy", label: "scrapling_stealthy (browser)" },
                   { value: "jina", label: "jina (r.jina.ai)" },
                   { value: "firecrawl", label: "firecrawl" },
                 ]}
@@ -403,29 +386,18 @@ export default function HongluisiPage() {
                 value={fallbackMode ?? ""}
                 onChange={(e) => setFallbackMode(e.target.value || null)}
               >
-                <Radio value="">
-                  {t("hongluisi.preferences.fallbackProfile")}
-                </Radio>
-                <Radio value="on_error_or_empty">
-                  {t("hongluisi.preferences.fallbackOnErrorOrEmpty")}
-                </Radio>
-                <Radio value="none">
-                  {t("hongluisi.preferences.fallbackNone")}
-                </Radio>
+                <Radio value="">{t("hongluisi.preferences.fallbackProfile")}</Radio>
+                <Radio value="on_error_or_empty">{t("hongluisi.preferences.fallbackOnErrorOrEmpty")}</Radio>
+                <Radio value="none">{t("hongluisi.preferences.fallbackNone")}</Radio>
               </Radio.Group>
             </Form.Item>
 
-            <Form.Item
-              label={t("hongluisi.preferences.searchLabel")}
-              style={{ marginBottom: 0 }}
-            >
+            <Form.Item label={t("hongluisi.preferences.searchLabel")} style={{ marginBottom: 0 }}>
               <Radio.Group
                 value={searchProvider ?? ""}
                 onChange={(e) => setSearchProvider(e.target.value || null)}
               >
-                <Radio value="">
-                  {t("hongluisi.preferences.fallbackProfile")}
-                </Radio>
+                <Radio value="">{t("hongluisi.preferences.fallbackProfile")}</Radio>
                 <Radio value="duckduckgo">DuckDuckGo (free)</Radio>
                 <Radio value="tavily">Tavily</Radio>
                 <Radio value="jina">Jina Search</Radio>

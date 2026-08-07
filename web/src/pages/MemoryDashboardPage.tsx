@@ -38,17 +38,9 @@ import {
   useMemoryPolicies,
   usePersonaMemorials,
 } from "../hooks/useMemory";
-import {
-  useMemoryStats,
-  useCompactMemory,
-  useTriggerReflection,
-} from "../hooks/useOps";
+import { useMemoryStats, useCompactMemory, useTriggerReflection } from "../hooks/useOps";
 import { usePersonas } from "../hooks/usePersonas";
-import type {
-  MemoryEntry,
-  EdictMemorialGroup,
-  MemorialBrief,
-} from "../api/types";
+import type { MemoryEntry, EdictMemorialGroup, MemorialBrief } from "../api/types";
 import PageContainer from "../components/common/PageContainer";
 import { useT } from "../i18n";
 import PageQueryError from "../components/states/PageQueryError";
@@ -110,9 +102,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
   const t = useT();
   const labelOf = usePersonaLabel();
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<MemoryEntry[] | null>(
-    null,
-  );
+  const [searchResults, setSearchResults] = useState<MemoryEntry[] | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
   const memoriesQuery = usePersonaMemory(persona);
@@ -129,24 +119,17 @@ function MemorySummaryTab({ persona }: { persona: string }) {
       return;
     }
     recallMutation.mutate(
-      {
-        persona_id: persona,
-        query: searchQuery,
-        include_shared: true,
-        limit: 30,
-      },
+      { persona_id: persona, query: searchQuery, include_shared: true, limit: 30 },
       {
         onSuccess: (data) => setSearchResults(data),
-        onError: () =>
-          notification.error({ message: t("memory.search.failed") }),
+        onError: () => notification.error({ message: t("memory.search.failed") }),
       },
     );
   };
 
   const handleDelete = (entryId: string) => {
     deleteMutation.mutate(entryId, {
-      onSuccess: () =>
-        notification.success({ message: t("memory.toast.deleted") }),
+      onSuccess: () => notification.success({ message: t("memory.toast.deleted") }),
     });
   };
 
@@ -154,13 +137,10 @@ function MemorySummaryTab({ persona }: { persona: string }) {
     if (selectedRowKeys.length === 0) return;
     batchDeleteMutation.mutate(selectedRowKeys as string[], {
       onSuccess: (result) => {
-        notification.success({
-          message: t("memory.toast.batchDeleted", { n: result.deleted }),
-        });
+        notification.success({ message: t("memory.toast.batchDeleted", { n: result.deleted }) });
         setSelectedRowKeys([]);
       },
-      onError: () =>
-        notification.error({ message: t("memory.toast.batchDeleteFailed") }),
+      onError: () => notification.error({ message: t("memory.toast.batchDeleteFailed") }),
     });
   };
 
@@ -217,8 +197,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
       key: "access_level",
       width: 90,
       render: (v: string) => {
-        const color =
-          v === "court" ? "red" : v === "shared" ? "orange" : "default";
+        const color = v === "court" ? "red" : v === "shared" ? "orange" : "default";
         return <Tag color={color}>{v}</Tag>;
       },
     },
@@ -246,7 +225,12 @@ function MemorySummaryTab({ persona }: { persona: string }) {
           title={t("memory.selection.confirmDelete")}
           onConfirm={() => handleDelete(record.id)}
         >
-          <Button type="text" danger size="small" icon={<DeleteOutlined />} />
+          <Button
+            type="text"
+            danger
+            size="small"
+            icon={<DeleteOutlined />}
+          />
         </Popconfirm>
       ),
     },
@@ -279,10 +263,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
         </Space.Compact>
         {searchResults && (
           <Text type="secondary" style={{ marginTop: 8, display: "block" }}>
-            {t("memory.search.summary", {
-              n: searchResults.length,
-              q: searchQuery,
-            })}
+            {t("memory.search.summary", { n: searchResults.length, q: searchQuery })}
           </Text>
         )}
       </Card>
@@ -290,13 +271,9 @@ function MemorySummaryTab({ persona }: { persona: string }) {
       {/* Batch action bar */}
       {selectedRowKeys.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Text type="secondary">
-            {t("memory.selection.selected", { n: selectedRowKeys.length })}
-          </Text>
+          <Text type="secondary">{t("memory.selection.selected", { n: selectedRowKeys.length })}</Text>
           <Popconfirm
-            title={t("memory.selection.confirmBatchDelete", {
-              n: selectedRowKeys.length,
-            })}
+            title={t("memory.selection.confirmBatchDelete", { n: selectedRowKeys.length })}
             onConfirm={handleBatchDelete}
             okText={t("common.confirm")}
             cancelText={t("common.cancel")}
@@ -319,11 +296,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
       {/* Memory Table */}
       <Card
         title={t("memory.summary", { name: personaName })}
-        extra={
-          <Text type="secondary">
-            {t("memory.count", { n: displayData.length })}
-          </Text>
-        }
+        extra={<Text type="secondary">{t("memory.count", { n: displayData.length })}</Text>}
       >
         {displayData.length === 0 && !isLoading ? (
           <Empty description={t("memory.empty")} />
@@ -351,14 +324,8 @@ function MemorySummaryTab({ persona }: { persona: string }) {
             // 点行内任意处即可展开（不必非得点左侧箭头）。
             expandable={{
               expandedRowRender: (record) => (
-                <Space
-                  direction="vertical"
-                  size="small"
-                  style={{ width: "100%" }}
-                >
-                  <Paragraph
-                    style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}
-                  >
+                <Space direction="vertical" size="small" style={{ width: "100%" }}>
+                  <Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
                     {record.content}
                   </Paragraph>
                   <Descriptions size="small" column={2}>
@@ -403,26 +370,22 @@ function MemorySummaryTab({ persona }: { persona: string }) {
             children: currentPolicy ? (
               <Descriptions column={1} size="small" bordered>
                 <Descriptions.Item label={t("memory.policy.canRead")}>
-                  {currentPolicy.can_read.length > 0 ? (
-                    currentPolicy.can_read.map((p: string) => (
-                      <Tag key={p} color="blue">
-                        {labelOf(p)}
-                      </Tag>
-                    ))
-                  ) : (
-                    <Text type="secondary">{t("memory.policy.none")}</Text>
-                  )}
+                  {currentPolicy.can_read.length > 0
+                    ? currentPolicy.can_read.map((p: string) => (
+                        <Tag key={p} color="blue">
+                          {labelOf(p)}
+                        </Tag>
+                      ))
+                    : <Text type="secondary">{t("memory.policy.none")}</Text>}
                 </Descriptions.Item>
                 <Descriptions.Item label={t("memory.policy.canWrite")}>
-                  {currentPolicy.can_write.length > 0 ? (
-                    currentPolicy.can_write.map((p: string) => (
-                      <Tag key={p} color="green">
-                        {labelOf(p)}
-                      </Tag>
-                    ))
-                  ) : (
-                    <Text type="secondary">{t("memory.policy.none")}</Text>
-                  )}
+                  {currentPolicy.can_write.length > 0
+                    ? currentPolicy.can_write.map((p: string) => (
+                        <Tag key={p} color="green">
+                          {labelOf(p)}
+                        </Tag>
+                      ))
+                    : <Text type="secondary">{t("memory.policy.none")}</Text>}
                 </Descriptions.Item>
                 <Descriptions.Item label={t("memory.policy.shareLevel")}>
                   <Tag
@@ -457,13 +420,7 @@ function MemorialBubble({ memorial }: { memorial: MemorialBrief }) {
     <div style={{ marginBottom: 16 }}>
       {/* User instruction */}
       {memorial.instruction && (
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            marginBottom: 8,
-          }}
-        >
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
           <div
             style={{
               maxWidth: "80%",
@@ -499,11 +456,7 @@ function MemorialBubble({ memorial }: { memorial: MemorialBrief }) {
             </Text>
           ) : memorial.result ? (
             <Paragraph
-              ellipsis={{
-                rows: 6,
-                expandable: true,
-                symbol: t("memory.history.expand"),
-              }}
+              ellipsis={{ rows: 6, expandable: true, symbol: t("memory.history.expand") }}
               style={{ marginBottom: 0, fontSize: 13, whiteSpace: "pre-wrap" }}
             >
               {memorial.result}
@@ -564,15 +517,7 @@ function ConversationHistoryTab({ persona }: { persona: string }) {
         label: (
           <Space>
             <Text strong>{group.edict_title || group.edict_goal}</Text>
-            <Tag
-              color={
-                group.edict_status === "completed"
-                  ? "green"
-                  : group.edict_status === "cancelled"
-                    ? "orange"
-                    : "blue"
-              }
-            >
+            <Tag color={group.edict_status === "completed" ? "green" : group.edict_status === "cancelled" ? "orange" : "blue"}>
               {group.edict_status}
             </Tag>
             <Text type="secondary" style={{ fontSize: 12 }}>
@@ -620,18 +565,11 @@ function MemoryMaintenanceTab({ persona }: { persona: string }) {
           if (data?.status === "completed") {
             notification.success({
               message: t("memory.toast.compactCompleted"),
-              description: t("memory.toast.compactCompletedDesc", {
-                from: data.original_count ?? 0,
-                to: data.compacted_count ?? 0,
-                tokens: data.tokens_saved ?? 0,
-              }),
+              description: t("memory.toast.compactCompletedDesc", { from: data.original_count ?? 0, to: data.compacted_count ?? 0, tokens: data.tokens_saved ?? 0 }),
             });
           } else {
             notification.info({
-              message:
-                data?.status === "skipped"
-                  ? t("memory.toast.compactSkipped")
-                  : t("memory.toast.compactResult"),
+              message: data?.status === "skipped" ? t("memory.toast.compactSkipped") : t("memory.toast.compactResult"),
               description: data?.reason,
             });
           }
@@ -647,16 +585,11 @@ function MemoryMaintenanceTab({ persona }: { persona: string }) {
         if (data?.status === "completed") {
           notification.success({
             message: t("memory.toast.reflectCompleted"),
-            description: t("memory.toast.reflectCompletedDesc", {
-              n: data.insights_generated ?? 0,
-            }),
+            description: t("memory.toast.reflectCompletedDesc", { n: data.insights_generated ?? 0 }),
           });
         } else {
           notification.info({
-            message:
-              data?.status === "cooldown"
-                ? t("memory.toast.reflectCooldown")
-                : t("memory.toast.reflectResult"),
+            message: data?.status === "cooldown" ? t("memory.toast.reflectCooldown") : t("memory.toast.reflectResult"),
             description: data?.reason,
           });
         }
@@ -671,26 +604,17 @@ function MemoryMaintenanceTab({ persona }: { persona: string }) {
         <Row gutter={16}>
           <Col span={6}>
             <Card size="small">
-              <Statistic
-                title={t("memory.stats.entries")}
-                value={personaStats.entry_count}
-              />
+              <Statistic title={t("memory.stats.entries")} value={personaStats.entry_count} />
             </Card>
           </Col>
           <Col span={6}>
             <Card size="small">
-              <Statistic
-                title={t("memory.stats.tokens")}
-                value={personaStats.estimated_tokens}
-              />
+              <Statistic title={t("memory.stats.tokens")} value={personaStats.estimated_tokens} />
             </Card>
           </Col>
           <Col span={6}>
             <Card size="small">
-              <Statistic
-                title={t("memory.stats.files")}
-                value={personaStats.markdown_files}
-              />
+              <Statistic title={t("memory.stats.files")} value={personaStats.markdown_files} />
             </Card>
           </Col>
           <Col span={6}>
@@ -714,14 +638,9 @@ function MemoryMaintenanceTab({ persona }: { persona: string }) {
                   title={cat}
                   value={count as number}
                   valueStyle={{
-                    color:
-                      cat === "insight"
-                        ? "var(--ts-color-warning)"
-                        : cat === "observation"
-                          ? "var(--ts-color-info)"
-                          : cat === "summary"
-                            ? "var(--ts-status-planning)"
-                            : "var(--ts-color-success)",
+                    color: cat === "insight" ? "var(--ts-color-warning)" :
+                      cat === "observation" ? "var(--ts-color-info)" :
+                      cat === "summary" ? "var(--ts-status-planning)" : "var(--ts-color-success)",
                   }}
                 />
               </Col>
@@ -733,7 +652,9 @@ function MemoryMaintenanceTab({ persona }: { persona: string }) {
       {/* Operations */}
       <Card title={t("memory.compact.title")} size="small">
         <Space direction="vertical" style={{ width: "100%" }}>
-          <Text type="secondary">{t("memory.compact.desc")}</Text>
+          <Text type="secondary">
+            {t("memory.compact.desc")}
+          </Text>
           <Space>
             <Text>{t("memory.compact.prefix")}</Text>
             <InputNumber
@@ -757,7 +678,9 @@ function MemoryMaintenanceTab({ persona }: { persona: string }) {
 
       <Card title={t("memory.reflect.title")} size="small">
         <Space direction="vertical" style={{ width: "100%" }}>
-          <Text type="secondary">{t("memory.reflect.desc")}</Text>
+          <Text type="secondary">
+            {t("memory.reflect.desc")}
+          </Text>
           <Button
             type="primary"
             loading={reflectMutation.isPending}
@@ -787,19 +710,13 @@ export default function MemoryDashboardPage() {
     const countOf = (id: string) => memoryStats?.[id]?.entry_count ?? 0;
     const withCount = (text: string, id: string) => `${text} · ${countOf(id)}`;
 
-    const groups: {
-      label: string;
-      options: { value: string; label: string }[];
-    }[] = [];
+    const groups: { label: string; options: { value: string; label: string }[] }[] = [];
 
     if (ids.includes(COURT_ID)) {
       groups.push({
         label: t("memory.scope.court"),
         options: [
-          {
-            value: COURT_ID,
-            label: withCount(t("memory.scope.court"), COURT_ID),
-          },
+          { value: COURT_ID, label: withCount(t("memory.scope.court"), COURT_ID) },
         ],
       });
     }

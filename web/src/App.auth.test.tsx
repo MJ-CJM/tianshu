@@ -11,9 +11,7 @@ vi.mock("./components/layout/AppLayout", () => ({
     </div>
   ),
 }));
-vi.mock("./pages/RoyalStudyPage", () => ({
-  default: () => <div>home-page</div>,
-}));
+vi.mock("./pages/RoyalStudyPage", () => ({ default: () => <div>home-page</div> }));
 
 import App from "./App";
 import { resetAuthRefreshForTests } from "./api/authFetch";

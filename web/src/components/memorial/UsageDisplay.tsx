@@ -28,59 +28,32 @@ export default function UsageDisplay({ usage }: UsageDisplayProps) {
     >
       <Space size={4} align="center">
         <ThunderboltOutlined style={{ color: token.colorInfo, fontSize: 13 }} />
-        <Typography.Text
-          style={{ color: token.colorTextSecondary, fontSize: 12 }}
-        >
+        <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
           {t("comp.usage.title")}
         </Typography.Text>
       </Space>
       <span style={{ color: token.colorBorder }}>|</span>
       <Space size={6}>
-        <Typography.Text
-          style={{ color: token.colorTextSecondary, fontSize: 12 }}
-        >
+        <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
           {t("comp.usage.prompt")}
         </Typography.Text>
-        <Typography.Text
-          style={{
-            color: token.colorInfo,
-            fontSize: 13,
-            fontFamily: "'JetBrains Mono', monospace",
-          }}
-        >
+        <Typography.Text style={{ color: token.colorInfo, fontSize: 13, fontFamily: "'JetBrains Mono', monospace" }}>
           {formatTokens(usage.prompt_tokens)}
         </Typography.Text>
       </Space>
       <Space size={6}>
-        <Typography.Text
-          style={{ color: token.colorTextSecondary, fontSize: 12 }}
-        >
+        <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
           {t("comp.usage.completion")}
         </Typography.Text>
-        <Typography.Text
-          style={{
-            color: token.colorInfo,
-            fontSize: 13,
-            fontFamily: "'JetBrains Mono', monospace",
-          }}
-        >
+        <Typography.Text style={{ color: token.colorInfo, fontSize: 13, fontFamily: "'JetBrains Mono', monospace" }}>
           {formatTokens(usage.completion_tokens)}
         </Typography.Text>
       </Space>
       <Space size={6}>
-        <Typography.Text
-          style={{ color: token.colorTextSecondary, fontSize: 12 }}
-        >
+        <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
           {t("comp.usage.total")}
         </Typography.Text>
-        <Typography.Text
-          style={{
-            color: token.colorSuccess,
-            fontSize: 13,
-            fontWeight: 600,
-            fontFamily: "'JetBrains Mono', monospace",
-          }}
-        >
+        <Typography.Text style={{ color: token.colorSuccess, fontSize: 13, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}>
           {formatTokens(usage.total_tokens)}
         </Typography.Text>
       </Space>
@@ -88,9 +61,7 @@ export default function UsageDisplay({ usage }: UsageDisplayProps) {
         <>
           <span style={{ color: token.colorBorder }}>|</span>
           <Space size={6}>
-            <Typography.Text
-              style={{ color: token.colorTextSecondary, fontSize: 12 }}
-            >
+            <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
               {t("comp.usage.cost")}
             </Typography.Text>
             <Typography.Text
@@ -110,9 +81,7 @@ export default function UsageDisplay({ usage }: UsageDisplayProps) {
         <>
           <span style={{ color: token.colorBorder }}>|</span>
           <Space size={6}>
-            <Typography.Text
-              style={{ color: token.colorTextSecondary, fontSize: 12 }}
-            >
+            <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
               {t("comp.usage.model")}
             </Typography.Text>
             <Typography.Text

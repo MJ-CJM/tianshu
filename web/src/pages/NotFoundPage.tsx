@@ -12,10 +12,7 @@ export default function NotFoundPage() {
       title={t("notFoundPage.title")}
       subTitle={t("notFoundPage.description")}
       extra={
-        <Button
-          type="primary"
-          onClick={() => navigate("/control", { replace: true })}
-        >
+        <Button type="primary" onClick={() => navigate("/control", { replace: true })}>
           {t("notFoundPage.back")}
         </Button>
       }

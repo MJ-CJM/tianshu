@@ -1,4 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AuthApiError,
@@ -69,15 +74,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [mode, queryClient],
   );
 
-  const login = useCallback(
-    async (token: string) => {
-      const session = await createAuthSession(token.trim());
-      queryClient.clear();
-      setPrincipal(session.principal);
-      setStatus("authenticated");
-    },
-    [queryClient],
-  );
+  const login = useCallback(async (token: string) => {
+    const session = await createAuthSession(token.trim());
+    queryClient.clear();
+    setPrincipal(session.principal);
+    setStatus("authenticated");
+  }, [queryClient]);
 
   const logout = useCallback(async () => {
     await deleteAuthSession();

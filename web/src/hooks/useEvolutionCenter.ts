@@ -8,14 +8,9 @@ import { isApiProblem, toApiProblem } from "../api/client";
 import { problemPageStatus } from "../components/states/problemPageStatus";
 import type { PageDataStatus } from "../contracts/api";
 
-export const EVOLUTION_CENTER_QUERY_KEY = [
-  "evolution-center",
-  "snapshot-v1",
-] as const;
+export const EVOLUTION_CENTER_QUERY_KEY = ["evolution-center", "snapshot-v1"] as const;
 
-export function isEvolutionSnapshotEmpty(
-  snapshot: EvolutionCenterSnapshotV1,
-): boolean {
+export function isEvolutionSnapshotEmpty(snapshot: EvolutionCenterSnapshotV1): boolean {
   return (
     snapshot.status === "enabled" &&
     snapshot.candidates.length === 0 &&
@@ -39,8 +34,7 @@ export function useEvolutionCenter() {
   if (problem && data) status = "stale";
   else if (problem) status = problemPageStatus(problem);
   else if (!data) status = "loading";
-  else
-    status = isEvolutionSnapshotEmpty(data) ? "success-empty" : "success-data";
+  else status = isEvolutionSnapshotEmpty(data) ? "success-empty" : "success-data";
 
   return {
     data,

@@ -8,7 +8,9 @@ const MEMORIAL_INVALIDATION_TYPES = new Set([
   "audit.completed",
 ]);
 
-const EDICT_INVALIDATION_TYPES = new Set(["edict.submitted"]);
+const EDICT_INVALIDATION_TYPES = new Set([
+  "edict.submitted",
+]);
 
 const DAG_INVALIDATION_TYPES = new Set([
   "dag.started",
@@ -70,9 +72,7 @@ export function useWsQueryInvalidation(subscribe: WsSubscribe): void {
           queryClient.invalidateQueries({ queryKey: ["memorials", edict_id] });
           queryClient.invalidateQueries({ queryKey: ["events", edict_id] });
           queryClient.invalidateQueries({ queryKey: ["edict", edict_id] });
-          queryClient.invalidateQueries({
-            queryKey: ["memorial_latest", edict_id],
-          });
+          queryClient.invalidateQueries({ queryKey: ["memorial_latest", edict_id] });
         }
         queryClient.invalidateQueries({ queryKey: ["edicts"] });
         queryClient.invalidateQueries({ queryKey: ["needs_review"] });
@@ -88,9 +88,7 @@ export function useWsQueryInvalidation(subscribe: WsSubscribe): void {
         queryClient.invalidateQueries({ queryKey: ["dag"] });
         queryClient.invalidateQueries({ queryKey: ["workers"] });
         if (edict_id) {
-          queryClient.invalidateQueries({
-            queryKey: ["dag", "by-edict", edict_id],
-          });
+          queryClient.invalidateQueries({ queryKey: ["dag", "by-edict", edict_id] });
         }
       }
 
@@ -103,9 +101,7 @@ export function useWsQueryInvalidation(subscribe: WsSubscribe): void {
           queryKey: ["approvals", "pending_tool_calls"],
         });
         if (edict_id) {
-          queryClient.invalidateQueries({
-            queryKey: ["policy_events", edict_id],
-          });
+          queryClient.invalidateQueries({ queryKey: ["policy_events", edict_id] });
         }
       }
 

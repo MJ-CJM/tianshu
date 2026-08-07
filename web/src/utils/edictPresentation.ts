@@ -9,17 +9,18 @@ export type EdictTaskKind =
   | "keqing";
 
 export type EdictWorkspacePhase =
-  TaskStatus | "paused" | "winding_down" | "idle" | "no_memorial";
+  | TaskStatus
+  | "paused"
+  | "winding_down"
+  | "idle"
+  | "no_memorial";
 
 export function getEdictTaskKinds(edict: Edict): EdictTaskKind[] {
   const kinds: EdictTaskKind[] = [];
 
   if (edict.schedule.type === "once") {
     kinds.push("scheduled_once");
-  } else if (
-    edict.schedule.type === "cron" ||
-    edict.schedule.type === "interval"
-  ) {
+  } else if (edict.schedule.type === "cron" || edict.schedule.type === "interval") {
     kinds.push("recurring");
   } else {
     kinds.push("immediate");

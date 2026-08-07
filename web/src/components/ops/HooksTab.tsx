@@ -39,7 +39,7 @@ export function HooksTab() {
           hook_type: hookType,
           handler: entry.handler,
           priority: entry.priority,
-        })),
+        }))
       )
     : [];
 
@@ -48,10 +48,7 @@ export function HooksTab() {
       <Row gutter={16}>
         <Col span={8}>
           <Card size="small">
-            <Statistic
-              title={t("ops.hooks.registered")}
-              value={hookRows.length}
-            />
+            <Statistic title={t("ops.hooks.registered")} value={hookRows.length} />
           </Card>
         </Col>
         <Col span={8}>
@@ -75,11 +72,7 @@ export function HooksTab() {
       </Row>
 
       {/* Hooks table */}
-      <Card
-        title={t("ops.hooks.registryTitle")}
-        size="small"
-        loading={isLoading}
-      >
+      <Card title={t("ops.hooks.registryTitle")} size="small" loading={isLoading}>
         <Table<HookRow>
           columns={[
             {
@@ -91,10 +84,7 @@ export function HooksTab() {
                 <Tag color="purple">{t(`ops.hooks.label.${v}`) || v}</Tag>
               ),
               filters: hooks
-                ? Object.keys(hooks).map((hk) => ({
-                    text: t(`ops.hooks.label.${hk}`) || hk,
-                    value: hk,
-                  }))
+                ? Object.keys(hooks).map((hk) => ({ text: t(`ops.hooks.label.${hk}`) || hk, value: hk }))
                 : [],
               onFilter: (value, record) => record.hook_type === value,
             },
@@ -111,27 +101,9 @@ export function HooksTab() {
               width: 100,
               align: "center" as const,
               render: (v) => {
-                const color =
-                  v <= 10
-                    ? "red"
-                    : v <= 50
-                      ? "orange"
-                      : v <= 100
-                        ? "blue"
-                        : "default";
-                const label =
-                  v <= 10
-                    ? t("ops.hooks.priorityHighest")
-                    : v <= 50
-                      ? t("ops.hooks.priorityHigh")
-                      : v <= 100
-                        ? t("ops.hooks.priorityMid")
-                        : t("ops.hooks.priorityLow");
-                return (
-                  <Tag color={color}>
-                    {v} ({label})
-                  </Tag>
-                );
+                const color = v <= 10 ? "red" : v <= 50 ? "orange" : v <= 100 ? "blue" : "default";
+                const label = v <= 10 ? t("ops.hooks.priorityHighest") : v <= 50 ? t("ops.hooks.priorityHigh") : v <= 100 ? t("ops.hooks.priorityMid") : t("ops.hooks.priorityLow");
+                return <Tag color={color}>{v} ({label})</Tag>;
               },
               sorter: (a, b) => a.priority - b.priority,
             },
@@ -185,11 +157,7 @@ export function HooksTab() {
                 width: 120,
                 align: "center" as const,
                 render: (v: number, record: NotificationChannel) => (
-                  <Tag
-                    color={
-                      v >= record.rpm_limit ? "red" : v > 0 ? "blue" : "default"
-                    }
-                  >
+                  <Tag color={v >= record.rpm_limit ? "red" : v > 0 ? "blue" : "default"}>
                     {v}
                   </Tag>
                 ),

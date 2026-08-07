@@ -15,15 +15,8 @@ import {
   message,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import {
-  getAgentConfig,
-  getKeqingStatus,
-  updateAgentConfig,
-} from "../api/config";
-import type {
-  AgentConfigUpdateRequest,
-  KeqingBackendStatus,
-} from "../api/types";
+import { getAgentConfig, getKeqingStatus, updateAgentConfig } from "../api/config";
+import type { AgentConfigUpdateRequest, KeqingBackendStatus } from "../api/types";
 import { useT } from "../i18n";
 import {
   CapabilityBoundary,
@@ -118,9 +111,7 @@ export default function KeqingManagementPage() {
       render: (id: string, row) => (
         <Space>
           <Text strong>{id}</Text>
-          {row.backend === "pi" && (
-            <Tag color="blue">{t("keqing.default")}</Tag>
-          )}
+          {row.backend === "pi" && <Tag color="blue">{t("keqing.default")}</Tag>}
         </Space>
       ),
     },
@@ -133,9 +124,7 @@ export default function KeqingManagementPage() {
             <Tag color="green">{t("keqing.installedYes")}</Tag>
             <Text type="secondary" style={{ fontSize: 12 }}>
               {row.installed_version ?? "?"}
-              {row.pinned_version
-                ? ` / ${t("keqing.pinned")} ${row.pinned_version}`
-                : ""}
+              {row.pinned_version ? ` / ${t("keqing.pinned")} ${row.pinned_version}` : ""}
             </Text>
             {row.version_drift && <Tag color="red">{t("keqing.drift")}</Tag>}
           </Space>
@@ -152,14 +141,10 @@ export default function KeqingManagementPage() {
             {caps.session_resume && <Tag>{t("keqing.cap.resume")}</Tag>}
             {caps.interject && <Tag>{t("keqing.cap.interject")}</Tag>}
             {caps.stop_gate && <Tag>{t("keqing.cap.stopGate")}</Tag>}
-            <Tag
-              color={caps.permission_shaping === "none" ? "default" : "purple"}
-            >
+            <Tag color={caps.permission_shaping === "none" ? "default" : "purple"}>
               {t("keqing.cap.permission")}: {caps.permission_shaping}
             </Tag>
-            <Tag>
-              {t("keqing.cap.usage")}: {caps.usage_reporting}
-            </Tag>
+            <Tag>{t("keqing.cap.usage")}: {caps.usage_reporting}</Tag>
           </Space>
         ) : (
           <Text type="secondary">{t("keqing.cap.singleShot")}</Text>
@@ -216,10 +201,7 @@ export default function KeqingManagementPage() {
             layout="vertical"
             onFinish={(v) => {
               // 清理 per-客卿默认模型里的空值(空=不配,交客卿自身默认)。
-              const raw = (v.keqing_default_models ?? {}) as Record<
-                string,
-                string
-              >;
+              const raw = (v.keqing_default_models ?? {}) as Record<string, string>;
               const cleaned = Object.fromEntries(
                 Object.entries(raw).filter(([, val]) => val && val.trim()),
               );
@@ -251,9 +233,7 @@ export default function KeqingManagementPage() {
                 style={{ marginBottom: 8 }}
               >
                 <Input
-                  placeholder={
-                    KEQING_MODEL_HINTS[b] ?? "provider/model:thinking"
-                  }
+                  placeholder={KEQING_MODEL_HINTS[b] ?? "provider/model:thinking"}
                   allowClear
                 />
               </Form.Item>
@@ -263,19 +243,10 @@ export default function KeqingManagementPage() {
               label={t("keqing.field.budget")}
               tooltip={t("keqing.field.budgetTip")}
             >
-              <InputNumber
-                min={0}
-                step={1}
-                addonAfter="CNY"
-                style={{ width: 200 }}
-              />
+              <InputNumber min={0} step={1} addonAfter="CNY" style={{ width: 200 }} />
             </Form.Item>
 
-            <Button
-              type="primary"
-              htmlType="submit"
-              loading={mutation.isPending}
-            >
+            <Button type="primary" htmlType="submit" loading={mutation.isPending}>
               {t("keqing.save")}
             </Button>
           </Form>

@@ -11,12 +11,8 @@ function LocaleProbe() {
   const locale = useLocaleProvider();
   return (
     <>
-      <button type="button" onClick={() => locale.setLocale("en")}>
-        English
-      </button>
-      <button type="button" onClick={() => locale.setLocale("zh-modern")}>
-        中文
-      </button>
+      <button type="button" onClick={() => locale.setLocale("en")}>English</button>
+      <button type="button" onClick={() => locale.setLocale("zh-modern")}>中文</button>
     </>
   );
 }

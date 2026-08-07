@@ -7,22 +7,15 @@ import type {
   FailureDistributionItem,
 } from "./types";
 
-export async function listEvalRuns(
-  limit = 50,
-): Promise<ApiResponse<EvalRunBrief[]>> {
-  const { data } = await apiClient.get<ApiResponse<EvalRunBrief[]>>(
-    "/evals/runs",
-    {
-      params: { limit },
-    },
-  );
+export async function listEvalRuns(limit = 50): Promise<ApiResponse<EvalRunBrief[]>> {
+  const { data } = await apiClient.get<ApiResponse<EvalRunBrief[]>>("/evals/runs", {
+    params: { limit },
+  });
   return data;
 }
 
 export async function getEvalRun(runId: string): Promise<ApiResponse<EvalRun>> {
-  const { data } = await apiClient.get<ApiResponse<EvalRun>>(
-    `/evals/runs/${runId}`,
-  );
+  const { data } = await apiClient.get<ApiResponse<EvalRun>>(`/evals/runs/${runId}`);
   return data;
 }
 

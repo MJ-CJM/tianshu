@@ -63,7 +63,7 @@ function DecisionRow({ decision }: { decision: ControlDecisionSummaryV1 }) {
         <Typography.Text strong>{decision.edict_title}</Typography.Text>
         <br />
         <Typography.Text type="secondary">
-          {decision.kind} · {t("page.controlCenter.deadline")}{" "}
+          {decision.kind} · {t("page.controlCenter.deadline")} {" "}
           {new Date(decision.expires_at).toLocaleString(dateLocale)}
         </Typography.Text>
       </div>
@@ -84,9 +84,7 @@ function EvidenceRow({ evidence }: { evidence: ControlEvidenceSummaryV1 }) {
           {isClosed
             ? t("page.controlCenter.evidenceClosed")
             : t("page.controlCenter.evidenceOpen")}
-          {evidence.content_hash
-            ? ` · ${evidence.content_hash.slice(0, 12)}…`
-            : ""}
+          {evidence.content_hash ? ` · ${evidence.content_hash.slice(0, 12)}…` : ""}
         </Typography.Text>
       </div>
       {isClosed ? (
@@ -130,7 +128,7 @@ function SnapshotContent({ snapshot }: { snapshot: ControlCenterSnapshotV1 }) {
               {t("page.controlCenter.statusTitle")}
             </Typography.Title>
             <Typography.Text type="secondary">
-              {t("page.controlCenter.lastUpdated")}{" "}
+              {t("page.controlCenter.lastUpdated")} {" "}
               {new Date(snapshot.generated_at).toLocaleString(dateLocale)}
             </Typography.Text>
           </div>
@@ -230,16 +228,11 @@ function SnapshotContent({ snapshot }: { snapshot: ControlCenterSnapshotV1 }) {
             {t("page.controlCenter.pendingDecisionsTitle")}
           </Typography.Title>
           {snapshot.pending_decisions.length === 0 ? (
-            <EmptyLine>
-              {t("page.controlCenter.pendingDecisionsEmpty")}
-            </EmptyLine>
+            <EmptyLine>{t("page.controlCenter.pendingDecisionsEmpty")}</EmptyLine>
           ) : (
             <ul className={styles.list}>
               {snapshot.pending_decisions.map((decision) => (
-                <DecisionRow
-                  key={decision.decision_request_id}
-                  decision={decision}
-                />
+                <DecisionRow key={decision.decision_request_id} decision={decision} />
               ))}
             </ul>
           )}
@@ -268,8 +261,7 @@ export default function ControlCenterPage() {
   const t = useT();
   const { data, status, problem, refetch } = useControlCenter();
   const content = data ? <SnapshotContent snapshot={data} /> : null;
-  const hasAuthoritativeEmptySnapshot =
-    status === "success-empty" && content !== null;
+  const hasAuthoritativeEmptySnapshot = status === "success-empty" && content !== null;
 
   return (
     <PageContainer title={t("nav.control")}>

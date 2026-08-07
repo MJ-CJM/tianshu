@@ -51,7 +51,10 @@ import {
   useDeletePersona,
 } from "../hooks/usePersonas";
 import { previewPersonaImport } from "../api/personas";
-import type { PersonaImportDraft, PersonaImportSourceKind } from "../api/types";
+import type {
+  PersonaImportDraft,
+  PersonaImportSourceKind,
+} from "../api/types";
 import {
   useDepartments,
   useCreateDepartment,
@@ -93,9 +96,7 @@ function PersonaCard({
   const t = useT();
   const { token } = theme.useToken();
   const navigate = useNavigate();
-  const { data: metrics, isLoading } = usePersonaMetrics(
-    expanded ? persona.id : null,
-  );
+  const { data: metrics, isLoading } = usePersonaMetrics(expanded ? persona.id : null);
 
   return (
     <GlowCard
@@ -112,16 +113,16 @@ function PersonaCard({
               · {persona.title}
             </Typography.Text>
           )}
-          <Tag color="blue">
-            {persona.department_name ?? persona.department}
-          </Tag>
+          <Tag color="blue">{persona.department_name ?? persona.department}</Tag>
           {persona.can_delegate && (
             <Tag icon={<CheckCircleOutlined />} color="green">
               {t("persona.card.delegate")}
             </Tag>
           )}
           {persona.memory_global_read && (
-            <Tag color="orange">{t("persona.card.globalRead")}</Tag>
+            <Tag color="orange">
+              {t("persona.card.globalRead")}
+            </Tag>
           )}
         </Space>
       }
@@ -154,28 +155,17 @@ function PersonaCard({
     >
       {/* Tool tier — the primary capability indicator */}
       <div style={{ marginBottom: 8 }}>
-        <Typography.Text
-          style={{ fontSize: 12, color: token.colorTextSecondary }}
-        >
+        <Typography.Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
           {t("persona.card.toolPermission")}
         </Typography.Text>
         <div style={{ marginTop: 4 }}>
           <Tag
-            color={
-              persona.tool_tier_max >= 2
-                ? "green"
-                : persona.tool_tier_max >= 1
-                  ? "blue"
-                  : "default"
-            }
+            color={persona.tool_tier_max >= 2 ? "green" : persona.tool_tier_max >= 1 ? "blue" : "default"}
             style={{ fontSize: 11 }}
           >
             Tier {persona.tool_tier_max}
           </Tag>
-          <Typography.Text
-            type="secondary"
-            style={{ fontSize: 11, marginLeft: 4 }}
-          >
+          <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>
             {persona.tool_tier_max === 0
               ? t("persona.tier.tier0")
               : persona.tool_tier_max === 1
@@ -188,9 +178,7 @@ function PersonaCard({
       {/* Whitelisted tools (if any) */}
       {persona.tools_allowed.length > 0 && (
         <div style={{ marginBottom: 8 }}>
-          <Typography.Text
-            style={{ fontSize: 12, color: token.colorTextSecondary }}
-          >
+          <Typography.Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
             {t("persona.card.specifiedTools")}
           </Typography.Text>
           <div style={{ marginTop: 4 }}>
@@ -206,18 +194,12 @@ function PersonaCard({
       {/* Denied tools */}
       {persona.tools_denied.length > 0 && (
         <div style={{ marginBottom: 8 }}>
-          <Typography.Text
-            style={{ fontSize: 12, color: token.colorTextSecondary }}
-          >
+          <Typography.Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
             {t("persona.card.deniedTools")}
           </Typography.Text>
           <div style={{ marginTop: 4 }}>
             {persona.tools_denied.map((tool) => (
-              <Tag
-                key={tool}
-                color="red"
-                style={{ marginBottom: 4, fontSize: 11 }}
-              >
+              <Tag key={tool} color="red" style={{ marginBottom: 4, fontSize: 11 }}>
                 {tool}
               </Tag>
             ))}
@@ -227,19 +209,13 @@ function PersonaCard({
 
       {/* Skills */}
       <div style={{ marginBottom: 8 }}>
-        <Typography.Text
-          style={{ fontSize: 12, color: token.colorTextSecondary }}
-        >
+        <Typography.Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
           {t("persona.card.skills")}
         </Typography.Text>
         <div style={{ marginTop: 4 }}>
           {persona.skills_allowed.length > 0 ? (
             persona.skills_allowed.map((skill) => (
-              <Tag
-                key={skill}
-                color="purple"
-                style={{ marginBottom: 4, fontSize: 11 }}
-              >
+              <Tag key={skill} color="purple" style={{ marginBottom: 4, fontSize: 11 }}>
                 {skill}
               </Tag>
             ))
@@ -254,18 +230,12 @@ function PersonaCard({
       {/* Delegation */}
       {persona.delegates_to.length > 0 && (
         <div style={{ marginBottom: 8 }}>
-          <Typography.Text
-            style={{ fontSize: 12, color: token.colorTextSecondary }}
-          >
+          <Typography.Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
             {t("persona.card.delegatesTo")}
           </Typography.Text>
           <div style={{ marginTop: 4 }}>
             {persona.delegates_to.map((d) => (
-              <Tag
-                key={d}
-                color="cyan"
-                style={{ marginBottom: 4, fontSize: 11 }}
-              >
+              <Tag key={d} color="cyan" style={{ marginBottom: 4, fontSize: 11 }}>
                 {d}
               </Tag>
             ))}
@@ -276,9 +246,7 @@ function PersonaCard({
       {/* LLM Config */}
       {persona.llm_config_name && (
         <div style={{ marginBottom: 8 }}>
-          <Typography.Text
-            style={{ fontSize: 12, color: token.colorTextSecondary }}
-          >
+          <Typography.Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
             {t("persona.card.llmConfig")}
           </Typography.Text>
           <div style={{ marginTop: 4 }}>
@@ -381,9 +349,7 @@ function PersonaCard({
               </Row>
             </Space>
           ) : (
-            <Typography.Text type="secondary">
-              {t("persona.metric.empty")}
-            </Typography.Text>
+            <Typography.Text type="secondary">{t("persona.metric.empty")}</Typography.Text>
           )}
         </div>
       )}
@@ -437,9 +403,7 @@ function PersonaFormModal({
 
   // 角色模板（仅创建态）：选语言 → 列模板 → 选中后预填 name 并预览 SOUL/ROLE
   const [templateLang, setTemplateLang] = useState<TemplateLang>("zh");
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
-    null,
-  );
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const { data: templateCats } = usePersonaTemplates(templateLang);
   const { data: templateDetail } = usePersonaTemplate(
     templateLang,
@@ -460,24 +424,16 @@ function PersonaFormModal({
   }, [templateDetail, form]);
 
   // 创建方式(仅创建态):模板库 | 从外部(openclaw/hermes)导入作种子(一次性,非 sync)
-  const [createMode, setCreateMode] = useState<"template" | "import">(
-    "template",
-  );
-  const [importSource, setImportSource] =
-    useState<PersonaImportSourceKind>("hermes");
+  const [createMode, setCreateMode] = useState<"template" | "import">("template");
+  const [importSource, setImportSource] = useState<PersonaImportSourceKind>("hermes");
   const [importPath, setImportPath] = useState("");
-  const [importDraft, setImportDraft] = useState<PersonaImportDraft | null>(
-    null,
-  );
+  const [importDraft, setImportDraft] = useState<PersonaImportDraft | null>(null);
   const [importLoading, setImportLoading] = useState(false);
 
   const runImportPreview = async () => {
     setImportLoading(true);
     try {
-      const draft = await previewPersonaImport(
-        importSource,
-        importPath || undefined,
-      );
+      const draft = await previewPersonaImport(importSource, importPath || undefined);
       setImportDraft(draft);
       form.setFieldsValue({ name: draft.suggested_name });
     } catch {
@@ -509,9 +465,7 @@ function PersonaFormModal({
     }
   };
 
-  const handleFinish = (
-    values: PersonaCreateRequest | PersonaUpdateRequest,
-  ) => {
+  const handleFinish = (values: PersonaCreateRequest | PersonaUpdateRequest) => {
     if (isEdit) {
       onSubmit(values);
       return;
@@ -535,11 +489,7 @@ function PersonaFormModal({
 
   return (
     <Modal
-      title={
-        isEdit
-          ? t("persona.form.persona.editTitle")
-          : t("persona.form.persona.addTitle")
-      }
+      title={isEdit ? t("persona.form.persona.editTitle") : t("persona.form.persona.addTitle")}
       open={open}
       onCancel={onClose}
       afterOpenChange={(visible) => visible && handleOpen()}
@@ -599,11 +549,7 @@ function PersonaFormModal({
                 value={importPath}
                 onChange={(e) => setImportPath(e.target.value)}
                 onPressEnter={runImportPreview}
-                placeholder={
-                  importSource === "hermes"
-                    ? "~/.hermes"
-                    : "~/.openclaw/workspace"
-                }
+                placeholder={importSource === "hermes" ? "~/.hermes" : "~/.openclaw/workspace"}
                 allowClear
               />
             </Form.Item>
@@ -633,12 +579,8 @@ function PersonaFormModal({
                   }
                 />
                 {importDraft.suggested_model && (
-                  <Typography.Paragraph
-                    type="secondary"
-                    style={{ marginBottom: 8 }}
-                  >
-                    {t("persona.import.suggestedModel")}:{" "}
-                    <code>{importDraft.suggested_model}</code>
+                  <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                    {t("persona.import.suggestedModel")}: <code>{importDraft.suggested_model}</code>
                   </Typography.Paragraph>
                 )}
                 {importDraft.skills.length > 0 && (
@@ -665,12 +607,7 @@ function PersonaFormModal({
                       label: t("persona.form.persona.soulPreview"),
                       children: (
                         <Typography.Paragraph
-                          style={{
-                            whiteSpace: "pre-wrap",
-                            maxHeight: 220,
-                            overflow: "auto",
-                            margin: 0,
-                          }}
+                          style={{ whiteSpace: "pre-wrap", maxHeight: 220, overflow: "auto", margin: 0 }}
                         >
                           {importDraft.soul_body}
                         </Typography.Paragraph>
@@ -681,12 +618,7 @@ function PersonaFormModal({
                       label: t("persona.form.persona.rolePreview"),
                       children: (
                         <Typography.Paragraph
-                          style={{
-                            whiteSpace: "pre-wrap",
-                            maxHeight: 220,
-                            overflow: "auto",
-                            margin: 0,
-                          }}
+                          style={{ whiteSpace: "pre-wrap", maxHeight: 220, overflow: "auto", margin: 0 }}
                         >
                           {importDraft.role_body || "(空)"}
                         </Typography.Paragraph>
@@ -738,12 +670,7 @@ function PersonaFormModal({
                     label: t("persona.form.persona.soulPreview"),
                     children: (
                       <Typography.Paragraph
-                        style={{
-                          whiteSpace: "pre-wrap",
-                          maxHeight: 220,
-                          overflow: "auto",
-                          margin: 0,
-                        }}
+                        style={{ whiteSpace: "pre-wrap", maxHeight: 220, overflow: "auto", margin: 0 }}
                       >
                         {templateDetail.soul_preview}
                       </Typography.Paragraph>
@@ -754,12 +681,7 @@ function PersonaFormModal({
                     label: t("persona.form.persona.rolePreview"),
                     children: (
                       <Typography.Paragraph
-                        style={{
-                          whiteSpace: "pre-wrap",
-                          maxHeight: 220,
-                          overflow: "auto",
-                          margin: 0,
-                        }}
+                        style={{ whiteSpace: "pre-wrap", maxHeight: 220, overflow: "auto", margin: 0 }}
                       >
                         {templateDetail.role_preview}
                       </Typography.Paragraph>
@@ -775,14 +697,8 @@ function PersonaFormModal({
             name="id"
             label={t("persona.form.persona.field.id")}
             rules={[
-              {
-                required: true,
-                message: t("persona.form.persona.validation.idRequired"),
-              },
-              {
-                pattern: /^[a-z][a-z0-9_]*$/,
-                message: t("persona.form.persona.validation.idPattern"),
-              },
+              { required: true, message: t("persona.form.persona.validation.idRequired") },
+              { pattern: /^[a-z][a-z0-9_]*$/, message: t("persona.form.persona.validation.idPattern") },
             ]}
           >
             <Input placeholder={t("persona.form.persona.placeholder.id")} />
@@ -791,37 +707,22 @@ function PersonaFormModal({
         <Form.Item
           name="name"
           label={t("persona.form.persona.field.name")}
-          rules={[
-            {
-              required: true,
-              message: t("persona.form.persona.validation.nameRequired"),
-            },
-          ]}
+          rules={[{ required: true, message: t("persona.form.persona.validation.nameRequired") }]}
         >
           <Input placeholder={t("persona.form.persona.placeholder.name")} />
         </Form.Item>
         <Form.Item
           name="title"
           label={t("persona.form.persona.field.title")}
-          rules={[
-            { max: 32, message: t("persona.form.persona.validation.titleMax") },
-          ]}
+          rules={[{ max: 32, message: t("persona.form.persona.validation.titleMax") }]}
           tooltip={t("persona.form.persona.tooltip.title")}
         >
-          <Input
-            placeholder={t("persona.form.persona.placeholder.title")}
-            maxLength={32}
-          />
+          <Input placeholder={t("persona.form.persona.placeholder.title")} maxLength={32} />
         </Form.Item>
         <Form.Item
           name="department"
           label={t("persona.form.persona.field.department")}
-          rules={[
-            {
-              required: true,
-              message: t("persona.form.persona.validation.departmentRequired"),
-            },
-          ]}
+          rules={[{ required: true, message: t("persona.form.persona.validation.departmentRequired") }]}
         >
           <Select
             placeholder={t("persona.form.persona.placeholder.department")}
@@ -830,20 +731,14 @@ function PersonaFormModal({
             optionFilterProp="label"
           />
         </Form.Item>
-        <Form.Item
-          name="llm_config_name"
-          label={t("persona.form.persona.field.llmConfig")}
-        >
+        <Form.Item name="llm_config_name" label={t("persona.form.persona.field.llmConfig")}>
           <Select
             placeholder={t("persona.form.persona.placeholder.llmConfig")}
             options={llmConfigOptions}
             allowClear
           />
         </Form.Item>
-        <Form.Item
-          name="tools_allowed"
-          label={t("persona.form.persona.field.toolsAllowed")}
-        >
+        <Form.Item name="tools_allowed" label={t("persona.form.persona.field.toolsAllowed")}>
           <Select
             mode="multiple"
             placeholder={t("persona.form.persona.placeholder.toolsAllowed")}
@@ -864,10 +759,7 @@ function PersonaFormModal({
             tokenSeparators={[",", "\n"]}
           />
         </Form.Item>
-        <Form.Item
-          name="tools_denied"
-          label={t("persona.form.persona.field.toolsDenied")}
-        >
+        <Form.Item name="tools_denied" label={t("persona.form.persona.field.toolsDenied")}>
           <Select
             mode="multiple"
             placeholder={t("persona.form.persona.placeholder.toolsDenied")}
@@ -876,10 +768,7 @@ function PersonaFormModal({
             optionFilterProp="label"
           />
         </Form.Item>
-        <Form.Item
-          name="skills_allowed"
-          label={t("persona.form.persona.field.skills")}
-        >
+        <Form.Item name="skills_allowed" label={t("persona.form.persona.field.skills")}>
           <Select
             mode="multiple"
             placeholder={t("persona.form.persona.placeholder.skills")}
@@ -888,31 +777,16 @@ function PersonaFormModal({
             optionFilterProp="label"
           />
         </Form.Item>
-        <Form.Item
-          name="tool_tier_max"
-          label={t("persona.form.persona.field.tierMax")}
-        >
+        <Form.Item name="tool_tier_max" label={t("persona.form.persona.field.tierMax")}>
           <InputNumber min={0} max={10} style={{ width: "100%" }} />
         </Form.Item>
-        <Form.Item
-          name="can_delegate"
-          label={t("persona.form.persona.field.canDelegate")}
-          valuePropName="checked"
-        >
+        <Form.Item name="can_delegate" label={t("persona.form.persona.field.canDelegate")} valuePropName="checked">
           <Switch />
         </Form.Item>
-        <Form.Item
-          name="memory_global_read"
-          label={t("persona.form.persona.field.memoryGlobalRead")}
-          valuePropName="checked"
-          extra={t("persona.form.persona.fieldHint.memoryGlobalRead")}
-        >
+        <Form.Item name="memory_global_read" label={t("persona.form.persona.field.memoryGlobalRead")} valuePropName="checked" extra={t("persona.form.persona.fieldHint.memoryGlobalRead")}>
           <Switch />
         </Form.Item>
-        <Form.Item
-          name="delegates_to"
-          label={t("persona.form.persona.field.delegatesTo")}
-        >
+        <Form.Item name="delegates_to" label={t("persona.form.persona.field.delegatesTo")}>
           <Select
             mode="multiple"
             placeholder={t("persona.form.persona.placeholder.delegatesTo")}
@@ -957,11 +831,7 @@ function DepartmentFormModal({
 
   return (
     <Modal
-      title={
-        isEdit
-          ? t("persona.form.department.editTitle")
-          : t("persona.form.department.addTitle")
-      }
+      title={isEdit ? t("persona.form.department.editTitle") : t("persona.form.department.addTitle")}
       open={open}
       onCancel={onClose}
       afterOpenChange={(visible) => visible && handleOpen()}
@@ -976,14 +846,8 @@ function DepartmentFormModal({
             name="id"
             label={t("persona.form.department.field.id")}
             rules={[
-              {
-                required: true,
-                message: t("persona.form.department.validation.idRequired"),
-              },
-              {
-                pattern: /^[a-z][a-z0-9_]*$/,
-                message: t("persona.form.department.validation.idPattern"),
-              },
+              { required: true, message: t("persona.form.department.validation.idRequired") },
+              { pattern: /^[a-z][a-z0-9_]*$/, message: t("persona.form.department.validation.idPattern") },
             ]}
           >
             <Input placeholder={t("persona.form.department.placeholder.id")} />
@@ -992,23 +856,12 @@ function DepartmentFormModal({
         <Form.Item
           name="name"
           label={t("persona.form.department.field.name")}
-          rules={[
-            {
-              required: true,
-              message: t("persona.form.department.validation.nameRequired"),
-            },
-          ]}
+          rules={[{ required: true, message: t("persona.form.department.validation.nameRequired") }]}
         >
           <Input placeholder={t("persona.form.department.placeholder.name")} />
         </Form.Item>
-        <Form.Item
-          name="description"
-          label={t("persona.form.department.field.description")}
-        >
-          <Input.TextArea
-            rows={3}
-            placeholder={t("persona.form.department.placeholder.description")}
-          />
+        <Form.Item name="description" label={t("persona.form.department.field.description")}>
+          <Input.TextArea rows={3} placeholder={t("persona.form.department.placeholder.description")} />
         </Form.Item>
       </Form>
     </Modal>
@@ -1039,9 +892,7 @@ function DepartmentTab({
     return counts;
   }, [personas]);
 
-  const handleSubmit = (
-    values: DepartmentCreateRequest | DepartmentUpdateRequest,
-  ) => {
+  const handleSubmit = (values: DepartmentCreateRequest | DepartmentUpdateRequest) => {
     if (editingDept) {
       updateMutation.mutate(
         { id: editingDept.id, body: values },
@@ -1064,37 +915,19 @@ function DepartmentTab({
 
   const handleDelete = (id: string) => {
     deleteMutation.mutate(id, {
-      onSuccess: () =>
-        notification.success({ message: t("persona.toast.deptDeleted") }),
+      onSuccess: () => notification.success({ message: t("persona.toast.deptDeleted") }),
       onError: (err: unknown) => {
         notification.error({
-          message: isApiProblem(err)
-            ? err.message
-            : t("persona.toast.deptDeleteFailed"),
+          message: isApiProblem(err) ? err.message : t("persona.toast.deptDeleteFailed"),
         });
       },
     });
   };
 
   const columns = [
-    {
-      title: t("persona.department.table.id"),
-      dataIndex: "id",
-      key: "id",
-      width: 120,
-    },
-    {
-      title: t("persona.department.table.name"),
-      dataIndex: "name",
-      key: "name",
-      width: 200,
-    },
-    {
-      title: t("persona.department.table.description"),
-      dataIndex: "description",
-      key: "description",
-      ellipsis: true,
-    },
+    { title: t("persona.department.table.id"), dataIndex: "id", key: "id", width: 120 },
+    { title: t("persona.department.table.name"), dataIndex: "name", key: "name", width: 200 },
+    { title: t("persona.department.table.description"), dataIndex: "description", key: "description", ellipsis: true },
     {
       title: t("persona.department.table.personaCount"),
       key: "persona_count",
@@ -1180,9 +1013,7 @@ export default function PersonaDashboardPage() {
   const { data: departments } = departmentsQuery;
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [editingPersona, setEditingPersona] = useState<PersonaInfo | null>(
-    null,
-  );
+  const [editingPersona, setEditingPersona] = useState<PersonaInfo | null>(null);
   const [activeTab, setActiveTab] = useState("personas");
   const [deptFilter, setDeptFilter] = useState<string | null>(null);
   const { data: routingRules } = useRoutingRules();
@@ -1224,8 +1055,7 @@ export default function PersonaDashboardPage() {
 
   const handleDelete = (id: string) => {
     deleteMutation.mutate(id, {
-      onSuccess: () =>
-        notification.success({ message: t("persona.toast.personaDeleted") }),
+      onSuccess: () => notification.success({ message: t("persona.toast.personaDeleted") }),
     });
   };
 
@@ -1237,9 +1067,7 @@ export default function PersonaDashboardPage() {
         { id: editingPersona.id, body: values },
         {
           onSuccess: () => {
-            notification.success({
-              message: t("persona.toast.personaUpdated"),
-            });
+            notification.success({ message: t("persona.toast.personaUpdated") });
             setModalOpen(false);
           },
         },
@@ -1327,9 +1155,7 @@ export default function PersonaDashboardPage() {
                         persona={persona}
                         expanded={expandedId === persona.id}
                         onToggle={() =>
-                          setExpandedId((prev) =>
-                            prev === persona.id ? null : persona.id,
-                          )
+                          setExpandedId((prev) => (prev === persona.id ? null : persona.id))
                         }
                         onEdit={() => handleEdit(persona)}
                         onDelete={() => handleDelete(persona.id)}
@@ -1369,91 +1195,45 @@ export default function PersonaDashboardPage() {
               </Space>
             ),
             children: (
-              <Space
-                direction="vertical"
-                size="middle"
-                style={{ width: "100%" }}
-              >
+              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
                 <Card title={t("persona.routing.defaultMapTitle")} size="small">
                   <Table
                     columns={[
-                      {
-                        title: t("persona.routing.table.taskType"),
-                        dataIndex: "task_type",
-                        key: "task_type",
-                        width: 120,
-                      },
+                      { title: t("persona.routing.table.taskType"), dataIndex: "task_type", key: "task_type", width: 120 },
                       {
                         title: t("persona.routing.table.status"),
                         key: "status",
                         width: 100,
-                        render: (
-                          _: unknown,
-                          r: {
-                            is_fallback?: boolean;
-                            preferred_department?: string;
-                          },
-                        ) =>
+                        render: (_: unknown, r: { is_fallback?: boolean; preferred_department?: string }) =>
                           r.is_fallback ? (
-                            <Tooltip
-                              title={t("persona.routing.fallbackTooltip", {
-                                dept: r.preferred_department ?? "",
-                              })}
-                            >
-                              <Tag icon={<WarningOutlined />} color="warning">
-                                {t("persona.routing.fallback")}
-                              </Tag>
+                            <Tooltip title={t("persona.routing.fallbackTooltip", { dept: r.preferred_department ?? "" })}>
+                              <Tag icon={<WarningOutlined />} color="warning">{t("persona.routing.fallback")}</Tag>
                             </Tooltip>
                           ) : (
-                            <Tag color="success">
-                              {t("persona.routing.normal")}
-                            </Tag>
+                            <Tag color="success">{t("persona.routing.normal")}</Tag>
                           ),
                       },
-                      {
-                        title: t("persona.routing.table.personaId"),
-                        dataIndex: "persona_id",
-                        key: "persona_id",
-                        width: 120,
-                        render: (v: string) => <Tag color="blue">{v}</Tag>,
-                      },
-                      {
-                        title: t("persona.routing.table.personaName"),
-                        dataIndex: "name",
-                        key: "name",
-                        width: 120,
-                      },
-                      {
-                        title: t("persona.routing.table.department"),
-                        dataIndex: "department",
-                        key: "department",
-                        width: 120,
-                        render: (v: string) => <Tag>{v}</Tag>,
-                      },
+                      { title: t("persona.routing.table.personaId"), dataIndex: "persona_id", key: "persona_id", width: 120,
+                        render: (v: string) => <Tag color="blue">{v}</Tag> },
+                      { title: t("persona.routing.table.personaName"), dataIndex: "name", key: "name", width: 120 },
+                      { title: t("persona.routing.table.department"), dataIndex: "department", key: "department", width: 120,
+                        render: (v: string) => <Tag>{v}</Tag> },
                       {
                         title: t("persona.routing.table.preferredDept"),
                         dataIndex: "preferred_department",
                         key: "preferred_department",
                         width: 120,
                         render: (v: string, r: { is_fallback?: boolean }) =>
-                          r.is_fallback ? (
-                            <Tag color="red">{v}</Tag>
-                          ) : (
-                            <Tag>{v}</Tag>
-                          ),
+                          r.is_fallback ? <Tag color="red">{v}</Tag> : <Tag>{v}</Tag>,
                       },
                     ]}
-                    dataSource={
-                      routingRules?.default_map
-                        ? Object.entries(routingRules.default_map).map(
-                            ([taskType, rule]) => ({
-                              key: taskType,
-                              task_type: taskType,
-                              ...rule,
-                            }),
-                          )
-                        : []
-                    }
+                    dataSource={routingRules?.default_map
+                      ? Object.entries(routingRules.default_map).map(([taskType, rule]) => ({
+                          key: taskType,
+                          task_type: taskType,
+                          ...rule,
+                        }))
+                      : []}
                     size="small"
                     pagination={false}
                     locale={{ emptyText: t("persona.empty.noMapping") }}
@@ -1463,100 +1243,43 @@ export default function PersonaDashboardPage() {
                 <Card title={t("persona.routing.keywordMapTitle")} size="small">
                   <Table
                     columns={[
-                      {
-                        title: t("persona.routing.table.personaId"),
-                        dataIndex: "persona_id",
-                        key: "persona_id",
-                        width: 120,
-                        render: (v: string) => <Tag color="blue">{v}</Tag>,
-                      },
-                      {
-                        title: t("persona.routing.table.personaName"),
-                        dataIndex: "name",
-                        key: "name",
-                        width: 120,
-                      },
-                      {
-                        title: t("persona.routing.table.department"),
-                        dataIndex: "department",
-                        key: "department",
-                        width: 120,
-                        render: (v: string) => <Tag>{v}</Tag>,
-                      },
-                      {
-                        title: t("persona.routing.table.keywords"),
-                        dataIndex: "keywords",
-                        key: "keywords",
-                        render: (v: string[]) =>
-                          v.map((kw) => (
-                            <Tag key={kw} color="green">
-                              {kw}
-                            </Tag>
-                          )),
-                      },
+                      { title: t("persona.routing.table.personaId"), dataIndex: "persona_id", key: "persona_id", width: 120,
+                        render: (v: string) => <Tag color="blue">{v}</Tag> },
+                      { title: t("persona.routing.table.personaName"), dataIndex: "name", key: "name", width: 120 },
+                      { title: t("persona.routing.table.department"), dataIndex: "department", key: "department", width: 120,
+                        render: (v: string) => <Tag>{v}</Tag> },
+                      { title: t("persona.routing.table.keywords"), dataIndex: "keywords", key: "keywords",
+                        render: (v: string[]) => v.map((kw) => <Tag key={kw} color="green">{kw}</Tag>) },
                     ]}
-                    dataSource={
-                      routingRules?.keyword_map
-                        ? Object.entries(routingRules.keyword_map).map(
-                            ([personaId, rule]) => ({
-                              key: personaId,
-                              persona_id: personaId,
-                              ...(rule as {
-                                name: string;
-                                department: string;
-                                keywords: string[];
-                              }),
-                            }),
-                          )
-                        : []
-                    }
+                    dataSource={routingRules?.keyword_map
+                      ? Object.entries(routingRules.keyword_map).map(([personaId, rule]) => ({
+                          key: personaId,
+                          persona_id: personaId,
+                          ...(rule as { name: string; department: string; keywords: string[] }),
+                        }))
+                      : []}
                     size="small"
                     pagination={false}
                     locale={{ emptyText: t("persona.empty.noRules") }}
                   />
                 </Card>
 
-                {routingRules?.delegation_chains &&
-                  routingRules.delegation_chains.length > 0 && (
-                    <Card
-                      title={t("persona.routing.delegationChainTitle")}
+                {routingRules?.delegation_chains && routingRules.delegation_chains.length > 0 && (
+                  <Card title={t("persona.routing.delegationChainTitle")} size="small">
+                    <Table
+                      columns={[
+                        { title: t("persona.routing.table.fromName"), dataIndex: "from_name", key: "from_name" },
+                        { title: t("persona.routing.table.fromId"), dataIndex: "from_id", key: "from_id", width: 120,
+                          render: (v: string) => <Tag color="blue">{v}</Tag> },
+                        { title: t("persona.routing.table.delegatesTo"), dataIndex: "delegates_to", key: "delegates_to",
+                          render: (v: string[]) => v.map((d) => <Tag key={d} color="purple">{d}</Tag>) },
+                      ]}
+                      dataSource={routingRules.delegation_chains.map((d) => ({ key: d.from_id, ...d }))}
                       size="small"
-                    >
-                      <Table
-                        columns={[
-                          {
-                            title: t("persona.routing.table.fromName"),
-                            dataIndex: "from_name",
-                            key: "from_name",
-                          },
-                          {
-                            title: t("persona.routing.table.fromId"),
-                            dataIndex: "from_id",
-                            key: "from_id",
-                            width: 120,
-                            render: (v: string) => <Tag color="blue">{v}</Tag>,
-                          },
-                          {
-                            title: t("persona.routing.table.delegatesTo"),
-                            dataIndex: "delegates_to",
-                            key: "delegates_to",
-                            render: (v: string[]) =>
-                              v.map((d) => (
-                                <Tag key={d} color="purple">
-                                  {d}
-                                </Tag>
-                              )),
-                          },
-                        ]}
-                        dataSource={routingRules.delegation_chains.map((d) => ({
-                          key: d.from_id,
-                          ...d,
-                        }))}
-                        size="small"
-                        pagination={false}
-                      />
-                    </Card>
-                  )}
+                      pagination={false}
+                    />
+                  </Card>
+                )}
               </Space>
             ),
           },

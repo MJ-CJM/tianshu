@@ -24,21 +24,15 @@ describe("truncateId", () => {
 
 describe("formatDuration", () => {
   it("分秒组合", () => {
-    expect(formatDuration("2026-01-01T00:00:00Z", "2026-01-01T00:01:30Z")).toBe(
-      "1m 30s",
-    );
+    expect(formatDuration("2026-01-01T00:00:00Z", "2026-01-01T00:01:30Z")).toBe("1m 30s");
   });
   it("一分钟内只显示秒", () => {
-    expect(formatDuration("2026-01-01T00:00:00Z", "2026-01-01T00:00:45Z")).toBe(
-      "45s",
-    );
+    expect(formatDuration("2026-01-01T00:00:00Z", "2026-01-01T00:00:45Z")).toBe("45s");
   });
   it("缺起止返回占位符", () => {
     expect(formatDuration(null, "2026-01-01T00:00:45Z")).toBe("—");
   });
   it("负时长返回占位符", () => {
-    expect(formatDuration("2026-01-01T00:01:00Z", "2026-01-01T00:00:00Z")).toBe(
-      "—",
-    );
+    expect(formatDuration("2026-01-01T00:01:00Z", "2026-01-01T00:00:00Z")).toBe("—");
   });
 });

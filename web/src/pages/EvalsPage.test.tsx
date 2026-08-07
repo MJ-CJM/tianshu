@@ -43,10 +43,7 @@ afterEach(() => {
 describe("EvalsPage maturity boundary", () => {
   it("labels the page as Beta and states the runnable and CLI boundaries", async () => {
     const client = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false },
-      },
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
 
     render(
@@ -55,9 +52,7 @@ describe("EvalsPage maturity boundary", () => {
       </QueryClientProvider>,
     );
 
-    expect(
-      await screen.findByRole("heading", { name: "考成院" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "考成院" })).toBeInTheDocument();
     expect(screen.getAllByText("Beta")).toHaveLength(2);
     expect(
       screen.getByText("查看真实考卷、运行分数、历次差异、失事分布与靡费。"),
@@ -113,10 +108,7 @@ describe("EvalsPage maturity boundary", () => {
       },
     }));
     const client = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false },
-      },
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
 
     render(
@@ -125,15 +117,11 @@ describe("EvalsPage maturity boundary", () => {
       </QueryClientProvider>,
     );
 
-    const secondRunButton = await screen.findByRole("button", {
-      name: /run-second/,
-    });
+    const secondRunButton = await screen.findByRole("button", { name: /run-second/ });
     secondRunButton.focus();
     await user.keyboard("{Enter}");
 
-    await waitFor(() =>
-      expect(apiMocks.getEvalRun).toHaveBeenCalledWith("run-second-0002"),
-    );
+    await waitFor(() => expect(apiMocks.getEvalRun).toHaveBeenCalledWith("run-second-0002"));
     expect(await screen.findByText("target-second")).toBeInTheDocument();
   });
 });

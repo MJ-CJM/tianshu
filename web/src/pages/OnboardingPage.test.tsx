@@ -3,24 +3,13 @@
 import "@testing-library/jest-dom/vitest";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { notification } from "antd";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type {
-  GovernanceContractPreview,
-  PersonaInfo,
-  SkillInfo,
-} from "../api/types";
+import type { GovernanceContractPreview, PersonaInfo, SkillInfo } from "../api/types";
 import { ONBOARDING_QUERY_KEY, type OnboardingState } from "../api/onboarding";
 
 const onboardingApi = vi.hoisted(() => ({ getOnboardingState: vi.fn() }));
@@ -86,11 +75,7 @@ function governancePreview(): GovernanceContractPreview {
     network: { mode: "deny", allowed_hosts: [] },
     workspace: { source_id: "workspace-main", base_revision: "HEAD" },
     budget: { token_limit: 2000, wall_clock_seconds: 300 },
-    acceptance: {
-      checks: ["tests"],
-      deadline_seconds: 600,
-      on_exhaustion: "escalate",
-    },
+    acceptance: { checks: ["tests"], deadline_seconds: 600, on_exhaustion: "escalate" },
     recovery: { require_restore_point: true, failure_cleanup: "strict" },
   };
   return {
@@ -198,10 +183,7 @@ describe("first-run onboarding", () => {
     onboardingApi.getOnboardingState.mockReturnValue(new Promise(() => {}));
     renderPage();
 
-    expect(screen.getByText("正在加载").closest("section")).toHaveAttribute(
-      "role",
-      "status",
-    );
+    expect(screen.getByText("正在加载").closest("section")).toHaveAttribute("role", "status");
     expect(screen.queryByText("兵部")).not.toBeInTheDocument();
   });
 
@@ -233,26 +215,18 @@ describe("first-run onboarding", () => {
   });
 
   it("redirects a truthfully configured installation to control", async () => {
-    onboardingApi.getOnboardingState.mockResolvedValue({
-      ...FRESH_STATE,
-      required: false,
-    });
+    onboardingApi.getOnboardingState.mockResolvedValue({ ...FRESH_STATE, required: false });
     renderPage();
 
     expect(await screen.findByText("/control")).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "中枢总览" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "中枢总览" })).toBeInTheDocument();
   });
 
   it("does not redirect from cached configured state when the current refresh fails", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: 60_000 } },
     });
-    queryClient.setQueryData(ONBOARDING_QUERY_KEY, {
-      ...FRESH_STATE,
-      required: false,
-    });
+    queryClient.setQueryData(ONBOARDING_QUERY_KEY, { ...FRESH_STATE, required: false });
     onboardingApi.getOnboardingState.mockRejectedValue({
       status: 503,
       code: "onboarding-readiness-unavailable",
@@ -301,9 +275,7 @@ describe("first-run onboarding", () => {
     const successNotification = vi
       .spyOn(notification, "success")
       .mockImplementation(() => undefined);
-    await userEvent.click(
-      await screen.findByRole("radio", { name: /演示配置/ }),
-    );
+    await userEvent.click(await screen.findByRole("radio", { name: /演示配置/ }));
     fireEvent.change(await screen.findByLabelText("敕令旨意"), {
       target: { value: "完成首次治理任务" },
     });
@@ -322,22 +294,15 @@ describe("first-run onboarding", () => {
     expect(effective).toHaveTextContent("tianshu.native.v1");
     expect(edictsApi.createEdict).not.toHaveBeenCalled();
 
-    await userEvent.click(
-      screen.getByRole("button", { name: "确认契约并下发" }),
-    );
+    await userEvent.click(screen.getByRole("button", { name: "确认契约并下发" }));
 
     await waitFor(() => expect(edictsApi.createEdict).toHaveBeenCalledOnce());
     const submitted = edictsApi.createEdict.mock.calls[0]![0];
     expect(submitted).not.toHaveProperty("actor");
     expect(submitted).not.toHaveProperty("submitter");
-    expect(submitted).toHaveProperty(
-      "governance_contract",
-      governancePreview().requested_contract,
-    );
+    expect(submitted).toHaveProperty("governance_contract", governancePreview().requested_contract);
     expect(await screen.findByText("/edicts/edict-new")).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "敕令详情" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "敕令详情" })).toBeInTheDocument();
     expect(successNotification).toHaveBeenCalledOnce();
   });
 
@@ -359,9 +324,7 @@ describe("first-run onboarding", () => {
       target: { value: "完成首次治理任务" },
     });
     await userEvent.click(screen.getByRole("button", { name: /颁发敕令/ }));
-    await userEvent.click(
-      await screen.findByRole("button", { name: "确认契约并下发" }),
-    );
+    await userEvent.click(await screen.findByRole("button", { name: "确认契约并下发" }));
 
     expect(await screen.findByText("/edicts/edict-new")).toBeInTheDocument();
 
@@ -369,8 +332,6 @@ describe("first-run onboarding", () => {
     await lateFetch;
 
     expect(screen.getByText("/edicts/edict-new")).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "敕令详情" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "敕令详情" })).toBeInTheDocument();
   });
 });

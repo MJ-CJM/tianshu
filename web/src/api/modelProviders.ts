@@ -87,15 +87,13 @@ export async function testModelProvider(
 }
 
 export async function getCatalogStatus(): Promise<CatalogStatus> {
-  const { data } = await apiClient.get<ApiResponse<CatalogStatus>>(
-    "/model-catalog/status",
-  );
+  const { data } =
+    await apiClient.get<ApiResponse<CatalogStatus>>("/model-catalog/status");
   return data.data!;
 }
 
 export async function refreshCatalog(): Promise<CatalogStatus> {
-  const { data } = await apiClient.post<ApiResponse<CatalogStatus>>(
-    "/model-catalog/refresh",
-  );
+  const { data } =
+    await apiClient.post<ApiResponse<CatalogStatus>>("/model-catalog/refresh");
   return data.data!;
 }

@@ -106,10 +106,7 @@ function notifyError(t: TFunction, err: unknown) {
   });
 }
 
-function notifySaved(
-  t: TFunction,
-  result: { reloaded: boolean; reason: string },
-) {
+function notifySaved(t: TFunction, result: { reloaded: boolean; reason: string }) {
   notification.success({
     message: t("tongzheng.toast.saved"),
     description: result.reloaded
@@ -167,12 +164,7 @@ function InstanceForm({
       });
     } else {
       form.resetFields();
-      form.setFieldsValue({
-        enabled: true,
-        label: "",
-        secret: "",
-        ...defaults,
-      });
+      form.setFieldsValue({ enabled: true, label: "", secret: "", ...defaults });
     }
     setSecretChanged(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -428,24 +420,16 @@ function TelegramFields({ t, personaOptions }: FieldsProps) {
       >
         <Input placeholder={t("tongzheng.tg.placeholder.homeChannel")} />
       </Form.Item>
-      <Form.Item
-        label={t("tongzheng.tg.field.webhookPath")}
-        name="webhook_path"
-      >
+      <Form.Item label={t("tongzheng.tg.field.webhookPath")} name="webhook_path">
         <Input placeholder="/channels/telegram/webhook" />
       </Form.Item>
       <Form.Item
         label={t("tongzheng.tg.field.webhookSecret")}
         name="webhook_secret"
       >
-        <Input.Password
-          placeholder={t("tongzheng.tg.placeholder.webhookSecret")}
-        />
+        <Input.Password placeholder={t("tongzheng.tg.placeholder.webhookSecret")} />
       </Form.Item>
-      <Form.Item
-        label={t("tongzheng.tg.field.pollTimeout")}
-        name="poll_timeout"
-      >
+      <Form.Item label={t("tongzheng.tg.field.pollTimeout")} name="poll_timeout">
         <InputNumber min={1} max={120} style={{ width: "100%" }} />
       </Form.Item>
       <Form.Item

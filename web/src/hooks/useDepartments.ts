@@ -5,10 +5,7 @@ import {
   updateDepartment,
   deleteDepartment,
 } from "../api/departments";
-import type {
-  DepartmentCreateRequest,
-  DepartmentUpdateRequest,
-} from "../api/types";
+import type { DepartmentCreateRequest, DepartmentUpdateRequest } from "../api/types";
 
 export function useDepartments() {
   return useQuery({

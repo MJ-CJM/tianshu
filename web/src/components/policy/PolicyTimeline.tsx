@@ -173,11 +173,7 @@ export function PolicyTimeline({
     </div>
   ) : filteredEvents.length === 0 ? (
     <Empty
-      description={
-        events.length === 0
-          ? t("comp.policyTimeline.emptyAll")
-          : t("comp.policyTimeline.emptyFiltered")
-      }
+      description={events.length === 0 ? t("comp.policyTimeline.emptyAll") : t("comp.policyTimeline.emptyFiltered")}
     />
   ) : (
     <Timeline mode="left" items={items} />
@@ -185,9 +181,7 @@ export function PolicyTimeline({
 
   return (
     <div style={{ marginBottom: 24 }}>
-      <div
-        style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}
-      >
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
         {filterSelect}
       </div>
       <Collapse

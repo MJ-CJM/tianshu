@@ -29,9 +29,7 @@ describe("shared WebSocket manager", () => {
     const second = manager.subscribeConnection(() => undefined);
 
     expect(createSocket).toHaveBeenCalledTimes(1);
-    expect(createSocket).toHaveBeenCalledWith(
-      "wss://tianshu.example.com/api/ws",
-    );
+    expect(createSocket).toHaveBeenCalledWith("wss://tianshu.example.com/api/ws");
     first();
     expect(sockets[0]!.close).not.toHaveBeenCalled();
     second();

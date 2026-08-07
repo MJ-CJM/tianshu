@@ -18,11 +18,7 @@ const retryableProblem: ApiProblem = {
 
 function renderState(
   status: PageDataStatus,
-  options: {
-    data?: string[] | null;
-    problem?: ApiProblem;
-    onRetry?: () => void;
-  } = {},
+  options: { data?: string[] | null; problem?: ApiProblem; onRetry?: () => void } = {},
 ) {
   return render(
     <PageDataState
@@ -72,39 +68,24 @@ describe("PageDataState seven-state contract", () => {
 
   it("renders an ordinary error without retry when it is unsafe", () => {
     renderState("error", {
-      problem: {
-        ...retryableProblem,
-        status: 500,
-        retryable: false,
-        correlationId: "corr-500",
-      },
+      problem: { ...retryableProblem, status: 500, retryable: false, correlationId: "corr-500" },
     });
 
     expect(screen.getByRole("alert")).toHaveTextContent("请求失败");
     expect(screen.getByRole("alert")).toHaveTextContent("corr-500");
-    expect(
-      screen.queryByRole("button", { name: "重试" }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
   });
 
   it("renders permission-denied distinctly", () => {
     renderState("permission-denied", {
-      problem: {
-        ...retryableProblem,
-        status: 403,
-        code: "permission-denied",
-        retryable: false,
-      },
+      problem: { ...retryableProblem, status: 403, code: "permission-denied", retryable: false },
     });
 
     expect(screen.getByRole("alert")).toHaveTextContent("无权查看此内容");
   });
 
   it("renders service-unavailable distinctly with retry", () => {
-    renderState("service-unavailable", {
-      problem: retryableProblem,
-      onRetry: vi.fn(),
-    });
+    renderState("service-unavailable", { problem: retryableProblem, onRetry: vi.fn() });
 
     expect(screen.getByRole("alert")).toHaveTextContent("服务暂不可用");
     expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();

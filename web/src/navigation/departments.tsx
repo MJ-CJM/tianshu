@@ -30,62 +30,22 @@ interface NavigationItem {
 }
 
 const TASK_ITEMS: readonly NavigationItem[] = [
-  {
-    path: "/approvals",
-    labelKey: "nav.menu.allTasks",
-    icon: <UnorderedListOutlined aria-hidden />,
-  },
-  {
-    path: "/edicts/create",
-    labelKey: "nav.menu.edictCreate",
-    icon: <PlusCircleOutlined aria-hidden />,
-  },
-  {
-    path: "/scheduler",
-    labelKey: "nav.menu.scheduler",
-    icon: <ScheduleOutlined aria-hidden />,
-  },
-  {
-    path: "/audit",
-    labelKey: "nav.menu.audit",
-    icon: <AuditOutlined aria-hidden />,
-  },
+  { path: "/approvals", labelKey: "nav.menu.allTasks", icon: <UnorderedListOutlined aria-hidden /> },
+  { path: "/edicts/create", labelKey: "nav.menu.edictCreate", icon: <PlusCircleOutlined aria-hidden /> },
+  { path: "/scheduler", labelKey: "nav.menu.scheduler", icon: <ScheduleOutlined aria-hidden /> },
+  { path: "/audit", labelKey: "nav.menu.audit", icon: <AuditOutlined aria-hidden /> },
 ];
 
 const COURT_ITEMS: readonly NavigationItem[] = [
-  {
-    path: "/personas",
-    labelKey: "nav.menu.persona",
-    icon: <TeamOutlined aria-hidden />,
-  },
-  {
-    path: "/consultation",
-    labelKey: "nav.menu.consultation",
-    icon: <TeamOutlined aria-hidden />,
-  },
-  {
-    path: "/cabinet",
-    labelKey: "nav.menu.cabinet",
-    icon: <CrownOutlined aria-hidden />,
-  },
+  { path: "/personas", labelKey: "nav.menu.persona", icon: <TeamOutlined aria-hidden /> },
+  { path: "/consultation", labelKey: "nav.menu.consultation", icon: <TeamOutlined aria-hidden /> },
+  { path: "/cabinet", labelKey: "nav.menu.cabinet", icon: <CrownOutlined aria-hidden /> },
 ];
 
 const OFFICE_ITEMS: readonly NavigationItem[] = [
-  {
-    path: "/memory",
-    labelKey: "nav.menu.knowledge",
-    icon: <BookOutlined aria-hidden />,
-  },
-  {
-    path: "/hongluisi",
-    labelKey: "nav.menu.foreign",
-    icon: <GlobalOutlined aria-hidden />,
-  },
-  {
-    path: "/tongzheng",
-    labelKey: "nav.menu.notify",
-    icon: <MessageOutlined aria-hidden />,
-  },
+  { path: "/memory", labelKey: "nav.menu.knowledge", icon: <BookOutlined aria-hidden /> },
+  { path: "/hongluisi", labelKey: "nav.menu.foreign", icon: <GlobalOutlined aria-hidden /> },
+  { path: "/tongzheng", labelKey: "nav.menu.notify", icon: <MessageOutlined aria-hidden /> },
 ];
 
 const LAB_ITEMS: readonly NavigationItem[] = [
@@ -116,21 +76,9 @@ const LAB_ITEMS: readonly NavigationItem[] = [
 ];
 
 const SETTINGS_ITEMS: readonly NavigationItem[] = [
-  {
-    path: "/system",
-    labelKey: "nav.menu.system",
-    icon: <ToolOutlined aria-hidden />,
-  },
-  {
-    path: "/session-rules",
-    labelKey: "nav.menu.sessionRules",
-    icon: <SafetyOutlined aria-hidden />,
-  },
-  {
-    path: "/cost",
-    labelKey: "nav.menu.tax",
-    icon: <DollarOutlined aria-hidden />,
-  },
+  { path: "/system", labelKey: "nav.menu.system", icon: <ToolOutlined aria-hidden /> },
+  { path: "/session-rules", labelKey: "nav.menu.sessionRules", icon: <SafetyOutlined aria-hidden /> },
+  { path: "/cost", labelKey: "nav.menu.tax", icon: <DollarOutlined aria-hidden /> },
 ];
 
 function approvalsLabel(t: TFunction, reviewCount: number) {
@@ -195,10 +143,7 @@ function childItems(t: TFunction, items: readonly NavigationItem[]) {
  * Keep the product map shallow: six primary destinations and no third-level
  * section headers.
  */
-export function buildSidebarItems(
-  t: TFunction,
-  reviewCount: number,
-): MenuProps["items"] {
+export function buildSidebarItems(t: TFunction, reviewCount: number): MenuProps["items"] {
   return [
     {
       key: "/control",
@@ -239,7 +184,11 @@ export function buildSidebarItems(
 }
 
 type SidebarSectionKey =
-  "nav-tasks" | "nav-court" | "nav-offices" | "nav-lab" | "nav-settings";
+  | "nav-tasks"
+  | "nav-court"
+  | "nav-offices"
+  | "nav-lab"
+  | "nav-settings";
 
 const SECTION_PATHS: ReadonlyArray<{
   key: SidebarSectionKey;
@@ -275,9 +224,7 @@ function matchesRoot(pathname: string, root: string) {
   return pathname === root || pathname.startsWith(`${root}/`);
 }
 
-export function sidebarSectionForPath(
-  pathname: string,
-): SidebarSectionKey | null {
+export function sidebarSectionForPath(pathname: string): SidebarSectionKey | null {
   const normalizedPath = normalizePath(pathname);
   return (
     SECTION_PATHS.find(({ roots }) =>

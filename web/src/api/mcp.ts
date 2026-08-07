@@ -8,14 +8,7 @@ export interface MCPServerInfo {
   default_tier: number;
   timeout: number;
   connect_timeout: number;
-  status:
-    | "connected"
-    | "reconnecting"
-    | "error"
-    | "stopped"
-    | "pending"
-    | "disabled"
-    | "unknown";
+  status: "connected" | "reconnecting" | "error" | "stopped" | "pending" | "disabled" | "unknown";
   last_error: string | null;
   tools_filter: { include: string[]; exclude: string[] };
   tool_overrides: Record<string, number>;
@@ -45,8 +38,9 @@ export interface MCPOverridePatch {
 }
 
 export async function listMCPServers(): Promise<ApiResponse<MCPServerInfo[]>> {
-  const { data } =
-    await apiClient.get<ApiResponse<MCPServerInfo[]>>("/mcp/servers");
+  const { data } = await apiClient.get<ApiResponse<MCPServerInfo[]>>(
+    "/mcp/servers",
+  );
   return data;
 }
 
@@ -88,20 +82,11 @@ export async function deleteMCPOverride(
 }
 
 export async function reloadMCP(): Promise<
-  ApiResponse<{
-    servers: number;
-    active_sessions: number;
-    tools_unregistered: number;
-  }>
+  ApiResponse<{ servers: number; active_sessions: number; tools_unregistered: number }>
 > {
-  const { data } =
-    await apiClient.post<
-      ApiResponse<{
-        servers: number;
-        active_sessions: number;
-        tools_unregistered: number;
-      }>
-    >("/mcp/reload");
+  const { data } = await apiClient.post<
+    ApiResponse<{ servers: number; active_sessions: number; tools_unregistered: number }>
+  >("/mcp/reload");
   return data;
 }
 

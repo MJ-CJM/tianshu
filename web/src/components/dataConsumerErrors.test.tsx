@@ -84,9 +84,7 @@ describe("truthful production data states", () => {
 
     render(<PolicyProfilePanel />);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "无权查看此内容",
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("无权查看此内容");
     expect(screen.getByRole("alert")).toHaveTextContent("模板只对管理员开放");
   });
 
@@ -97,9 +95,7 @@ describe("truthful production data states", () => {
 
     render(<OuterLoopTimeline edictId="edict-1" />);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "无权查看此内容",
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("无权查看此内容");
     expect(screen.getByRole("alert")).toHaveTextContent("登录已失效");
   });
 
@@ -108,9 +104,7 @@ describe("truthful production data states", () => {
 
     const { container } = render(<OuterLoopTimeline edictId="edict-1" />);
 
-    await vi.waitFor(() =>
-      expect(apiMocks.getOuterLoopIterations).toHaveBeenCalledOnce(),
-    );
+    await vi.waitFor(() => expect(apiMocks.getOuterLoopIterations).toHaveBeenCalledOnce());
     await vi.waitFor(() => expect(container).toBeEmptyDOMElement());
   });
 

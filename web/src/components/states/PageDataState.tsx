@@ -48,11 +48,7 @@ function StateMessage({
         </p>
       ) : null}
       {canRetry ? (
-        <Button
-          aria-label={t("pageDataState.retry")}
-          style={{ marginTop: 12 }}
-          onClick={onRetry}
-        >
+        <Button aria-label={t("pageDataState.retry")} style={{ marginTop: 12 }} onClick={onRetry}>
           {t("pageDataState.retry")}
         </Button>
       ) : null}
@@ -75,9 +71,7 @@ export default function PageDataState<T>({
     return (
       <section role="status" style={{ padding: 24, textAlign: "center" }}>
         <Spin />
-        <h2 style={{ margin: "12px 0 0", fontSize: 16 }}>
-          {t("pageDataState.loadingTitle")}
-        </h2>
+        <h2 style={{ margin: "12px 0 0", fontSize: 16 }}>{t("pageDataState.loadingTitle")}</h2>
         <p>{t("pageDataState.loadingDescription")}</p>
       </section>
     );
@@ -112,15 +106,9 @@ export default function PageDataState<T>({
 
   const stateCopy =
     status === "permission-denied"
-      ? [
-          t("pageDataState.permissionTitle"),
-          t("pageDataState.permissionDescription"),
-        ]
+      ? [t("pageDataState.permissionTitle"), t("pageDataState.permissionDescription")]
       : status === "service-unavailable"
-        ? [
-            t("pageDataState.unavailableTitle"),
-            t("pageDataState.unavailableDescription"),
-          ]
+        ? [t("pageDataState.unavailableTitle"), t("pageDataState.unavailableDescription")]
         : [t("pageDataState.errorTitle"), t("pageDataState.errorDescription")];
 
   return (

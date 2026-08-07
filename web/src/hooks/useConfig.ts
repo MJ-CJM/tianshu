@@ -99,13 +99,8 @@ export function useCreateConfig() {
 export function useUpdateNamedConfig() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      name,
-      req,
-    }: {
-      name: string;
-      req: LLMConfigUpdateRequest;
-    }) => updateNamedConfig(name, req),
+    mutationFn: ({ name, req }: { name: string; req: LLMConfigUpdateRequest }) =>
+      updateNamedConfig(name, req),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: CONFIGS_KEY });
     },

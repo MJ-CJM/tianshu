@@ -80,15 +80,7 @@ export default function DecisionPanel({
     setDurable(decision);
     setAction(decision.resolvedAction ?? actions[0] ?? "approve");
     setReason(decision.resolvedReason ?? "");
-  }, [
-    decision.id,
-    decision.status,
-    decision.version,
-    decision.resolvedAction,
-    decision.resolvedReason,
-    decision.expiresAt,
-    actions,
-  ]);
+  }, [decision.id, decision.status, decision.version, decision.resolvedAction, decision.resolvedReason, decision.expiresAt, actions]);
 
   useEffect(() => {
     if (durable.status !== "pending" || durable.expiresAt === undefined) return;
@@ -99,10 +91,7 @@ export default function DecisionPanel({
       if (remaining <= 0) {
         timer = window.setTimeout(() => setExpiredKey(expiryKey), 0);
       } else {
-        timer = window.setTimeout(
-          scheduleExpiry,
-          Math.min(remaining, 2_147_483_647),
-        );
+        timer = window.setTimeout(scheduleExpiry, Math.min(remaining, 2_147_483_647));
       }
     };
     scheduleExpiry();
@@ -139,18 +128,11 @@ export default function DecisionPanel({
       if (result.reason) setReason(result.reason);
       headingRef.current?.focus();
     } catch (caught) {
-      if (
-        isApiProblem(caught) &&
-        (caught.status === 409 || caught.status === 412)
-      ) {
+      if (isApiProblem(caught) && (caught.status === 409 || caught.status === 412)) {
         setError(t("decisionUi.versionConflict"));
         onConflict?.();
       } else {
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : t("decisionUi.submitFailed"),
-        );
+        setError(caught instanceof Error ? caught.message : t("decisionUi.submitFailed"));
       }
       headingRef.current?.focus();
     } finally {
@@ -177,9 +159,7 @@ export default function DecisionPanel({
         </dl>
       ) : null}
       <form onSubmit={(event) => void submit(event)}>
-        <label htmlFor={`decision-action-${durable.id}`}>
-          {t("decisionUi.action")}
-        </label>
+        <label htmlFor={`decision-action-${durable.id}`}>{t("decisionUi.action")}</label>
         <Select
           id={`decision-action-${durable.id}`}
           aria-label={t("decisionUi.action")}
@@ -192,9 +172,7 @@ export default function DecisionPanel({
           }))}
         />
 
-        <label htmlFor={`decision-reason-${durable.id}`}>
-          {t("decisionUi.reason")}
-        </label>
+        <label htmlFor={`decision-reason-${durable.id}`}>{t("decisionUi.reason")}</label>
         <textarea
           id={`decision-reason-${durable.id}`}
           value={reason}

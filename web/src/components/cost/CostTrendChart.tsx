@@ -38,62 +38,19 @@ export default function CostTrendChart({ records, loading }: Props) {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th
-                style={{
-                  textAlign: "left",
-                  padding: "8px",
-                  borderBottom: "1px solid var(--ts-color-border)",
-                }}
-              >
-                {t("cost.trend.date")}
-              </th>
-              <th
-                style={{
-                  textAlign: "right",
-                  padding: "8px",
-                  borderBottom: "1px solid var(--ts-color-border)",
-                }}
-              >
-                {t("cost.trend.tokens")}
-              </th>
-              <th
-                style={{
-                  textAlign: "right",
-                  padding: "8px",
-                  borderBottom: "1px solid var(--ts-color-border)",
-                }}
-              >
-                {t("cost.trend.cost")}
-              </th>
+              <th style={{ textAlign: "left", padding: "8px", borderBottom: "1px solid var(--ts-color-border)" }}>{t("cost.trend.date")}</th>
+              <th style={{ textAlign: "right", padding: "8px", borderBottom: "1px solid var(--ts-color-border)" }}>{t("cost.trend.tokens")}</th>
+              <th style={{ textAlign: "right", padding: "8px", borderBottom: "1px solid var(--ts-color-border)" }}>{t("cost.trend.cost")}</th>
             </tr>
           </thead>
           <tbody>
             {dates.map((date) => (
               <tr key={date}>
-                <td
-                  style={{
-                    padding: "8px",
-                    borderBottom: "1px solid var(--ts-color-border)",
-                  }}
-                >
-                  {date}
-                </td>
-                <td
-                  style={{
-                    textAlign: "right",
-                    padding: "8px",
-                    borderBottom: "1px solid var(--ts-color-border)",
-                  }}
-                >
+                <td style={{ padding: "8px", borderBottom: "1px solid var(--ts-color-border)" }}>{date}</td>
+                <td style={{ textAlign: "right", padding: "8px", borderBottom: "1px solid var(--ts-color-border)" }}>
                   {byDate[date]?.tokens.toLocaleString()}
                 </td>
-                <td
-                  style={{
-                    textAlign: "right",
-                    padding: "8px",
-                    borderBottom: "1px solid var(--ts-color-border)",
-                  }}
-                >
+                <td style={{ textAlign: "right", padding: "8px", borderBottom: "1px solid var(--ts-color-border)" }}>
                   ¥{byDate[date]?.cost.toFixed(4)}
                 </td>
               </tr>

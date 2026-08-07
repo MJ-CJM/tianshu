@@ -69,9 +69,7 @@ export function useWsPolicyToasts(
             message: t("comp.policyToast.downgradedTitle"),
             description:
               payload.grant_downgrade_reason ??
-              t("comp.policyToast.downgradedDescDefault", {
-                tool: toolName || t("comp.policyToast.fallbackTool"),
-              }),
+              t("comp.policyToast.downgradedDescDefault", { tool: toolName || t("comp.policyToast.fallbackTool") }),
             duration: 6,
           });
         }

@@ -23,13 +23,8 @@ export interface EngagePayload {
   reason?: string;
 }
 
-export async function engageEstop(
-  payload: EngagePayload,
-): Promise<ApiResponse<EstopState>> {
-  const { data } = await apiClient.post<ApiResponse<EstopState>>(
-    "/estop/engage",
-    payload,
-  );
+export async function engageEstop(payload: EngagePayload): Promise<ApiResponse<EstopState>> {
+  const { data } = await apiClient.post<ApiResponse<EstopState>>("/estop/engage", payload);
   return data;
 }
 
@@ -40,12 +35,7 @@ export interface ResumePayload {
   all_clear?: boolean;
 }
 
-export async function resumeEstop(
-  payload: ResumePayload,
-): Promise<ApiResponse<EstopState>> {
-  const { data } = await apiClient.post<ApiResponse<EstopState>>(
-    "/estop/resume",
-    payload,
-  );
+export async function resumeEstop(payload: ResumePayload): Promise<ApiResponse<EstopState>> {
+  const { data } = await apiClient.post<ApiResponse<EstopState>>("/estop/resume", payload);
   return data;
 }

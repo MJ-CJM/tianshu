@@ -104,9 +104,7 @@ export default function ExternalCredentialsTab() {
       await createCredential(payload);
       notification.success({
         message:
-          kind === "edict_auth"
-            ? t("system.toast.credCreated")
-            : t("system.toast.credCreatedLive"),
+          kind === "edict_auth" ? t("system.toast.credCreated") : t("system.toast.credCreatedLive"),
       });
       setModalOpen(false);
       form.resetFields();
@@ -149,11 +147,7 @@ export default function ExternalCredentialsTab() {
 
   const onEditSubmit = async (values: any) => {
     if (!editRow) return;
-    const patch: {
-      value?: string;
-      extra_headers?: Record<string, string>;
-      enabled?: boolean;
-    } = {};
+    const patch: { value?: string; extra_headers?: Record<string, string>; enabled?: boolean } = {};
     if (values.value) patch.value = values.value;
     if (editRow.kind === "edict_auth" && values.extra_headers !== undefined) {
       try {
@@ -183,11 +177,7 @@ export default function ExternalCredentialsTab() {
   const toggleEnabled = async (row: Credential, next: boolean) => {
     try {
       await updateCredential(row.id, { enabled: next });
-      notification.success({
-        message: next
-          ? t("system.toast.toolEnabled", { name: row.name })
-          : t("system.toast.toolDisabled", { name: row.name }),
-      });
+      notification.success({ message: next ? t("system.toast.toolEnabled", { name: row.name }) : t("system.toast.toolDisabled", { name: row.name }) });
       reload();
       if (row.kind === "engine_provider") {
         qc.invalidateQueries({ queryKey: ["hongluisi", "engine-status"] });
@@ -201,11 +191,7 @@ export default function ExternalCredentialsTab() {
   };
 
   const edictColumns = [
-    {
-      title: t("system.externalCreds.table.name"),
-      dataIndex: "name",
-      key: "name",
-    },
+    { title: t("system.externalCreds.table.name"), dataIndex: "name", key: "name" },
     {
       title: t("system.externalCreds.table.enabled"),
       dataIndex: "enabled",
@@ -266,11 +252,7 @@ export default function ExternalCredentialsTab() {
   ];
 
   const providerColumns = [
-    {
-      title: t("system.externalCreds.table.name"),
-      dataIndex: "name",
-      key: "name",
-    },
+    { title: t("system.externalCreds.table.name"), dataIndex: "name", key: "name" },
     {
       title: t("system.externalCreds.table.enabled"),
       dataIndex: "enabled",
@@ -288,7 +270,8 @@ export default function ExternalCredentialsTab() {
       title: t("system.externalCreds.table.provider"),
       dataIndex: "provider_name",
       key: "provider_name",
-      render: (v: string | null) => (v ? <Tag color="geekblue">{v}</Tag> : "—"),
+      render: (v: string | null) =>
+        v ? <Tag color="geekblue">{v}</Tag> : "—",
     },
     {
       title: t("system.externalCreds.table.lastUsed"),
@@ -334,9 +317,7 @@ export default function ExternalCredentialsTab() {
             <Typography.Paragraph style={{ marginBottom: 4 }}>
               {t("system.externalCreds.vaultDescPara1")}
             </Typography.Paragraph>
-            <Typography.Text strong>
-              {t("system.externalCreds.vaultStepLabel")}
-            </Typography.Text>
+            <Typography.Text strong>{t("system.externalCreds.vaultStepLabel")}</Typography.Text>
             <Typography.Paragraph style={{ marginBottom: 4 }}>
               {t("system.externalCreds.vaultStep1")}
             </Typography.Paragraph>
@@ -350,7 +331,7 @@ export default function ExternalCredentialsTab() {
                 whiteSpace: "pre-wrap",
               }}
             >
-              {`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`}
+{`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`}
             </pre>
             <Typography.Paragraph style={{ marginBottom: 4, marginTop: 8 }}>
               {t("system.externalCreds.vaultStep2")}
@@ -364,7 +345,7 @@ export default function ExternalCredentialsTab() {
                 margin: 0,
               }}
             >
-              {`TIANSHU_SECRET_MASTER_KEY=<key>`}
+{`TIANSHU_SECRET_MASTER_KEY=<key>`}
             </pre>
             <Typography.Paragraph style={{ marginBottom: 0, marginTop: 8 }}>
               {t("system.externalCreds.vaultStep3")}
@@ -385,16 +366,12 @@ export default function ExternalCredentialsTab() {
       <Space style={{ justifyContent: "space-between", width: "100%" }}>
         <Segmented
           value={kind}
-          onChange={(v) => setKind(v as "edict_auth" | "engine_provider")}
+          onChange={(v) =>
+            setKind(v as "edict_auth" | "engine_provider")
+          }
           options={[
-            {
-              value: "edict_auth",
-              label: t("system.externalCreds.edictAuthLabel"),
-            },
-            {
-              value: "engine_provider",
-              label: t("system.externalCreds.engineLabel"),
-            },
+            { value: "edict_auth", label: t("system.externalCreds.edictAuthLabel") },
+            { value: "engine_provider", label: t("system.externalCreds.engineLabel") },
           ]}
         />
         <Button
@@ -445,25 +422,17 @@ export default function ExternalCredentialsTab() {
       <Modal
         open={modalOpen}
         title={
-          kind === "edict_auth"
-            ? t("system.externalCreds.addEdictTitle")
-            : t("system.externalCreds.addEngineTitle")
+          kind === "edict_auth" ? t("system.externalCreds.addEdictTitle") : t("system.externalCreds.addEngineTitle")
         }
         onCancel={() => setModalOpen(false)}
         onOk={() => form.submit()}
         destroyOnClose
       >
         <Form form={form} layout="vertical" onFinish={onCreate}>
-          <Form.Item
-            name="name"
-            label={t("system.externalCreds.form.name")}
-            rules={[{ required: true }]}
-          >
+          <Form.Item name="name" label={t("system.externalCreds.form.name")} rules={[{ required: true }]}>
             <Input
               placeholder={
-                kind === "edict_auth"
-                  ? t("system.externalCreds.form.namePlaceholderEdict")
-                  : t("system.externalCreds.form.namePlaceholderEngine")
+                kind === "edict_auth" ? t("system.externalCreds.form.namePlaceholderEdict") : t("system.externalCreds.form.namePlaceholderEngine")
               }
             />
           </Form.Item>
@@ -474,9 +443,7 @@ export default function ExternalCredentialsTab() {
                 label={t("system.externalCreds.form.hostPattern")}
                 rules={[{ required: true }]}
               >
-                <Input
-                  placeholder={t("system.externalCreds.form.hostPlaceholder")}
-                />
+                <Input placeholder={t("system.externalCreds.form.hostPlaceholder")} />
               </Form.Item>
               <Form.Item
                 name="header_template"
@@ -506,14 +473,8 @@ export default function ExternalCredentialsTab() {
               />
             </Form.Item>
           )}
-          <Form.Item
-            name="value"
-            label={t("system.externalCreds.form.value")}
-            rules={[{ required: true }]}
-          >
-            <Input.Password
-              placeholder={t("system.externalCreds.form.valuePlaceholder")}
-            />
+          <Form.Item name="value" label={t("system.externalCreds.form.value")} rules={[{ required: true }]}>
+            <Input.Password placeholder={t("system.externalCreds.form.valuePlaceholder")} />
           </Form.Item>
         </Form>
       </Modal>
@@ -521,9 +482,7 @@ export default function ExternalCredentialsTab() {
       <Modal
         open={editOpen}
         title={
-          editRow?.kind === "engine_provider"
-            ? t("system.externalCreds.editEngineTitle")
-            : t("system.externalCreds.editCredTitle")
+          editRow?.kind === "engine_provider" ? t("system.externalCreds.editEngineTitle") : t("system.externalCreds.editCredTitle")
         }
         onCancel={() => setEditOpen(false)}
         onOk={() => editForm.submit()}
@@ -531,16 +490,9 @@ export default function ExternalCredentialsTab() {
       >
         <Form form={editForm} layout="vertical" onFinish={onEditSubmit}>
           {editRow && (
-            <div
-              style={{
-                marginBottom: 12,
-                fontSize: 12,
-                color: "var(--ts-color-text-secondary)",
-              }}
-            >
+            <div style={{ marginBottom: 12, fontSize: 12, color: "var(--ts-color-text-secondary)" }}>
               <div>
-                {t("system.externalCreds.infoLabel")}
-                <code style={monoStyle}>{editRow.name}</code>
+                {t("system.externalCreds.infoLabel")}<code style={monoStyle}>{editRow.name}</code>
               </div>
               {editRow.kind === "engine_provider" ? (
                 <div>
@@ -569,20 +521,13 @@ export default function ExternalCredentialsTab() {
             label={t("system.externalCreds.form.newValue")}
             tooltip={t("system.externalCreds.form.newValueTooltip")}
           >
-            <Input.Password
-              placeholder={t("system.externalCreds.form.newValuePlaceholder")}
-            />
+            <Input.Password placeholder={t("system.externalCreds.form.newValuePlaceholder")} />
           </Form.Item>
           {editRow?.kind === "edict_auth" && (
-            <Form.Item
-              name="extra_headers"
-              label={t("system.externalCreds.form.extraHeaders")}
-            >
+            <Form.Item name="extra_headers" label={t("system.externalCreds.form.extraHeaders")}>
               <Input.TextArea
                 rows={3}
-                placeholder={t(
-                  "system.externalCreds.form.extraHeadersPlaceholder",
-                )}
+                placeholder={t("system.externalCreds.form.extraHeadersPlaceholder")}
               />
             </Form.Item>
           )}

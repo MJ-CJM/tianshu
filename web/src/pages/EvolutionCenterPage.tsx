@@ -22,32 +22,18 @@ const panelStyle = {
   background: "var(--ts-color-surface)",
 } as const;
 
-function DisabledSnapshot({
-  snapshot,
-}: {
-  snapshot: EvolutionCenterSnapshotV1;
-}) {
+function DisabledSnapshot({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 }) {
   const t = useT();
   return (
-    <section
-      role="status"
-      aria-labelledby="evolution-disabled-title"
-      style={panelStyle}
-    >
-      <Typography.Title
-        id="evolution-disabled-title"
-        level={4}
-        style={{ margin: 0 }}
-      >
+    <section role="status" aria-labelledby="evolution-disabled-title" style={panelStyle}>
+      <Typography.Title id="evolution-disabled-title" level={4} style={{ margin: 0 }}>
         {t("page.evolutionCenter.notEnabledTitle")}
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ margin: "8px 0 0" }}>
         {t("page.evolutionCenter.notEnabledReason")}
       </Typography.Paragraph>
       <div style={{ marginTop: 12 }}>
-        <Typography.Text type="secondary">
-          {t("page.evolutionCenter.reasonCode")}:{" "}
-        </Typography.Text>
+        <Typography.Text type="secondary">{t("page.evolutionCenter.reasonCode")}: </Typography.Text>
         <MonoText>{snapshot.reason_code}</MonoText>
       </div>
     </section>
@@ -76,34 +62,21 @@ function EnabledEmptySnapshot() {
   );
 }
 
-function SnapshotContent({
-  snapshot,
-}: {
-  snapshot: EvolutionCenterSnapshotV1;
-}) {
+function SnapshotContent({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 }) {
   const t = useT();
-  if (snapshot.status === "not_enabled")
-    return <DisabledSnapshot snapshot={snapshot} />;
+  if (snapshot.status === "not_enabled") return <DisabledSnapshot snapshot={snapshot} />;
   const routingByCandidate = new Map(
     snapshot.routing.map((item) => [item.candidate_id, item] as const),
   );
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <section aria-labelledby="evolution-status-title" style={panelStyle}>
-        <div
-          style={{ display: "flex", justifyContent: "space-between", gap: 16 }}
-        >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
           <div>
-            <Typography.Title
-              id="evolution-status-title"
-              level={4}
-              style={{ margin: 0 }}
-            >
+            <Typography.Title id="evolution-status-title" level={4} style={{ margin: 0 }}>
               {t("page.evolutionCenter.statusTitle")}
             </Typography.Title>
-            <Typography.Text type="secondary">
-              {snapshot.reason_code}
-            </Typography.Text>
+            <Typography.Text type="secondary">{snapshot.reason_code}</Typography.Text>
           </div>
           <div>
             <Tag>Lean Core Gate</Tag>
@@ -116,23 +89,14 @@ function SnapshotContent({
         </div>
         {snapshot.last_gate_hash ? (
           <div style={{ marginTop: 12 }}>
-            <Typography.Text type="secondary">
-              {t("page.evolutionCenter.lastGateHash")}:{" "}
-            </Typography.Text>
+            <Typography.Text type="secondary">{t("page.evolutionCenter.lastGateHash")}: </Typography.Text>
             <MonoText>{snapshot.last_gate_hash}</MonoText>
           </div>
         ) : null}
       </section>
 
-      <section
-        aria-labelledby="evolution-candidates-title"
-        style={{ display: "grid", gap: 12 }}
-      >
-        <Typography.Title
-          id="evolution-candidates-title"
-          level={4}
-          style={{ margin: 0 }}
-        >
+      <section aria-labelledby="evolution-candidates-title" style={{ display: "grid", gap: 12 }}>
+        <Typography.Title id="evolution-candidates-title" level={4} style={{ margin: 0 }}>
           {t("page.evolutionCenter.candidatesTitle")}
         </Typography.Title>
         {snapshot.candidates.map((candidate) => (

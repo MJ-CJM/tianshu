@@ -97,8 +97,7 @@ describe("Skills capability truth", () => {
     expect(skillButton).toHaveFocus();
     fireEvent.click(skillButton);
     expect(screen.getByRole("textbox")).toHaveAttribute("readonly");
-    expect(
-      screen.queryByRole("button", { name: /保存/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /保存/ })).not.toBeInTheDocument();
   });
+
 });

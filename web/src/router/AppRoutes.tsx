@@ -24,22 +24,16 @@ const ConsultationPage = lazy(() => import("../pages/ConsultationPage"));
 const CabinetPage = lazy(() => import("../pages/CabinetPage"));
 const HongluisiPage = lazy(() => import("../pages/HongluisiPage"));
 const TongzhengPage = lazy(() => import("../pages/TongzhengPage"));
-const PersonaDashboardPage = lazy(
-  () => import("../pages/PersonaDashboardPage"),
-);
+const PersonaDashboardPage = lazy(() => import("../pages/PersonaDashboardPage"));
 const PersonaDetailPage = lazy(() => import("../pages/PersonaDetailPage"));
-const SystemManagementPage = lazy(
-  () => import("../pages/SystemManagementPage"),
-);
+const SystemManagementPage = lazy(() => import("../pages/SystemManagementPage"));
 const SessionRulesPage = lazy(() => import("../pages/SessionRulesPage"));
 const UniversePage = lazy(() => import("../pages/UniversePage"));
 const EvalsPage = lazy(() => import("../pages/EvalsPage"));
 const DagBattleMapPage = lazy(() => import("../pages/DagBattleMapPage"));
 const OnboardingPage = lazy(() => import("../pages/OnboardingPage"));
 const EvolutionCenterPage = lazy(() => import("../pages/EvolutionCenterPage"));
-const KeqingManagementPage = lazy(
-  () => import("../pages/KeqingManagementPage"),
-);
+const KeqingManagementPage = lazy(() => import("../pages/KeqingManagementPage"));
 const NotFoundPage = lazy(() => import("../pages/NotFoundPage"));
 
 function OnboardingEntryRoute() {
@@ -54,12 +48,9 @@ function OnboardingEntryRoute() {
       : toApiProblem(query.error)
     : null;
 
-  const hasCurrentSuccess =
-    query.isFetchedAfterMount && !query.isFetching && !problem;
+  const hasCurrentSuccess = query.isFetchedAfterMount && !query.isFetching && !problem;
   if (hasCurrentSuccess && query.data) {
-    return (
-      <Navigate to={query.data.required ? "/onboarding" : "/control"} replace />
-    );
+    return <Navigate to={query.data.required ? "/onboarding" : "/control"} replace />;
   }
 
   return (
@@ -167,14 +158,7 @@ export class RouteErrorBoundary extends Component<
 export default function AppRoutes() {
   return (
     <RouteErrorBoundary>
-      <Suspense
-        fallback={
-          <Spin
-            size="large"
-            style={{ display: "block", margin: "20vh auto" }}
-          />
-        }
-      >
+      <Suspense fallback={<Spin size="large" style={{ display: "block", margin: "20vh auto" }} />}>
         <Routes>
           <Route element={<AppLayout />}>
             <Route path="/" element={<OnboardingEntryRoute />} />
@@ -194,10 +178,7 @@ export default function AppRoutes() {
             <Route path="/hongluisi" element={<HongluisiPage />} />
             <Route path="/tongzheng" element={<TongzhengPage />} />
             <Route path="/personas" element={<PersonaDashboardPage />} />
-            <Route
-              path="/personas/:personaId"
-              element={<PersonaDetailPage />}
-            />
+            <Route path="/personas/:personaId" element={<PersonaDetailPage />} />
             <Route path="/keqing" element={<KeqingManagementPage />} />
             <Route path="/system" element={<SystemManagementPage />} />
             <Route path="/session-rules" element={<SessionRulesPage />} />
