@@ -1875,7 +1875,8 @@
           "template": "范本",
           "templateLang": "范本文体",
           "createMode": "创建方式",
-          "allowedPaths": "界外许行之路"
+          "allowedPaths": "界外许行之路",
+          "workspaceDir": "专属衙署"
         },
         "placeholder": {
           "id": "如 bingbu, neige",
@@ -1888,7 +1889,8 @@
           "skills": "选择技能（留空 = 全部注入）",
           "delegatesTo": "选择可委派的官员",
           "template": "可选：择一范本，代拟魂魄与职司",
-          "allowedPaths": "/data/shared/**"
+          "allowedPaths": "/data/shared/**",
+          "workspaceDir": "/Users/name/workspaces/smg"
         },
         "validation": {
           "idRequired": "请输入 ID",
@@ -1910,7 +1912,8 @@
           "memoryGlobalRead": "高权：可阅百官记忆，慎开"
         },
         "help": {
-          "allowedPaths": "每行一条绝对路径 glob，如 /data/shared/**。事前授权，留空则此官不得越界"
+          "allowedPaths": "每行一条绝对路径 glob，如 /data/shared/**。事前授权，留空则此官不得越界",
+          "workspaceDir": "此官独立行走之境（绝对路径）。空则同处主衙署。文书出入以此为界；治理 apply 仍循主衙署。"
         }
       },
       "department": {

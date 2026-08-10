@@ -78,8 +78,8 @@ class PersonaMixin:
                 """INSERT OR REPLACE INTO personas
                    (id, name, department, title, tools_allowed, tools_denied,
                     skills_allowed, tool_tier_max, can_delegate, memory_global_read, delegates_to,
-                    soul_path, role_path, llm_config_name, allowed_paths, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    soul_path, role_path, llm_config_name, allowed_paths, workspace_dir, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     persona["id"],
                     persona["name"],
@@ -96,6 +96,7 @@ class PersonaMixin:
                     persona.get("role_path"),
                     persona.get("llm_config_name"),
                     json.dumps(persona.get("allowed_paths", [])),
+                    persona.get("workspace_dir", ""),
                     persona.get("created_at", now),
                     now,
                 ),
@@ -121,6 +122,7 @@ class PersonaMixin:
             "tools_allowed",
             "tools_denied",
             "allowed_paths",
+            "workspace_dir",
             "skills_allowed",
             "tool_tier_max",
             "can_delegate",

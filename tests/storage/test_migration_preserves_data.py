@@ -58,6 +58,7 @@ _COMPLETE_MIGRATION_LEDGER = [
     (24, "0024_notification_channel_progress"),
     (25, "0025_persona_allowed_paths"),
     (26, "0026_persona_tier_enforcement"),
+    (27, "0027_persona_workspace_dir"),
 ]
 _POST_BASELINE_TABLES = {
     "auth_tokens",
@@ -353,6 +354,8 @@ def _build_canonical_preledger(
             ALTER TABLE cost_ledger DROP COLUMN cache_read_tokens;
             -- 同理移除 v25 的官员路径白名单列，回到 v1 形状。
             ALTER TABLE personas DROP COLUMN allowed_paths;
+            -- 同理移除 v27 的官员工作区列，回到 v1 形状。
+            ALTER TABLE personas DROP COLUMN workspace_dir;
 
             DROP INDEX idx_internal_notification_delivery_claim;
             DROP INDEX idx_internal_notification_delivery_correlation;

@@ -135,3 +135,71 @@ class TestAllowedPathsSurvivesLoading:
 
         personas = PersonaLoader(tmp_path).load_all()
         assert personas["plain"].allowed_paths == []
+
+
+class TestWorkspaceDirSurvivesLoading:
+    """workspace_dir 必须能穿过 PersonaLoader（issue #33）。
+
+    与 TestAllowedPathsSurvivesLoading 同一防线：字段链最容易漏的就是 loader
+    的两处 AgentPersona 构造——漏了会落库成功、读回恒空、执行时静默回落主
+    工作区，单测全绿也发现不了。
+    """
+
+    def test_yaml_front_matter_workspace_dir_is_loaded(self, tmp_path):
+        persona_dir = tmp_path / "smg"
+        persona_dir.mkdir()
+        (persona_dir / "SOUL.md").write_text(
+            "---\n"
+            "name: 司马光\n"
+            "department: wenyuan\n"
+            "workspace_dir: /data/workspaces/smg\n"
+            "---\n# Soul"
+        )
+        (persona_dir / "ROLE.md").write_text("# Role")
+        (persona_dir / "MEMORY.md").write_text("# Memory")
+
+        personas = PersonaLoader(tmp_path).load_all()
+        assert personas["smg"].workspace_dir == "/data/workspaces/smg"
+
+    def test_absent_workspace_dir_defaults_to_empty(self, tmp_path):
+        persona_dir = tmp_path / "plain"
+        persona_dir.mkdir()
+        (persona_dir / "SOUL.md").write_text("---\nname: Plain\ndepartment: testing\n---\n# Soul")
+        (persona_dir / "ROLE.md").write_text("# Role")
+        (persona_dir / "MEMORY.md").write_text("# Memory")
+
+        personas = PersonaLoader(tmp_path).load_all()
+        assert personas["plain"].workspace_dir == ""
+
+    def test_db_round_trip_preserves_workspace_dir(self, tmp_path):
+        """save → 重建 loader → get：DB 行经 mappers/_dict_to_persona 不丢字段。"""
+        from tianshu.storage import Storage
+
+        storage = Storage(str(tmp_path / "t.db"))
+        storage.init_db()
+        persona_dir = tmp_path / "personas"
+        persona_dir.mkdir()
+        loader = PersonaLoader(persona_dir, storage=storage)
+        loader.load_all()
+
+        from tianshu.persona.model import AgentPersona
+
+        ws = tmp_path / "ws-smg"
+        ws.mkdir()
+        loader.save(
+            AgentPersona(
+                id="smg",
+                name="司马光",
+                department="wenyuan",
+                soul_path=str(tmp_path / "S.md"),
+                role_path=str(tmp_path / "R.md"),
+                memory_path=str(tmp_path / "M.md"),
+                workspace_dir=str(ws),
+            )
+        )
+
+        fresh = PersonaLoader(persona_dir, storage=storage)
+        fresh.load_all()
+        loaded = fresh.get("smg")
+        assert loaded is not None
+        assert loaded.workspace_dir == str(ws), "字段在 save→load 往返中丢失"
