@@ -449,6 +449,7 @@ function PersonaFormModal({
         ...editingPersona,
         tools_allowed: editingPersona.tools_allowed,
         allowed_paths: editingPersona.allowed_paths ?? [],
+        workspace_dir: editingPersona.workspace_dir ?? "",
         tools_denied: editingPersona.tools_denied,
         skills_allowed: editingPersona.skills_allowed,
         delegates_to: editingPersona.delegates_to,
@@ -508,6 +509,7 @@ function PersonaFormModal({
           memory_global_read: false,
           tools_allowed: [],
           allowed_paths: [],
+          workspace_dir: "",
           tools_denied: [],
           skills_allowed: [],
           delegates_to: [],
@@ -758,6 +760,13 @@ function PersonaFormModal({
             open={false}
             tokenSeparators={[",", "\n"]}
           />
+        </Form.Item>
+        <Form.Item
+          name="workspace_dir"
+          label={t("persona.form.persona.field.workspaceDir")}
+          extra={t("persona.form.persona.help.workspaceDir")}
+        >
+          <Input placeholder={t("persona.form.persona.placeholder.workspaceDir")} />
         </Form.Item>
         <Form.Item name="tools_denied" label={t("persona.form.persona.field.toolsDenied")}>
           <Select

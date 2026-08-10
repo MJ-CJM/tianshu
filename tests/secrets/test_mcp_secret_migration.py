@@ -533,6 +533,7 @@ def test_v8_prior_prefix_upgrade_preserves_yaml_override_semantics(
             (24, "0024_notification_channel_progress"),
             (25, "0025_persona_allowed_paths"),
             (26, "0026_persona_tier_enforcement"),
+            (27, "0027_persona_workspace_dir"),
         ]
     finally:
         storage.close()

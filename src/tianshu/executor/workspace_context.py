@@ -104,6 +104,23 @@ _current_workspace: ContextVar[BoundWorkspace | None] = ContextVar(
     default=None,
 )
 
+#: 官员专属工作区根（issue #33）。与 lease 绑定是两回事：lease 是治理 apply 的
+#: 隔离暂存（含 source authority 校验），本 override 只改默认沙箱边界。
+#: 解析顺序见 resolve_workspace_root：lease > persona override > 进程默认。
+_workspace_root_override: ContextVar[Path | None] = ContextVar(
+    "workspace_root_override",
+    default=None,
+)
+
+
+@contextmanager
+def bind_workspace_root_override(root: Path) -> Iterator[None]:
+    token = _workspace_root_override.set(Path(root).expanduser().resolve())
+    try:
+        yield
+    finally:
+        _workspace_root_override.reset(token)
+
 
 @contextmanager
 def bind_workspace(workspace: BoundWorkspace) -> Iterator[None]:
@@ -169,16 +186,25 @@ def validate_current_workspace_binding() -> BoundWorkspace | None:
 
 
 def resolve_workspace_root(default_root: Path) -> Path:
+    """lease 绑定 > 官员工作区 override > 进程默认。
+
+    lease 必须最先：治理 apply 的执行必须落在隔离暂存里，官员 override
+    若能遮蔽 lease，staging 里的改动会写回错误的位置。
+    """
     workspace = validate_current_workspace_binding()
-    if workspace is None:
-        return Path(default_root).resolve()
-    return workspace.root
+    if workspace is not None:
+        return workspace.root
+    override = _workspace_root_override.get()
+    if override is not None:
+        return override
+    return Path(default_root).resolve()
 
 
 __all__ = [
     "BoundWorkspace",
     "WorkspaceBindingError",
     "bind_workspace",
+    "bind_workspace_root_override",
     "get_bound_workspace",
     "require_bound_workspace",
     "requires_workspace_binding",

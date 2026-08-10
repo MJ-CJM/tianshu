@@ -116,6 +116,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0026_persona_tier_enforcement": (
         "da1d14e572b00e34367cb062868c5d2d65fdba1e942c3b1d5a524e7b99a3a1d9"
     ),
+    # v27 gives each official an optional dedicated workspace root (issue #33).
+    "0027_persona_workspace_dir": (
+        "c2124b4345989f1c04cb6a0ec274bf09637c37e83beff6df9bbbdd36d591b0fa"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

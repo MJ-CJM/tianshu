@@ -18,6 +18,25 @@ from tianshu.tools.path_utils import validate_allowed_path_glob
 personas_router = APIRouter(tags=["personas"])
 
 
+def _reject_unsafe_workspace_dir(body: dict) -> None:
+    """官员专属工作区（#33）写入校验——复用全局工作区的同一套规则。
+
+    空串合法（= 回落主工作区）；非空则必须是已存在的绝对路径目录、
+    非文件系统根、非凭证目录。
+    """
+    raw = body.get("workspace_dir")
+    if raw is None:
+        return
+    if not isinstance(raw, str):
+        raise HTTPException(status_code=400, detail="workspace_dir 必须是字符串")
+    if not raw.strip():
+        body["workspace_dir"] = ""
+        return
+    from tianshu.gateway.config_api import _validate_workspace_dir
+
+    body["workspace_dir"] = str(_validate_workspace_dir(raw))
+
+
 def _reject_unsafe_allowed_paths(body: dict) -> None:
     """越界白名单写入前校验——不合法的 glob 运行时会静默失效，须当场报错。"""
     raw = body.get("allowed_paths")
@@ -205,6 +224,7 @@ def list_personas(request: Request):
                 "tools_allowed": p.tools_allowed,
                 "tools_denied": p.tools_denied,
                 "allowed_paths": p.allowed_paths,
+                "workspace_dir": p.workspace_dir,
                 "skills_allowed": p.skills_allowed,
                 "tool_tier_max": p.tool_tier_max,
                 "can_delegate": p.can_delegate,
@@ -274,6 +294,7 @@ async def create_persona(request: Request):
     if not body.get("id") or not body.get("name") or not body.get("department"):
         raise HTTPException(status_code=400, detail="id, name, department are required")
     _reject_unsafe_allowed_paths(body)
+    _reject_unsafe_workspace_dir(body)
     if body.get("import_skill_paths"):
         raise HTTPException(
             status_code=409,
@@ -391,6 +412,7 @@ async def create_persona(request: Request):
         memory_path=memory_path,
         tools_allowed=body.get("tools_allowed", []),
         allowed_paths=body.get("allowed_paths", []),
+        workspace_dir=body.get("workspace_dir", ""),
         tools_denied=body.get("tools_denied", []),
         skills_allowed=skills_allowed,
         tool_tier_max=body.get("tool_tier_max", 4),
@@ -410,6 +432,7 @@ async def create_persona(request: Request):
             "tools_allowed": persona.tools_allowed,
             "tools_denied": persona.tools_denied,
             "allowed_paths": persona.allowed_paths,
+            "workspace_dir": persona.workspace_dir,
             "skills_allowed": persona.skills_allowed,
             "tool_tier_max": persona.tool_tier_max,
             "can_delegate": persona.can_delegate,
@@ -496,6 +519,7 @@ async def update_persona(persona_id: str, request: Request):
 
     body = await request.json()
     _reject_unsafe_allowed_paths(body)
+    _reject_unsafe_workspace_dir(body)
     # Validate department FK if changing department
     if "department" in body and not storage.get_department(body["department"]):
         raise HTTPException(

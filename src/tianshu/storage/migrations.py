@@ -4052,6 +4052,29 @@ def _persona_tier_enforcement_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+_PERSONA_WORKSPACE_VERSION = _PERSONA_TIER_ENFORCEMENT_VERSION + 1
+_PERSONA_WORKSPACE_NAME = f"{_PERSONA_WORKSPACE_VERSION:04d}_persona_workspace_dir"
+# 官员专属工作区根（issue #33）。空串 = 未配置，执行时回落主工作区。
+_PERSONA_WORKSPACE_STATEMENTS = (
+    """
+    ALTER TABLE personas
+    ADD COLUMN workspace_dir TEXT NOT NULL DEFAULT ''
+    """,
+)
+_PERSONA_WORKSPACE_CHECKSUM = hashlib.sha256(
+    (
+        _PERSONA_WORKSPACE_NAME
+        + "\n"
+        + "\n".join(" ".join(statement.split()) for statement in _PERSONA_WORKSPACE_STATEMENTS)
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _persona_workspace_upgrade(conn: MigrationConnection) -> None:
+    for statement in _PERSONA_WORKSPACE_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
     Migration(
         version=_EVOLUTION_CANDIDATE_MIGRATION_VERSION,
@@ -4106,6 +4129,12 @@ MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
         name=_PERSONA_TIER_ENFORCEMENT_NAME,
         checksum=_PERSONA_TIER_ENFORCEMENT_CHECKSUM,
         upgrade=_persona_tier_enforcement_upgrade,
+    ),
+    Migration(
+        version=_PERSONA_WORKSPACE_VERSION,
+        name=_PERSONA_WORKSPACE_NAME,
+        checksum=_PERSONA_WORKSPACE_CHECKSUM,
+        upgrade=_persona_workspace_upgrade,
     ),
 )
 
