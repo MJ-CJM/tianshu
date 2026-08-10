@@ -57,6 +57,7 @@ _COMPLETE_MIGRATION_LEDGER = [
     (23, "0023_cost_cache_read_tokens"),
     (24, "0024_notification_channel_progress"),
     (25, "0025_persona_allowed_paths"),
+    (26, "0026_persona_tier_enforcement"),
 ]
 _POST_BASELINE_TABLES = {
     "auth_tokens",

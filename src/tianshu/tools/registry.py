@@ -131,6 +131,28 @@ class ToolRegistry:
 
         defn, func = self._tools[name]
 
+        # 官员职权契约的执行层兜底（issue #40）：T0 工具在 agent 层走快路径
+        # 绕过 hook chain，PersonaToolRule 罩不到——deny/allow 条款在此再拦一道。
+        # 只拦名单条款：tier 超限走 PolicyHook 的越级奏请（T0 恒 ≤ tier_max，
+        # 不会在此触发）。无 persona 上下文 → 无本维度约束，与既有行为一致。
+        from tianshu.kernel.ambient import get_current_persona
+        from tianshu.persona.match import persona_tool_verdict
+
+        persona = get_current_persona()
+        if persona is not None:
+            clause = persona_tool_verdict(persona, name, int(defn.tier))
+            if clause in ("denied", "not_allowed"):
+                logger.warning(
+                    "[TOOL] %s rejected by persona ACL (persona=%s clause=%s)",
+                    name,
+                    persona.id,
+                    clause,
+                )
+                return error_result(
+                    f"Tool '{name}' rejected: 官员 {persona.id} 的职权契约不含此工具"
+                    f"（{'tools_denied 命中' if clause == 'denied' else 'tools_allowed 脱靶'}）"
+                )
+
         from tianshu.executor.workspace_context import (
             WorkspaceBindingError,
             validate_current_workspace_binding,

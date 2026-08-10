@@ -4025,6 +4025,33 @@ def _persona_allowed_paths_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+_PERSONA_TIER_ENFORCEMENT_VERSION = _PERSONA_ALLOWED_PATHS_VERSION + 1
+_PERSONA_TIER_ENFORCEMENT_NAME = f"{_PERSONA_TIER_ENFORCEMENT_VERSION:04d}_persona_tier_enforcement"
+# persona 工具 ACL 从声明变为强制（issue #40）之前，tool_tier_max=0 是从未生效
+# 的占位值（API/模型默认 0 + 无任何执行链消费）。开始强制时把存量 0 提到 T4
+# （不设上限），保持这些官员的实际行为逐字节不变；非 0 值是有意声明（如 seed
+# 部门 bingbu=2/ducha=1），原样保留并自此生效。新默认语义：未声明 = 不设上限。
+_PERSONA_TIER_ENFORCEMENT_STATEMENTS = (
+    """
+    UPDATE personas SET tool_tier_max = 4 WHERE tool_tier_max = 0
+    """,
+)
+_PERSONA_TIER_ENFORCEMENT_CHECKSUM = hashlib.sha256(
+    (
+        _PERSONA_TIER_ENFORCEMENT_NAME
+        + "\n"
+        + "\n".join(
+            " ".join(statement.split()) for statement in _PERSONA_TIER_ENFORCEMENT_STATEMENTS
+        )
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _persona_tier_enforcement_upgrade(conn: MigrationConnection) -> None:
+    for statement in _PERSONA_TIER_ENFORCEMENT_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
     Migration(
         version=_EVOLUTION_CANDIDATE_MIGRATION_VERSION,
@@ -4073,6 +4100,12 @@ MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
         name=_PERSONA_ALLOWED_PATHS_NAME,
         checksum=_PERSONA_ALLOWED_PATHS_CHECKSUM,
         upgrade=_persona_allowed_paths_upgrade,
+    ),
+    Migration(
+        version=_PERSONA_TIER_ENFORCEMENT_VERSION,
+        name=_PERSONA_TIER_ENFORCEMENT_NAME,
+        checksum=_PERSONA_TIER_ENFORCEMENT_CHECKSUM,
+        upgrade=_persona_tier_enforcement_upgrade,
     ),
 )
 
