@@ -42,6 +42,15 @@ body {
   outline-offset: 1px !important;
 }
 
+/* Checkbox/Radio 的真实 input 是 opacity:0 的覆盖层——outline 会随 opacity
+   一起隐藏，键盘焦点环须落在可见的 wrapper（label）上。表格全选框
+   （aria-label="Select all"）正是长期间歇性红的那个 a11y 用例。 */
+.ant-checkbox-wrapper:has(.ant-checkbox-input:focus-visible),
+.ant-radio-wrapper:has(.ant-radio-input:focus-visible) {
+  outline: 2px solid var(--ts-color-focus-ring) !important;
+  outline-offset: 1px !important;
+}
+
 /* ── 侧栏:选中项左侧一道朱杠(奏折眉批) ── */
 .ant-menu-inline .ant-menu-item,
 .ant-menu-vertical .ant-menu-item {
