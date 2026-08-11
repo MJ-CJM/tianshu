@@ -89,6 +89,10 @@ class AgentResult(BaseModel):
 ASSISTANT_ONLY_TOOLS: frozenset[str] = frozenset(
     {
         "submit_edict",
+        # 注意 schedule_edict 刻意**不**在此列：任何官员都该能给自己排定时差事
+        # （见 tests/tools/test_schedule_edict.py 的 test_any_official_can_use_...）。
+        # 它同样接受 assigned_persona_id，故派官给他人这条路径改在工具内部按
+        # "只能派给自己" 收口（issue #49），而不是整把工具封禁。
         "list_edicts",
         "get_edict_status",
         "list_personas",

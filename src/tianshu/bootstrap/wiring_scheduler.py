@@ -30,6 +30,7 @@
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 from uuid import uuid4
 
@@ -44,6 +45,7 @@ from tianshu.application.run_reconciler import RunReconciler
 from tianshu.application.scheduled_runs import ScheduledRunPreparer
 from tianshu.auditor.auditor import Auditor
 from tianshu.bootstrap.universe_hooks import _update_universe_fitness
+from tianshu.bootstrap.wiring_llm import _assistant_persona_id_provider
 from tianshu.config import TianshuSettings
 from tianshu.consultation.session import ConsultationSession
 from tianshu.executor.managed_tools import ManagedToolEffectExecutor
@@ -248,6 +250,9 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         scheduler=scheduler,
         persona_loader=persona_loader,
         edict_application_service=app.state.edict_application_service,
+        # 派官收口需要知道谁是助手（issue #49）：与 agent 的 ASSISTANT_ONLY 过滤
+        # 同源，复用同一个 provider，避免两处各判一次导致语义漂移。
+        assistant_persona_id_provider=functools.partial(_assistant_persona_id_provider, storage),
     )
     feishu_channel_cfg = storage.get_channel_config("feishu")
     if not (feishu_channel_cfg and feishu_channel_cfg.get("enable_edict_submission")):

@@ -84,20 +84,51 @@ class TestSessionRuleSkipsPersonaTier:
         )
 
     @pytest.mark.asyncio
-    async def test_persona_tier_never_queries_session_rule(self):
+    async def test_exceeding_persona_never_queries_session_rule(self):
+        from tianshu.kernel.ambient import bind_persona
+
         store = _RecordingRuleStore()
         hook = self._hook(store)
-        await self._run(hook, "persona_tier")
-        assert store.queries == [], "越级奏请查了 session rule——他人历史授权能湮灭它"
+        with bind_persona(_persona(tool_tier_max=1)):
+            await self._run(hook, "persona_tier")
+        assert store.queries == [], "越级官员查了 session rule——他人历史授权能湮灭它"
 
     @pytest.mark.asyncio
-    async def test_other_rules_still_use_session_rule(self):
-        """安全底线：只豁免 persona_tier，其余审批的缓存语义不变。"""
+    async def test_skip_does_not_depend_on_winning_rule_id(self):
+        """回归钉：越级判定不得依赖胜出规则的 rule_id。
+
+        PolicyEngine 遇 require_approval 即短路，persona_tier(15) 排在
+        workspace(90)/bash(80)/network(75)/approval-list(70) 之后——只要其中
+        任一条先命中，decision.rule_id 就指向别人。初版按 rule_id 判断，导致
+        tier_max=1 官员调 shell_exec 拿到 rule_id="bash_safety"、照样吃缓存，
+        本 issue 要堵的洞原封不动。"""
+        from tianshu.kernel.ambient import bind_persona
+
         store = _RecordingRuleStore()
         hook = self._hook(store)
-        result = await self._run(hook, "bash_safety")
+        with bind_persona(_persona(tool_tier_max=1)):
+            await self._run(hook, "bash_safety")  # 胜出的是别的规则
+        assert store.queries == [], "按 rule_id 判越级会漏——必须独立重算 persona ACL"
+
+    @pytest.mark.asyncio
+    async def test_non_exceeding_persona_still_uses_session_rule(self):
+        """安全底线：不越级的官员，审批缓存语义逐字不变。"""
+        from tianshu.kernel.ambient import bind_persona
+
+        store = _RecordingRuleStore()
+        hook = self._hook(store)
+        with bind_persona(_persona(tool_tier_max=4)):
+            result = await self._run(hook, "bash_safety")
         assert store.queries == ["shell_exec"]
         assert result is not None and not result.block, "命中缓存应转 allow"
+
+    @pytest.mark.asyncio
+    async def test_no_persona_context_unchanged(self):
+        """无 persona（助手分支/CLI）时缓存行为不变。"""
+        store = _RecordingRuleStore()
+        hook = self._hook(store)
+        await self._run(hook, "bash_safety")
+        assert store.queries == ["shell_exec"]
 
 
 class TestAssistantOnlyExecutionWall:
@@ -297,3 +328,61 @@ class TestPersonaTierStillEnforced:
 @pytest.fixture
 def _unused_memorial():
     return Memorial(edict_id="e", status=TaskStatus.RUNNING)
+
+
+class TestSessionRuleWriteSideGuard:
+    """#48 写侧：越级奏请获批不得投影成 session rule。
+
+    读侧只让越级官员**不吃**缓存；若写侧照旧投影，一次"为受限官员批的越级"
+    会变成对全体官员该操作的长期免审——授权被放大，方向正好反了。
+    """
+
+    def _manager(self, storage):
+        from tianshu.bus.event_bus import EventBus
+        from tianshu.executor.approvals import ApprovalManager
+        from tianshu.governance.decision_service import DecisionService
+
+        return ApprovalManager(EventBus(), storage, decision_service=DecisionService(storage))
+
+    def _record(self, *, exceeds: bool):
+        """构造一条"已批准且选了 edict scope"的记录。"""
+        return SimpleNamespace(
+            request=SimpleNamespace(
+                decision_request_id="req-1",
+                edict_id="edict-1",
+                memorial_id="memorial-1",
+                payload={
+                    "tool_name": "mcp_deploy_service",
+                    "arguments": {"svc": "api"},
+                    "persona_exceeds_tier": exceeds,
+                },
+            ),
+            resolution=SimpleNamespace(action="approve", resolved_at=None),
+        )
+
+    @pytest.mark.asyncio
+    async def test_tier_exceeded_approval_is_not_projected(self, storage):
+        created: list = []
+        mgr = self._manager(storage)
+        mgr._session_rule_store = SimpleNamespace(create=AsyncMock(side_effect=created.append))
+        decree = SimpleNamespace(id="d1", grant_scope="edict", grant_reason="ok")
+
+        await mgr._project_tool_session_rule(self._record(exceeds=True), decree)
+        assert created == [], "越级审批被投影成 session rule——授权会外溢到其他官员"
+
+    @pytest.mark.asyncio
+    async def test_normal_approval_still_projected(self, storage):
+        """安全底线：普通审批的缓存投影语义不变。"""
+        created: list = []
+        mgr = self._manager(storage)
+        mgr._session_rule_store = SimpleNamespace(create=AsyncMock(side_effect=created.append))
+        decree = SimpleNamespace(id="d1", grant_scope="edict", grant_reason="ok")
+
+        from datetime import UTC, datetime
+
+        # 事件持久化需要真实 edict/memorial 外键；本例只断言"是否投影"。
+        mgr._storage = MagicMock()
+        rec = self._record(exceeds=False)
+        rec.resolution.resolved_at = datetime.now(UTC)
+        await mgr._project_tool_session_rule(rec, decree)
+        assert len(created) == 1, "普通审批仍应投影，否则每次都要重批"
