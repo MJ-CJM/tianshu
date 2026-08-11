@@ -1,11 +1,4 @@
 {
   "schema_version": 1,
-  "advisories": {
-    "GHSA-qwww-vcr4-c8h2": {
-      "package": "react-router",
-      "versions": ["7.18.2"],
-      "expires": "2026-10-31",
-      "reason": "The advisory applies to React Router RSC server actions. Tianshu is a client-only Vite SPA and does not enable RSC mode or server actions. Keep the fixed client-side redirect releases and remove this exception as soon as an upstream version resolves the RSC advisory."
-    }
-  }
+  "advisories": {}
 }
