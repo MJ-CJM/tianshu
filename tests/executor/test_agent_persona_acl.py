@@ -137,9 +137,9 @@ async def test_denied_tool_blocked_by_real_policy_hook(config_manager, tmp_path,
         "SELECT payload_json FROM events WHERE event_type = 'policy.decision'"
     ).fetchall()
     decisions = [json.loads(row[0]) for row in events]
-    assert any(
-        d["rule_id"] == "persona_tool_acl" and d["verdict"] == "deny" for d in decisions
-    ), decisions
+    assert any(d["rule_id"] == "persona_tool_acl" and d["verdict"] == "deny" for d in decisions), (
+        decisions
+    )
 
 
 async def test_unconstrained_persona_tool_executes(config_manager, tmp_path, storage) -> None:

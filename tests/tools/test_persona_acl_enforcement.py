@@ -21,7 +21,7 @@ from tianshu.persona.match import persona_can_use, persona_tool_verdict
 from tianshu.persona.model import AgentPersona
 from tianshu.tools.policy import PolicyContext, PolicyEngine
 from tianshu.tools.policy_rules import build_default_rules
-from tianshu.tools.policy_rules.persona_tool import PersonaToolRule
+from tianshu.tools.policy_rules.persona_tool import PersonaTierRule, PersonaToolAclRule
 from tianshu.tools.types import ToolTier
 
 
@@ -80,37 +80,59 @@ class TestVerdictSemantics:
 class TestPersonaToolRule:
     @pytest.mark.asyncio
     async def test_no_persona_abstains(self):
-        decision = await PersonaToolRule().evaluate(_ctx("shell_exec", ToolTier.T4_DANGEROUS))
-        assert decision is None
+        assert (
+            await PersonaToolAclRule().evaluate(_ctx("shell_exec", ToolTier.T4_DANGEROUS)) is None
+        )
+        assert await PersonaTierRule().evaluate(_ctx("shell_exec", ToolTier.T4_DANGEROUS)) is None
 
     @pytest.mark.asyncio
     async def test_denied_tool_is_hard_deny(self):
         with bind_persona(_persona(tools_denied=["shell_exec"])):
-            decision = await PersonaToolRule().evaluate(_ctx("shell_exec", ToolTier.T4_DANGEROUS))
+            decision = await PersonaToolAclRule().evaluate(
+                _ctx("shell_exec", ToolTier.T4_DANGEROUS)
+            )
         assert decision is not None and decision.verdict == "deny"
         assert decision.metadata["clause"] == "denied"
 
     @pytest.mark.asyncio
     async def test_allowlist_miss_is_hard_deny(self):
         with bind_persona(_persona(tools_allowed=["read_file"])):
-            decision = await PersonaToolRule().evaluate(_ctx("edit_file", ToolTier.T1_WORKSPACE))
+            decision = await PersonaToolAclRule().evaluate(_ctx("edit_file", ToolTier.T1_WORKSPACE))
         assert decision is not None and decision.verdict == "deny"
         assert decision.metadata["clause"] == "not_allowed"
+
+    @pytest.mark.asyncio
+    async def test_acl_rule_abstains_on_tier_clause(self):
+        """名单规则不管 tier——越级交给低优先级的 PersonaTierRule。"""
+        with bind_persona(_persona(tool_tier_max=1)):
+            assert (
+                await PersonaToolAclRule().evaluate(_ctx("shell_exec", ToolTier.T4_DANGEROUS))
+                is None
+            )
 
     @pytest.mark.asyncio
     async def test_tier_exceeded_requires_approval(self):
         """越级不是硬拒——奏请批准，与 bash_safety 的审批 UX 一致。"""
         with bind_persona(_persona(tool_tier_max=1)):
-            decision = await PersonaToolRule().evaluate(_ctx("shell_exec", ToolTier.T4_DANGEROUS))
+            decision = await PersonaTierRule().evaluate(_ctx("shell_exec", ToolTier.T4_DANGEROUS))
         assert decision is not None and decision.verdict == "require_approval"
         assert decision.metadata["clause"] == "tier_exceeded"
+
+    @pytest.mark.asyncio
+    async def test_tier_rule_abstains_on_name_clauses(self):
+        """tier 规则不管名单条款——denied/not_allowed 由 PersonaToolAclRule 硬拒。"""
+        with bind_persona(_persona(tools_denied=["shell_exec"])):
+            assert (
+                await PersonaTierRule().evaluate(_ctx("shell_exec", ToolTier.T4_DANGEROUS)) is None
+            )
 
     @pytest.mark.asyncio
     async def test_pass_abstains_not_allows(self):
         """放行是弃权而非 allow 短路——工作区/网络等其他规则仍须评估。"""
         with bind_persona(_persona()):
-            decision = await PersonaToolRule().evaluate(_ctx("read_file", ToolTier.T0_READONLY))
-        assert decision is None
+            assert (
+                await PersonaToolAclRule().evaluate(_ctx("read_file", ToolTier.T0_READONLY)) is None
+            )
 
 
 class TestEngineOrdering:
@@ -132,6 +154,48 @@ class TestEngineOrdering:
             decision = await engine.evaluate(ctx)
         assert decision.verdict == "deny"
         assert decision.rule_id == "persona_tool_acl"
+
+    @pytest.mark.asyncio
+    async def test_tier_exceeded_does_not_shortcircuit_bash_deny(self):
+        """回归钉（审查 #4/#6）：tier 越级奏请不得抢在 bash_safety 硬 deny 前面。
+
+        tier_max=2 的官员调 shell_exec 执行黑名单命令——若 PersonaTierRule 排在
+        bash_safety(80) 之前拿到 require_approval，无条件硬拒的命令就变成一键
+        可批。拆规则后 persona_tier 排在 15，bash 的 deny 必须先赢。"""
+        engine = PolicyEngine(rules=build_default_rules())
+        ctx = PolicyContext(
+            tool_name="shell_exec",
+            tool_tier=ToolTier.T4_DANGEROUS,
+            args={"command": "sudo rm -rf /"},
+            edict=Edict(goal="x"),
+            memorial=None,
+            workspace_root=Path("/tmp/ws"),
+            iteration=0,
+        )
+        with bind_persona(_persona(tool_tier_max=2)):
+            decision = await engine.evaluate(ctx)
+        assert decision.verdict == "deny", decision
+        assert decision.rule_id == "bash_safety", (
+            f"黑名单命令必须被 bash_safety 硬拒，而不是被 persona 越级奏请短路：{decision.rule_id}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_tier_exceeded_surfaces_when_safe_rules_abstain(self):
+        """安全规则都放行时，越级奏请仍兜底（tier 规则没被误删优先级）。"""
+        engine = PolicyEngine(rules=build_default_rules())
+        ctx = PolicyContext(
+            tool_name="mcp_custom_tool",
+            tool_tier=ToolTier.T3_WRITE,
+            args={},
+            edict=Edict(goal="x"),
+            memorial=None,
+            workspace_root=Path("/tmp/ws"),
+            iteration=0,
+        )
+        with bind_persona(_persona(tool_tier_max=1)):
+            decision = await engine.evaluate(ctx)
+        assert decision.verdict == "require_approval"
+        assert decision.rule_id == "persona_tier"
 
     @pytest.mark.asyncio
     async def test_unconstrained_persona_keeps_existing_verdicts(self):
