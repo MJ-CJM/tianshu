@@ -58,8 +58,10 @@ def _insert_attempt(
     )
 
 
-def test_v14_remains_frozen_below_live_v24_tail() -> None:
-    assert tuple(item.version for item in MIGRATIONS) == tuple(range(1, 25))
+def test_v14_remains_frozen_below_live_tail() -> None:
+    # 版本号连续无缺口；用 len() 自适应，避免每次追加迁移都要改这个数字
+    # （本用例的核心契约是下面那条「v14 冻结」，尾部长度只是上下文）。
+    assert tuple(item.version for item in MIGRATIONS) == tuple(range(1, len(MIGRATIONS) + 1))
     assert (MIGRATIONS[13].version, MIGRATIONS[13].name) == (
         14,
         "0014_execution_attempt_ledger",

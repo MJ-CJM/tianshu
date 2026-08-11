@@ -448,6 +448,7 @@ function PersonaFormModal({
       form.setFieldsValue({
         ...editingPersona,
         tools_allowed: editingPersona.tools_allowed,
+        allowed_paths: editingPersona.allowed_paths ?? [],
         tools_denied: editingPersona.tools_denied,
         skills_allowed: editingPersona.skills_allowed,
         delegates_to: editingPersona.delegates_to,
@@ -506,6 +507,7 @@ function PersonaFormModal({
           can_delegate: false,
           memory_global_read: false,
           tools_allowed: [],
+          allowed_paths: [],
           tools_denied: [],
           skills_allowed: [],
           delegates_to: [],
@@ -743,6 +745,18 @@ function PersonaFormModal({
             options={toolOptions}
             showSearch
             optionFilterProp="label"
+          />
+        </Form.Item>
+        <Form.Item
+          name="allowed_paths"
+          label={t("persona.form.persona.field.allowedPaths")}
+          extra={t("persona.form.persona.help.allowedPaths")}
+        >
+          <Select
+            mode="tags"
+            placeholder={t("persona.form.persona.placeholder.allowedPaths")}
+            open={false}
+            tokenSeparators={[",", "\n"]}
           />
         </Form.Item>
         <Form.Item name="tools_denied" label={t("persona.form.persona.field.toolsDenied")}>

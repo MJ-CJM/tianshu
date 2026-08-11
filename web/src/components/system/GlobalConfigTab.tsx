@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
-import { Row, Col, Card, InputNumber, Button, Spin, notification, theme } from "antd";
-import { useAgentConfig, useUpdateAgentConfig } from "../../hooks/useConfig";
+import { Alert, Row, Col, Card, Input, InputNumber, Button, Spin, notification, theme } from "antd";
+import {
+  useAgentConfig,
+  useUpdateAgentConfig,
+  useUpdateWorkspaceDir,
+  useWorkspaceDir,
+} from "../../hooks/useConfig";
 import type { AgentConfigUpdateRequest } from "../../api/types";
 import { useT } from "../../i18n";
 import PageQueryError from "../states/PageQueryError";
@@ -12,6 +17,36 @@ export default function GlobalConfigTab() {
   const { data: agentConfigData } = agentConfigQuery;
   const updateAgentMutation = useUpdateAgentConfig();
   const [agentForm, setAgentForm] = useState<AgentConfigUpdateRequest>({});
+  const workspaceQuery = useWorkspaceDir();
+  const updateWorkspaceMutation = useUpdateWorkspaceDir();
+  const [workspaceInput, setWorkspaceInput] = useState("");
+
+  useEffect(() => {
+    const saved = workspaceQuery.data?.workspace_dir;
+    if (saved) setWorkspaceInput((prev) => prev || saved);
+  }, [workspaceQuery.data?.workspace_dir]);
+
+  const handleWorkspaceApply = useCallback(() => {
+    updateWorkspaceMutation.mutate(workspaceInput.trim(), {
+      onSuccess: (info) => {
+        notification.success({
+          message: t("system.globalConfig.workspaceSaved"),
+          description: info.pending_restart
+            ? t("system.globalConfig.workspacePendingRestart")
+            : undefined,
+        });
+      },
+      onError: (err: unknown) => {
+        const detail =
+          (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+          String(err);
+        notification.error({
+          message: t("system.globalConfig.workspaceFailed"),
+          description: detail,
+        });
+      },
+    });
+  }, [updateWorkspaceMutation, workspaceInput, t]);
 
   useEffect(() => {
     if (agentConfigData) {
@@ -199,6 +234,35 @@ export default function GlobalConfigTab() {
         >
           {t("system.globalConfig.apply")}
         </Button>
+      </Col>
+      <Col xs={24} md={12} lg={8} style={{ marginTop: 16 }}>
+        <Card title={t("system.globalConfig.workspaceSection")} size="small">
+          <div style={labelStyle}>{t("system.globalConfig.workspaceDir")}</div>
+          <Input
+            value={workspaceInput}
+            placeholder={workspaceQuery.data?.effective}
+            onChange={(e) => setWorkspaceInput(e.target.value)}
+            style={{ marginBottom: 8 }}
+          />
+          <div style={{ ...labelStyle, marginBottom: 12 }}>
+            {t("system.globalConfig.workspaceHelp")}
+          </div>
+          {workspaceQuery.data?.pending_restart && (
+            <Alert
+              type="warning"
+              showIcon
+              message={t("system.globalConfig.workspacePendingRestart")}
+              style={{ marginBottom: 12 }}
+            />
+          )}
+          <Button
+            loading={updateWorkspaceMutation.isPending}
+            disabled={!workspaceInput.trim()}
+            onClick={handleWorkspaceApply}
+          >
+            {t("system.globalConfig.apply")}
+          </Button>
+        </Card>
       </Col>
     </Row>
   );

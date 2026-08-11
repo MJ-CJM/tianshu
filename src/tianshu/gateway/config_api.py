@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from tianshu.bootstrap.wiring_storage import WORKSPACE_DIR_SETTING_KEY
 from tianshu.config_manager import ConfigManager, LLMConfigState
 from tianshu.models import (
     AgentConfig,
@@ -17,10 +19,75 @@ from tianshu.models import (
     LLMConfigUpdateRequest,
 )
 from tianshu.providers.manager import ProviderManager
+from tianshu.tools.path_utils import is_sensitive_path
 
 logger = logging.getLogger(__name__)
 
 config_router = APIRouter(tags=["config"])
+
+
+# --- Workspace 全局边界 ---
+
+
+def _validate_workspace_dir(raw: str) -> Path:
+    """校验用户提交的工作区根，返回展开后的绝对路径。
+
+    这是所有官员的默认活动边界，配错等于取消隔离，故校验从严：
+    必须是已存在的目录、不能是文件系统根、不能落在凭证目录里。
+    """
+    value = raw.strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="工作区路径不能为空")
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        raise HTTPException(status_code=400, detail="必须是绝对路径（可用 ~ 表示用户目录）")
+    resolved = path.resolve()
+    if resolved == Path(resolved.anchor):
+        raise HTTPException(status_code=400, detail="不能设为文件系统根目录，等同于取消工作区隔离")
+    if is_sensitive_path(resolved):
+        raise HTTPException(status_code=400, detail="不能设为凭证目录（.ssh/.aws 等）")
+    if not resolved.is_dir():
+        raise HTTPException(status_code=400, detail=f"目录不存在：{resolved}")
+    return resolved
+
+
+@config_router.get("/workspace", response_model=ApiResponse)
+def get_workspace_dir(request: Request):
+    """当前生效的工作区根，以及待重启才生效的已保存值。"""
+    storage = request.app.state.storage
+    settings = request.app.state.settings
+    saved = storage.get_app_setting(WORKSPACE_DIR_SETTING_KEY)
+    effective = str(Path(settings.workspace_dir).expanduser().resolve())
+    return ApiResponse(
+        success=True,
+        data={
+            "workspace_dir": saved if isinstance(saved, str) else None,
+            "effective": effective,
+            "pending_restart": bool(
+                isinstance(saved, str)
+                and saved.strip()
+                and str(Path(saved).expanduser().resolve()) != effective
+            ),
+        },
+    )
+
+
+@config_router.put("/workspace", response_model=ApiResponse)
+def update_workspace_dir(body: dict, request: Request):
+    """保存工作区根。重启后生效——工具注册时已闭包捕获旧路径。"""
+    resolved = _validate_workspace_dir(str(body.get("workspace_dir", "")))
+    storage = request.app.state.storage
+    storage.set_app_setting(WORKSPACE_DIR_SETTING_KEY, str(resolved))
+    settings = request.app.state.settings
+    effective = str(Path(settings.workspace_dir).expanduser().resolve())
+    return ApiResponse(
+        success=True,
+        data={
+            "workspace_dir": str(resolved),
+            "effective": effective,
+            "pending_restart": str(resolved) != effective,
+        },
+    )
 
 
 # --- Config endpoints ---

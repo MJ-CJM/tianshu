@@ -98,3 +98,40 @@ class TestPersonaLoaderDeleteOverlayBoundary:
         }
         assert digest_after == digest_before, "packaged 默认目录被 delete() 篡改"
         assert not (runtime / "bingbu").exists(), "runtime overlay 目录应被清除"
+
+
+class TestAllowedPathsSurvivesLoading:
+    """allowed_paths 必须能穿过 PersonaLoader（issue #35）。
+
+    回归（2026-08-06）：模型、迁移、repo、API 都补齐了，唯独 loader 的两处
+    AgentPersona 构造漏了这个字段——落库成功但 `loader.get()` 读回来恒为空，
+    于是 executor 的回落拿不到值，整条授权链静默失效。9 个单测全过也没发现，
+    是端到端配置时（API 返回 allowed_paths=[]）才暴露的。
+    """
+
+    def test_yaml_front_matter_allowed_paths_is_loaded(self, tmp_path):
+        persona_dir = tmp_path / "smg"
+        persona_dir.mkdir()
+        (persona_dir / "SOUL.md").write_text(
+            "---\n"
+            "name: 司马光\n"
+            "department: wenyuan\n"
+            "allowed_paths:\n"
+            "  - /data/shared/**\n"
+            "---\n# Soul"
+        )
+        (persona_dir / "ROLE.md").write_text("# Role")
+        (persona_dir / "MEMORY.md").write_text("# Memory")
+
+        personas = PersonaLoader(tmp_path).load_all()
+        assert personas["smg"].allowed_paths == ["/data/shared/**"]
+
+    def test_absent_allowed_paths_defaults_to_empty(self, tmp_path):
+        persona_dir = tmp_path / "plain"
+        persona_dir.mkdir()
+        (persona_dir / "SOUL.md").write_text("---\nname: Plain\ndepartment: testing\n---\n# Soul")
+        (persona_dir / "ROLE.md").write_text("# Role")
+        (persona_dir / "MEMORY.md").write_text("# Memory")
+
+        personas = PersonaLoader(tmp_path).load_all()
+        assert personas["plain"].allowed_paths == []

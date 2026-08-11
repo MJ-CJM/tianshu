@@ -78,8 +78,8 @@ class PersonaMixin:
                 """INSERT OR REPLACE INTO personas
                    (id, name, department, title, tools_allowed, tools_denied,
                     skills_allowed, tool_tier_max, can_delegate, memory_global_read, delegates_to,
-                    soul_path, role_path, llm_config_name, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    soul_path, role_path, llm_config_name, allowed_paths, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     persona["id"],
                     persona["name"],
@@ -95,6 +95,7 @@ class PersonaMixin:
                     persona.get("soul_path"),
                     persona.get("role_path"),
                     persona.get("llm_config_name"),
+                    json.dumps(persona.get("allowed_paths", [])),
                     persona.get("created_at", now),
                     now,
                 ),
@@ -119,6 +120,7 @@ class PersonaMixin:
             "title",
             "tools_allowed",
             "tools_denied",
+            "allowed_paths",
             "skills_allowed",
             "tool_tier_max",
             "can_delegate",
@@ -133,7 +135,13 @@ class PersonaMixin:
         for key, value in fields.items():
             if key not in allowed:
                 continue
-            if key in ("tools_allowed", "tools_denied", "skills_allowed", "delegates_to"):
+            if key in (
+                "tools_allowed",
+                "tools_denied",
+                "allowed_paths",
+                "skills_allowed",
+                "delegates_to",
+            ):
                 sets.append(f"{key} = ?")
                 params.append(json.dumps(value))
             elif key in ("can_delegate", "memory_global_read"):

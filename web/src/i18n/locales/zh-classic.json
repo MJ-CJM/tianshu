@@ -1874,7 +1874,8 @@
           "delegatesTo": "可委派目标",
           "template": "范本",
           "templateLang": "范本文体",
-          "createMode": "创建方式"
+          "createMode": "创建方式",
+          "allowedPaths": "界外许行之路"
         },
         "placeholder": {
           "id": "如 bingbu, neige",
@@ -1886,7 +1887,8 @@
           "toolsDenied": "选择禁用的工具",
           "skills": "选择技能（留空 = 全部注入）",
           "delegatesTo": "选择可委派的官员",
-          "template": "可选：择一范本，代拟魂魄与职司"
+          "template": "可选：择一范本，代拟魂魄与职司",
+          "allowedPaths": "/data/shared/**"
         },
         "validation": {
           "idRequired": "请输入 ID",
@@ -1906,6 +1908,9 @@
         "rolePreview": "职司 · 职守",
         "fieldHint": {
           "memoryGlobalRead": "高权：可阅百官记忆，慎开"
+        },
+        "help": {
+          "allowedPaths": "每行一条绝对路径 glob，如 /data/shared/**。事前授权，留空则此官不得越界"
         }
       },
       "department": {
@@ -2311,7 +2316,13 @@
       "agentRetryLimit": "默认再试上限",
       "agentCostBudget": "默认度支(¥/敕)",
       "agentTokenBudget": "默认字元度支",
-      "unlimited": "空=不限"
+      "unlimited": "空=不限",
+      "workspaceSection": "疆界",
+      "workspaceDir": "衙署所在",
+      "workspaceHelp": "百官平日只得在此境内行走。越界须于官员处另行给凭。改此须重启方验。",
+      "workspacePendingRestart": "已录，重启后方验",
+      "workspaceSaved": "疆界已录",
+      "workspaceFailed": "疆界录入未成"
     },
     "externalCreds": {
       "edictAuthLabel": "Edict 凭证",

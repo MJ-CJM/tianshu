@@ -8,12 +8,27 @@ import type {
   LLMConfigCreateRequest,
   LLMConfigListResponse,
   LLMConfigUpdateRequest,
+  WorkspaceDirInfo,
 } from "./types";
 
 // --- 客卿(keqing)健康状态 ---
 
 export async function getKeqingStatus(): Promise<KeqingStatusData> {
   const { data } = await apiClient.get<ApiResponse<KeqingStatusData>>("/keqing/status");
+  return data.data!;
+}
+
+// --- Workspace 全局边界 ---
+
+export async function getWorkspaceDir(): Promise<WorkspaceDirInfo> {
+  const { data } = await apiClient.get<ApiResponse<WorkspaceDirInfo>>("/workspace");
+  return data.data!;
+}
+
+export async function updateWorkspaceDir(workspace_dir: string): Promise<WorkspaceDirInfo> {
+  const { data } = await apiClient.put<ApiResponse<WorkspaceDirInfo>>("/workspace", {
+    workspace_dir,
+  });
   return data.data!;
 }
 

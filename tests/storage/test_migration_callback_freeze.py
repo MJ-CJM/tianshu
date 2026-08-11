@@ -107,6 +107,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0024_notification_channel_progress": (
         "ddedca050950e01e662e1f953a85bb988b61e8822d8d59398dd348e26d58fdc2"
     ),
+    # v25 gives each official an explicit out-of-workspace path allowlist (issue #35).
+    "0025_persona_allowed_paths": (
+        "db9bfea91a63fa9ba8da480bcacc330c23eb72f95632060bd4852acf286ab308"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

@@ -13,8 +13,24 @@ from tianshu.persona.evaluator import PerformanceEvaluator
 from tianshu.persona.selector import OfficialSelector
 from tianshu.persona.template_library import TemplateLibrary
 from tianshu.storage import Storage
+from tianshu.tools.path_utils import validate_allowed_path_glob
 
 personas_router = APIRouter(tags=["personas"])
+
+
+def _reject_unsafe_allowed_paths(body: dict) -> None:
+    """越界白名单写入前校验——不合法的 glob 运行时会静默失效，须当场报错。"""
+    raw = body.get("allowed_paths")
+    if raw is None:
+        return
+    if not isinstance(raw, list):
+        raise HTTPException(status_code=400, detail="allowed_paths 必须是数组")
+    for item in raw:
+        if not isinstance(item, str) or not item.strip():
+            raise HTTPException(status_code=400, detail="allowed_paths 每项必须是非空字符串")
+        reason = validate_allowed_path_glob(item.strip())
+        if reason:
+            raise HTTPException(status_code=400, detail=f"路径 {item!r} 不合法：{reason}")
 
 
 # --- Department endpoints ---
@@ -188,6 +204,7 @@ def list_personas(request: Request):
                 "title": p.title,
                 "tools_allowed": p.tools_allowed,
                 "tools_denied": p.tools_denied,
+                "allowed_paths": p.allowed_paths,
                 "skills_allowed": p.skills_allowed,
                 "tool_tier_max": p.tool_tier_max,
                 "can_delegate": p.can_delegate,
@@ -256,6 +273,7 @@ async def create_persona(request: Request):
     body = await request.json()
     if not body.get("id") or not body.get("name") or not body.get("department"):
         raise HTTPException(status_code=400, detail="id, name, department are required")
+    _reject_unsafe_allowed_paths(body)
     if body.get("import_skill_paths"):
         raise HTTPException(
             status_code=409,
@@ -372,6 +390,7 @@ async def create_persona(request: Request):
         role_path=role_path,
         memory_path=memory_path,
         tools_allowed=body.get("tools_allowed", []),
+        allowed_paths=body.get("allowed_paths", []),
         tools_denied=body.get("tools_denied", []),
         skills_allowed=skills_allowed,
         tool_tier_max=body.get("tool_tier_max", 0),
@@ -390,6 +409,7 @@ async def create_persona(request: Request):
             "title": persona.title,
             "tools_allowed": persona.tools_allowed,
             "tools_denied": persona.tools_denied,
+            "allowed_paths": persona.allowed_paths,
             "skills_allowed": persona.skills_allowed,
             "tool_tier_max": persona.tool_tier_max,
             "can_delegate": persona.can_delegate,
@@ -475,6 +495,7 @@ async def update_persona(persona_id: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' not found")
 
     body = await request.json()
+    _reject_unsafe_allowed_paths(body)
     # Validate department FK if changing department
     if "department" in body and not storage.get_department(body["department"]):
         raise HTTPException(
@@ -513,6 +534,7 @@ async def update_persona(persona_id: str, request: Request):
             "title": updated.title,
             "tools_allowed": updated.tools_allowed,
             "tools_denied": updated.tools_denied,
+            "allowed_paths": updated.allowed_paths,
             "skills_allowed": updated.skills_allowed,
             "tool_tier_max": updated.tool_tier_max,
             "can_delegate": updated.can_delegate,

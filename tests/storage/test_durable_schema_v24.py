@@ -36,7 +36,9 @@ def test_v24_adds_empty_progress_to_existing_delivery_without_drifting_v1_to_v23
     )
     connection.commit()
 
-    assert apply_migrations(connection, MIGRATIONS) == (24,)
+    # 锁定切片而非整个 MIGRATIONS：本用例只验证 v24 自身的效果，
+    # 不应随后续迁移追加而改动。
+    assert apply_migrations(connection, MIGRATIONS[:24]) == (24,)
     assert [(item.version, item.name, item.checksum) for item in MIGRATIONS[:23]] == frozen
     assert MIGRATIONS[23].name == "0024_notification_channel_progress"
     raw = connection.execute(

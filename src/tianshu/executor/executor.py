@@ -1142,10 +1142,9 @@ class Executor:
                 bind_workspace(bound_workspace) if bound_workspace is not None else nullcontext()
             )
             with binding:
-                if (
-                    edict.runtime.policy_profile is not None
-                    and self._session_rule_store is not None
-                ):
+                if self._session_rule_store is not None:
+                    # 无条件进入：profile 缺省时回落到承办官员的 allowed_paths
+                    # （issue #35）。回落与否由 _expand_policy_profile 内部判定。
                     await self._expand_policy_profile(edict, memorial)
 
                 await self._hooks.run(
@@ -1347,20 +1346,61 @@ class Executor:
         if cancelled_error is not None:
             raise cancelled_error
 
+    def _persona_fallback_profile(self, memorial: Memorial) -> object | None:
+        """敕令未显式配 profile 时，回落到承办官员的 allowed_paths（issue #35）。
+
+        权限是官员的固有属性，而非渠道的——从飞书/Telegram 进来的敕令拿不到
+        显式 profile，若无此回落，`allowed_paths` 这条事前授权通道对 IM 场景
+        等于不存在（#34 修好的绝对 glob 授权也就用不上）。
+
+        只回落 `allowed_paths` 一项：`auto_approve_max_tier` 等留待官员 ACL
+        整体接入执行链时一并处理（见 tools_allowed 未强制执行的既有缺口）。
+        官员未配置时返回 None，行为与回落前完全一致——本机制不主动放权。
+        """
+        from tianshu.tools.policy_profile import PolicyProfile
+
+        loader = self._persona_loader
+        persona_id = memorial.persona_id
+        if loader is None or not persona_id:
+            return None
+        persona = loader.get(persona_id)  # type: ignore[attr-defined]
+        allowed = tuple(getattr(persona, "allowed_paths", ()) or ()) if persona else ()
+        if not allowed:
+            return None
+        return PolicyProfile(allowed_paths=allowed, template_name=f"persona:{persona_id}")
+
     async def _expand_policy_profile(self, edict: Edict, memorial: Memorial) -> None:
         try:
             from tianshu.tools.policy_profile import PolicyProfile, expand_profile_to_rules
 
+            assert self._session_rule_store is not None
             payload = edict.runtime.policy_profile
-            assert payload is not None and self._session_rule_store is not None
-            profile = PolicyProfile(
-                allowed_paths=tuple(payload.allowed_paths),
-                allowed_bash_prefixes=tuple(payload.allowed_bash_prefixes),
-                tier_overrides=dict(payload.tier_overrides),
-                auto_approve_max_tier=int(payload.auto_approve_max_tier),
-                expires_after_seconds=payload.expires_after_seconds,
-                template_name=payload.template_name,
-            )
+            if payload is not None:
+                source = "edict"
+                profile = PolicyProfile(
+                    allowed_paths=tuple(payload.allowed_paths),
+                    allowed_bash_prefixes=tuple(payload.allowed_bash_prefixes),
+                    tier_overrides=dict(payload.tier_overrides),
+                    auto_approve_max_tier=int(payload.auto_approve_max_tier),
+                    expires_after_seconds=payload.expires_after_seconds,
+                    template_name=payload.template_name,
+                )
+            else:
+                source = "persona"
+                fallback = self._persona_fallback_profile(memorial)
+                if fallback is None:
+                    return  # 既无显式 profile 也无官员白名单 → 维持零值，不放权
+                profile = fallback  # type: ignore[assignment]
+                # WorkspaceBoundaryRule 判定越界时读的是 edict.runtime.policy_profile
+                # （见 _resolve_profile_globs），而非展开后的 session rules。故把回落
+                # 结果挂到内存中的 edict 上，本次执行内对策略层可见。executor 全程
+                # 不 save_edict，不会写回 DB。
+                from tianshu.models.edict import PolicyProfilePayload
+
+                edict.runtime.policy_profile = PolicyProfilePayload(
+                    allowed_paths=list(profile.allowed_paths),
+                    template_name=profile.template_name,
+                )
             created = await expand_profile_to_rules(
                 profile,
                 edict,
@@ -1371,6 +1411,7 @@ class Executor:
                 memorial.id,
                 "policy.profile_applied",
                 {
+                    "source": source,  # edict=显式指定；persona=承办官员回落
                     "template_name": profile.template_name,
                     "rules_created": created,
                     "allowed_paths": list(profile.allowed_paths),

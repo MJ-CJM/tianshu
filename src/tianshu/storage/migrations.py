@@ -4002,6 +4002,29 @@ def _notification_channel_progress_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+_PERSONA_ALLOWED_PATHS_VERSION = _NOTIFICATION_CHANNEL_PROGRESS_VERSION + 1
+_PERSONA_ALLOWED_PATHS_NAME = f"{_PERSONA_ALLOWED_PATHS_VERSION:04d}_persona_allowed_paths"
+_PERSONA_ALLOWED_PATHS_STATEMENTS = (
+    """
+    ALTER TABLE personas
+    ADD COLUMN allowed_paths TEXT NOT NULL DEFAULT '[]'
+    CHECK (json_valid(allowed_paths) AND json_type(allowed_paths) = 'array')
+    """,
+)
+_PERSONA_ALLOWED_PATHS_CHECKSUM = hashlib.sha256(
+    (
+        _PERSONA_ALLOWED_PATHS_NAME
+        + "\n"
+        + "\n".join(" ".join(statement.split()) for statement in _PERSONA_ALLOWED_PATHS_STATEMENTS)
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _persona_allowed_paths_upgrade(conn: MigrationConnection) -> None:
+    for statement in _PERSONA_ALLOWED_PATHS_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
     Migration(
         version=_EVOLUTION_CANDIDATE_MIGRATION_VERSION,
@@ -4044,6 +4067,12 @@ MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
         name=_NOTIFICATION_CHANNEL_PROGRESS_NAME,
         checksum=_NOTIFICATION_CHANNEL_PROGRESS_CHECKSUM,
         upgrade=_notification_channel_progress_upgrade,
+    ),
+    Migration(
+        version=_PERSONA_ALLOWED_PATHS_VERSION,
+        name=_PERSONA_ALLOWED_PATHS_NAME,
+        checksum=_PERSONA_ALLOWED_PATHS_CHECKSUM,
+        upgrade=_persona_allowed_paths_upgrade,
     ),
 )
 

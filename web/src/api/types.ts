@@ -744,6 +744,8 @@ export interface PersonaInfo {
   title?: string | null;
   tools_allowed: string[];
   tools_denied: string[];
+  /** 允许访问的工作区外路径（绝对 glob）；事前授权，见 issue #35 */
+  allowed_paths?: string[];
   skills_allowed: string[];
   tool_tier_max: number;
   can_delegate: boolean;
@@ -1251,4 +1253,11 @@ export interface FailureDistributionItem {
   reason: string;
   count: number;
   last_seen?: string | null;
+}
+
+/** 全局工作区边界。effective = 本次启动实际生效值；改动需重启才生效。 */
+export interface WorkspaceDirInfo {
+  workspace_dir: string | null;
+  effective: string;
+  pending_restart: boolean;
 }

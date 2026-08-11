@@ -71,7 +71,9 @@ def test_migration_backfills_provider_and_encrypts_keys(master_key_env):
             ("relay", "my-model", "sk-relay", "https://llm.example.com/v1"),
         ]
     )
-    assert apply_migrations(conn, MIGRATIONS) == (19, 20, 21, 22, 23, 24)
+    # 从 v18 升到最新：期望值随 MIGRATIONS 尾部自适应，
+    # 免去每次追加迁移都要在此补一个数字。
+    assert apply_migrations(conn, MIGRATIONS) == tuple(range(19, MIGRATIONS[-1].version + 1))
 
     cols = [r[1] for r in conn.execute("PRAGMA table_info(llm_configs)")]
     assert "api_key" not in cols and "provider_id" in cols
@@ -111,7 +113,9 @@ def test_migration_without_keys_needs_no_vault(monkeypatch):
     monkeypatch.delenv("TIANSHU_SECRET_MASTER_KEY", raising=False)
     reset_vault()
     conn = _v18_conn_with_legacy_configs([("empty", "gpt-4o-mini", "", "")])
-    assert apply_migrations(conn, MIGRATIONS) == (19, 20, 21, 22, 23, 24)
+    # 从 v18 升到最新：期望值随 MIGRATIONS 尾部自适应，
+    # 免去每次追加迁移都要在此补一个数字。
+    assert apply_migrations(conn, MIGRATIONS) == tuple(range(19, MIGRATIONS[-1].version + 1))
     conn.close()
     reset_vault()
 
