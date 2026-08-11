@@ -4,6 +4,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { message } from "antd";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -89,6 +90,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // antd message 挂在全局容器上，不随 cleanup() 卸载：本页暂停/取消会弹
+  // message.success，其 3 秒自动关闭定时器在 jsdom 环境销毁后才烧，抛
+  // "window is not defined" 的 unhandled error 让整个 vitest run 非零退出
+  // （测试全过也照挂）。CI 比本地慢数倍才踩得到。
+  message.destroy();
   cleanup();
   vi.clearAllMocks();
 });
