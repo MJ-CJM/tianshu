@@ -111,6 +111,11 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0025_persona_allowed_paths": (
         "db9bfea91a63fa9ba8da480bcacc330c23eb72f95632060bd4852acf286ab308"
     ),
+    # v26 把存量占位 tool_tier_max=0 提到 4：官员工具 ACL 自 #40 起被强制，
+    # 提档保持既有官员实际行为不变；非 0 的有意声明原样保留并自此生效。
+    "0026_persona_tier_enforcement": (
+        "da1d14e572b00e34367cb062868c5d2d65fdba1e942c3b1d5a524e7b99a3a1d9"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

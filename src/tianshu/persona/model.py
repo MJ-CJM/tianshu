@@ -26,7 +26,9 @@ class AgentPersona(BaseModel):
     #: 越界访问不走审批——审批按钮本身是诱导攻击面，见 issue #32。
     allowed_paths: list[str] = Field(default_factory=list)
     skills_allowed: list[str] = Field(default_factory=list)
-    tool_tier_max: int = 0
+    #: 职权 tier 上限；自 #40 起被执行链强制。默认 4（T4）= 未声明不设上限，
+    #: 0 自此成为可用的真实上限（纯只读官员）。
+    tool_tier_max: int = 4
     can_delegate: bool = False
     memory_global_read: bool = False  # 高权限：绕过记忆访问控制，可读所有 persona 的记忆
     delegates_to: list[str] = Field(default_factory=list)

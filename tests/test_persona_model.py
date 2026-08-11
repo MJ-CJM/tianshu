@@ -19,7 +19,9 @@ class TestAgentPersona:
             memory_path=Path("/tmp/MEMORY.md"),
         )
         assert p.id == "bingbu"
-        assert p.tool_tier_max == 0
+        # 默认 4（T4，不设上限）：官员工具 ACL 强制后（#40），未声明 = 不限，
+        # 0 成为可用的真实上限（纯只读官员）。
+        assert p.tool_tier_max == 4
         assert p.can_delegate is False
 
     def test_with_tools(self):

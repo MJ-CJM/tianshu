@@ -393,7 +393,7 @@ async def create_persona(request: Request):
         allowed_paths=body.get("allowed_paths", []),
         tools_denied=body.get("tools_denied", []),
         skills_allowed=skills_allowed,
-        tool_tier_max=body.get("tool_tier_max", 0),
+        tool_tier_max=body.get("tool_tier_max", 4),
         can_delegate=body.get("can_delegate", False),
         memory_global_read=body.get("memory_global_read", False),
         delegates_to=body.get("delegates_to", []),

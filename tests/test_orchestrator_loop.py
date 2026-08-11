@@ -655,3 +655,58 @@ async def test_checks_failed_carries_feedback_to_next_iteration(storage, bus):
     second_call_content = agent.execute.call_args_list[1].kwargs["user_content"]
     assert "issue_class=checks_failed" in second_call_content
     assert "checks 未通过" in second_call_content
+
+
+@pytest.mark.integration
+async def test_actor_turn_binds_assigned_persona(storage, bus):
+    """回归钉（审查 #1）：长任务 outer loop 必须把承办官员传给 actor。
+
+    此前 _run_actor_turn 调 agent.execute 不传 persona → 整条 acceptance 分支
+    bind_persona(None)，PersonaToolAclRule 与工作区 override 全弃权，受限官员
+    在此分支无 ACL 地执行。这里断言 execute 收到的 persona 就是 assigned 官员。"""
+    from types import SimpleNamespace
+
+    captured: dict[str, object] = {}
+
+    agent = MagicMock()
+
+    async def _exec(edict, **kwargs):
+        captured["persona"] = kwargs.get("persona")
+        return MagicMock(result="draft v1", summary="draft v1", usage=MagicMock(cost_cny=0.1))
+
+    agent.execute = AsyncMock(side_effect=_exec)
+
+    smg = SimpleNamespace(id="smg", name="司马光", tool_tier_max=1)
+    loader = MagicMock()
+    loader.get = MagicMock(return_value=smg)
+
+    ctx = _make_ctx(storage, bus, agent, [{"verdict": "pass", "feedback": "ok"}])
+    ctx.persona_loader = loader
+
+    e = _edict()
+    e.assigned_persona_id = "smg"
+    storage.save_edict(e)
+    await run(e, _memorial(e.id), ctx)
+
+    loader.get.assert_called_with("smg")
+    assert captured["persona"] is smg, "actor 必须收到承办官员，否则 ACL 在此分支失效"
+
+
+@pytest.mark.integration
+async def test_actor_turn_without_assigned_persona_passes_none(storage, bus):
+    """未指派官员时传 None——行为与本机制引入前一致，不误绑。"""
+    captured: dict[str, object] = {}
+    agent = MagicMock()
+
+    async def _exec(edict, **kwargs):
+        captured["persona"] = kwargs.get("persona", "MISSING")
+        return MagicMock(result="v1", summary="v1", usage=MagicMock(cost_cny=0.1))
+
+    agent.execute = AsyncMock(side_effect=_exec)
+    ctx = _make_ctx(storage, bus, agent, [{"verdict": "pass", "feedback": "ok"}])
+    ctx.persona_loader = MagicMock(get=MagicMock(return_value=None))
+
+    e = _edict()  # assigned_persona_id 默认 None
+    storage.save_edict(e)
+    await run(e, _memorial(e.id), ctx)
+    assert captured["persona"] is None

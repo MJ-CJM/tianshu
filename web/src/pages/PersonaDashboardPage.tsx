@@ -503,7 +503,7 @@ function PersonaFormModal({
         layout="vertical"
         onFinish={handleFinish}
         initialValues={{
-          tool_tier_max: 0,
+          tool_tier_max: 4,
           can_delegate: false,
           memory_global_read: false,
           tools_allowed: [],

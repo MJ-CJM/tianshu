@@ -749,17 +749,21 @@ class Agent:
                 policy_decision = None
 
                 if self._hooks and not is_fast_path:
-                    hook_result = await self._hooks.run(
-                        HookType.BEFORE_TOOL_CALL,
-                        invocation_id=tc["id"],
-                        tool_name=tc["name"],
-                        tool_args=parsed_args,
-                        messages=list(durable_messages),
-                        iteration=state.iteration,
-                        usage=usage,
-                        edict=edict,
-                        memorial=memorial,
-                    )
+                    # bind_persona 须罩住 hook chain：PersonaToolRule（#40）从
+                    # ambient 取官员判定职权，只包 tools.execute 的话规则在
+                    # 判定层永远拿到 None 而弃权——只剩 registry 兜底那道墙。
+                    with bind_edict(edict), bind_persona(persona):
+                        hook_result = await self._hooks.run(
+                            HookType.BEFORE_TOOL_CALL,
+                            invocation_id=tc["id"],
+                            tool_name=tc["name"],
+                            tool_args=parsed_args,
+                            messages=list(durable_messages),
+                            iteration=state.iteration,
+                            usage=usage,
+                            edict=edict,
+                            memorial=memorial,
+                        )
                     if hook_result.block:
                         new_messages.append(
                             {
@@ -829,15 +833,16 @@ class Agent:
                 durable_messages.append(dict(new_messages[-1]))
 
                 if self._hooks and not is_fast_path:
-                    await self._hooks.run(
-                        HookType.AFTER_TOOL_CALL,
-                        tool_name=tc["name"],
-                        tool_args=parsed_args,
-                        tool_result=tool_result,
-                        iteration=state.iteration,
-                        edict=edict,
-                        memorial=memorial,
-                    )
+                    with bind_edict(edict), bind_persona(persona):
+                        await self._hooks.run(
+                            HookType.AFTER_TOOL_CALL,
+                            tool_name=tc["name"],
+                            tool_args=parsed_args,
+                            tool_result=tool_result,
+                            iteration=state.iteration,
+                            edict=edict,
+                            memorial=memorial,
+                        )
 
                 args_str = json.dumps(parsed_args)
                 emit(

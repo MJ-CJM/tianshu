@@ -560,11 +560,20 @@ async def _run_actor_turn(
     if override.extra_system_msg:
         augmented_content += f"\n\n## 上一轮反馈与建议\n{override.extra_system_msg}"
 
+    # 解析承办官员并传入——否则整条长任务分支 bind_persona(None)，PersonaToolAclRule
+    # 与工作区 override（#40/#33）双双弃权，受限官员在此分支无 ACL 地执行 T4 工具。
+    # 权威来源是 edict.assigned_persona_id（memorial.persona_id 在 outer loop 从不赋值）。
+    persona = None
+    persona_loader = getattr(ctx, "persona_loader", None)
+    if persona_loader is not None and edict.assigned_persona_id:
+        persona = persona_loader.get(edict.assigned_persona_id)
+
     # v1：thinking_budget / model 不传给 Agent（Agent 层暂不支持）
     actor_result = await ctx.agent.execute(
         edict,
         memorial=memorial,
         user_content=augmented_content,
+        persona=persona,
     )
     actor_output = actor_result.result or actor_result.summary or ""
     actor_status = getattr(actor_result, "status", None)

@@ -25,6 +25,24 @@ def matches_any(patterns: list[str], tool_name: str) -> bool:
     return any(fnmatchcase(tool_name, pat) for pat in patterns)
 
 
+def persona_tool_verdict(persona: AgentPersona, tool_name: str, tool_tier: int) -> str | None:
+    """给出 persona 工具 ACL 的具体裁定条款；``None`` 表示放行。
+
+    决策顺序（与 ``persona_can_use`` 的历史语义逐字一致）：
+    1. ``tools_denied`` 命中 → ``"denied"``
+    2. ``tools_allowed`` 非空且脱靶 → ``"not_allowed"``（命中则放行，不再看 tier）
+    3. ``tool_tier > tool_tier_max`` → ``"tier_exceeded"``
+
+    区分条款是执行链需要的：deny/allow 是官员职权契约（硬拒），
+    tier 超限是越级（可走奏请审批），二者处置不同。
+    """
+    if persona.tools_denied and matches_any(persona.tools_denied, tool_name):
+        return "denied"
+    if persona.tools_allowed:
+        return None if matches_any(persona.tools_allowed, tool_name) else "not_allowed"
+    return None if tool_tier <= persona.tool_tier_max else "tier_exceeded"
+
+
 def persona_can_use(persona: AgentPersona, tool_name: str, tool_tier: int) -> bool:
     """判断给定 persona 能否调用名为 ``tool_name`` (tier=``tool_tier``) 的工具。
 
@@ -33,8 +51,4 @@ def persona_can_use(persona: AgentPersona, tool_name: str, tool_tier: int) -> bo
     2. ``tools_allowed`` 非空 → 必须命中才放行
     3. 否则按 ``tool_tier <= persona.tool_tier_max`` 放行
     """
-    if persona.tools_denied and matches_any(persona.tools_denied, tool_name):
-        return False
-    if persona.tools_allowed:
-        return matches_any(persona.tools_allowed, tool_name)
-    return tool_tier <= persona.tool_tier_max
+    return persona_tool_verdict(persona, tool_name, tool_tier) is None
