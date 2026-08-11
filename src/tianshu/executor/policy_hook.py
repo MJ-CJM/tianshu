@@ -85,7 +85,21 @@ class PolicyHook:
         decision = await self._engine.evaluate(ctx)
 
         # Session rule cache — 仅对 require_approval 查询（Step 3 启用）
-        if decision.verdict == "require_approval" and self._session_rule_store is not None:
+        #
+        # 官员越级奏请（persona_tier）不吃这层缓存（issue #48）：session rule 的
+        # 匹配键是 tool_name + arg_fingerprint(+edict_id)，没有 persona 维度。
+        # 而越级的风险源不是操作、是人——"兵部尚书能不能干这件事"与"翰林能不能干"
+        # 是两个问题，用同一条缓存回答属语义错配：DAG 各节点共享 edict_id 却绑不同
+        # 官员，高职权节点批出的 edict-scope 规则会让同 edict 内的受限官员零审批
+        # 越级；always-scope 规则更是跨 edict 对所有官员生效 30 天。
+        #
+        # 名单条款（persona_tool_acl 的 denied/not_allowed）不受影响——它是硬 deny，
+        # 在本段之前就短路返回了，根本走不到这里。
+        if (
+            decision.verdict == "require_approval"
+            and decision.rule_id != "persona_tier"
+            and self._session_rule_store is not None
+        ):
             rule = await self._session_rule_store.find_match(
                 tool_name=ctx.tool_name,
                 args=ctx.args,
