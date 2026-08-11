@@ -217,7 +217,12 @@ class PolicyHook:
         )
 
         auto_resolved = False
-        if self._silijian is not None:
+        # 越级奏请不许司礼监代批（issue #48 的同一条理由）：代批的四道闸看的是
+        # tool_tier 与该**操作**近期的人工通过率，没有 persona 维度。而越级问的是
+        # "这个人该不该做这件事"——拿操作维度的历史统计替人放行，与 session rule
+        # 缓存湮灭是同一种错配。且默认 silijian_max_tier=1 恰好覆盖 tier_max=0
+        # 官员调 T1 工具这一最常见的越级形态，不挡住等于越级审批形同虚设。
+        if self._silijian is not None and not persona_exceeds_tier:
             proposal = self._silijian.maybe_auto_approve(  # type: ignore[attr-defined]
                 memorial_id, ctx.tool_tier, decision.rule_id
             )

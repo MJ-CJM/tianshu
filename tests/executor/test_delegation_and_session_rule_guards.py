@@ -17,7 +17,6 @@ import pytest
 
 from tianshu.executor.agent import Agent
 from tianshu.executor.policy_hook import PolicyHook
-from tianshu.kernel.hooks import HookRegistry, HookType
 from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.persona.model import AgentPersona
 from tianshu.skills.loader import SkillsLoader
@@ -386,3 +385,65 @@ class TestSessionRuleWriteSideGuard:
         rec.resolution.resolved_at = datetime.now(UTC)
         await mgr._project_tool_session_rule(rec, decree)
         assert len(created) == 1, "普通审批仍应投影，否则每次都要重批"
+
+
+class TestSilijianCannotAutoApproveTierExceed:
+    """越级奏请不许司礼监代批（#48 同一条理由的第三个面）。
+
+    司礼监四道闸看的是 tool_tier 与该**操作**近期的人工通过率，没有 persona
+    维度。默认 silijian_max_tier=1，恰好覆盖 tier_max=0 官员调 T1 工具这一最
+    常见的越级形态——不挡住的话，越级审批会被历史统计静默替批。
+    """
+
+    def _hook(self, silijian):
+        approval = MagicMock()
+        approval.request_tool_decision = MagicMock(
+            return_value=SimpleNamespace(decision_request_id="req-1")
+        )
+        approval.wait_for_tool_decision = AsyncMock(
+            return_value=SimpleNamespace(action="approve", reason="ok", payload={})
+        )
+        return PolicyHook(
+            engine=PolicyEngine(rules=[]),
+            workspace_root=Path("/tmp/ws"),
+            storage=MagicMock(),
+            tool_registry=MagicMock(get_definition=MagicMock(return_value=None)),
+            approval_manager=approval,
+            silijian=silijian,
+        )
+
+    async def _request(self, hook, *, exceeds: bool):
+        from tianshu.tools.policy import PolicyDecision
+
+        ctx = PolicyContext(
+            tool_name="edit_file",
+            tool_tier=ToolTier.T1_WORKSPACE,
+            args={},
+            edict=Edict(goal="x"),
+            memorial=Memorial(edict_id="e", status=TaskStatus.RUNNING),
+            workspace_root=Path("/tmp/ws"),
+            iteration=0,
+        )
+        return await hook._request_approval(
+            ctx,
+            PolicyDecision(verdict="require_approval", rule_id="persona_tier", reason="x"),
+            invocation_id="inv-1",
+            messages=[],
+            usage=UsageSummary(),
+            persona_exceeds_tier=exceeds,
+        )
+
+    @pytest.mark.asyncio
+    async def test_tier_exceed_never_reaches_silijian(self):
+        silijian = MagicMock()
+        silijian.maybe_auto_approve = MagicMock(return_value=SimpleNamespace(reason="auto"))
+        await self._request(self._hook(silijian), exceeds=True)
+        silijian.maybe_auto_approve.assert_not_called(), "越级被司礼监代批——人工环节被跳过"
+
+    @pytest.mark.asyncio
+    async def test_normal_approval_still_offers_silijian(self):
+        """安全底线：非越级审批的代批链路不变。"""
+        silijian = MagicMock()
+        silijian.maybe_auto_approve = MagicMock(return_value=None)
+        await self._request(self._hook(silijian), exceeds=False)
+        silijian.maybe_auto_approve.assert_called_once()
