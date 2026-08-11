@@ -147,6 +147,7 @@ def _row_to_persona_dict(row: sqlite3.Row) -> dict:
         "tools_denied": json.loads(row["tools_denied"]),
         # 存量库在迁移前无此列，缺列时回落空列表（= 不授权任何界外路径）
         "allowed_paths": json.loads(row["allowed_paths"]) if "allowed_paths" in keys else [],
+        "workspace_dir": row["workspace_dir"] if "workspace_dir" in keys else "",
         "skills_allowed": json.loads(row["skills_allowed"]) if "skills_allowed" in keys else [],
         "tool_tier_max": row["tool_tier_max"],
         "can_delegate": bool(row["can_delegate"]),

@@ -25,6 +25,10 @@ class AgentPersona(BaseModel):
     #: 由 WorkspaceBoundaryRule 消费；相对 glob 无效（工作区内本就可访问）。
     #: 越界访问不走审批——审批按钮本身是诱导攻击面，见 issue #32。
     allowed_paths: list[str] = Field(default_factory=list)
+    #: 官员专属工作区根（issue #33）。空 = 回落主工作区（向后兼容）。
+    #: 生效于执行沙箱边界（tools 相对路径解析 + WorkspaceBoundaryRule）；
+    #: 治理 apply（isolated staging）仍基于主工作区源，多源 apply 是后续专项。
+    workspace_dir: str = ""
     skills_allowed: list[str] = Field(default_factory=list)
     #: 职权 tier 上限；自 #40 起被执行链强制。默认 4（T4）= 未声明不设上限，
     #: 0 自此成为可用的真实上限（纯只读官员）。

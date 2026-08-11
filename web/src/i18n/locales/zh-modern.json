@@ -1875,7 +1875,8 @@
           "template": "角色模板",
           "templateLang": "模板语言",
           "createMode": "创建方式",
-          "allowedPaths": "工作区外可访问路径"
+          "allowedPaths": "工作区外可访问路径",
+          "workspaceDir": "专属工作区"
         },
         "placeholder": {
           "id": "如 bingbu, neige",
@@ -1888,7 +1889,8 @@
           "skills": "选择技能（留空 = 全部注入）",
           "delegatesTo": "选择可委派的角色",
           "template": "可选：选一个角色模板自动生成人格与职责",
-          "allowedPaths": "/data/shared/**"
+          "allowedPaths": "/data/shared/**",
+          "workspaceDir": "/Users/name/workspaces/smg"
         },
         "validation": {
           "idRequired": "请输入 ID",
@@ -1910,7 +1912,8 @@
           "memoryGlobalRead": "高权限：可读全体角色记忆，谨慎开启"
         },
         "help": {
-          "allowedPaths": "每行一条绝对路径 glob，如 /data/shared/**。仅事前授权，留空则该成员无法访问工作区外文件"
+          "allowedPaths": "每行一条绝对路径 glob，如 /data/shared/**。仅事前授权，留空则该成员无法访问工作区外文件",
+          "workspaceDir": "该官员的独立工作区根目录（绝对路径）。留空则使用主工作区。生效于文件读写边界；治理 apply 仍基于主工作区。"
         }
       },
       "department": {

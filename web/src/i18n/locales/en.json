@@ -1875,7 +1875,8 @@
           "template": "Role template",
           "templateLang": "Template language",
           "createMode": "Create mode",
-          "allowedPaths": "Paths outside workspace"
+          "allowedPaths": "Paths outside workspace",
+          "workspaceDir": "Dedicated workspace"
         },
         "placeholder": {
           "id": "e.g. bingbu, neige",
@@ -1888,7 +1889,8 @@
           "skills": "Select skills (empty = all injected)",
           "delegatesTo": "Select delegation targets",
           "template": "Optional: pick a role template to auto-generate persona & role",
-          "allowedPaths": "/data/shared/**"
+          "allowedPaths": "/data/shared/**",
+          "workspaceDir": "/Users/name/workspaces/smg"
         },
         "validation": {
           "idRequired": "ID is required",
@@ -1910,7 +1912,8 @@
           "memoryGlobalRead": "High privilege: reads all personas' memory. Enable with caution."
         },
         "help": {
-          "allowedPaths": "One absolute path glob per line, e.g. /data/shared/**. Pre-authorised only; empty means no out-of-workspace access"
+          "allowedPaths": "One absolute path glob per line, e.g. /data/shared/**. Pre-authorised only; empty means no out-of-workspace access",
+          "workspaceDir": "This official's own workspace root (absolute path). Empty = main workspace. Bounds file access; governed apply still targets the main workspace."
         }
       },
       "department": {

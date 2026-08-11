@@ -115,3 +115,44 @@ class TestWorkspaceDirConfig:
         resp = await c.put("/api/workspace", json={"workspace_dir": str(tmp_path / "nope")})
         assert resp.status_code == 400
         assert "目录不存在" in resp.json()["detail"]
+
+
+class TestPersonaWorkspaceDirWriteGuard:
+    """官员专属工作区（#33）写入校验——与全局工作区同一套规则。"""
+
+    async def test_valid_dir_stored_resolved(self, client, tmp_path):
+        c, _ = client
+        ws = tmp_path / "ws-smg"
+        ws.mkdir()
+        resp = await _make_persona(c, workspace_dir=str(ws))
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["data"]["workspace_dir"] == str(ws.resolve())
+
+    async def test_empty_means_main_workspace(self, client):
+        c, _ = client
+        resp = await _make_persona(c, workspace_dir="")
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["data"]["workspace_dir"] == ""
+
+    @pytest.mark.parametrize(
+        "bad,reason",
+        [("/", "根目录"), ("relative/ws", "绝对路径")],
+        ids=["filesystem-root", "relative"],
+    )
+    async def test_dangerous_workspace_rejected(self, client, bad, reason):
+        c, _ = client
+        resp = await _make_persona(c, workspace_dir=bad)
+        assert resp.status_code == 400
+        assert reason in resp.json()["detail"]
+
+    async def test_nonexistent_dir_rejected(self, client, tmp_path):
+        c, _ = client
+        resp = await _make_persona(c, workspace_dir=str(tmp_path / "nope"))
+        assert resp.status_code == 400
+        assert "目录不存在" in resp.json()["detail"]
+
+    async def test_update_surface_also_guarded(self, client, tmp_path):
+        c, _ = client
+        assert (await _make_persona(c)).status_code == 201
+        resp = await c.put("/api/personas/tester", json={"workspace_dir": "relative/ws"})
+        assert resp.status_code == 400, "update 面不校验的话改一次就绕过"

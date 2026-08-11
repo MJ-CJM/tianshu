@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable
-from contextlib import nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass
 
 import litellm
@@ -34,6 +34,29 @@ from tianshu.tools.registry import ToolRegistry
 from tianshu.tools.types import ToolResult
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _ambient_tool_context(edict, persona):
+    """工具调用期的 ambient 绑定：edict + persona + 官员专属工作区（#33）。
+
+    workspace override 必须与 persona 同生共死：hook 判定（WorkspaceBoundaryRule
+    读 ctx.workspace_root）与工具执行（safe_path 经 resolve_workspace_root）都要
+    看到同一个边界，否则两道墙漂移。lease 绑定优先级更高，见
+    workspace_context.resolve_workspace_root。
+    """
+    from pathlib import Path
+
+    from tianshu.executor.workspace_context import bind_workspace_root_override
+
+    with ExitStack() as stack:
+        stack.enter_context(bind_edict(edict))
+        stack.enter_context(bind_persona(persona))
+        workspace_dir = getattr(persona, "workspace_dir", "") if persona else ""
+        if workspace_dir:
+            stack.enter_context(bind_workspace_root_override(Path(workspace_dir)))
+        yield
+
 
 _SYSTEM_IDENTITY = (
     "You are Tianshu, an AI execution assistant. "
@@ -749,10 +772,10 @@ class Agent:
                 policy_decision = None
 
                 if self._hooks and not is_fast_path:
-                    # bind_persona 须罩住 hook chain：PersonaToolRule（#40）从
-                    # ambient 取官员判定职权，只包 tools.execute 的话规则在
-                    # 判定层永远拿到 None 而弃权——只剩 registry 兜底那道墙。
-                    with bind_edict(edict), bind_persona(persona):
+                    # ambient 绑定须罩住 hook chain：PersonaToolRule（#40）取
+                    # persona 判定职权、WorkspaceBoundaryRule 取官员工作区（#33），
+                    # 只包 tools.execute 的话判定层拿到的都是默认值。
+                    with _ambient_tool_context(edict, persona):
                         hook_result = await self._hooks.run(
                             HookType.BEFORE_TOOL_CALL,
                             invocation_id=tc["id"],
@@ -805,7 +828,7 @@ class Agent:
                         if policy_decision is not None
                         else nullcontext()
                     )
-                    with bind_edict(edict), bind_persona(persona), decision_context:
+                    with _ambient_tool_context(edict, persona), decision_context:
                         tool_result = await self._tools.execute(
                             tc["name"],
                             parsed_args,
@@ -833,7 +856,7 @@ class Agent:
                 durable_messages.append(dict(new_messages[-1]))
 
                 if self._hooks and not is_fast_path:
-                    with bind_edict(edict), bind_persona(persona):
+                    with _ambient_tool_context(edict, persona):
                         await self._hooks.run(
                             HookType.AFTER_TOOL_CALL,
                             tool_name=tc["name"],
