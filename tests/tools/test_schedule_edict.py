@@ -521,9 +521,7 @@ async def test_assistant_may_schedule_for_others(storage):
 async def test_no_persona_context_unrestricted(storage):
     """无 persona（CLI/API 直调）时不受限——与本机制引入前一致。"""
     func = _setup_with_assistant(storage, "qb")
-    result = await func(
-        action="create", goal="外部下发", schedule="30m", assigned_persona_id="smg"
-    )
+    result = await func(action="create", goal="外部下发", schedule="30m", assigned_persona_id="smg")
     assert result.is_error is False, result.content
 
 
