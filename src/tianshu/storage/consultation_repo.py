@@ -3,6 +3,7 @@
 import json
 import sqlite3
 import threading
+from datetime import UTC, datetime
 
 from tianshu.consultation.models import ConsultationResponse
 
@@ -103,13 +104,16 @@ class ConsultationMixin:
 
     def mark_stale_consultations_failed(self, error: str) -> int:
         """进程重启后把孤儿 running/pending 廷议判死——否则前端会永久轮询。"""
+        # 时间戳走 Python 侧 isoformat，与其他写入路径一致带时区；
+        # SQLite 的 datetime('now') 产出的是无时区字符串。
+        now = datetime.now(UTC).isoformat()
         with self._lock, self._conn:
             cursor = self._conn.execute(
                 """UPDATE consultations
                    SET status = 'failed',
                        error = ?,
-                       completed_at = COALESCE(completed_at, datetime('now'))
+                       completed_at = COALESCE(completed_at, ?)
                    WHERE status IN ('pending', 'running')""",
-                (error,),
+                (error, now),
             )
         return cursor.rowcount or 0
