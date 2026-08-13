@@ -120,6 +120,8 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0027_persona_workspace_dir": (
         "c2124b4345989f1c04cb6a0ec274bf09637c37e83beff6df9bbbdd36d591b0fa"
     ),
+    # v28 persists consultations so they survive refresh and restart (issue #52).
+    "0028_consultations": ("038f15e974e2b539bb98f708b5ae30ae7f1b12d029874db52dda68cac97b9a3a"),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

@@ -4075,6 +4075,50 @@ def _persona_workspace_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+_CONSULTATIONS_VERSION = _PERSONA_WORKSPACE_VERSION + 1
+_CONSULTATIONS_NAME = f"{_CONSULTATIONS_VERSION:04d}_consultations"
+# 廷议此前只活在进程内 dict（issue #52）：刷新页面即失联，重启即丢失，且 orchestrator
+# L2 决策共用同一 session 导致内存无上限累积。落库使廷议成为可查证据，opinions 随
+# 廷议整体读写、无单条查询需求，故按 memorials.artifacts_json 的既有惯例存 JSON 列。
+_CONSULTATIONS_STATEMENTS = (
+    """
+    CREATE TABLE IF NOT EXISTS consultations (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        topic TEXT NOT NULL,
+        edict_id TEXT,
+        request_json TEXT NOT NULL,
+        opinions_json TEXT NOT NULL DEFAULT '[]',
+        synthesis TEXT,
+        decision TEXT,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        completed_at TEXT
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_consultations_created_at
+    ON consultations(created_at DESC)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_consultations_status
+    ON consultations(status)
+    """,
+)
+_CONSULTATIONS_CHECKSUM = hashlib.sha256(
+    (
+        _CONSULTATIONS_NAME
+        + "\n"
+        + "\n".join(" ".join(statement.split()) for statement in _CONSULTATIONS_STATEMENTS)
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _consultations_upgrade(conn: MigrationConnection) -> None:
+    for statement in _CONSULTATIONS_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
     Migration(
         version=_EVOLUTION_CANDIDATE_MIGRATION_VERSION,
@@ -4135,6 +4179,12 @@ MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
         name=_PERSONA_WORKSPACE_NAME,
         checksum=_PERSONA_WORKSPACE_CHECKSUM,
         upgrade=_persona_workspace_upgrade,
+    ),
+    Migration(
+        version=_CONSULTATIONS_VERSION,
+        name=_CONSULTATIONS_NAME,
+        checksum=_CONSULTATIONS_CHECKSUM,
+        upgrade=_consultations_upgrade,
     ),
 )
 

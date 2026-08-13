@@ -59,6 +59,7 @@ _COMPLETE_MIGRATION_LEDGER = [
     (25, "0025_persona_allowed_paths"),
     (26, "0026_persona_tier_enforcement"),
     (27, "0027_persona_workspace_dir"),
+    (28, "0028_consultations"),
 ]
 _POST_BASELINE_TABLES = {
     "auth_tokens",
@@ -93,6 +94,8 @@ _POST_BASELINE_TABLES = {
     # v19-v21 统一模型注册表
     "model_providers",
     "app_settings",
+    # v28 廷议落库（issue #52）
+    "consultations",
 }
 _POST_BASELINE_INDEXES = {
     "idx_auth_tokens_principal",
@@ -124,6 +127,8 @@ _POST_BASELINE_INDEXES = {
     "idx_internal_notification_delivery_claim",
     "idx_internal_notification_delivery_correlation",
     "idx_evolution_candidates_lifecycle",
+    "idx_consultations_created_at",
+    "idx_consultations_status",
 }
 _EVOLUTION_IMMUTABLE_TRIGGERS = {
     "evolution_gate_snapshots_no_update",

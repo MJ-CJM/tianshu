@@ -1410,8 +1410,7 @@
     "topicPlaceholder": "请输入廷议议题",
     "contextPlaceholder": "提供额外上下文信息",
     "participantsPlaceholder": "选择参与廷议的百官",
-    "history": "历史：",
-    "round": "廷议 #{n}",
+    "history": "历史廷议",
     "preparing": "廷议准备中...",
     "running": "廷议进行中...",
     "failedTitle": "廷议失败",
@@ -1423,7 +1422,17 @@
       "oppose": "驳",
       "conditional": "有议"
     },
-    "censor": "言官·执异"
+    "censor": "言官·执异",
+    "historyEmpty": "尚无廷议记录",
+    "progress": "已奏对 {done}/{total}",
+    "partialFailure": "部分百官未能奏对",
+    "emptyOpinions": "本次廷议无人奏对",
+    "status": {
+      "pending": "待开议",
+      "running": "进行中",
+      "completed": "已毕",
+      "failed": "已废"
+    }
   },
   "hongluisi": {
     "title": "鸿胪寺",

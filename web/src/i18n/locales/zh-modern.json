@@ -1410,8 +1410,7 @@
     "topicPlaceholder": "请输入议题",
     "contextPlaceholder": "提供额外上下文信息",
     "participantsPlaceholder": "选择参与讨论的角色",
-    "history": "历史：",
-    "round": "讨论 #{n}",
+    "history": "历史讨论",
     "preparing": "讨论准备中...",
     "running": "讨论进行中...",
     "failedTitle": "讨论失败",
@@ -1423,7 +1422,17 @@
       "oppose": "反对",
       "conditional": "有条件"
     },
-    "censor": "言官·反调"
+    "censor": "言官·反调",
+    "historyEmpty": "尚无讨论记录",
+    "progress": "已完成 {done}/{total}",
+    "partialFailure": "部分角色未能给出意见",
+    "emptyOpinions": "本次讨论无人给出意见",
+    "status": {
+      "pending": "待开始",
+      "running": "进行中",
+      "completed": "已完成",
+      "failed": "已失败"
+    }
   },
   "hongluisi": {
     "title": "网络中心",

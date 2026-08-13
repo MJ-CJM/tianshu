@@ -19,3 +19,13 @@ export async function getConsultation(
   );
   return data;
 }
+
+export async function listConsultations(
+  limit = 20,
+): Promise<ApiResponse<ConsultationResponse[]>> {
+  const { data } = await apiClient.get<ApiResponse<ConsultationResponse[]>>(
+    "/consultations",
+    { params: { limit } },
+  );
+  return data;
+}

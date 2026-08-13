@@ -31,6 +31,7 @@
 from __future__ import annotations
 
 import functools
+import logging
 from pathlib import Path
 from uuid import uuid4
 
@@ -56,6 +57,8 @@ from tianshu.plugins.api import PluginApi
 from tianshu.plugins.loader import PluginLoader
 from tianshu.scheduler.scheduler import Scheduler
 from tianshu.tools.schedule_edict import register_schedule_edict
+
+logger = logging.getLogger(__name__)
 
 
 def _require_restart_safe_legacy_plan(storage, connection, event: EventEnvelope) -> None:
@@ -126,8 +129,17 @@ def wire_consultation(app: FastAPI, settings: TianshuSettings) -> None:
         config_manager=config_manager,
         provider_manager=provider_manager,
         memory_manager=memory_manager,
+        storage=storage,
+        notifier=notifier,
     )
     app.state.consultation = consultation
+    # 后台廷议任务的强引用集合（丢引用会被 GC 回收，见 gateway/api.py::_spawn_consultation）
+    app.state.consultation_tasks = set()
+    # 上次进程留下的 running/pending 廷议不可能再被推进，启动时一律判死，
+    # 否则前端会对着一条永远不动的记录无限轮询。
+    stale = storage.mark_stale_consultations_failed("interrupted by server restart")
+    if stale:
+        logger.info("Marked %d stale consultation(s) as failed on startup", stale)
 
     # --- OrchestratorContext for long-task outer loop ---
     orch_ctx = OrchestratorContext(

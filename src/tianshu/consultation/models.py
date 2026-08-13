@@ -37,6 +37,8 @@ class ConsultationResponse(BaseModel):
     opinions: list[PersonaOpinion] = Field(default_factory=list)
     synthesis: str | None = None
     decision: str | None = None
+    # 失败归因：让前端能区分"key 配错"与"模型超时"，而不是只显示一句"廷议失败"
+    error: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime | None = None
 

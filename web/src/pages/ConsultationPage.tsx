@@ -1,12 +1,36 @@
 import { useState } from "react";
-import { Input, Button, Tag, Spin, Result, Select, Space, Typography, theme } from "antd";
+import { useNavigate, useParams } from "react-router-dom";
+import {
+  Input,
+  Button,
+  Tag,
+  Spin,
+  Result,
+  Select,
+  Space,
+  Typography,
+  Alert,
+  Empty,
+  List,
+  Progress,
+  theme,
+} from "antd";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import PageContainer from "../components/common/PageContainer";
 import GlowCard from "../components/common/GlowCard";
-import { useConsultation, useCreateConsultation } from "../hooks/useConsultation";
+import {
+  useConsultation,
+  useConsultationLiveUpdates,
+  useConsultations,
+  useCreateConsultation,
+} from "../hooks/useConsultation";
 import { usePersonas } from "../hooks/usePersonas";
-import type { ConsultationRequest, PersonaOpinion } from "../api/types";
+import type {
+  ConsultationRequest,
+  ConsultationResponse,
+  PersonaOpinion,
+} from "../api/types";
 import { useT } from "../i18n";
 import PageQueryError from "../components/states/PageQueryError";
 
@@ -16,20 +40,30 @@ const STANCE_COLORS: Record<string, string> = {
   conditional: "orange",
 };
 
+const STATUS_COLORS: Record<string, string> = {
+  pending: "default",
+  running: "processing",
+  completed: "success",
+  failed: "error",
+};
+
 export default function ConsultationPage() {
   const t = useT();
   const { token } = theme.useToken();
+  const navigate = useNavigate();
+  const { consultationId } = useParams<{ consultationId: string }>();
   const [topic, setTopic] = useState("");
   const [context, setContext] = useState("");
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [history, setHistory] = useState<string[]>([]);
 
   const personasQuery = usePersonas();
   const { data: personas } = personasQuery;
   const createMutation = useCreateConsultation();
+  const activeId = consultationId ?? null;
   const consultationQuery = useConsultation(activeId);
   const { data: consultation, isLoading: consultationLoading } = consultationQuery;
+  const historyQuery = useConsultations();
+  useConsultationLiveUpdates(activeId);
 
   if (personasQuery.error) {
     return (
@@ -52,10 +86,8 @@ export default function ConsultationPage() {
     createMutation.mutate(body, {
       onSuccess: (resp) => {
         const id = resp.data?.id;
-        if (id) {
-          setActiveId(id);
-          setHistory((prev) => [...prev, id]);
-        }
+        // id 进 URL：刷新、分享、回退都能找回这场廷议（issue #52）
+        if (id) navigate(`/consultation/${id}`);
       },
     });
   };
@@ -64,6 +96,10 @@ export default function ConsultationPage() {
     value: p.id,
     label: `${p.name} (${p.department})`,
   }));
+
+  const expectedCount = consultation?.request?.persona_ids?.length ?? 0;
+  const doneCount = consultation?.opinions.length ?? 0;
+  const isActive = consultation?.status === "pending" || consultation?.status === "running";
 
   return (
     <PageContainer title={t("consultation.title")}>
@@ -120,24 +156,6 @@ export default function ConsultationPage() {
           </Space>
         </GlowCard>
 
-        {/* History navigation */}
-        {history.length > 1 && (
-          <Space wrap>
-            <Typography.Text type="secondary">{t("consultation.history")}</Typography.Text>
-            {history.map((id, i) => (
-              <Button
-                key={id}
-                size="small"
-                type={id === activeId ? "primary" : "default"}
-                aria-pressed={id === activeId}
-                onClick={() => setActiveId(id)}
-              >
-                {t("consultation.round", { n: i + 1 })}
-              </Button>
-            ))}
-          </Space>
-        )}
-
         {/* Consultation detail */}
         {activeId && (
           <>
@@ -154,35 +172,60 @@ export default function ConsultationPage() {
               </div>
             )}
 
-            {consultation?.status === "pending" && (
+            {isActive && (
               <GlowCard>
                 <div style={{ textAlign: "center", padding: 24 }}>
                   <Spin />
                   <Typography.Text style={{ display: "block", marginTop: 12 }}>
-                    {t("consultation.preparing")}
+                    {consultation?.status === "pending"
+                      ? t("consultation.preparing")
+                      : t("consultation.running")}
                   </Typography.Text>
-                </div>
-              </GlowCard>
-            )}
-
-            {consultation?.status === "running" && (
-              <GlowCard>
-                <div style={{ textAlign: "center", padding: 24 }}>
-                  <Spin />
-                  <Typography.Text style={{ display: "block", marginTop: 12 }}>
-                    {t("consultation.running")}
-                  </Typography.Text>
+                  {expectedCount > 0 && (
+                    <div style={{ maxWidth: 320, margin: "16px auto 0" }}>
+                      <Progress
+                        percent={Math.round((doneCount / expectedCount) * 100)}
+                        size="small"
+                        status="active"
+                      />
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        {t("consultation.progress", {
+                          done: doneCount,
+                          total: expectedCount,
+                        })}
+                      </Typography.Text>
+                    </div>
+                  )}
                 </div>
               </GlowCard>
             )}
 
             {consultation?.status === "failed" && (
-              <Result status="error" title={t("consultation.failedTitle")} subTitle={t("consultation.failedSubtitle")} />
+              <Result
+                status="error"
+                title={t("consultation.failedTitle")}
+                subTitle={consultation.error || t("consultation.failedSubtitle")}
+              />
             )}
 
-            {consultation?.status === "completed" && (
+            {/* 已到达的意见即时展示——不必等整场廷议结束 */}
+            {consultation && consultation.status !== "failed" && (
               <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-                {/* Opinions */}
+                {consultation.error && consultation.status === "completed" && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message={t("consultation.partialFailure")}
+                    description={consultation.error}
+                  />
+                )}
+
+                {consultation.status === "completed" && consultation.opinions.length === 0 && (
+                  <GlowCard>
+                    <Empty description={t("consultation.emptyOpinions")} />
+                  </GlowCard>
+                )}
+
                 {consultation.opinions.map((opinion: PersonaOpinion) => (
                   <GlowCard
                     key={opinion.persona_id}
@@ -261,6 +304,48 @@ export default function ConsultationPage() {
             )}
           </>
         )}
+
+        {/* 历史廷议——从后端拉取，刷新/重启/换设备都能找回 */}
+        <GlowCard title={t("consultation.history")}>
+          {historyQuery.error ? (
+            <PageQueryError
+              error={historyQuery.error}
+              onRetry={() => void historyQuery.refetch()}
+            />
+          ) : (
+            <List
+              size="small"
+              loading={historyQuery.isLoading}
+              dataSource={historyQuery.data ?? []}
+              locale={{ emptyText: <Empty description={t("consultation.historyEmpty")} /> }}
+              renderItem={(item: ConsultationResponse) => (
+                <List.Item
+                  onClick={() => navigate(`/consultation/${item.id}`)}
+                  style={{
+                    cursor: "pointer",
+                    background: item.id === activeId ? token.colorFillTertiary : undefined,
+                  }}
+                >
+                  <List.Item.Meta
+                    title={
+                      <Space>
+                        <Tag color={STATUS_COLORS[item.status] ?? "default"}>
+                          {t(`consultation.status.${item.status}`)}
+                        </Tag>
+                        <span>{item.request?.topic ?? item.id}</span>
+                      </Space>
+                    }
+                    description={
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        {new Date(item.created_at).toLocaleString()}
+                      </Typography.Text>
+                    }
+                  />
+                </List.Item>
+              )}
+            />
+          )}
+        </GlowCard>
       </Space>
     </PageContainer>
   );
