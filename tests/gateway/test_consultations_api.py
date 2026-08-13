@@ -11,6 +11,7 @@ import asyncio
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
 from tianshu.consultation.models import ConsultationRequest
 from tianshu.consultation.session import ConsultationSession
@@ -127,3 +128,40 @@ class TestBackgroundTaskSafety:
         record = session.get(pending.id)
         assert record.status == "failed"
         assert record.error == "interrupted by server restart"
+
+
+class TestRealAssembly:
+    """走 create_app + lifespan 的真实装配链——桩 app 验不到 wire_consultation。"""
+
+    async def test_consultation_persists_through_the_real_app(self):
+        from tianshu.app import create_app, lifespan
+
+        app = create_app()
+        async with lifespan(app):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                # persona_ids 指向不存在的官员：无人可奏对，不触发任何 LLM 调用，
+                # 廷议会走到 failed——正是修复前会白屏报 completed 的那条路径。
+                resp = await client.post(
+                    "/api/consultations",
+                    json={"topic": "真实装配链验证", "persona_ids": ["nobody"]},
+                )
+                assert resp.status_code == 202
+                consultation_id = resp.json()["data"]["id"]
+
+                for _ in range(50):
+                    detail = await client.get(f"/api/consultations/{consultation_id}")
+                    assert detail.status_code == 200
+                    if detail.json()["data"]["status"] in {"completed", "failed"}:
+                        break
+                    await asyncio.sleep(0.02)
+
+                data = detail.json()["data"]
+                assert data["status"] == "failed"
+                assert data["error"]  # 归因非空，前端不再只能显示"请稍后重试"
+
+                listed = await client.get("/api/consultations")
+                assert consultation_id in [item["id"] for item in listed.json()["data"]]
+
+            # 真实装配把记录写进了库，而不是只活在进程内存里
+            assert app.state.storage.get_consultation(consultation_id) is not None
