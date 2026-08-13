@@ -29,17 +29,21 @@ ConsultationResponse(opinions, synthesis, decision)
 
 | 模型 | 字段 | 角色 |
 |---|---|---|
-| `ConsultationRequest` | `topic` / `context` / `edict_id` / `persona_ids` / `synthesizer_persona_id` | 入参：议题 + 参与人格。`persona_ids` 为空时由 session 取「全部人格」 |
-| `PersonaOpinion` | `persona_id` / `persona_name` / `department` / `opinion` / `confidence` / `key_points` | 单个人格的意见 |
-| `ConsultationResponse` | `id` / `status` / `opinions` / `synthesis` / `decision` / `created_at` / `completed_at` | 出参：聚合结果，`status` ∈ pending/running/completed/failed |
+| `ConsultationRequest` | `topic` / `context` / `edict_id` / `persona_ids` / `synthesizer_persona_id` | 入参：议题 + 参与人格。`persona_ids` 为空时由 session 取「全部人格」；`synthesizer_persona_id` 指定汇聚官，留空则由通用「首席顾问」身份汇总 |
+| `PersonaOpinion` | `persona_id` / `persona_name` / `department` / `opinion` / `stance` / `conditions` / `key_points` / `is_censor` | 单个人格的意见 |
+| `ConsultationResponse` | `id` / `status` / `opinions` / `synthesis` / `decision` / `synthesizer_*` / `error` / `created_at` / `completed_at` | 出参：聚合结果，`status` ∈ pending/running/completed/failed |
 
 > `models.py` 另有一个未在主流程使用的 `ConsultationResult`（精简版三元组），当前 session 走的是 `ConsultationResponse`。
 
-### confidence 当前是占位值（重要）
+### stance 取代 confidence（ADR-0008）
 
-`PersonaOpinion.confidence` 字段虽然存在，但 `ConsultationSession._get_opinion` 在构造 opinion 时**硬编码 `confidence=0.8`**——尽管 prompt 让人格自报置信度，返回文本并未被解析回填到该字段。`key_points` 同理恒为 `[]`。
+早期实现有个 `confidence` 字段但恒为硬编码 `0.8`，对所有人格都是同一常数，不构成有效加权信号。ADR-0008 已将其废除，换成结构化的 `stance`（support / oppose / conditional）+ `conditions` 条件清单，并引入 `is_censor` 言官强制反调以破除单模型下的意见趋同。
 
-也就是说：**confidence 目前只是占位值，尚未实现真正的置信度汇聚机制**。Synthesizer 的 prompt 里会把 `confidence=0.8` 原样渲染给 LLM，但它对所有人格都是同一个常数，不构成有效的加权信号。文档不宣称「已按置信度加权」；要做到真汇聚，需先在 `_get_opinion` 里解析 LLM 输出的置信度与要点。
+`key_points` 字段仍保留但当前恒为 `[]`——LLM 输出中的要点尚未被解析回填。
+
+### 汇聚者署名（issue #54）
+
+`synthesizer_persona_id` 曾是声明了却从未被读取的死字段（且默认值 `"neige"` 是部门名而非 persona id）。现已接线：session 解析该 id 取到官员后传给 `Synthesizer`，用其 name/department 作汇聚身份，并把实际生效的身份回填到 `ConsultationResponse.synthesizer_*` 供前端署名。留空时沿用通用「首席顾问」。
 
 ## 3. 与 outer loop L2 的集成 + 降级 L3 的 fallback
 

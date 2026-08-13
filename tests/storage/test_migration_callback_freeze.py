@@ -122,6 +122,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     ),
     # v28 persists consultations so they survive refresh and restart (issue #52).
     "0028_consultations": ("038f15e974e2b539bb98f708b5ae30ae7f1b12d029874db52dda68cac97b9a3a"),
+    # v29 records who authored a consultation's synthesis/decision (issue #54).
+    "0029_consultation_synthesizer": (
+        "be768dddc6d70a80c9328627ec614807e6e8977c426a50d64455d48acf31896c"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

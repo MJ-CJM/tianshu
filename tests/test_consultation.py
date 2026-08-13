@@ -225,3 +225,51 @@ class TestStanceParsing:
 
         stance, conditions, opinion = ConsultationSession._parse_opinion("我觉得可以推进")
         assert stance == "support" and conditions == [] and "推进" in opinion
+
+    def test_opinion_body_on_following_lines_is_kept(self):
+        """OPINION: 换行写正文时不得丢失（issue #54）。
+
+        旧实现只取冒号后同一行，LLM 一换行 opinion 就是空串，前端渲染出一张
+        只有标签、没有正文的空卡片。
+        """
+        from tianshu.consultation.session import ConsultationSession
+
+        stance, conditions, opinion = ConsultationSession._parse_opinion(
+            "STANCE: conditional\n"
+            "CONDITIONS: 需划定人机边界; 保留最终决策权\n"
+            "OPINION:\n"
+            "吾乃张居正。夫AI者，术也非道也。\n"
+            "第一，降本增效不可不用。\n"
+            "第二，决策权不可外包。"
+        )
+        assert stance == "conditional"
+        assert conditions == ["需划定人机边界", "保留最终决策权"]
+        assert opinion.startswith("吾乃张居正")
+        assert "第二，决策权不可外包。" in opinion
+
+    def test_multiline_opinion_after_marker_is_not_truncated(self):
+        """OPINION: 同行起笔、后续续写时，后面的段落同样不得丢（issue #54）。"""
+        from tianshu.consultation.session import ConsultationSession
+
+        _s, _c, opinion = ConsultationSession._parse_opinion(
+            "STANCE: support\nOPINION: 首段结论。\n\n展开论据一。\n展开论据二。"
+        )
+        assert opinion.startswith("首段结论。")
+        assert "展开论据二。" in opinion
+
+    def test_conditions_spanning_lines_are_collected(self):
+        """CONDITIONS 跨行书写时同样要收全（issue #54）。"""
+        from tianshu.consultation.session import ConsultationSession
+
+        _s, conditions, opinion = ConsultationSession._parse_opinion(
+            "STANCE: conditional\nCONDITIONS:\n先做预算评估;\n再灰度放量\nOPINION: 谨慎推进"
+        )
+        assert conditions == ["先做预算评估", "再灰度放量"]
+        assert opinion == "谨慎推进"
+
+    def test_marker_without_body_falls_back_to_full_text(self):
+        """只给了标记却没正文时回落全文，宁可多余也不要空白卡片（issue #54）。"""
+        from tianshu.consultation.session import ConsultationSession
+
+        _s, _c, opinion = ConsultationSession._parse_opinion("STANCE: support\nOPINION:")
+        assert opinion

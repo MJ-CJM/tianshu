@@ -535,6 +535,7 @@ def test_v8_prior_prefix_upgrade_preserves_yaml_override_semantics(
             (26, "0026_persona_tier_enforcement"),
             (27, "0027_persona_workspace_dir"),
             (28, "0028_consultations"),
+            (29, "0029_consultation_synthesizer"),
         ]
     finally:
         storage.close()

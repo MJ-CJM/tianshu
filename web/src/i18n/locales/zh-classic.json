@@ -1432,7 +1432,18 @@
       "running": "进行中",
       "completed": "已毕",
       "failed": "已废"
-    }
+    },
+    "detailTitle": "廷议详情",
+    "back": "返回廷议",
+    "notFound": "未找到该场廷议",
+    "statusLabel": "状态",
+    "startedAt": "发起于",
+    "finishedAt": "毕于",
+    "conditions": "所附条件",
+    "synthesizing": "首辅汇总中...",
+    "synthesizer": "汇聚官（选填）",
+    "synthesizerPlaceholder": "默认由首席顾问汇总",
+    "synthesizerDefault": "首席顾问"
   },
   "hongluisi": {
     "title": "鸿胪寺",

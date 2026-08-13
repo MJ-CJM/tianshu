@@ -898,6 +898,10 @@ export interface ConsultationResponse {
   opinions: PersonaOpinion[];
   synthesis: string | null;
   decision: string | null;
+  /** 执笔汇聚的官员；为空表示由通用「首席顾问」身份汇总 */
+  synthesizer_persona_id: string | null;
+  synthesizer_name: string | null;
+  synthesizer_department: string | null;
   /** 失败/部分失败归因（哪位官员超时或报错），completed 时也可能非空 */
   error: string | null;
   created_at: string;

@@ -4119,6 +4119,44 @@ def _consultations_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+_CONSULTATION_SYNTHESIZER_VERSION = _CONSULTATIONS_VERSION + 1
+_CONSULTATION_SYNTHESIZER_NAME = f"{_CONSULTATION_SYNTHESIZER_VERSION:04d}_consultation_synthesizer"
+# 综合意见/决策此前无署名，读者无从判断出自谁（issue #54）。留空 = 通用「首席顾问」。
+_CONSULTATION_SYNTHESIZER_COLUMNS = (
+    "synthesizer_persona_id",
+    "synthesizer_name",
+    "synthesizer_department",
+)
+_CONSULTATION_SYNTHESIZER_STATEMENTS = tuple(
+    f"""
+    ALTER TABLE consultations ADD COLUMN {column} TEXT
+    """
+    for column in _CONSULTATION_SYNTHESIZER_COLUMNS
+)
+_CONSULTATION_SYNTHESIZER_CHECKSUM = hashlib.sha256(
+    (
+        _CONSULTATION_SYNTHESIZER_NAME
+        + "\n"
+        + "\n".join(
+            " ".join(statement.split()) for statement in _CONSULTATION_SYNTHESIZER_STATEMENTS
+        )
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _consultation_synthesizer_upgrade(conn: MigrationConnection) -> None:
+    # 逐列判存在再加：consultations 是上一版（v28）新建的表，从「已是权威形状的库」
+    # 回放迁移时列可能已在，裸 ALTER 会 duplicate column 而炸掉整条升级链。
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(consultations)").fetchall()}
+    for column, statement in zip(
+        _CONSULTATION_SYNTHESIZER_COLUMNS,
+        _CONSULTATION_SYNTHESIZER_STATEMENTS,
+        strict=True,
+    ):
+        if column not in existing:
+            conn.execute(statement)
+
+
 MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
     Migration(
         version=_EVOLUTION_CANDIDATE_MIGRATION_VERSION,
@@ -4185,6 +4223,12 @@ MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
         name=_CONSULTATIONS_NAME,
         checksum=_CONSULTATIONS_CHECKSUM,
         upgrade=_consultations_upgrade,
+    ),
+    Migration(
+        version=_CONSULTATION_SYNTHESIZER_VERSION,
+        name=_CONSULTATION_SYNTHESIZER_NAME,
+        checksum=_CONSULTATION_SYNTHESIZER_CHECKSUM,
+        upgrade=_consultation_synthesizer_upgrade,
     ),
 )
 
