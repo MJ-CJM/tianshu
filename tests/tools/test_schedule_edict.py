@@ -442,3 +442,101 @@ async def test_list_empty_is_explicit(setup):
 
 async def _empty_jobs():
     return []
+
+
+# --- 派官收口（issue #49）---------------------------------------------------
+
+
+def _persona(pid: str):
+    from tianshu.persona.model import AgentPersona
+
+    return AgentPersona(
+        id=pid,
+        name=pid,
+        department="wenyuan",
+        soul_path="/tmp/p/SOUL.md",
+        role_path="/tmp/p/ROLE.md",
+        memory_path="/tmp/p/MEMORY.md",
+    )
+
+
+def _setup_with_assistant(storage, assistant_id: str | None):
+    """本工具刻意对所有官员开放，故派官限制做在工具内部而非 ASSISTANT_ONLY_TOOLS。"""
+    registry = ToolRegistry()
+    loader = MagicMock()
+    loader.get = MagicMock(side_effect=lambda pid: _persona(pid))
+    register_schedule_edict(
+        registry,
+        storage=storage,
+        scheduler=FakeScheduler(),
+        persona_loader=loader,
+        edict_application_service=EdictApplicationService(storage),
+        assistant_persona_id_provider=lambda: assistant_id,
+    )
+    _, func = registry._tools["schedule_edict"]
+    return func
+
+
+@pytest.mark.asyncio
+async def test_official_may_schedule_for_self(storage):
+    """人人可给自己排差事——本工具对所有官员开放的原意不得被破坏。"""
+    from tianshu.kernel.ambient import bind_persona
+
+    func = _setup_with_assistant(storage, "qb")
+    with bind_persona(_persona("smg")):
+        result = await func(
+            action="create", goal="每日自检", schedule="0 9 * * *", assigned_persona_id="smg"
+        )
+    assert result.is_error is False, result.content
+
+
+@pytest.mark.asyncio
+async def test_official_cannot_schedule_for_another_official(storage):
+    """派给他人会洗掉自己的职权契约（#40）：定时敕令按被指派者的宽 ACL 跑。"""
+    from tianshu.kernel.ambient import bind_persona
+
+    func = _setup_with_assistant(storage, "qb")
+    with bind_persona(_persona("smg")):
+        result = await func(
+            action="create", goal="替我干活", schedule="30m", assigned_persona_id="bingbu"
+        )
+    assert result.is_error is True
+    assert "只能为自己排定差事" in result.content
+
+
+@pytest.mark.asyncio
+async def test_assistant_may_schedule_for_others(storage):
+    """助手代用户派官是正常路径，不得误伤。"""
+    from tianshu.kernel.ambient import bind_persona
+
+    func = _setup_with_assistant(storage, "qb")
+    with bind_persona(_persona("qb")):
+        result = await func(
+            action="create", goal="交办司马光", schedule="30m", assigned_persona_id="smg"
+        )
+    assert result.is_error is False, result.content
+
+
+@pytest.mark.asyncio
+async def test_no_persona_context_unrestricted(storage):
+    """无 persona（CLI/API 直调）时不受限——与本机制引入前一致。"""
+    func = _setup_with_assistant(storage, "qb")
+    result = await func(action="create", goal="外部下发", schedule="30m", assigned_persona_id="smg")
+    assert result.is_error is False, result.content
+
+
+@pytest.mark.asyncio
+async def test_provider_unavailable_denies_cross_assignment(storage):
+    """provider 拿不到助手身份时按最小权限收口——派给他人一律拒绝。
+
+    与 agent 侧执行墙的 fail-open 取向相反：那里放开只是回到"无过滤"的既有
+    状态；这里若放开，等于任何官员都能派官，正是本 issue 要堵的洞。
+    """
+    from tianshu.kernel.ambient import bind_persona
+
+    func = _setup_with_assistant(storage, None)
+    with bind_persona(_persona("smg")):
+        result = await func(
+            action="create", goal="替我干活", schedule="30m", assigned_persona_id="bingbu"
+        )
+    assert result.is_error is True

@@ -42,13 +42,26 @@ logger = logging.getLogger(__name__)
 
 
 def _assistant_persona_id_provider(storage: Storage) -> str | None:
-    """实时读 channel_configs.feishu.assistant_persona_id。
+    """实时读当前助手 persona id。
 
-    原 lifespan 内嵌闭包提为顶层，捕获对象（storage）改为显式参数，
-    调用处用 functools.partial 绑定。agent 用它判断当前执行 persona
-    是不是助手，非助手过滤掉 ASSISTANT_ONLY_TOOLS（submit_edict 等），
+    agent 用它判断当前执行 persona 是不是助手：非助手过滤掉
+    ASSISTANT_ONLY_TOOLS（submit_edict 等）并在执行层拦截（issue #49），
     防 cron 触发的执行 persona 递归颁敕。
+
+    先读 ``channel_instances``（现代多实例配置，通政司页面写这里），回落
+    ``channel_configs``（legacy 单例表）。此前只读 legacy 表——而现在已无
+    生产写入方，新装机上恒返回 None，**可见性过滤与执行墙双双静默失效**；
+    只有像本仓库这样存有历史 legacy 行的实例才碰巧还在工作。
+
+    多实例取第一个启用且配了助手的：多渠道各配不同助手属罕见配置，届时
+    非首个渠道的助手会被当作普通官员拦下——是可见的报错，不是静默放行。
     """
+    try:
+        for instance in storage.list_channel_instances():
+            if instance.get("enabled") and instance.get("assistant_persona_id"):
+                return str(instance["assistant_persona_id"])
+    except Exception:  # noqa: BLE001 - 表缺失/损坏时回落 legacy，不阻断执行
+        logger.exception("[assistant-persona] list_channel_instances failed")
     cfg = storage.get_channel_config("feishu")
     return (cfg or {}).get("assistant_persona_id")
 

@@ -128,6 +128,7 @@ class ApprovalManager:
         tool_args: dict[str, object],
         tool_tier: str,
         policy_rule_id: str | None,
+        persona_exceeds_tier: bool = False,
         messages: list[dict],
         iteration: int,
         usage: UsageSummary,
@@ -182,6 +183,10 @@ class ApprovalManager:
                 "arguments": safe_arguments,
                 "tool_tier": tool_tier,
                 "policy_rule_id": policy_rule_id,
+                # 越级奏请的批准不得投影成 session rule（issue #48 写侧）：
+                # 那条规则没有 persona 维度，会把"为某受限官员批的一次越级"
+                # 放大成对全体官员该操作的长期免审。
+                "persona_exceeds_tier": persona_exceeds_tier,
             },
             expires_at=now + timedelta(seconds=APPROVAL_TIMEOUT),
         )
@@ -520,6 +525,9 @@ class ApprovalManager:
             or record.resolution is None
             or record.resolution.action != "approve"
             or decree.grant_scope not in {"edict", "always"}
+            # 越级奏请只放行这一次：session rule 的匹配键无 persona 维度，
+            # 投影出去等于把某位受限官员的单次授权变成全员长期免审（#48 写侧）。
+            or bool(record.request.payload.get("persona_exceeds_tier"))
         ):
             return
         from tianshu.tools.policy_store import SessionRule, compute_fingerprint

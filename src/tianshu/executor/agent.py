@@ -89,6 +89,10 @@ class AgentResult(BaseModel):
 ASSISTANT_ONLY_TOOLS: frozenset[str] = frozenset(
     {
         "submit_edict",
+        # 注意 schedule_edict 刻意**不**在此列：任何官员都该能给自己排定时差事
+        # （见 tests/tools/test_schedule_edict.py 的 test_any_official_can_use_...）。
+        # 它同样接受 assigned_persona_id，故派官给他人这条路径改在工具内部按
+        # "只能派给自己" 收口（issue #49），而不是整把工具封禁。
         "list_edicts",
         "get_edict_status",
         "list_personas",
@@ -430,15 +434,7 @@ class Agent:
         # 误解为"再造一道敕令"无限套娃。每轮重新读 provider 以反映 toggle / persona 切换。
         if openai_tools and self._assistant_persona_id_provider is not None:
             persona_id = getattr(persona, "id", None) if persona else None
-            try:
-                assistant_id = self._assistant_persona_id_provider()
-            except Exception:
-                logger.warning(
-                    "[AGENT] assistant_persona_id_provider raised; "
-                    "skipping ASSISTANT_ONLY filter (fail-open by design)",
-                    exc_info=True,
-                )
-                assistant_id = None
+            assistant_id = self._resolve_assistant_persona_id()
             if assistant_id and persona_id != assistant_id:
                 before = len(openai_tools)
                 openai_tools = [
@@ -458,6 +454,44 @@ class Agent:
                         after,
                     )
         return openai_tools
+
+    def _resolve_assistant_persona_id(self) -> str | None:
+        """当前助手 persona id；provider 抛错时返回 None（fail-open，见调用点）。"""
+        if self._assistant_persona_id_provider is None:
+            return None
+        try:
+            return self._assistant_persona_id_provider()
+        except Exception:
+            logger.warning(
+                "[AGENT] assistant_persona_id_provider raised; "
+                "skipping ASSISTANT_ONLY enforcement (fail-open by design)",
+                exc_info=True,
+            )
+            return None
+
+    def _reject_assistant_only_tool(self, tool_name: str, persona: object | None) -> str | None:
+        """非助手官员调用颁敕工具时返回拒绝理由；可调用则返回 None（issue #49）。
+
+        可见性过滤（_resolve_tool_list）只裁剪**发给 LLM 的 schema 列表**，而执行
+        循环从不校验 tool_call 是否在本轮列表内——注册表里有就执行。于是执行官员
+        只要幻觉出一个它从没见过的工具名，就能调用 submit_edict 重新颁敕：新敕令
+        按被指派者的宽 ACL 执行，原官员的职权契约（#40）就此被洗掉。
+
+        fail-open 与可见性过滤保持一致：provider 异常时不拦，等价于回到本机制引入
+        前的行为，不会因 provider 抖动打断正常执行。
+        """
+        if tool_name not in ASSISTANT_ONLY_TOOLS:
+            return None
+        assistant_id = self._resolve_assistant_persona_id()
+        if not assistant_id:
+            return None
+        persona_id = getattr(persona, "id", None) if persona else None
+        if persona_id == assistant_id:
+            return None
+        return (
+            f"工具 '{tool_name}' 仅助手可用：官员 {persona_id or '(未指派)'} "
+            f"不得颁敕或改派——请复奏由佳民定夺，不要自行下发新敕令。"
+        )
 
     async def _call_llm_with_recovery(
         self,
@@ -770,6 +804,30 @@ class Agent:
                 tool_tier = tool_defn.tier if tool_defn else ToolTier.T4_DANGEROUS.value
                 is_fast_path = tool_tier == ToolTier.T0_READONLY.value
                 policy_decision = None
+
+                # 颁敕工具执行墙（issue #49）：可见性过滤只裁剪发给 LLM 的列表，
+                # 而这里从不校验 tool_call 是否在本轮列表内——注册表里有就执行。
+                # 须先于 T0 快路径判定，否则 list_edicts/list_personas 这类 T0
+                # 颁敕辅助工具会绕过整条 hook chain 直达 registry。
+                assistant_only_reason = self._reject_assistant_only_tool(tc["name"], persona)
+                if assistant_only_reason:
+                    new_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": f"Tool blocked: {assistant_only_reason}",
+                        }
+                    )
+                    durable_messages.append(dict(new_messages[-1]))
+                    emit(
+                        {
+                            "type": "tool.blocked",
+                            "tool": tc["name"],
+                            "iteration": state.iteration,
+                            "reason": assistant_only_reason,
+                        }
+                    )
+                    continue
 
                 if self._hooks and not is_fast_path:
                     # ambient 绑定须罩住 hook chain：PersonaToolRule（#40）取

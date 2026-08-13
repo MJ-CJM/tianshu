@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from tianshu.application.edicts import EdictApplicationService, SubmitEdictCommand
@@ -21,7 +22,11 @@ from tianshu.application.ingress import (
     make_ingress_auth_context,
     requested_contract_for_edict,
 )
-from tianshu.kernel.ambient import get_current_edict, get_current_tool_invocation_id
+from tianshu.kernel.ambient import (
+    get_current_edict,
+    get_current_persona,
+    get_current_tool_invocation_id,
+)
 from tianshu.models.common import VALID_EXECUTION_PROFILES, VALID_PRIORITIES
 from tianshu.models.edict import Edict, title_from_goal
 from tianshu.models.principal import (
@@ -85,6 +90,7 @@ def register_schedule_edict(
     scheduler: Scheduler,
     persona_loader: PersonaLoader | None = None,
     edict_application_service: EdictApplicationService | None = None,
+    assistant_persona_id_provider: Callable[[], str | None] | None = None,
 ) -> None:
     """注册 schedule_edict tool 到 ToolRegistry。"""
     if edict_application_service is None:
@@ -126,6 +132,21 @@ def register_schedule_edict(
             return error_result(
                 f"schedule_edict: persona '{assigned_persona_id}' 不存在",
             )
+        # 派官收口（issue #49）：本工具刻意对所有官员开放（人人可给自己排差事），
+        # 但 assigned_persona_id 能指向他人——执行官员据此定时颁一道敕令给高职权
+        # 官员，新敕令按被指派者的宽 ACL 跑，自己的职权契约（#40）就被洗掉了。
+        # 助手（与用户对话、代其派官的那个）不受限；其余官员只能派给自己。
+        caller_persona = get_current_persona()
+        caller_id = getattr(caller_persona, "id", None) if caller_persona else None
+        if caller_id and assigned_persona_id and assigned_persona_id != caller_id:
+            assistant_id = (
+                assistant_persona_id_provider() if assistant_persona_id_provider else None
+            )
+            if not assistant_id or caller_id != assistant_id:
+                return error_result(
+                    f"schedule_edict: 官员 {caller_id} 只能为自己排定差事，"
+                    f"不得指派 {assigned_persona_id}——如需他人承办，请复奏由佳民定夺。",
+                )
         try:
             parsed = parse_spec(schedule, timezone)
         except ValueError as e:

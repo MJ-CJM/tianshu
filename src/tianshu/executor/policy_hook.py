@@ -85,7 +85,28 @@ class PolicyHook:
         decision = await self._engine.evaluate(ctx)
 
         # Session rule cache — 仅对 require_approval 查询（Step 3 启用）
-        if decision.verdict == "require_approval" and self._session_rule_store is not None:
+        #
+        # 越级的官员不吃这层缓存（issue #48）：session rule 的匹配键是
+        # tool_name + arg_fingerprint(+edict_id)，没有 persona 维度。而越级的
+        # 风险源不是操作、是人——"兵部尚书能不能干这件事"与"翰林能不能干"是两个
+        # 问题，用同一条缓存回答属语义错配：DAG 各节点共享 edict_id 却绑不同官员，
+        # 高职权节点批出的 edict-scope 规则会让同 edict 内的受限官员零审批越级；
+        # always-scope 规则更是跨 edict 对所有官员生效 30 天。
+        #
+        # **必须独立判定越级，不能看 decision.rule_id**：PolicyEngine 遇
+        # require_approval 即短路，persona_tier(15) 排在 workspace(90)/bash(80)/
+        # network(75)/approval-list(70) 之后，只要其中任一条先返回 require_approval
+        # 就轮不到它评估。若按胜出规则的 rule_id 判断，一个 tier_max=1 的官员调
+        # shell_exec 执行 `git push` 会得到 rule_id="bash_safety"，越级事实被掩盖、
+        # 照样吃缓存——那正是本 issue 要堵的洞。
+        #
+        # 名单条款（denied/not_allowed）不受影响：它是硬 deny，在本段之前就返回了。
+        exceeds_tier = self._persona_exceeds_tier(ctx)
+        if (
+            decision.verdict == "require_approval"
+            and not exceeds_tier
+            and self._session_rule_store is not None
+        ):
             rule = await self._session_rule_store.find_match(
                 tool_name=ctx.tool_name,
                 args=ctx.args,
@@ -120,8 +141,31 @@ class PolicyHook:
                 invocation_id=context.get("invocation_id"),
                 messages=context.get("messages"),
                 usage=context.get("usage"),
+                persona_exceeds_tier=exceeds_tier,
             )
         return None
+
+    @staticmethod
+    def _persona_exceeds_tier(ctx: PolicyContext) -> bool:
+        """当前官员这次调用是否属越级（issue #48）。
+
+        独立于 PolicyEngine 的胜出规则判定——引擎短路会让 persona_tier(15)
+        在安全规则先行 require_approval 时根本不评估，届时 decision.rule_id
+        指向别的规则，越级事实被掩盖。这里直接用同一份 ACL 语义重算。
+        """
+        from tianshu.kernel.ambient import get_current_persona
+        from tianshu.persona.match import persona_tool_verdict
+
+        persona = get_current_persona()
+        if persona is None:
+            return False
+        try:
+            return persona_tool_verdict(persona, ctx.tool_name, int(ctx.tool_tier)) == (
+                "tier_exceeded"
+            )
+        except Exception:  # noqa: BLE001 - 判定异常时按不越级处理，保持既有缓存行为
+            logger.exception("policy_hook: persona tier check failed")
+            return False
 
     async def _request_approval(
         self,
@@ -131,6 +175,7 @@ class PolicyHook:
         invocation_id: object,
         messages: object,
         usage: object,
+        persona_exceeds_tier: bool = False,
     ) -> HookResult | None:
         """Persist a durable tool suspension, notify, then poll generic authority."""
         if self._approval_manager is None:
@@ -165,13 +210,19 @@ class PolicyHook:
             tool_args=ctx.args,
             tool_tier=ctx.tool_tier.name,
             policy_rule_id=decision.rule_id,
+            persona_exceeds_tier=persona_exceeds_tier,
             messages=messages,
             iteration=ctx.iteration,
             usage=usage,
         )
 
         auto_resolved = False
-        if self._silijian is not None:
+        # 越级奏请不许司礼监代批（issue #48 的同一条理由）：代批的四道闸看的是
+        # tool_tier 与该**操作**近期的人工通过率，没有 persona 维度。而越级问的是
+        # "这个人该不该做这件事"——拿操作维度的历史统计替人放行，与 session rule
+        # 缓存湮灭是同一种错配。且默认 silijian_max_tier=1 恰好覆盖 tier_max=0
+        # 官员调 T1 工具这一最常见的越级形态，不挡住等于越级审批形同虚设。
+        if self._silijian is not None and not persona_exceeds_tier:
             proposal = self._silijian.maybe_auto_approve(  # type: ignore[attr-defined]
                 memorial_id, ctx.tool_tier, decision.rule_id
             )
