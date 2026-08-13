@@ -1,4 +1,4 @@
-"""ConsultationSession — orchestrate multi-persona parallel analysis."""
+"""ConsultationSession — orchestrate multi-round, multi-persona court deliberation."""
 
 from __future__ import annotations
 
@@ -11,7 +11,9 @@ from tianshu.config_manager import ConfigManager
 from tianshu.consultation.models import (
     ConsultationRequest,
     ConsultationResponse,
+    ConsultationRound,
     PersonaOpinion,
+    RoundRequest,
 )
 from tianshu.consultation.synthesizer import Synthesizer
 from tianshu.llm import LLMUsageContext
@@ -20,14 +22,16 @@ from tianshu.providers.manager import ProviderManager
 
 logger = logging.getLogger(__name__)
 
-# 单个官员意见 / 综合各自的墙钟上限：LLM 挂起时廷议必须判死，否则状态永远停在
+# 单个官员意见 / 票拟各自的墙钟上限：LLM 挂起时廷议必须判死，否则状态永远停在
 # running，前端只能无限轮询（issue #52）。
 DEFAULT_OPINION_TIMEOUT_SECONDS = 180.0
 DEFAULT_SYNTHESIS_TIMEOUT_SECONDS = 180.0
+# 回放给官员的往轮记录字符预算：从最近轮往前累计，至少保留最近一轮（issue #55）
+DEFAULT_HISTORY_MAX_CHARS = 12000
 
 
 class ConsultationSession:
-    """Runs a consultation: parallel persona analysis + LLM synthesis."""
+    """Runs a consultation: multi-round parallel persona analysis + LLM proposal."""
 
     def __init__(
         self,
@@ -39,6 +43,7 @@ class ConsultationSession:
         notifier: Any | None = None,
         opinion_timeout: float = DEFAULT_OPINION_TIMEOUT_SECONDS,
         synthesis_timeout: float = DEFAULT_SYNTHESIS_TIMEOUT_SECONDS,
+        history_max_chars: int = DEFAULT_HISTORY_MAX_CHARS,
     ) -> None:
         self._personas = persona_loader
         self._config_manager = config_manager
@@ -48,6 +53,7 @@ class ConsultationSession:
         self._notifier = notifier
         self._opinion_timeout = opinion_timeout
         self._synthesis_timeout = synthesis_timeout
+        self._history_max_chars = history_max_chars
         self._synthesizer = Synthesizer(config_manager, provider_manager)
         # storage 缺席时（单测、无库装配）退回进程内字典；有库时一律以库为准，
         # 避免 orchestrator 长跑把会话无上限堆在内存里。
@@ -55,19 +61,38 @@ class ConsultationSession:
 
     # --- persistence ---
 
-    def _persist(self, response: ConsultationResponse) -> None:
+    def _persist(self, consultation: ConsultationResponse) -> None:
         if self._storage is None:
-            self._sessions[response.id] = response
+            self._sessions[consultation.id] = consultation
             return
         try:
-            self._storage.save_consultation(response)
+            self._storage.save_consultation(consultation)
         except Exception:
-            logger.exception("Failed to persist consultation %s", response.id)
+            logger.exception("Failed to persist consultation %s", consultation.id)
+
+    def _persist_round(self, round_: ConsultationRound) -> None:
+        if self._storage is None:
+            consultation = self._sessions.get(round_.consultation_id)
+            if consultation is not None:
+                rounds = [r for r in consultation.rounds if r.id != round_.id]
+                rounds.append(round_)
+                consultation.rounds = sorted(rounds, key=lambda r: r.round_index)
+            return
+        try:
+            self._storage.save_consultation_round(round_)
+        except Exception:
+            logger.exception("Failed to persist consultation round %s", round_.id)
 
     def get(self, consultation_id: str) -> ConsultationResponse | None:
         if self._storage is None:
             return self._sessions.get(consultation_id)
         return self._storage.get_consultation(consultation_id)
+
+    def get_round(self, consultation_id: str, round_id: str) -> ConsultationRound | None:
+        consultation = self.get(consultation_id)
+        if consultation is None:
+            return None
+        return next((r for r in consultation.rounds if r.id == round_id), None)
 
     def list_recent(
         self,
@@ -94,20 +119,75 @@ class ConsultationSession:
     # --- lifecycle ---
 
     def create_pending(self, request: ConsultationRequest) -> ConsultationResponse:
-        """登记一次廷议并落库（status=pending），返回可供轮询的 id。"""
-        response = ConsultationResponse(request=request, status="pending")
-        self._persist(response)
-        return response
+        """登记一场廷议并落库（含第 0 轮 = 议题本身），返回可供轮询的 id。"""
+        consultation = ConsultationResponse(request=request, status="pending")
+        self._persist(consultation)
+        first = ConsultationRound(
+            consultation_id=consultation.id,
+            round_index=0,
+            prompt=request.topic,
+            participant_ids=list(request.persona_ids),
+            status="pending",
+        )
+        self._persist_round(first)
+        consultation.rounds = [first]
+        return consultation
+
+    def append_round(
+        self,
+        consultation_id: str,
+        round_request: RoundRequest,
+    ) -> ConsultationRound:
+        """追加一轮追问；participant_ids 为空则沿用首轮全体（issue #55）。"""
+        consultation = self.get(consultation_id)
+        if consultation is None:
+            raise ValueError(f"Consultation '{consultation_id}' not found")
+        if any(r.status in {"pending", "running"} for r in consultation.rounds):
+            raise ValueError("previous round is still in progress")
+
+        participants = list(round_request.participant_ids)
+        if not participants:
+            participants = list(consultation.request.persona_ids if consultation.request else [])
+
+        round_ = ConsultationRound(
+            consultation_id=consultation_id,
+            round_index=max((r.round_index for r in consultation.rounds), default=-1) + 1,
+            prompt=round_request.prompt,
+            participant_ids=participants,
+            status="pending",
+        )
+        self._persist_round(round_)
+
+        consultation.status = "pending"
+        consultation.completed_at = None
+        self._persist(consultation)
+        return round_
+
+    def set_verdict(self, consultation_id: str, verdict: str) -> ConsultationResponse | None:
+        """落裁决——LLM 只出票拟，最终决定由用户写下（issue #55）。"""
+        consultation = self.get(consultation_id)
+        if consultation is None:
+            return None
+        consultation.verdict = verdict
+        consultation.verdict_at = datetime.now(UTC)
+        self._persist(consultation)
+        return consultation
 
     def mark_failed(self, consultation_id: str, error: str) -> None:
         """把一场未收尾的廷议判死（供后台任务异常/取消时兜底）。"""
-        record = self.get(consultation_id)
-        if record is None or record.status in {"completed", "failed"}:
+        consultation = self.get(consultation_id)
+        if consultation is None or consultation.status in {"completed", "failed"}:
             return
-        record.status = "failed"
-        record.error = error
-        record.completed_at = datetime.now(UTC)
-        self._persist(record)
+        for round_ in consultation.rounds:
+            if round_.status in {"pending", "running"}:
+                round_.status = "failed"
+                round_.error = error
+                round_.completed_at = datetime.now(UTC)
+                self._persist_round(round_)
+        consultation.status = "failed"
+        consultation.error = error
+        consultation.completed_at = datetime.now(UTC)
+        self._persist(consultation)
 
     async def start(
         self,
@@ -115,9 +195,9 @@ class ConsultationSession:
         *,
         usage_context: LLMUsageContext | None = None,
     ) -> ConsultationResponse:
-        """Start a consultation session (登记 + 执行，同步等待结果)。"""
-        response = self.create_pending(request)
-        return await self.run(response.id, usage_context=usage_context)
+        """Start a consultation (登记 + 跑第 0 轮，同步等待结果)。"""
+        consultation = self.create_pending(request)
+        return await self.run(consultation.id, usage_context=usage_context)
 
     async def run(
         self,
@@ -125,68 +205,146 @@ class ConsultationSession:
         *,
         usage_context: LLMUsageContext | None = None,
     ) -> ConsultationResponse:
-        """执行一次已登记的廷议：并行取意见（逐条落库+推送）后综合。"""
-        response = self.get(consultation_id)
-        if response is None:
+        """跑该廷议中最早一个未收尾的轮次。"""
+        consultation = self.get(consultation_id)
+        if consultation is None:
             raise ValueError(f"Consultation '{consultation_id}' not found")
-        request = response.request
+        pending = next(
+            (r for r in consultation.rounds if r.status in {"pending", "running"}),
+            None,
+        )
+        if pending is None:
+            return consultation
+        await self.run_round(consultation_id, pending.id, usage_context=usage_context)
+        return self.get(consultation_id) or consultation
+
+    async def run_round(
+        self,
+        consultation_id: str,
+        round_id: str,
+        *,
+        usage_context: LLMUsageContext | None = None,
+    ) -> ConsultationRound:
+        """执行一轮：并行取意见（逐条落库+推送）后票拟。"""
+        consultation = self.get(consultation_id)
+        if consultation is None:
+            raise ValueError(f"Consultation '{consultation_id}' not found")
+        round_ = next((r for r in consultation.rounds if r.id == round_id), None)
+        if round_ is None:
+            raise ValueError(f"Round '{round_id}' not found")
+        request = consultation.request
         if request is None:
             raise ValueError(f"Consultation '{consultation_id}' has no request")
 
-        response.status = "running"
-        self._persist(response)
+        round_.status = "running"
+        self._persist_round(round_)
+        consultation.status = "running"
+        self._persist(consultation)
         await self._broadcast(
             {
                 "type": "consultation.started",
-                "consultation_id": response.id,
+                "consultation_id": consultation_id,
+                "round_id": round_.id,
+                "round_index": round_.round_index,
                 "status": "running",
             }
         )
 
         try:
-            personas = self._resolve_personas(request)
+            personas = self._resolve_personas(round_.participant_ids)
+            history = self._build_history(consultation, round_.round_index)
             failures = await self._collect_opinions(
-                response,
+                consultation,
+                round_,
                 request,
                 personas,
+                history=history,
                 usage_context=usage_context,
             )
 
-            if not response.opinions:
-                response.status = "failed"
-                response.error = "; ".join(failures) or "no persona produced an opinion"
+            if not round_.opinions:
+                round_.status = "failed"
+                round_.error = "; ".join(failures) or "no persona produced an opinion"
             else:
                 if failures:
-                    response.error = "; ".join(failures)
-                await self._synthesize(response, request, usage_context=usage_context)
-                response.status = "completed"
-            response.completed_at = datetime.now(UTC)
+                    round_.error = "; ".join(failures)
+                await self._synthesize(round_, request, usage_context=usage_context)
+                round_.status = "completed"
+            round_.completed_at = datetime.now(UTC)
 
         except Exception as e:  # noqa: BLE001 — 兜底：任何未预期异常都要留痕，不能挂死在 running
-            logger.exception("Consultation failed: %s", e)
-            response.status = "failed"
-            response.error = f"{type(e).__name__}: {e}"
-            response.completed_at = datetime.now(UTC)
+            logger.exception("Consultation round failed: %s", e)
+            round_.status = "failed"
+            round_.error = f"{type(e).__name__}: {e}"
+            round_.completed_at = datetime.now(UTC)
 
-        self._persist(response)
+        self._persist_round(round_)
+        consultation.status = round_.status
+        consultation.error = round_.error
+        consultation.completed_at = round_.completed_at
+        self._persist(consultation)
         await self._broadcast(
             {
                 "type": "consultation.finished",
-                "consultation_id": response.id,
-                "status": response.status,
+                "consultation_id": consultation_id,
+                "round_id": round_.id,
+                "round_index": round_.round_index,
+                "status": round_.status,
             }
         )
 
-        if response.status == "completed":
-            self._archive_to_memory(response, request)
-        return response
+        if round_.status == "completed":
+            self._archive_to_memory(round_, request)
+        return round_
 
-    def _resolve_personas(self, request: ConsultationRequest) -> list:
-        persona_ids = request.persona_ids
-        if not persona_ids:
-            persona_ids = list(self._personas.load_all().keys())
+    # --- history ---
+
+    def _build_history(self, consultation: ConsultationResponse, upto_index: int) -> str:
+        """把此前轮次回放成文本，供本轮官员看到来龙去脉（issue #55）。
+
+        字符预算从最近轮往前累计，超预算即停，至少保留最近一轮——沿用
+        `executor/conversation.py::build_conversation_history` 的截断思路。
+        """
+        prior = [
+            r for r in consultation.rounds if r.round_index < upto_index and r.status == "completed"
+        ]
+        if not prior:
+            return ""
+
+        blocks: list[str] = []
+        used = 0
+        for round_ in reversed(prior):
+            block = self._render_round(round_)
+            if blocks and used + len(block) > self._history_max_chars:
+                break
+            blocks.insert(0, block)
+            used += len(block)
+
+        history = "\n\n".join(blocks)
+        if consultation.verdict:
+            history += f"\n\n【陛下裁决】{consultation.verdict}"
+        return history
+
+    @staticmethod
+    def _render_round(round_: ConsultationRound) -> str:
+        lines = [f"### 第 {round_.round_index + 1} 轮：{round_.prompt}"]
+        for opinion in round_.opinions:
+            tags = [opinion.department, _STANCE_LABELS.get(opinion.stance, opinion.stance)]
+            if opinion.is_censor:
+                tags.append("言官·执异")
+            lines.append(f"\n**{opinion.persona_name}**（{'，'.join(tags)}）：\n{opinion.opinion}")
+            if opinion.conditions:
+                lines.append(f"（所附条件：{'；'.join(opinion.conditions)}）")
+        if round_.proposal:
+            lines.append(f"\n【票拟】{round_.proposal}")
+        return "\n".join(lines)
+
+    def _resolve_personas(self, persona_ids: list[str]) -> list:
+        ids = persona_ids
+        if not ids:
+            ids = list(self._personas.load_all().keys())
         personas = []
-        for pid in persona_ids:
+        for pid in ids:
             persona = self._personas.get(pid)
             if persona:
                 personas.append(persona)
@@ -194,10 +352,12 @@ class ConsultationSession:
 
     async def _collect_opinions(
         self,
-        response: ConsultationResponse,
+        consultation: ConsultationResponse,
+        round_: ConsultationRound,
         request: ConsultationRequest,
         personas: list,
         *,
+        history: str,
         usage_context: LLMUsageContext | None,
     ) -> list[str]:
         """并行取意见；每条到达即落库并推送，让前端能逐条看到进展。
@@ -205,16 +365,20 @@ class ConsultationSession:
         返回失败说明列表（供 error 字段归因）。
         """
         order = {persona.id: idx for idx, persona in enumerate(personas)}
+        # 言官由 censor_persona_ids 显式任命；此前是 idx==0 硬编码，谁执异
+        # 取决于列表顺序，用户无从指定（issue #55）。
+        censors = set(request.censor_persona_ids)
 
-        async def _one(persona, idx: int) -> tuple[PersonaOpinion | None, str | None]:
+        async def _one(persona) -> tuple[PersonaOpinion | None, str | None]:
             """单个官员的意见；失败在此收敛为归因文本，不拖垮整场廷议。"""
             try:
                 opinion = await asyncio.wait_for(
                     self._get_opinion(
                         persona,
                         request,
-                        # 言官(第一位,人数>1 时)强制反调破意见趋同(ADR-0008)
-                        is_censor=idx == 0 and len(personas) > 1,
+                        prompt=round_.prompt,
+                        history=history,
+                        is_censor=persona.id in censors,
                         usage_context=usage_context,
                     ),
                     timeout=self._opinion_timeout,
@@ -227,7 +391,7 @@ class ConsultationSession:
             return opinion, None
 
         failures: list[str] = []
-        pending = [_one(persona, idx) for idx, persona in enumerate(personas)]
+        pending = [_one(persona) for persona in personas]
         for completed in asyncio.as_completed(pending):
             opinion, failure = await completed
             if opinion is None:
@@ -235,17 +399,19 @@ class ConsultationSession:
                     failures.append(failure)
                 continue
 
-            response.opinions.append(opinion)
-            response.opinions.sort(key=lambda o: order.get(o.persona_id, len(order)))
-            self._persist(response)
+            round_.opinions.append(opinion)
+            round_.opinions.sort(key=lambda o: order.get(o.persona_id, len(order)))
+            self._persist_round(round_)
             await self._broadcast(
                 {
                     "type": "consultation.opinion",
-                    "consultation_id": response.id,
+                    "consultation_id": consultation.id,
+                    "round_id": round_.id,
+                    "round_index": round_.round_index,
                     "status": "running",
                     "persona_id": opinion.persona_id,
                     "persona_name": opinion.persona_name,
-                    "done": len(response.opinions),
+                    "done": len(round_.opinions),
                     "total": len(personas),
                 }
             )
@@ -253,54 +419,54 @@ class ConsultationSession:
 
     async def _synthesize(
         self,
-        response: ConsultationResponse,
+        round_: ConsultationRound,
         request: ConsultationRequest,
         *,
         usage_context: LLMUsageContext | None,
     ) -> None:
-        # 汇聚官署名：让「综合意见 / 决策」有明确出处，而不是一段无主之言（issue #54）
+        # 票拟者署名：让「综合意见 / 票拟」有明确出处，而不是一段无主之言（issue #54）
         synthesizer = (
             self._personas.get(request.synthesizer_persona_id)
             if request.synthesizer_persona_id
             else None
         )
         if synthesizer is not None:
-            response.synthesizer_persona_id = synthesizer.id
-            response.synthesizer_name = synthesizer.name
-            response.synthesizer_department = synthesizer.department
+            round_.synthesizer_persona_id = synthesizer.id
+            round_.synthesizer_name = synthesizer.name
+            round_.synthesizer_department = synthesizer.department
 
         try:
             synthesis_result = await asyncio.wait_for(
                 self._synthesizer.synthesize(
                     request,
-                    response.opinions,
+                    round_.opinions,
                     persona=synthesizer,
                     usage_context=usage_context,
                 ),
                 timeout=self._synthesis_timeout,
             )
         except TimeoutError:
-            # 意见已经拿到且落库，综合超时不该让整场廷议归零
-            response.error = "; ".join(
+            # 意见已经拿到且落库，票拟超时不该让整轮归零
+            round_.error = "; ".join(
                 filter(
                     None,
-                    [response.error, f"synthesis timeout after {self._synthesis_timeout:.0f}s"],
+                    [round_.error, f"synthesis timeout after {self._synthesis_timeout:.0f}s"],
                 )
             )
             return
-        response.synthesis = synthesis_result.get("synthesis", "")
-        response.decision = synthesis_result.get("decision", "")
+        round_.synthesis = synthesis_result.get("synthesis", "")
+        round_.proposal = synthesis_result.get("decision", "")
 
     def _archive_to_memory(
         self,
-        response: ConsultationResponse,
+        round_: ConsultationRound,
         request: ConsultationRequest,
     ) -> None:
         """Store consultation result to court Markdown (source of truth)."""
-        if not self._memory_manager or not response.synthesis:
+        if not self._memory_manager or not round_.synthesis:
             return
         try:
-            content = f"Consultation on '{request.topic[:60]}': {response.synthesis[:200]}"
+            content = f"Consultation on '{request.topic[:60]}': {round_.synthesis[:200]}"
             # Append to court daily log
             from tianshu.memory.models import MemoryEntry
 
@@ -318,8 +484,8 @@ class ConsultationSession:
             existing = md.read_core_memory("court")
             date_str = datetime.now(UTC).strftime("%Y-%m-%d")
             section = f"\n## Consultation ({date_str})\n- {content}\n"
-            if response.decision:
-                section += f"- Decision: {response.decision[:200]}\n"
+            if round_.proposal:
+                section += f"- Proposal: {round_.proposal[:200]}\n"
             md.write_core_memory("court", existing + section)
         except Exception:
             logger.debug("Failed to store consultation result to memory")
@@ -328,6 +494,9 @@ class ConsultationSession:
         self,
         persona,
         request: ConsultationRequest,
+        *,
+        prompt: str,
+        history: str = "",
         is_censor: bool = False,
         usage_context: LLMUsageContext | None = None,
     ) -> PersonaOpinion:
@@ -346,29 +515,34 @@ class ConsultationSession:
                 api_base=state.api_base,
             )
 
-        prompt = (
+        user_prompt = (
             f"You are {persona.name} from the {persona.department} department.\n"
             f"Analyze the following topic and provide your professional opinion.\n\n"
             f"Topic: {request.topic}\n"
         )
         if request.context:
-            prompt += f"\nContext: {request.context}\n"
+            user_prompt += f"\nContext: {request.context}\n"
+        if history:
+            user_prompt += f"\n## 此前廷议记录\n{history}\n"
+            user_prompt += f"\n## 本轮追问\n{prompt}\n"
+        elif prompt and prompt != request.topic:
+            user_prompt += f"\n## 本轮追问\n{prompt}\n"
 
-        prompt += (
+        user_prompt += (
             "\n从你的职能视角给出意见,严格按以下格式:\n"
             "STANCE: support / oppose / conditional 三选一(赞成/反对/有条件)\n"
             "CONDITIONS: 若 conditional,列出条件(分号分隔);否则留空\n"
             "OPINION: 你的核心意见与论据\n"
         )
         if is_censor:
-            prompt += (
+            user_prompt += (
                 "\n【你是言官】职责是唱反调:即使个人倾向赞成,也要找出这个提案**最强的"
                 "反对理由**、被忽视的风险、隐藏的代价。宁可偏 oppose/conditional,不随大流。\n"
             )
 
         messages = [
             {"role": "system", "content": f"You are {persona.name}, {persona.department}."},
-            {"role": "user", "content": prompt},
+            {"role": "user", "content": user_prompt},
         ]
 
         if usage_context is None:
@@ -426,3 +600,6 @@ class ConsultationSession:
             elif current:
                 sections[current].append(line.rstrip())
         return {marker: "\n".join(body).strip() for marker, body in sections.items()}
+
+
+_STANCE_LABELS = {"support": "赞成", "oppose": "反对", "conditional": "有条件"}

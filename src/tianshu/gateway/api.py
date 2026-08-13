@@ -13,7 +13,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 
-from tianshu.consultation.models import ConsultationRequest
+from tianshu.consultation.models import ConsultationRequest, RoundRequest
 from tianshu.consultation.session import ConsultationSession
 from tianshu.gateway.auth import AuthService, get_auth_context
 from tianshu.models import ApiResponse
@@ -103,6 +103,44 @@ def get_consultation(consultation_id: str, request: Request):
     if not result:
         raise HTTPException(status_code=404, detail=f"Consultation '{consultation_id}' not found")
     return ApiResponse(success=True, data=result.model_dump(mode="json"))
+
+
+@gateway_router.post("/consultations/{consultation_id}/rounds", status_code=202)
+async def append_consultation_round(consultation_id: str, request: Request):
+    """追问一轮：participant_ids 为空则沿用首轮全体（issue #55）。"""
+    consultation: ConsultationSession = request.app.state.consultation
+    body = await request.json()
+    round_request = RoundRequest(**body)
+    if not round_request.prompt.strip():
+        raise HTTPException(status_code=422, detail="prompt must not be empty")
+
+    try:
+        round_ = consultation.append_round(consultation_id, round_request)
+    except ValueError as exc:
+        # 廷议不存在 → 404；上一轮还没跑完 → 409
+        status = 404 if "not found" in str(exc) else 409
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+    _spawn_consultation(request.app, consultation, consultation_id)
+    return ApiResponse(
+        success=True,
+        data={"id": round_.id, "round_index": round_.round_index, "status": round_.status},
+    )
+
+
+@gateway_router.put("/consultations/{consultation_id}/verdict")
+async def set_consultation_verdict(consultation_id: str, request: Request):
+    """落裁决——LLM 只出票拟，最终决定由用户写下（issue #55）。"""
+    consultation: ConsultationSession = request.app.state.consultation
+    body = await request.json()
+    verdict = str(body.get("verdict", "")).strip()
+    if not verdict:
+        raise HTTPException(status_code=422, detail="verdict must not be empty")
+
+    updated = consultation.set_verdict(consultation_id, verdict)
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Consultation '{consultation_id}' not found")
+    return ApiResponse(success=True, data=updated.model_dump(mode="json"))
 
 
 def _spawn_consultation(app, consultation: ConsultationSession, consultation_id: str) -> None:

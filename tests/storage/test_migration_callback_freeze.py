@@ -126,6 +126,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0029_consultation_synthesizer": (
         "be768dddc6d70a80c9328627ec614807e6e8977c426a50d64455d48acf31896c"
     ),
+    # v30 splits consultations into rounds and hands the verdict back to the user (issue #55).
+    "0030_consultation_rounds": (
+        "2183d8b8fb5ce11e713f471ab44cf2b6bb1a1f841787b392a77b9db9d87e3c95"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

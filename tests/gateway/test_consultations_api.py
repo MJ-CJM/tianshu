@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import FastAPI
@@ -19,7 +20,7 @@ from tianshu.gateway.api import gateway_router
 
 
 class _StubSession(ConsultationSession):
-    """跳过 LLM：run() 只把状态推到 completed，其余落库路径保持真实。"""
+    """跳过 LLM：run() 只把最新一轮推到终态，其余落库路径保持真实。"""
 
     def __init__(self, storage, *, fail: bool = False) -> None:
         self._storage = storage
@@ -29,9 +30,19 @@ class _StubSession(ConsultationSession):
 
     async def run(self, consultation_id: str, *, usage_context=None):
         record = self.get(consultation_id)
-        record.status = "failed" if self._fail else "completed"
-        record.synthesis = None if self._fail else "综合意见"
-        record.error = "downstream unavailable" if self._fail else None
+        status = "failed" if self._fail else "completed"
+        error = "downstream unavailable" if self._fail else None
+        for round_ in record.rounds:
+            if round_.status not in {"pending", "running"}:
+                continue
+            round_.status = status
+            round_.synthesis = None if self._fail else "综合意见"
+            round_.proposal = None if self._fail else "票拟建议"
+            round_.error = error
+            round_.completed_at = datetime.now(UTC)
+            self._persist_round(round_)
+        record.status = status
+        record.error = error
         self._persist(record)
         return record
 
@@ -165,3 +176,76 @@ class TestRealAssembly:
 
             # 真实装配把记录写进了库，而不是只活在进程内存里
             assert app.state.storage.get_consultation(consultation_id) is not None
+
+
+class TestMultiRoundApi:
+    """追问与裁决的 HTTP 面（issue #55）。"""
+
+    def test_append_round_creates_a_new_round(self, client, storage):
+        consultation_id = _create(client)
+
+        resp = client.post(
+            f"/api/consultations/{consultation_id}/rounds",
+            json={"prompt": "户部单独说说钱", "participant_ids": ["hubu"]},
+        )
+
+        assert resp.status_code == 202
+        assert resp.json()["data"]["round_index"] == 1
+        rounds = storage.list_consultation_rounds(consultation_id)
+        assert [r.round_index for r in rounds] == [0, 1]
+        assert rounds[1].prompt == "户部单独说说钱"
+        assert rounds[1].participant_ids == ["hubu"]
+
+    def test_append_round_without_names_inherits_first_round_roster(self, client, storage):
+        consultation_id = _create(client)
+
+        client.post(f"/api/consultations/{consultation_id}/rounds", json={"prompt": "再议"})
+
+        rounds = storage.list_consultation_rounds(consultation_id)
+        assert rounds[1].participant_ids == ["neige"]  # 沿用首轮名单
+
+    def test_append_round_rejects_empty_prompt(self, client):
+        consultation_id = _create(client)
+        resp = client.post(
+            f"/api/consultations/{consultation_id}/rounds",
+            json={"prompt": "   "},
+        )
+        assert resp.status_code == 422
+
+    def test_append_round_on_unknown_consultation_is_404(self, client):
+        resp = client.post("/api/consultations/nope/rounds", json={"prompt": "追问"})
+        assert resp.status_code == 404
+
+    def test_verdict_is_recorded_and_returned(self, client, storage):
+        consultation_id = _create(client)
+
+        resp = client.put(
+            f"/api/consultations/{consultation_id}/verdict",
+            json={"verdict": "准奏，但须季度复核。"},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["data"]["verdict"] == "准奏，但须季度复核。"
+        assert resp.json()["data"]["verdict_at"]
+        assert storage.get_consultation(consultation_id).verdict == "准奏，但须季度复核。"
+
+    def test_verdict_rejects_empty_text(self, client):
+        consultation_id = _create(client)
+        resp = client.put(
+            f"/api/consultations/{consultation_id}/verdict",
+            json={"verdict": "  "},
+        )
+        assert resp.status_code == 422
+
+    def test_verdict_on_unknown_consultation_is_404(self, client):
+        resp = client.put("/api/consultations/nope/verdict", json={"verdict": "准奏"})
+        assert resp.status_code == 404
+
+    def test_detail_returns_rounds(self, client):
+        consultation_id = _create(client)
+        client.post(f"/api/consultations/{consultation_id}/rounds", json={"prompt": "再议"})
+
+        data = client.get(f"/api/consultations/{consultation_id}").json()["data"]
+
+        assert [r["round_index"] for r in data["rounds"]] == [0, 1]
+        assert data["rounds"][0]["prompt"] == "如何在 ai 时代具备个人竞争力?"

@@ -4157,6 +4157,85 @@ def _consultation_synthesizer_upgrade(conn: MigrationConnection) -> None:
             conn.execute(statement)
 
 
+_CONSULTATION_ROUNDS_VERSION = _CONSULTATION_SYNTHESIZER_VERSION + 1
+_CONSULTATION_ROUNDS_NAME = f"{_CONSULTATION_ROUNDS_VERSION:04d}_consultation_rounds"
+# 廷议升为多轮朝议（issue #55）：轮次独立成表——每轮独立跑、独立失败、独立广播，
+# 「重试某一轮」也才成立。consultations 降为一场廷议的容器，持有言官名单与用户裁决；
+# LLM 产出降格为票拟（proposal），裁决权归用户（verdict）。
+_CONSULTATION_ROUNDS_TABLE = """
+    CREATE TABLE IF NOT EXISTS consultation_rounds (
+        id TEXT PRIMARY KEY,
+        consultation_id TEXT NOT NULL,
+        round_index INTEGER NOT NULL,
+        prompt TEXT NOT NULL,
+        participant_ids_json TEXT NOT NULL DEFAULT '[]',
+        opinions_json TEXT NOT NULL DEFAULT '[]',
+        synthesis TEXT,
+        proposal TEXT,
+        synthesizer_persona_id TEXT,
+        synthesizer_name TEXT,
+        synthesizer_department TEXT,
+        status TEXT NOT NULL,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        completed_at TEXT,
+        UNIQUE(consultation_id, round_index)
+    )
+"""
+_CONSULTATION_ROUNDS_INDEX = """
+    CREATE INDEX IF NOT EXISTS idx_consultation_rounds_consultation
+    ON consultation_rounds(consultation_id, round_index)
+"""
+_CONSULTATION_CONTAINER_COLUMNS = (
+    ("censor_persona_ids_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ("verdict", "TEXT"),
+    ("verdict_at", "TEXT"),
+)
+# 存量搬迁：每场既有廷议的意见/综述/决策原样落成它的第 0 轮，历史不丢。
+# 旧 decision 是 LLM 给的，语义上正是新的 proposal（票拟），直接对位。
+_CONSULTATION_ROUNDS_BACKFILL = """
+    INSERT OR IGNORE INTO consultation_rounds
+        (id, consultation_id, round_index, prompt, participant_ids_json,
+         opinions_json, synthesis, proposal, synthesizer_persona_id,
+         synthesizer_name, synthesizer_department, status, error,
+         created_at, completed_at)
+    SELECT
+        c.id || '-r0', c.id, 0, c.topic,
+        COALESCE(json_extract(c.request_json, '$.persona_ids'), '[]'),
+        c.opinions_json, c.synthesis, c.decision, c.synthesizer_persona_id,
+        c.synthesizer_name, c.synthesizer_department, c.status, c.error,
+        c.created_at, c.completed_at
+    FROM consultations c
+"""
+_CONSULTATION_ROUNDS_STATEMENTS = (
+    _CONSULTATION_ROUNDS_TABLE,
+    _CONSULTATION_ROUNDS_INDEX,
+    *(
+        f"ALTER TABLE consultations ADD COLUMN {column} {decl}"
+        for column, decl in _CONSULTATION_CONTAINER_COLUMNS
+    ),
+    _CONSULTATION_ROUNDS_BACKFILL,
+)
+_CONSULTATION_ROUNDS_CHECKSUM = hashlib.sha256(
+    (
+        _CONSULTATION_ROUNDS_NAME
+        + "\n"
+        + "\n".join(" ".join(statement.split()) for statement in _CONSULTATION_ROUNDS_STATEMENTS)
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _consultation_rounds_upgrade(conn: MigrationConnection) -> None:
+    conn.execute(_CONSULTATION_ROUNDS_TABLE)
+    conn.execute(_CONSULTATION_ROUNDS_INDEX)
+    # 同 v29：从「已是权威形状的库」回放时列可能已在，逐列判存在再加。
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(consultations)").fetchall()}
+    for column, decl in _CONSULTATION_CONTAINER_COLUMNS:
+        if column not in existing:
+            conn.execute(f"ALTER TABLE consultations ADD COLUMN {column} {decl}")
+    conn.execute(_CONSULTATION_ROUNDS_BACKFILL)
+
+
 MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
     Migration(
         version=_EVOLUTION_CANDIDATE_MIGRATION_VERSION,
@@ -4229,6 +4308,12 @@ MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
         name=_CONSULTATION_SYNTHESIZER_NAME,
         checksum=_CONSULTATION_SYNTHESIZER_CHECKSUM,
         upgrade=_consultation_synthesizer_upgrade,
+    ),
+    Migration(
+        version=_CONSULTATION_ROUNDS_VERSION,
+        name=_CONSULTATION_ROUNDS_NAME,
+        checksum=_CONSULTATION_ROUNDS_CHECKSUM,
+        upgrade=_consultation_rounds_upgrade,
     ),
 )
 

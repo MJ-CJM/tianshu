@@ -3,13 +3,19 @@
 import "@testing-library/jest-dom/vitest";
 
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ConsultationResponse } from "../api/types";
+import type { ConsultationResponse, ConsultationRound, PersonaOpinion } from "../api/types";
 
 const mocks = vi.hoisted(() => ({
   useConsultation: vi.fn(),
   useConsultationLiveUpdates: vi.fn(),
+  useAppendRound: vi.fn(),
+  useSetVerdict: vi.fn(),
+  usePersonas: vi.fn(),
+  appendRound: vi.fn(),
+  setVerdict: vi.fn(),
 }));
 
 vi.mock("../hooks/useConsultation", () => ({
@@ -17,29 +23,14 @@ vi.mock("../hooks/useConsultation", () => ({
   useConsultations: vi.fn(),
   useCreateConsultation: vi.fn(),
   useConsultationLiveUpdates: mocks.useConsultationLiveUpdates,
+  useAppendRound: mocks.useAppendRound,
+  useSetVerdict: mocks.useSetVerdict,
 }));
+vi.mock("../hooks/usePersonas", () => ({ usePersonas: mocks.usePersonas }));
 
 import ConsultationDetailPage from "./ConsultationDetailPage";
 
-function consultation(overrides: Partial<ConsultationResponse> = {}): ConsultationResponse {
-  return {
-    id: "consultation-1",
-    status: "completed",
-    request: { topic: "如何在 AI 时代构建个人竞争力?", persona_ids: ["zjz", "wym"] },
-    opinions: [],
-    synthesis: null,
-    decision: null,
-    synthesizer_persona_id: null,
-    synthesizer_name: null,
-    synthesizer_department: null,
-    error: null,
-    created_at: "2026-08-13T11:16:59.000Z",
-    completed_at: "2026-08-13T11:18:00.000Z",
-    ...overrides,
-  } as ConsultationResponse;
-}
-
-function opinion(overrides = {}) {
+function opinion(overrides: Partial<PersonaOpinion> = {}): PersonaOpinion {
   return {
     persona_id: "zjz",
     persona_name: "张居正",
@@ -53,6 +44,42 @@ function opinion(overrides = {}) {
   };
 }
 
+function round(overrides: Partial<ConsultationRound> = {}): ConsultationRound {
+  return {
+    id: "round-0",
+    consultation_id: "consultation-1",
+    round_index: 0,
+    prompt: "如何评价秦始皇?",
+    participant_ids: ["zjz", "smg"],
+    status: "completed",
+    opinions: [],
+    synthesis: null,
+    proposal: null,
+    synthesizer_persona_id: null,
+    synthesizer_name: null,
+    synthesizer_department: null,
+    error: null,
+    created_at: "2026-08-13T11:16:59.000Z",
+    completed_at: "2026-08-13T11:18:00.000Z",
+    ...overrides,
+  };
+}
+
+function consultation(overrides: Partial<ConsultationResponse> = {}): ConsultationResponse {
+  return {
+    id: "consultation-1",
+    status: "completed",
+    request: { topic: "如何评价秦始皇?", persona_ids: ["zjz", "smg"] },
+    rounds: [round()],
+    verdict: null,
+    verdict_at: null,
+    error: null,
+    created_at: "2026-08-13T11:16:59.000Z",
+    completed_at: "2026-08-13T11:18:00.000Z",
+    ...overrides,
+  };
+}
+
 function renderDetail() {
   return render(
     <MemoryRouter initialEntries={["/consultation/consultation-1"]}>
@@ -62,6 +89,15 @@ function renderDetail() {
       </Routes>
     </MemoryRouter>,
   );
+}
+
+function mockConsultation(data: ConsultationResponse) {
+  mocks.useConsultation.mockReturnValue({
+    data,
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  });
 }
 
 beforeEach(() => {
@@ -78,9 +114,23 @@ beforeEach(() => {
       dispatchEvent: vi.fn(),
     })),
   });
-  mocks.useConsultation.mockReturnValue({
-    data: consultation(),
-    isLoading: false,
+  mockConsultation(consultation());
+  mocks.useAppendRound.mockReturnValue({
+    mutate: mocks.appendRound,
+    isPending: false,
+    error: null,
+  });
+  mocks.useSetVerdict.mockReturnValue({
+    mutate: mocks.setVerdict,
+    isPending: false,
+    error: null,
+  });
+  mocks.usePersonas.mockReturnValue({
+    data: [
+      { id: "zjz", name: "张居正", department: "neige" },
+      { id: "smg", name: "司马光", department: "wenyuan" },
+      { id: "wym", name: "王阳明", department: "neige" },
+    ],
     error: null,
     refetch: vi.fn(),
   });
@@ -98,83 +148,167 @@ describe("ConsultationDetailPage", () => {
   });
 
   it("renders the full multi-line opinion body", () => {
-    mocks.useConsultation.mockReturnValue({
-      data: consultation({ opinions: [opinion()] as never }),
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    });
+    mockConsultation(consultation({ rounds: [round({ opinions: [opinion()] })] }));
 
     renderDetail();
 
     expect(screen.getByText(/吾乃张居正/)).toBeInTheDocument();
-    // 后续行不得丢失（issue #54 的解析缺陷在 UI 上的表现）
     expect(screen.getByText(/决策权不可外包/)).toBeInTheDocument();
     expect(screen.getByText("严禁将核心决策权外包")).toBeInTheDocument();
   });
 
-  it("attributes synthesis and decision to the acting synthesizer", () => {
-    mocks.useConsultation.mockReturnValue({
-      data: consultation({
-        synthesis: "核心共识……",
-        decision: "三核一闭环……",
-        synthesizer_persona_id: "zjz",
-        synthesizer_name: "张居正",
-        synthesizer_department: "neige",
+  it("lays every round out on the timeline", () => {
+    mockConsultation(
+      consultation({
+        rounds: [
+          round({ opinions: [opinion()] }),
+          round({
+            id: "round-1",
+            round_index: 1,
+            prompt: "展开说说郡县制",
+            participant_ids: ["smg"],
+            opinions: [opinion({ persona_id: "smg", persona_name: "司马光", is_censor: false })],
+          }),
+        ],
       }),
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    });
+    );
 
     renderDetail();
 
-    expect(screen.getAllByText("张居正 (neige)")).toHaveLength(2); // 综合意见 + 决策各一处署名
+    expect(screen.getByText("第 1 轮")).toBeInTheDocument();
+    expect(screen.getByText("第 2 轮")).toBeInTheDocument();
+    expect(screen.getByText(/展开说说郡县制/)).toBeInTheDocument();
   });
 
-  it("falls back to the chief counselor label when no synthesizer was chosen", () => {
-    mocks.useConsultation.mockReturnValue({
-      data: consultation({ synthesis: "核心共识……" }),
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    });
+  it("labels the LLM output as advisory proposal, attributed to the synthesizer", () => {
+    mockConsultation(
+      consultation({
+        rounds: [
+          round({
+            synthesis: "核心共识……",
+            proposal: "臣等拟：确立功过二分……",
+            synthesizer_persona_id: "zjz",
+            synthesizer_name: "张居正",
+            synthesizer_department: "neige",
+          }),
+        ],
+      }),
+    );
 
     renderDetail();
 
+    expect(screen.getByText("票拟（内阁建议，仅供参考）")).toBeInTheDocument();
+    expect(screen.getAllByText("张居正 (neige)")).toHaveLength(2); // 综合意见 + 票拟
+  });
+
+  it("falls back to the chief counselor label when nobody was named", () => {
+    mockConsultation(consultation({ rounds: [round({ synthesis: "核心共识……" })] }));
+    renderDetail();
     expect(screen.getByText("首席顾问")).toBeInTheDocument();
   });
 
-  it("shows a synthesizing state once every opinion has arrived", () => {
-    mocks.useConsultation.mockReturnValue({
-      data: consultation({
-        status: "running",
-        completed_at: null,
-        opinions: [opinion(), opinion({ persona_id: "wym", persona_name: "王阳明" })] as never,
-      }),
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    });
+  it("offers a verdict box while no verdict has been recorded", async () => {
+    const user = userEvent.setup();
+    renderDetail();
+
+    expect(screen.getByText("待裁决")).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText("写下你的最终决定…"), "准奏，但须季度复核。");
+    await user.click(screen.getByRole("button", { name: "落裁决" }));
+
+    expect(mocks.setVerdict).toHaveBeenCalledWith("准奏，但须季度复核。", expect.anything());
+  });
+
+  it("shows the recorded verdict instead of the input once set", () => {
+    mockConsultation(
+      consultation({ verdict: "准奏，但须季度复核。", verdict_at: "2026-08-13T12:00:00.000Z" }),
+    );
 
     renderDetail();
 
-    // 意见收齐后不该继续显示停在 100% 的「廷议进行中」
+    expect(screen.getByText(/准奏，但须季度复核。/)).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("写下你的最终决定…")).not.toBeInTheDocument();
+  });
+
+  it("sends a follow-up round naming only the mentioned officials", async () => {
+    const user = userEvent.setup();
+    renderDetail();
+
+    await user.click(screen.getByRole("combobox"));
+    await user.click(await screen.findByText("司马光 (wenyuan)"));
+    await user.type(screen.getByPlaceholderText("接着问下去…"), "展开说说郡县制");
+    await user.click(screen.getByRole("button", { name: "奏" }));
+
+    expect(mocks.appendRound).toHaveBeenCalledWith(
+      { prompt: "展开说说郡县制", participant_ids: ["smg"] },
+      expect.anything(),
+    );
+  });
+
+  it("sends an unnamed follow-up so everyone answers", async () => {
+    const user = userEvent.setup();
+    renderDetail();
+
+    await user.type(screen.getByPlaceholderText("接着问下去…"), "再议");
+    await user.click(screen.getByRole("button", { name: "奏" }));
+
+    expect(mocks.appendRound).toHaveBeenCalledWith(
+      { prompt: "再议", participant_ids: [] },
+      expect.anything(),
+    );
+  });
+
+  it("blocks follow-ups while a round is still running", () => {
+    mockConsultation(
+      consultation({
+        status: "running",
+        rounds: [round({ status: "running", opinions: [opinion()] })],
+      }),
+    );
+
+    renderDetail();
+
+    expect(screen.getByRole("button", { name: "奏" })).toBeDisabled();
+    expect(screen.getByText("本轮尚未议毕，暂不可追问")).toBeInTheDocument();
+  });
+
+  it("only offers roster members as mention targets", async () => {
+    const user = userEvent.setup();
+    renderDetail();
+
+    await user.click(screen.getByRole("combobox"));
+
+    expect(await screen.findByText("司马光 (wenyuan)")).toBeInTheDocument();
+    // 王阳明不在本场廷议名单里，不该出现在点名列表
+    expect(screen.queryByText("王阳明 (neige)")).not.toBeInTheDocument();
+  });
+
+  it("shows a synthesizing state once every opinion has arrived", () => {
+    mockConsultation(
+      consultation({
+        status: "running",
+        rounds: [
+          round({
+            status: "running",
+            completed_at: null,
+            opinions: [opinion(), opinion({ persona_id: "smg", persona_name: "司马光" })],
+          }),
+        ],
+      }),
+    );
+
+    renderDetail();
+
     expect(screen.getByText("首辅汇总中...")).toBeInTheDocument();
     expect(screen.queryByText("廷议进行中...")).not.toBeInTheDocument();
   });
 
   it("keeps showing progress while opinions are still arriving", () => {
-    mocks.useConsultation.mockReturnValue({
-      data: consultation({
+    mockConsultation(
+      consultation({
         status: "running",
-        completed_at: null,
-        opinions: [opinion()] as never,
+        rounds: [round({ status: "running", completed_at: null, opinions: [opinion()] })],
       }),
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    });
+    );
 
     renderDetail();
 
@@ -183,19 +317,19 @@ describe("ConsultationDetailPage", () => {
   });
 
   it("surfaces the failure reason instead of a generic message", () => {
-    mocks.useConsultation.mockReturnValue({
-      data: consultation({ status: "failed", error: "张三: timeout after 180s" }),
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    });
+    mockConsultation(
+      consultation({
+        status: "failed",
+        rounds: [round({ status: "failed", error: "张三: timeout after 180s" })],
+      }),
+    );
 
     renderDetail();
 
     expect(screen.getByText("张三: timeout after 180s")).toBeInTheDocument();
   });
 
-  it("shows an empty state instead of a blank page when no opinion arrived", () => {
+  it("shows an empty state instead of a blank round when no opinion arrived", () => {
     renderDetail();
     expect(screen.getByText("本次廷议无人奏对")).toBeInTheDocument();
   });

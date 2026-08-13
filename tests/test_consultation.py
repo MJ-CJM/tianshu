@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 
-from tianshu.consultation.models import ConsultationRequest
+from tianshu.consultation.models import ConsultationRequest, RoundRequest
 from tianshu.consultation.session import ConsultationSession
 
 
@@ -46,7 +46,7 @@ class _FakeLLM:
     async def chat(self, messages: list[dict]) -> SimpleNamespace:
         self.calls.append(messages)
         system = messages[0]["content"]
-        if "senior advisor synthesizing" in system:
+        if "synthesizing multi-perspective analysis" in system:
             return SimpleNamespace(
                 content="### Synthesis\n各部意见一致，均建议推进。\n\n### Decision\n批准执行。"
             )
@@ -92,18 +92,33 @@ class TestConsultationSessionStart:
             config_manager=config_manager,
             provider_manager=_FakeProviderManager(llm),
         )
-        req = ConsultationRequest(topic="是否批准新预算")
+        # 言官改为显式任命（issue #55）：此前是 idx==0 硬编码，谁执异取决于列表顺序
+        req = ConsultationRequest(topic="是否批准新预算", censor_persona_ids=["ducha"])
 
         resp = await session.start(req)
 
         assert resp.status == "completed"
         assert {o.persona_id for o in resp.opinions} == {"neige", "ducha", "hubu"}
-        # ADR-0008：废 confidence 换结构化 stance；恰一位官员为言官强制反调
+        # ADR-0008：废 confidence 换结构化 stance
         assert all(o.stance in ("support", "oppose", "conditional") for o in resp.opinions)
-        assert sum(1 for o in resp.opinions if o.is_censor) == 1
+        assert [o.persona_id for o in resp.opinions if o.is_censor] == ["ducha"]
         assert resp.synthesis == "各部意见一致，均建议推进。"
-        assert resp.decision == "批准执行。"
+        # LLM 的产出降格为票拟（内阁建议），裁决权归用户（issue #55）
+        assert resp.proposal == "批准执行。"
+        assert resp.verdict is None
         assert resp.completed_at is not None
+
+    async def test_no_censor_unless_named(self, config_manager):
+        """不点名就无人执异——显式优于隐式（issue #55）。"""
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+        )
+
+        resp = await session.start(ConsultationRequest(topic="是否批准新预算"))
+
+        assert [o.persona_id for o in resp.opinions if o.is_censor] == []
 
     async def test_filters_to_requested_persona_ids_and_skips_unknown(self, config_manager):
         loader = _FakePersonaLoader(personas=_personas())
@@ -164,7 +179,7 @@ class TestConsultationSessionStart:
         assert resp.opinions == []
         assert resp.error  # 必须带归因，否则前端无从解释失败
         assert resp.synthesis is None
-        assert resp.decision is None
+        assert resp.proposal is None
         assert llm.calls == []  # 没有任何 persona 参与，不应发起 LLM 调用
 
     async def test_unexpected_exception_before_gather_marks_failed(self, config_manager):
@@ -273,3 +288,123 @@ class TestStanceParsing:
 
         _s, _c, opinion = ConsultationSession._parse_opinion("STANCE: support\nOPINION:")
         assert opinion
+
+
+class TestMultiRound:
+    """多轮朝议：追问、@点名、历史回放、裁决（issue #55）。"""
+
+    async def test_follow_up_round_only_asks_named_personas(self, config_manager):
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+        )
+        resp = await session.start(ConsultationRequest(topic="是否批准新预算"))
+
+        session.append_round(
+            resp.id, RoundRequest(prompt="户部单独说说钱", participant_ids=["hubu"])
+        )
+        after = await session.run(resp.id)
+
+        assert len(after.rounds) == 2
+        assert [o.persona_id for o in after.rounds[1].opinions] == ["hubu"]
+        # 首轮记录不受影响
+        assert len(after.rounds[0].opinions) == 3
+
+    async def test_follow_up_without_names_asks_everyone(self, config_manager):
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+        )
+        resp = await session.start(ConsultationRequest(topic="是否批准新预算"))
+
+        session.append_round(resp.id, RoundRequest(prompt="再议"))
+        after = await session.run(resp.id)
+
+        assert {o.persona_id for o in after.rounds[1].opinions} == {"neige", "ducha", "hubu"}
+
+    async def test_follow_up_carries_prior_rounds_into_the_prompt(self, config_manager):
+        llm = _FakeLLM()
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(llm),
+        )
+        resp = await session.start(ConsultationRequest(topic="是否批准新预算"))
+        session.set_verdict(resp.id, "准奏，但须季度复核。")
+        llm.calls.clear()
+
+        session.append_round(
+            resp.id, RoundRequest(prompt="复核频次是否够？", participant_ids=["hubu"])
+        )
+        await session.run(resp.id)
+
+        prompt = llm.calls[0][1]["content"]
+        assert "此前廷议记录" in prompt
+        assert "第 1 轮：是否批准新预算" in prompt
+        assert "户部 的意见：建议推进。" in prompt  # 上一轮的原话被回放
+        assert "【票拟】批准执行。" in prompt
+        assert "准奏，但须季度复核。" in prompt  # 用户裁决进入后续上下文
+        assert "本轮追问\n复核频次是否够？" in prompt
+
+    async def test_first_round_has_no_history_section(self, config_manager):
+        llm = _FakeLLM()
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(llm),
+        )
+
+        await session.start(ConsultationRequest(topic="是否批准新预算", persona_ids=["hubu"]))
+
+        assert "此前廷议记录" not in llm.calls[0][1]["content"]
+
+    async def test_cannot_append_while_a_round_is_running(self, config_manager):
+        import pytest
+
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+        )
+        resp = session.create_pending(ConsultationRequest(topic="是否批准新预算"))
+
+        with pytest.raises(ValueError, match="still in progress"):
+            session.append_round(resp.id, RoundRequest(prompt="抢跑"))
+
+    async def test_verdict_is_recorded_with_timestamp(self, config_manager):
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+        )
+        resp = await session.start(ConsultationRequest(topic="是否批准新预算"))
+
+        updated = session.set_verdict(resp.id, "准奏。")
+
+        assert updated.verdict == "准奏。"
+        assert updated.verdict_at is not None
+
+    async def test_history_budget_keeps_the_most_recent_round(self, config_manager):
+        """预算极小时也必须保住最近一轮，否则追问失去上下文。"""
+        llm = _FakeLLM()
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(llm),
+            history_max_chars=1,
+        )
+        resp = await session.start(
+            ConsultationRequest(topic="是否批准新预算", persona_ids=["hubu"])
+        )
+        session.append_round(resp.id, RoundRequest(prompt="二轮", participant_ids=["hubu"]))
+        await session.run(resp.id)
+        llm.calls.clear()
+
+        session.append_round(resp.id, RoundRequest(prompt="三轮", participant_ids=["hubu"]))
+        await session.run(resp.id)
+
+        prompt = llm.calls[0][1]["content"]
+        assert "第 2 轮：二轮" in prompt  # 最近一轮必留
+        assert "第 1 轮：是否批准新预算" not in prompt  # 超预算的更早轮次被截掉
