@@ -1,0 +1,129 @@
+"""廷议 HTTP 面：落库、刷新可恢复、列表、后台任务兜底（issue #52）。
+
+用真实 Storage（tests/conftest.py::storage）跑 SQL 与迁移，不用桩替身——本次修复的
+核心承诺就是"结果不再只活在进程内存里"，桩会把这一点整个绕过去。
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from tianshu.consultation.models import ConsultationRequest
+from tianshu.consultation.session import ConsultationSession
+from tianshu.gateway.api import gateway_router
+
+
+class _StubSession(ConsultationSession):
+    """跳过 LLM：run() 只把状态推到 completed，其余落库路径保持真实。"""
+
+    def __init__(self, storage, *, fail: bool = False) -> None:
+        self._storage = storage
+        self._notifier = None
+        self._sessions = {}
+        self._fail = fail
+
+    async def run(self, consultation_id: str, *, usage_context=None):
+        record = self.get(consultation_id)
+        record.status = "failed" if self._fail else "completed"
+        record.synthesis = None if self._fail else "综合意见"
+        record.error = "downstream unavailable" if self._fail else None
+        self._persist(record)
+        return record
+
+
+@pytest.fixture
+def app(storage):
+    application = FastAPI()
+    application.state.consultation = _StubSession(storage)
+    application.state.consultation_tasks = set()
+    application.include_router(gateway_router, prefix="/api")
+    return application
+
+
+@pytest.fixture
+def client(app):
+    return TestClient(app)
+
+
+def _create(client, topic="如何在 ai 时代具备个人竞争力?"):
+    resp = client.post(
+        "/api/consultations",
+        json={"topic": topic, "persona_ids": ["neige"]},
+    )
+    assert resp.status_code == 202
+    return resp.json()["data"]["id"]
+
+
+class TestConsultationPersistence:
+    def test_consultation_survives_a_fresh_client(self, client, storage):
+        """刷新页面 = 一个全新的 HTTP 客户端；结果必须仍能按 id 取回。"""
+        consultation_id = _create(client)
+
+        row = storage.get_consultation(consultation_id)
+        assert row is not None
+        assert row.request.topic == "如何在 ai 时代具备个人竞争力?"
+
+        resp = client.get(f"/api/consultations/{consultation_id}")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["id"] == consultation_id
+
+    def test_list_endpoint_returns_history_newest_first(self, client):
+        first = _create(client, topic="旧议题")
+        second = _create(client, topic="新议题")
+
+        data = client.get("/api/consultations").json()["data"]
+        ids = [item["id"] for item in data]
+        assert ids.index(second) < ids.index(first)
+
+    def test_list_filters_by_status(self, client, app, storage):
+        _create(client)
+        app.state.consultation = _StubSession(storage, fail=True)
+        failed_id = _create(client)
+
+        data = client.get("/api/consultations", params={"status": "failed"}).json()["data"]
+        assert [item["id"] for item in data] == [failed_id]
+        assert data[0]["error"] == "downstream unavailable"
+
+    def test_unknown_consultation_is_404(self, client):
+        assert client.get("/api/consultations/nope").status_code == 404
+
+
+class TestBackgroundTaskSafety:
+    async def test_escaping_exception_marks_failed_instead_of_hanging(self, storage):
+        """后台任务抛异常时必须落到 failed——否则前端永远轮询一个 running。"""
+
+        class _ExplodingSession(_StubSession):
+            async def run(self, consultation_id: str, *, usage_context=None):
+                raise RuntimeError("boom")
+
+        application = FastAPI()
+        session = _ExplodingSession(storage)
+        application.state.consultation = session
+        application.state.consultation_tasks = set()
+        application.include_router(gateway_router, prefix="/api")
+
+        pending = session.create_pending(ConsultationRequest(topic="t", persona_ids=["neige"]))
+
+        from tianshu.gateway.api import _spawn_consultation
+
+        _spawn_consultation(application, session, pending.id)
+        await asyncio.gather(*application.state.consultation_tasks, return_exceptions=True)
+        await asyncio.sleep(0)  # done callback 经 call_soon 调度，让它落盘
+
+        record = session.get(pending.id)
+        assert record.status == "failed"
+        assert "RuntimeError: boom" in record.error
+
+    def test_restart_marks_orphaned_consultations_failed(self, storage):
+        session = _StubSession(storage)
+        pending = session.create_pending(ConsultationRequest(topic="t", persona_ids=["neige"]))
+
+        assert storage.mark_stale_consultations_failed("interrupted by server restart") == 1
+
+        record = session.get(pending.id)
+        assert record.status == "failed"
+        assert record.error == "interrupted by server restart"

@@ -71,24 +71,29 @@ async def websocket_endpoint(websocket: WebSocket, request: Request = None):
 
 @gateway_router.post("/consultations", response_model=ApiResponse, status_code=202)
 async def create_consultation(request: Request):
-    import asyncio
-
-    from tianshu.consultation.models import ConsultationResponse
-
     consultation: ConsultationSession = request.app.state.consultation
     body = await request.json()
     req = ConsultationRequest(**body)
 
-    placeholder = ConsultationResponse(request=req, status="running")
-    consultation._sessions[placeholder.id] = placeholder
+    pending = consultation.create_pending(req)
+    _spawn_consultation(request.app, consultation, pending.id)
+    return ApiResponse(success=True, data={"id": pending.id, "status": pending.status})
 
-    async def _run() -> None:
-        result = await consultation.start(req)
-        result.id = placeholder.id
-        consultation._sessions[placeholder.id] = result
 
-    asyncio.create_task(_run())
-    return ApiResponse(success=True, data={"id": placeholder.id, "status": "running"})
+@gateway_router.get("/consultations")
+def list_consultations(
+    request: Request,
+    status: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+):
+    consultation: ConsultationSession = request.app.state.consultation
+    limit = max(1, min(limit, 100))
+    items = consultation.list_recent(status=status, limit=limit, offset=max(0, offset))
+    return ApiResponse(
+        success=True,
+        data=[item.model_dump(mode="json") for item in items],
+    )
 
 
 @gateway_router.get("/consultations/{consultation_id}")
@@ -98,3 +103,27 @@ def get_consultation(consultation_id: str, request: Request):
     if not result:
         raise HTTPException(status_code=404, detail=f"Consultation '{consultation_id}' not found")
     return ApiResponse(success=True, data=result.model_dump(mode="json"))
+
+
+def _spawn_consultation(app, consultation: ConsultationSession, consultation_id: str) -> None:
+    """后台跑一场廷议。
+
+    task 必须被强引用：CPython 只对运行中的 task 保留弱引用，丢引用会被 GC 中途
+    回收，廷议永远停在 running（issue #52）。done callback 负责摘引用并把逃逸异常
+    落到 failed，否则异常会被静默吞掉。
+    """
+    tasks: set[asyncio.Task] = app.state.consultation_tasks
+
+    task = asyncio.create_task(consultation.run(consultation_id))
+    tasks.add(task)
+
+    def _on_done(finished: asyncio.Task) -> None:
+        tasks.discard(finished)
+        if finished.cancelled():
+            consultation.mark_failed(consultation_id, "consultation task cancelled")
+            return
+        exc = finished.exception()
+        if exc is not None:
+            consultation.mark_failed(consultation_id, f"{type(exc).__name__}: {exc}")
+
+    task.add_done_callback(_on_done)

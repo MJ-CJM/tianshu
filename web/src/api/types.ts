@@ -898,6 +898,8 @@ export interface ConsultationResponse {
   opinions: PersonaOpinion[];
   synthesis: string | null;
   decision: string | null;
+  /** 失败/部分失败归因（哪位官员超时或报错），completed 时也可能非空 */
+  error: string | null;
   created_at: string;
   completed_at: string | null;
 }

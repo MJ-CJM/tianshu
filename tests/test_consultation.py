@@ -143,7 +143,12 @@ class TestConsultationSessionStart:
         assert {o.persona_id for o in resp.opinions} == {"neige", "hubu"}
         assert resp.synthesis  # 剩余 2 条意见仍能正常汇总
 
-    async def test_no_matching_personas_completes_without_synthesis(self, config_manager):
+    async def test_no_matching_personas_marks_failed(self, config_manager):
+        """无人应答必须判 failed（issue #52）。
+
+        旧行为是空 opinions 仍报 completed，前端 completed 分支渲染出一片空白、
+        连报错都没有——用户侧表现为"发起廷议后看不到任何反馈"。
+        """
         loader = _FakePersonaLoader(personas=_personas())
         llm = _FakeLLM()
         session = ConsultationSession(
@@ -155,8 +160,9 @@ class TestConsultationSessionStart:
 
         resp = await session.start(req)
 
-        assert resp.status == "completed"
+        assert resp.status == "failed"
         assert resp.opinions == []
+        assert resp.error  # 必须带归因，否则前端无从解释失败
         assert resp.synthesis is None
         assert resp.decision is None
         assert llm.calls == []  # 没有任何 persona 参与，不应发起 LLM 调用

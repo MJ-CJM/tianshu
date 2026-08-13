@@ -1410,8 +1410,7 @@
     "topicPlaceholder": "Enter the consultation topic",
     "contextPlaceholder": "Provide additional context",
     "participantsPlaceholder": "Select participants",
-    "history": "History:",
-    "round": "Consultation #{n}",
+    "history": "History",
     "preparing": "Preparing consultation...",
     "running": "Consultation in progress...",
     "failedTitle": "Consultation failed",
@@ -1423,7 +1422,17 @@
       "oppose": "Oppose",
       "conditional": "Conditional"
     },
-    "censor": "Censor · dissent"
+    "censor": "Censor · dissent",
+    "historyEmpty": "No consultations yet",
+    "progress": "{done}/{total} opinions received",
+    "partialFailure": "Some participants could not respond",
+    "emptyOpinions": "No opinion was produced in this consultation",
+    "status": {
+      "pending": "Pending",
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed"
+    }
   },
   "hongluisi": {
     "title": "Network Center",

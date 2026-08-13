@@ -18,6 +18,7 @@ from tianshu.storage.attempt_ledger import AttemptLeaseRepository
 from tianshu.storage.auth_repo import AuthMixin
 from tianshu.storage.channel_repo import ChannelMixin
 from tianshu.storage.config_repo import ConfigMixin
+from tianshu.storage.consultation_repo import ConsultationMixin
 from tianshu.storage.correlation import correlation_for_memorial
 from tianshu.storage.cost_repo import CostMixin
 from tianshu.storage.credential_repo import CredentialMixin
@@ -62,6 +63,7 @@ class Storage(
     DagMixin,
     SchedulerMixin,
     ConfigMixin,
+    ConsultationMixin,
     ModelProviderMixin,
     PersonaMixin,
     UniverseMixin,

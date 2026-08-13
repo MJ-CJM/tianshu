@@ -174,6 +174,7 @@ export default function AppRoutes() {
             <Route path="/cost" element={<CostDashboardPage />} />
             <Route path="/memory" element={<MemoryDashboardPage />} />
             <Route path="/consultation" element={<ConsultationPage />} />
+            <Route path="/consultation/:consultationId" element={<ConsultationPage />} />
             <Route path="/cabinet" element={<CabinetPage />} />
             <Route path="/hongluisi" element={<HongluisiPage />} />
             <Route path="/tongzheng" element={<TongzhengPage />} />
