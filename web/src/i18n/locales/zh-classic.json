@@ -1457,7 +1457,10 @@
     "verdictPlaceholder": "写下你的最终决定…",
     "verdictSubmit": "落裁决",
     "synthesizeAction": "请首辅票拟",
-    "synthesizeHint": "本轮已议毕。需要首辅综合各方意见、拟一份票拟吗？"
+    "synthesizeHint": "本轮已议毕。需要首辅综合各方意见、拟一份票拟吗？",
+    "followUpSynthesisHint": "追问议毕后，可在该轮末尾请首辅票拟——不请则只呈各官员意见。",
+    "askedLabel": "问及：",
+    "askedEveryone": "百官皆可"
   },
   "hongluisi": {
     "title": "鸿胪寺",

@@ -374,4 +374,51 @@ describe("ConsultationDetailPage", () => {
 
     expect(screen.queryByRole("button", { name: "请首辅票拟" })).not.toBeInTheDocument();
   });
+
+  it("names who a follow-up round was addressed to", () => {
+    mockConsultation(
+      consultation({
+        rounds: [
+          round(),
+          round({
+            id: "round-1",
+            round_index: 1,
+            prompt: "能联网查下吗?",
+            participant_ids: ["wym"],
+            opinions: [],
+          }),
+        ],
+      }),
+    );
+
+    renderDetail();
+
+    // 靠「谁回答了」反推不可靠：本轮尚无意见，点名对象仍须可见
+    expect(screen.getByText("@王阳明")).toBeInTheDocument();
+  });
+
+  it("marks a round as open to everyone when nobody was named", () => {
+    mockConsultation(
+      consultation({
+        rounds: [round({ participant_ids: ["zjz", "smg"] })], // 与全体名单一致
+      }),
+    );
+
+    renderDetail();
+
+    expect(screen.getByText("百官皆可")).toBeInTheDocument();
+    expect(screen.queryByText("@张居正")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the raw id when the official is no longer on file", () => {
+    mockConsultation(
+      consultation({
+        rounds: [round({ participant_ids: ["ghost"], opinions: [] })],
+      }),
+    );
+
+    renderDetail();
+
+    expect(screen.getByText("@ghost")).toBeInTheDocument();
+  });
 });

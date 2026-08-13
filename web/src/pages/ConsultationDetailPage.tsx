@@ -104,7 +104,11 @@ export default function ConsultationDetailPage() {
         <Overview consultation={consultation} />
 
         {consultation.rounds.map((round) => (
-          <RoundBlock key={round.id} round={round} />
+          <RoundBlock
+            key={round.id}
+            round={round}
+            roster={consultation.request?.persona_ids ?? []}
+          />
         ))}
 
         <VerdictPanel consultation={consultation} />
@@ -141,13 +145,23 @@ function Overview({ consultation }: { consultation: ConsultationResponse }) {
   );
 }
 
-function RoundBlock({ round }: { round: ConsultationRound }) {
+function RoundBlock({ round, roster }: { round: ConsultationRound; roster: string[] }) {
   const t = useT();
   const { token } = theme.useToken();
   const synthesize = useSynthesizeRound(round.consultation_id);
+  const personasQuery = usePersonas();
   // 首轮自动票拟；后续轮次由用户看完意见后自行决定要不要汇总
   const canSynthesize =
     round.status === "completed" && round.opinions.length > 0 && !round.synthesis;
+
+  // 点名了谁：靠「谁回答了」反推不可靠——某位官员失败时就再也看不出点过他
+  const named = round.participant_ids;
+  const isEveryone =
+    named.length === roster.length && roster.every((id) => named.includes(id));
+  const nameOf = (id: string) => {
+    const persona = (personasQuery.data ?? []).find((p) => p.id === id);
+    return persona ? persona.name : id;
+  };
 
   return (
     <div>
@@ -169,6 +183,21 @@ function RoundBlock({ round }: { round: ConsultationRound }) {
             : t("consultation.followUpLabel")}
           ：{round.prompt}
         </Typography.Text>
+
+        <Space wrap size={4}>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {t("consultation.askedLabel")}
+          </Typography.Text>
+          {isEveryone || named.length === 0 ? (
+            <Tag>{t("consultation.askedEveryone")}</Tag>
+          ) : (
+            named.map((id) => (
+              <Tag key={id} color="geekblue">
+                @{nameOf(id)}
+              </Tag>
+            ))
+          )}
+        </Space>
 
         <RoundProgress round={round} />
 
@@ -429,9 +458,14 @@ function FollowUpPanel({
         >
           {t("consultation.followUpSubmit")}
         </Button>
-        {disabled && (
+        {disabled ? (
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {t("consultation.followUpBlocked")}
+          </Typography.Text>
+        ) : (
+          // 预告按需票拟的存在：否则用户在追问前无从知道还能请首辅汇总
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {t("consultation.followUpSynthesisHint")}
           </Typography.Text>
         )}
         {mutation.error && <PageQueryError error={mutation.error} />}
