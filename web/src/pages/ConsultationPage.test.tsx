@@ -94,7 +94,7 @@ describe("ConsultationPage", () => {
     renderPage();
 
     await user.type(screen.getByPlaceholderText("请输入廷议议题"), "边务议题");
-    await user.click(screen.getAllByRole("combobox")[0]); // 参与百官
+    await user.click(screen.getAllByRole("combobox")[0]!); // 参与百官
     await user.click(await screen.findByText("张三 (bingbu)"));
     await user.click(screen.getByRole("button", { name: "发起廷议" }));
 
@@ -109,11 +109,11 @@ describe("ConsultationPage", () => {
     renderPage();
 
     await user.type(screen.getByPlaceholderText("请输入廷议议题"), "边务议题");
-    await user.click(screen.getAllByRole("combobox")[0]); // 参与百官
+    await user.click(screen.getAllByRole("combobox")[0]!); // 参与百官
     await user.click(await screen.findByText("张三 (bingbu)"));
-    await user.click(screen.getAllByRole("combobox")[1]); // 汇聚官
+    await user.click(screen.getAllByRole("combobox")[1]!); // 汇聚官
     const options = await screen.findAllByText("张三 (bingbu)");
-    await user.click(options[options.length - 1]);
+    await user.click(options[options.length - 1]!);
     await user.click(screen.getByRole("button", { name: "发起廷议" }));
 
     expect(mocks.create).toHaveBeenCalledWith(
