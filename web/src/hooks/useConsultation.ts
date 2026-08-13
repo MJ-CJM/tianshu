@@ -6,6 +6,7 @@ import {
   getConsultation,
   listConsultations,
   setConsultationVerdict,
+  synthesizeConsultationRound,
 } from "../api/consultations";
 import type { ConsultationRequest, RoundRequest } from "../api/types";
 import { useWebSocket } from "./useWebSocket";
@@ -49,6 +50,18 @@ export function useAppendRound(consultationId: string | null) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: RoundRequest) => appendConsultationRound(consultationId!, body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["consultation", consultationId] });
+    },
+  });
+}
+
+/** 按需请首辅票拟——首轮自动，后续由用户决定何时汇总。 */
+export function useSynthesizeRound(consultationId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (roundId: string) =>
+      synthesizeConsultationRound(consultationId!, roundId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["consultation", consultationId] });
     },

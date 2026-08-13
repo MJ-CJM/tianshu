@@ -1455,7 +1455,9 @@
     "verdictTitle": "Verdict",
     "verdictPending": "Awaiting your verdict",
     "verdictPlaceholder": "Write your final decision…",
-    "verdictSubmit": "Record verdict"
+    "verdictSubmit": "Record verdict",
+    "synthesizeAction": "Request synthesis",
+    "synthesizeHint": "This round is done. Ask the chief counselor to synthesize and propose?"
   },
   "hongluisi": {
     "title": "Network Center",

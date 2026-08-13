@@ -1455,7 +1455,9 @@
     "verdictTitle": "裁决",
     "verdictPending": "待裁决",
     "verdictPlaceholder": "写下你的最终决定…",
-    "verdictSubmit": "提交裁决"
+    "verdictSubmit": "提交裁决",
+    "synthesizeAction": "请首席顾问汇总",
+    "synthesizeHint": "本轮已结束。需要首席顾问综合各方意见、给一份建议吗？"
   },
   "hongluisi": {
     "title": "网络中心",

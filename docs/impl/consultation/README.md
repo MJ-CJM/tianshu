@@ -33,10 +33,17 @@ run(consultation_id) → 跑最早一个未收尾的轮次；run_round 是单轮
   4. asyncio.as_completed 逐条收敛：每到一条即落库 + 广播 consultation.opinion
        单人超时/异常 → 收敛成归因文本进 failures，不拖垮整轮
   5. opinions 为空 → 轮次 failed + error=failures（不再假装 completed）
-     否则 Synthesizer.synthesize（同样有 timeout）→ 回填 synthesis / proposal
+     否则轮次 completed；**仅第 0 轮自动票拟**（Synthesizer.synthesize，同样有
+       timeout）→ 回填 synthesis / proposal
   6. 轮次状态落库，容器状态跟随最新轮 + 广播 consultation.finished
   7. completed 且有 memory_manager/synthesis → 落 court（见 §3）
   整段 try/except：任何异常 → 轮次 failed + error 归因，吞掉不抛
+
+synthesize_round(consultation_id, round_id)
+  按需为某一轮请首辅票拟——追问轮不自动汇总，何时汇总由用户决定。
+  期间轮次置回 running（前端见「意见收齐但仍在跑」即显示汇总中），
+  票拟输入含此前轮次记录：后续轮可能只有一两位发言，缺了它票拟会脱离上下文。
+  前置校验走 assert_can_synthesize，HTTP 面据此先判 404/409 再派后台任务。
 
 set_verdict(consultation_id, verdict)
   用户裁决落容器；LLM 只出票拟，裁决权不外包（issue #55）
@@ -65,7 +72,7 @@ set_verdict(consultation_id, verdict)
 | 调用方 | 位置 | 说明 |
 |---|---|---|
 | 应用装配 | `bootstrap/wiring_scheduler.py::wire_consultation`：`ConsultationSession(..., storage=, notifier=)` → `app.state.consultation`；同时建 `app.state.consultation_tasks` 并把上次进程遗留的 running/pending 判死 | 同一实例又作 `consultation_session=` 注入 `OrchestratorContext` |
-| HTTP API | `gateway/api.py`：`POST /consultations`（202）、`POST /consultations/{id}/rounds`（202，追问）、`PUT /consultations/{id}/verdict`（落裁决）、`GET /consultations/{id}`（含 rounds[]）、`GET /consultations?status=&limit=&offset=`（列表不 join 轮次） | 前端按 URL 里的 id 轮询 + WS 增量；后台 task 存 `app.state.consultation_tasks` 防 GC，done callback 把逃逸异常落 failed |
+| HTTP API | `gateway/api.py`：`POST /consultations`（202）、`POST /consultations/{id}/rounds`（202，追问）、`POST /consultations/{id}/rounds/{round_id}/synthesis`（202，按需票拟）、`PUT /consultations/{id}/verdict`（落裁决）、`GET /consultations/{id}`（含 rounds[]）、`GET /consultations?status=&limit=&offset=`（列表不 join 轮次） | 前端按 URL 里的 id 轮询 + WS 增量；后台 task 存 `app.state.consultation_tasks` 防 GC，done callback 把逃逸异常落 failed |
 | 长任务 L2 | `executor/orchestrator/loop.py`：`_run_consultation` 在升级到 L2 时调 `consultation_session.start`，取 `resp.synthesis` 作建议；异常则降级 L3 | persona 集来自 `acceptance.escalation.l2_consultation_personas`。`ConsultationResponse.opinions/synthesis/proposal` 是代理最新一轮的只读属性，L2 因此零改动——注意它们不可写 |
 
 L2 集成与降级语义详见 [../../design/agent/orchestrator.md](../../design/agent/orchestrator.md)。

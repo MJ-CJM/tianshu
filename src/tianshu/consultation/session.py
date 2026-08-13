@@ -268,7 +268,10 @@ class ConsultationSession:
             else:
                 if failures:
                     round_.error = "; ".join(failures)
-                await self._synthesize(round_, request, usage_context=usage_context)
+                # 只有首轮自动票拟。后续轮次何时汇总由用户决定——每轮都自动票拟
+                # 既多烧一次 LLM 调用，也把「首辅汇总」变成了噪音（issue #55 追加）。
+                if round_.round_index == 0:
+                    await self._synthesize(round_, request, usage_context=usage_context)
                 round_.status = "completed"
             round_.completed_at = datetime.now(UTC)
 
@@ -295,6 +298,69 @@ class ConsultationSession:
 
         if round_.status == "completed":
             self._archive_to_memory(round_, request)
+        return round_
+
+    def assert_can_synthesize(self, consultation_id: str, round_id: str) -> ConsultationRound:
+        """票拟前置校验——供 HTTP 面在派后台任务之前先把 404/409 判出来。"""
+        consultation = self.get(consultation_id)
+        if consultation is None:
+            raise ValueError(f"Consultation '{consultation_id}' not found")
+        round_ = next((r for r in consultation.rounds if r.id == round_id), None)
+        if round_ is None:
+            raise ValueError(f"Round '{round_id}' not found")
+        if round_.status != "completed":
+            raise ValueError("round is not ready for synthesis")
+        if not round_.opinions:
+            raise ValueError("round has no opinion to synthesize")
+        return round_
+
+    async def synthesize_round(
+        self,
+        consultation_id: str,
+        round_id: str,
+        *,
+        usage_context: LLMUsageContext | None = None,
+    ) -> ConsultationRound:
+        """按需为某一轮请首辅票拟——首轮之外由用户自行决定何时汇总。
+
+        期间把轮次置回 running：前端见「意见已收齐但仍在跑」即显示汇总中。
+        """
+        self.assert_can_synthesize(consultation_id, round_id)
+        consultation = self.get(consultation_id)
+        assert consultation is not None  # noqa: S101 — 上一行已校验存在
+        round_ = next(r for r in consultation.rounds if r.id == round_id)
+        request = consultation.request
+        if request is None:
+            raise ValueError(f"Consultation '{consultation_id}' has no request")
+
+        round_.status = "running"
+        self._persist_round(round_)
+        # 后续轮次可能只有一两位官员发言，只看本轮意见会让票拟脱离上下文
+        history = self._build_history(consultation, round_.round_index)
+
+        try:
+            await self._synthesize(
+                round_,
+                request,
+                history=history,
+                usage_context=usage_context,
+            )
+        except Exception as e:  # noqa: BLE001 — 票拟失败不该让已到手的意见连坐
+            logger.exception("Consultation synthesis failed: %s", e)
+            round_.error = "; ".join(filter(None, [round_.error, f"{type(e).__name__}: {e}"]))
+
+        round_.status = "completed"
+        round_.completed_at = datetime.now(UTC)
+        self._persist_round(round_)
+        await self._broadcast(
+            {
+                "type": "consultation.finished",
+                "consultation_id": consultation_id,
+                "round_id": round_.id,
+                "round_index": round_.round_index,
+                "status": round_.status,
+            }
+        )
         return round_
 
     # --- history ---
@@ -422,6 +488,7 @@ class ConsultationSession:
         round_: ConsultationRound,
         request: ConsultationRequest,
         *,
+        history: str = "",
         usage_context: LLMUsageContext | None,
     ) -> None:
         # 票拟者署名：让「综合意见 / 票拟」有明确出处，而不是一段无主之言（issue #54）
@@ -441,6 +508,7 @@ class ConsultationSession:
                     request,
                     round_.opinions,
                     persona=synthesizer,
+                    history=history,
                     usage_context=usage_context,
                 ),
                 timeout=self._synthesis_timeout,

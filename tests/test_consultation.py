@@ -408,3 +408,93 @@ class TestMultiRound:
         prompt = llm.calls[0][1]["content"]
         assert "第 2 轮：二轮" in prompt  # 最近一轮必留
         assert "第 1 轮：是否批准新预算" not in prompt  # 超预算的更早轮次被截掉
+
+
+class TestOnDemandSynthesis:
+    """票拟改为首轮自动、后续按需（issue #55 追加）。"""
+
+    async def test_follow_up_round_has_no_automatic_proposal(self, config_manager):
+        llm = _FakeLLM()
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(llm),
+        )
+        resp = await session.start(
+            ConsultationRequest(topic="是否批准新预算", persona_ids=["hubu"])
+        )
+        assert resp.rounds[0].proposal  # 首轮仍自动票拟
+
+        session.append_round(resp.id, RoundRequest(prompt="再议", participant_ids=["hubu"]))
+        after = await session.run(resp.id)
+
+        # 追问轮不该自动烧一次汇总调用
+        assert after.rounds[1].status == "completed"
+        assert after.rounds[1].opinions
+        assert after.rounds[1].synthesis is None
+        assert after.rounds[1].proposal is None
+
+    async def test_synthesis_can_be_requested_afterwards(self, config_manager):
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+        )
+        resp = await session.start(
+            ConsultationRequest(topic="是否批准新预算", persona_ids=["hubu"])
+        )
+        session.append_round(resp.id, RoundRequest(prompt="再议", participant_ids=["hubu"]))
+        resp = await session.run(resp.id)
+
+        round_ = await session.synthesize_round(resp.id, resp.rounds[1].id)
+
+        assert round_.status == "completed"
+        assert round_.synthesis == "各部意见一致，均建议推进。"
+        assert round_.proposal == "批准执行。"
+
+    async def test_requested_synthesis_sees_prior_rounds(self, config_manager):
+        """后续轮可能只有一人发言，票拟必须能看到此前的来龙去脉。"""
+        llm = _FakeLLM()
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(llm),
+        )
+        resp = await session.start(
+            ConsultationRequest(topic="是否批准新预算", persona_ids=["hubu"])
+        )
+        session.append_round(resp.id, RoundRequest(prompt="再议", participant_ids=["hubu"]))
+        resp = await session.run(resp.id)
+        llm.calls.clear()
+
+        await session.synthesize_round(resp.id, resp.rounds[1].id)
+
+        prompt = llm.calls[0][1]["content"]
+        assert "此前廷议记录" in prompt
+        assert "第 1 轮：是否批准新预算" in prompt
+
+    async def test_cannot_synthesize_a_running_round(self, config_manager):
+        import pytest
+
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+        )
+        resp = session.create_pending(ConsultationRequest(topic="t", persona_ids=["hubu"]))
+
+        with pytest.raises(ValueError, match="not ready for synthesis"):
+            await session.synthesize_round(resp.id, resp.rounds[0].id)
+
+    async def test_cannot_synthesize_a_round_without_opinions(self, config_manager):
+        import pytest
+
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+        )
+        resp = await session.start(ConsultationRequest(topic="t", persona_ids=["nobody"]))
+
+        with pytest.raises(ValueError, match="not ready for synthesis"):
+            await session.synthesize_round(resp.id, resp.rounds[0].id)

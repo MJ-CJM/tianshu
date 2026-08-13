@@ -249,3 +249,26 @@ class TestMultiRoundApi:
 
         assert [r["round_index"] for r in data["rounds"]] == [0, 1]
         assert data["rounds"][0]["prompt"] == "如何在 ai 时代具备个人竞争力?"
+
+
+class TestOnDemandSynthesisApi:
+    """按需票拟的 HTTP 面（issue #55 追加）。"""
+
+    def test_synthesis_on_unknown_round_is_404(self, client):
+        consultation_id = _create(client)
+        resp = client.post(f"/api/consultations/{consultation_id}/rounds/nope/synthesis")
+        assert resp.status_code == 404
+
+    def test_synthesis_on_unknown_consultation_is_404(self, client):
+        resp = client.post("/api/consultations/nope/rounds/r0/synthesis")
+        assert resp.status_code == 404
+
+    def test_synthesis_on_unfinished_round_is_409(self, client, storage):
+        consultation_id = _create(client)
+        round_ = storage.list_consultation_rounds(consultation_id)[0]
+        round_.status = "running"
+        storage.save_consultation_round(round_)
+
+        resp = client.post(f"/api/consultations/{consultation_id}/rounds/{round_.id}/synthesis")
+
+        assert resp.status_code == 409

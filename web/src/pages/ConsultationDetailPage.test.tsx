@@ -13,9 +13,11 @@ const mocks = vi.hoisted(() => ({
   useConsultationLiveUpdates: vi.fn(),
   useAppendRound: vi.fn(),
   useSetVerdict: vi.fn(),
+  useSynthesizeRound: vi.fn(),
   usePersonas: vi.fn(),
   appendRound: vi.fn(),
   setVerdict: vi.fn(),
+  synthesizeRound: vi.fn(),
 }));
 
 vi.mock("../hooks/useConsultation", () => ({
@@ -25,6 +27,7 @@ vi.mock("../hooks/useConsultation", () => ({
   useConsultationLiveUpdates: mocks.useConsultationLiveUpdates,
   useAppendRound: mocks.useAppendRound,
   useSetVerdict: mocks.useSetVerdict,
+  useSynthesizeRound: mocks.useSynthesizeRound,
 }));
 vi.mock("../hooks/usePersonas", () => ({ usePersonas: mocks.usePersonas }));
 
@@ -122,6 +125,11 @@ beforeEach(() => {
   });
   mocks.useSetVerdict.mockReturnValue({
     mutate: mocks.setVerdict,
+    isPending: false,
+    error: null,
+  });
+  mocks.useSynthesizeRound.mockReturnValue({
+    mutate: mocks.synthesizeRound,
     isPending: false,
     error: null,
   });
@@ -332,5 +340,38 @@ describe("ConsultationDetailPage", () => {
   it("shows an empty state instead of a blank round when no opinion arrived", () => {
     renderDetail();
     expect(screen.getByText("本次廷议无人奏对")).toBeInTheDocument();
+  });
+
+  it("offers on-demand synthesis for a round that has none", async () => {
+    const user = userEvent.setup();
+    mockConsultation(
+      consultation({ rounds: [round({ id: "round-1", round_index: 1, opinions: [opinion()] })] }),
+    );
+
+    renderDetail();
+
+    await user.click(screen.getByRole("button", { name: "请首辅票拟" }));
+
+    expect(mocks.synthesizeRound).toHaveBeenCalledWith("round-1");
+  });
+
+  it("hides the synthesis button once the round already has one", () => {
+    mockConsultation(
+      consultation({
+        rounds: [round({ opinions: [opinion()], synthesis: "已有综述", proposal: "已有票拟" })],
+      }),
+    );
+
+    renderDetail();
+
+    expect(screen.queryByRole("button", { name: "请首辅票拟" })).not.toBeInTheDocument();
+  });
+
+  it("hides the synthesis button when the round produced no opinion", () => {
+    mockConsultation(consultation({ rounds: [round({ opinions: [] })] }));
+
+    renderDetail();
+
+    expect(screen.queryByRole("button", { name: "请首辅票拟" })).not.toBeInTheDocument();
   });
 });

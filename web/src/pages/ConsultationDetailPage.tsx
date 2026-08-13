@@ -25,6 +25,7 @@ import {
   useConsultation,
   useConsultationLiveUpdates,
   useSetVerdict,
+  useSynthesizeRound,
 } from "../hooks/useConsultation";
 import { usePersonas } from "../hooks/usePersonas";
 import type { ConsultationResponse, ConsultationRound, PersonaOpinion } from "../api/types";
@@ -143,6 +144,10 @@ function Overview({ consultation }: { consultation: ConsultationResponse }) {
 function RoundBlock({ round }: { round: ConsultationRound }) {
   const t = useT();
   const { token } = theme.useToken();
+  const synthesize = useSynthesizeRound(round.consultation_id);
+  // 首轮自动票拟；后续轮次由用户看完意见后自行决定要不要汇总
+  const canSynthesize =
+    round.status === "completed" && round.opinions.length > 0 && !round.synthesis;
 
   return (
     <div>
@@ -221,6 +226,23 @@ function RoundBlock({ round }: { round: ConsultationRound }) {
             )}
           </GlowCard>
         ))}
+
+        {canSynthesize && (
+          <GlowCard>
+            <Space direction="vertical" size="small" style={{ width: "100%" }}>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {t("consultation.synthesizeHint")}
+              </Typography.Text>
+              <Button
+                loading={synthesize.isPending}
+                onClick={() => synthesize.mutate(round.id)}
+              >
+                {t("consultation.synthesizeAction")}
+              </Button>
+              {synthesize.error && <PageQueryError error={synthesize.error} />}
+            </Space>
+          </GlowCard>
+        )}
 
         {round.synthesis && (
           <GlowCard

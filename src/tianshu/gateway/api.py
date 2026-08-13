@@ -128,6 +128,28 @@ async def append_consultation_round(consultation_id: str, request: Request):
     )
 
 
+@gateway_router.post(
+    "/consultations/{consultation_id}/rounds/{round_id}/synthesis",
+    status_code=202,
+)
+async def synthesize_consultation_round(consultation_id: str, round_id: str, request: Request):
+    """按需为某一轮请首辅票拟——首轮之外由用户决定何时汇总（issue #55）。"""
+    consultation: ConsultationSession = request.app.state.consultation
+    try:
+        consultation.assert_can_synthesize(consultation_id, round_id)
+    except ValueError as exc:
+        status = 404 if "not found" in str(exc) else 409
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+    _spawn_task(
+        request.app,
+        consultation,
+        consultation_id,
+        consultation.synthesize_round(consultation_id, round_id),
+    )
+    return ApiResponse(success=True, data={"round_id": round_id, "status": "running"})
+
+
 @gateway_router.put("/consultations/{consultation_id}/verdict")
 async def set_consultation_verdict(consultation_id: str, request: Request):
     """落裁决——LLM 只出票拟，最终决定由用户写下（issue #55）。"""
@@ -144,7 +166,12 @@ async def set_consultation_verdict(consultation_id: str, request: Request):
 
 
 def _spawn_consultation(app, consultation: ConsultationSession, consultation_id: str) -> None:
-    """后台跑一场廷议。
+    """后台跑一场廷议的下一轮。"""
+    _spawn_task(app, consultation, consultation_id, consultation.run(consultation_id))
+
+
+def _spawn_task(app, consultation: ConsultationSession, consultation_id: str, coro) -> None:
+    """把协程挂到后台并接管它的失败。
 
     task 必须被强引用：CPython 只对运行中的 task 保留弱引用，丢引用会被 GC 中途
     回收，廷议永远停在 running（issue #52）。done callback 负责摘引用并把逃逸异常
@@ -152,7 +179,7 @@ def _spawn_consultation(app, consultation: ConsultationSession, consultation_id:
     """
     tasks: set[asyncio.Task] = app.state.consultation_tasks
 
-    task = asyncio.create_task(consultation.run(consultation_id))
+    task = asyncio.create_task(coro)
     tasks.add(task)
 
     def _on_done(finished: asyncio.Task) -> None:

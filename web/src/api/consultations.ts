@@ -45,6 +45,16 @@ export async function appendConsultationRound(
   return data;
 }
 
+export async function synthesizeConsultationRound(
+  id: string,
+  roundId: string,
+): Promise<ApiResponse<{ round_id: string; status: string }>> {
+  const { data } = await apiClient.post<ApiResponse<{ round_id: string; status: string }>>(
+    `/consultations/${id}/rounds/${roundId}/synthesis`,
+  );
+  return data;
+}
+
 export async function setConsultationVerdict(
   id: string,
   verdict: string,

@@ -1455,7 +1455,9 @@
     "verdictTitle": "裁决",
     "verdictPending": "待裁决",
     "verdictPlaceholder": "写下你的最终决定…",
-    "verdictSubmit": "落裁决"
+    "verdictSubmit": "落裁决",
+    "synthesizeAction": "请首辅票拟",
+    "synthesizeHint": "本轮已议毕。需要首辅综合各方意见、拟一份票拟吗？"
   },
   "hongluisi": {
     "title": "鸿胪寺",
