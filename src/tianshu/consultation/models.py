@@ -27,7 +27,10 @@ class ConsultationRequest(BaseModel):
     context: str | None = None
     edict_id: str | None = None
     persona_ids: list[str] = Field(default_factory=list)
-    synthesizer_persona_id: str = "neige"
+    # 汇聚官的 persona id；留空则由通用「首席顾问」身份汇总。
+    # 旧默认值 "neige" 是部门名而非 persona id（真实 id 形如 wym/zjz/smg），
+    # 且该字段从未被消费——issue #54 接线时一并改正。
+    synthesizer_persona_id: str | None = None
 
 
 class ConsultationResponse(BaseModel):
@@ -37,6 +40,10 @@ class ConsultationResponse(BaseModel):
     opinions: list[PersonaOpinion] = Field(default_factory=list)
     synthesis: str | None = None
     decision: str | None = None
+    # 实际执笔汇聚的官员；为空表示由通用「首席顾问」身份汇总（issue #54）
+    synthesizer_persona_id: str | None = None
+    synthesizer_name: str | None = None
+    synthesizer_department: str | None = None
     # 失败归因：让前端能区分"key 配错"与"模型超时"，而不是只显示一句"廷议失败"
     error: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

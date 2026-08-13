@@ -258,11 +258,23 @@ class ConsultationSession:
         *,
         usage_context: LLMUsageContext | None,
     ) -> None:
+        # 汇聚官署名：让「综合意见 / 决策」有明确出处，而不是一段无主之言（issue #54）
+        synthesizer = (
+            self._personas.get(request.synthesizer_persona_id)
+            if request.synthesizer_persona_id
+            else None
+        )
+        if synthesizer is not None:
+            response.synthesizer_persona_id = synthesizer.id
+            response.synthesizer_name = synthesizer.name
+            response.synthesizer_department = synthesizer.department
+
         try:
             synthesis_result = await asyncio.wait_for(
                 self._synthesizer.synthesize(
                     request,
                     response.opinions,
+                    persona=synthesizer,
                     usage_context=usage_context,
                 ),
                 timeout=self._synthesis_timeout,
@@ -376,26 +388,41 @@ class ConsultationSession:
 
     @staticmethod
     def _parse_opinion(content: str) -> tuple[str, list[str], str]:
-        """从 LLM 响应解析结构化 stance(废 confidence,ADR-0008)。"""
+        """从 LLM 响应解析结构化 stance(废 confidence,ADR-0008)。
+
+        按标记分段而非逐行取值：每个标记的内容延续到下一个标记为止（issue #54）。
+        旧实现只取 `OPINION:` 冒号后同一行，LLM 一换行正文就整段丢失。
+        """
+        sections = ConsultationSession._split_marked_sections(content)
+
         stance = "support"
-        conditions: list[str] = []
-        opinion = content.strip()
-        for line in content.splitlines():
-            u = line.strip()
-            upper = u.upper()
-            if upper.startswith("STANCE:"):
-                v = u.split(":", 1)[1].strip().lower()
-                stance = (
-                    "oppose"
-                    if "oppose" in v
-                    else "conditional"
-                    if "conditional" in v
-                    else "support"
-                )
-            elif upper.startswith("CONDITIONS:"):
-                c = u.split(":", 1)[1].strip()
-                if c:
-                    conditions = [x.strip() for x in c.split(";") if x.strip()]
-            elif upper.startswith("OPINION:"):
-                opinion = u.split(":", 1)[1].strip()
+        raw_stance = sections.get("STANCE", "").lower()
+        if "oppose" in raw_stance:
+            stance = "oppose"
+        elif "conditional" in raw_stance:
+            stance = "conditional"
+
+        conditions = [c.strip() for c in sections.get("CONDITIONS", "").split(";") if c.strip()]
+
+        # 未按格式输出、或给了标记却没正文时回落全文——宁可多余也不要空白卡片
+        opinion = sections.get("OPINION", "").strip() or content.strip()
         return stance, conditions, opinion
+
+    @staticmethod
+    def _split_marked_sections(content: str) -> dict[str, str]:
+        """把 `MARKER: ...` 形式的文本切成 {marker: body}，body 可跨行。"""
+        markers = ("STANCE", "CONDITIONS", "OPINION")
+        sections: dict[str, list[str]] = {}
+        current: str | None = None
+        for line in content.splitlines():
+            stripped = line.strip()
+            matched = next(
+                (m for m in markers if stripped.upper().startswith(f"{m}:")),
+                None,
+            )
+            if matched:
+                current = matched
+                sections[matched] = [stripped.split(":", 1)[1].strip()]
+            elif current:
+                sections[current].append(line.rstrip())
+        return {marker: "\n".join(body).strip() for marker, body in sections.items()}

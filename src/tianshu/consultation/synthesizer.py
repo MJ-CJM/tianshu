@@ -27,9 +27,14 @@ class Synthesizer:
         request: ConsultationRequest,
         opinions: list[PersonaOpinion],
         *,
+        persona: object | None = None,
         usage_context: LLMUsageContext | None = None,
     ) -> dict:
-        """Combine multiple opinions into a synthesis and decision."""
+        """Combine multiple opinions into a synthesis and decision.
+
+        `persona` 是执笔汇聚的官员（`request.synthesizer_persona_id` 解析所得）；
+        留空则沿用通用「首席顾问」身份。前端据此为综合/决策署名（issue #54）。
+        """
         from tianshu.llm import LLMClient
 
         state = self._config_manager.state
@@ -52,9 +57,18 @@ class Synthesizer:
             for o in opinions
         )
 
+        if persona is not None:
+            identity = (
+                f"You are {persona.name} from the {persona.department} department, "
+                f"acting as the chief counselor"
+            )
+            system_identity = f"You are {persona.name}, {persona.department}, "
+        else:
+            identity = "You are the chief counselor"
+            system_identity = "You are a senior advisor "
+
         prompt = (
-            f"You are the chief counselor synthesizing opinions on the following topic.\n\n"
-            f"Topic: {request.topic}\n"
+            f"{identity} synthesizing opinions on the following topic.\n\nTopic: {request.topic}\n"
         )
         if request.context:
             prompt += f"\nContext: {request.context}\n"
@@ -71,7 +85,7 @@ class Synthesizer:
         messages = [
             {
                 "role": "system",
-                "content": "You are a senior advisor synthesizing multi-perspective analysis.",
+                "content": f"{system_identity}synthesizing multi-perspective analysis.",
             },
             {"role": "user", "content": prompt},
         ]

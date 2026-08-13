@@ -21,6 +21,7 @@ const AuditDashboardPage = lazy(() => import("../pages/AuditDashboardPage"));
 const CostDashboardPage = lazy(() => import("../pages/CostDashboardPage"));
 const MemoryDashboardPage = lazy(() => import("../pages/MemoryDashboardPage"));
 const ConsultationPage = lazy(() => import("../pages/ConsultationPage"));
+const ConsultationDetailPage = lazy(() => import("../pages/ConsultationDetailPage"));
 const CabinetPage = lazy(() => import("../pages/CabinetPage"));
 const HongluisiPage = lazy(() => import("../pages/HongluisiPage"));
 const TongzhengPage = lazy(() => import("../pages/TongzhengPage"));
@@ -174,7 +175,7 @@ export default function AppRoutes() {
             <Route path="/cost" element={<CostDashboardPage />} />
             <Route path="/memory" element={<MemoryDashboardPage />} />
             <Route path="/consultation" element={<ConsultationPage />} />
-            <Route path="/consultation/:consultationId" element={<ConsultationPage />} />
+            <Route path="/consultation/:consultationId" element={<ConsultationDetailPage />} />
             <Route path="/cabinet" element={<CabinetPage />} />
             <Route path="/hongluisi" element={<HongluisiPage />} />
             <Route path="/tongzheng" element={<TongzhengPage />} />

@@ -36,7 +36,8 @@ run(consultation_id)
 超时上限见 `DEFAULT_OPINION_TIMEOUT_SECONDS` / `DEFAULT_SYNTHESIS_TIMEOUT_SECONDS`（各 180s，构造参数可覆盖）。
 
 - `_get_opinion`：按 persona 渲染 prompt（name/department + topic + context），单次 `llm.chat(messages)` → 构造 `PersonaOpinion`。
-- **占位字段**：`confidence=0.8` 硬编码、`key_points=[]` 恒空——LLM 自报的置信度与要点**未被解析回填**。这是当前实现的真实状态，扩展时优先补这里（见 §5）。
+- **意见解析**（`_parse_opinion` + `_split_marked_sections`）：按 `STANCE:` / `CONDITIONS:` / `OPINION:` 三个标记分段，每段内容延续到下一个标记为止，因此正文换行、跨段都不会丢（issue #54 修复；旧实现只取 `OPINION:` 冒号后同一行，LLM 一换行整段正文就变空串）。完全不按格式输出时回落「全文即意见」。
+- **占位字段**：`key_points=[]` 恒空——LLM 输出中的要点未被解析回填。`confidence` 已按 ADR-0008 废除，换成 `stance` + `conditions`。
 - LLM client 解析顺序（session 与 synthesizer 一致）：`provider_manager.get_client()` 优先，缺失则按 `config_manager.state` 现起 `LLMClient(model, api_key, api_base)`。
 
 ## 3. 结果落盘（court Markdown + 写穿索引）
@@ -64,8 +65,7 @@ L2 集成与降级语义详见 [../../design/agent/orchestrator.md](../../design
 
 | 想做 | 怎么扩 |
 |---|---|
-| 让 confidence 真正生效 | 在 `_get_opinion` 里解析 `llm.chat` 返回文本中的置信度数字，回填 `PersonaOpinion.confidence`（替换硬编码 `0.8`），并在 `Synthesizer` prompt 中据此加权 |
-| 回填 key_points | 同上，解析 LLM 输出的编号要点列表填入 `key_points`（当前恒为 `[]`） |
-| 换汇聚策略 | 改 `Synthesizer.synthesize` 的 prompt / 解析（当前靠 `### Synthesis` / `### Decision` 文本切分）；`synthesizer_persona_id` 字段已预留但 session 尚未据此切换汇聚人格 |
+| 回填 key_points | 解析 LLM 输出的编号要点列表填入 `key_points`（当前恒为 `[]`）；可在 `_split_marked_sections` 的标记集合里加 `KEY_POINTS` |
+| 换汇聚策略 | 改 `Synthesizer.synthesize` 的 prompt / 解析（当前靠 `### Synthesis` / `### Decision` 文本切分）。汇聚人格已接线：请求侧传 `synthesizer_persona_id`，session 解析后传入并回填 `response.synthesizer_*` 供前端署名 |
 | 取消进行中的会诊 | 现有 `app.state.consultation_tasks` 已持有 task 引用，加一个 `DELETE /consultations/{id}` 取消并 `mark_failed` 即可 |
 | 调整参与人格 | 请求侧传 `persona_ids`；L2 侧改 `acceptance.escalation.l2_consultation_personas` |

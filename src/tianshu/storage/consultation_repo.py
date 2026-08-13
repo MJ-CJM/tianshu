@@ -22,6 +22,9 @@ def _to_row_params(consultation: ConsultationResponse) -> tuple:
         ),
         consultation.synthesis,
         consultation.decision,
+        consultation.synthesizer_persona_id,
+        consultation.synthesizer_name,
+        consultation.synthesizer_department,
         consultation.error,
         consultation.created_at.isoformat(),
         consultation.completed_at.isoformat() if consultation.completed_at else None,
@@ -37,6 +40,9 @@ def _row_to_consultation(row: sqlite3.Row) -> ConsultationResponse:
             "opinions": json.loads(row["opinions_json"]),
             "synthesis": row["synthesis"],
             "decision": row["decision"],
+            "synthesizer_persona_id": row["synthesizer_persona_id"],
+            "synthesizer_name": row["synthesizer_name"],
+            "synthesizer_department": row["synthesizer_department"],
             "error": row["error"],
             "created_at": row["created_at"],
             "completed_at": row["completed_at"],
@@ -54,13 +60,17 @@ class ConsultationMixin:
             self._conn.execute(
                 """INSERT INTO consultations
                    (id, status, topic, edict_id, request_json, opinions_json,
-                    synthesis, decision, error, created_at, completed_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    synthesis, decision, synthesizer_persona_id, synthesizer_name,
+                    synthesizer_department, error, created_at, completed_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                      status=excluded.status,
                      opinions_json=excluded.opinions_json,
                      synthesis=excluded.synthesis,
                      decision=excluded.decision,
+                     synthesizer_persona_id=excluded.synthesizer_persona_id,
+                     synthesizer_name=excluded.synthesizer_name,
+                     synthesizer_department=excluded.synthesizer_department,
                      error=excluded.error,
                      completed_at=excluded.completed_at""",
                 _to_row_params(consultation),

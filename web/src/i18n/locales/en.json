@@ -1432,7 +1432,18 @@
       "running": "Running",
       "completed": "Completed",
       "failed": "Failed"
-    }
+    },
+    "detailTitle": "Consultation detail",
+    "back": "Back to consultations",
+    "notFound": "Consultation not found",
+    "statusLabel": "Status",
+    "startedAt": "Started",
+    "finishedAt": "Finished",
+    "conditions": "Conditions",
+    "synthesizing": "Synthesizing opinions...",
+    "synthesizer": "Synthesizer (optional)",
+    "synthesizerPlaceholder": "Defaults to the chief counselor",
+    "synthesizerDefault": "Chief counselor"
   },
   "hongluisi": {
     "title": "Network Center",
