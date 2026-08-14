@@ -194,21 +194,23 @@ describe("S4 desktop brand shell contract", () => {
     expect(screen.queryByText("实验室")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("menuitem", { name: "朝堂" }));
-    expect(rootItems[1]).not.toHaveClass("ant-menu-submenu-open");
+    // 展开一个不再收起其他：收不收由用户决定（issue #71）
+    expect(rootItems[1]).toHaveClass("ant-menu-submenu-open");
     expect(rootItems[2]).toHaveClass("ant-menu-submenu-open");
     expect(screen.getByRole("menuitem", { name: "吏部" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "廷议" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "内阁" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "go-to-memory" }));
-    expect(rootItems[2]).not.toHaveClass("ant-menu-submenu-open");
+    // 跳转只「并入」目标分组，不清掉用户已展开的（issue #71）
+    expect(rootItems[2]).toHaveClass("ant-menu-submenu-open");
     expect(rootItems[3]).toHaveClass("ant-menu-submenu-open");
     expect(screen.getByRole("menuitem", { name: "翰林院" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "鸿胪寺" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "通政司" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("menuitem", { name: /天工院.*实验/ }));
-    expect(rootItems[3]).not.toHaveClass("ant-menu-submenu-open");
+    expect(rootItems[3]).toHaveClass("ant-menu-submenu-open");
     expect(rootItems[4]).toHaveClass("ant-menu-submenu-open");
     expect(screen.getByRole("menuitem", { name: /演化司.*实验/ })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /诸界台.*实验/ })).toBeInTheDocument();
@@ -216,7 +218,7 @@ describe("S4 desktop brand shell contract", () => {
     expect(screen.getByRole("menuitem", { name: /客卿馆.*实验/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("menuitem", { name: "内府" }));
-    expect(rootItems[4]).not.toHaveClass("ant-menu-submenu-open");
+    expect(rootItems[4]).toHaveClass("ant-menu-submenu-open");
     expect(rootItems[5]).toHaveClass("ant-menu-submenu-open");
     expect(screen.getByRole("menuitem", { name: "藏兵阁" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "权印司" })).toBeInTheDocument();
