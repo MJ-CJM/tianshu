@@ -37,7 +37,7 @@ verdict —— 用户写下的最终裁决（LLM 不做这一步）
 | `ConsultationRequest` | `topic` / `context` / `edict_id` / `persona_ids` / `censor_persona_ids` / `synthesizer_persona_id` | 入参：议题 + 参与人格。`persona_ids` 为空时由 session 取「全部人格」；`censor_persona_ids` 显式任命言官；`synthesizer_persona_id` 指定首席顾问，留空则由通用身份票拟 |
 | `RoundRequest` | `prompt` / `participant_ids` | 追问一轮；`participant_ids` 为空则沿用首轮全体 |
 | `ConsultationRound` | `round_index` / `prompt` / `participant_ids` / `opinions` / `synthesis` / `proposal` / `synthesizer_*` / `status` / `error` | 一轮朝议。`proposal` 是票拟（内阁建议，仅供参考） |
-| `PersonaOpinion` | `persona_id` / `persona_name` / `department` / `opinion` / `stance` / `conditions` / `key_points` / `is_censor` | 单个人格的意见 |
+| `PersonaOpinion` | `persona_id` / `persona_name` / `department` / `opinion` / `stance` / `conditions` / `key_points` / `is_censor` / `tool_calls` | 单个人格的意见。`tool_calls` 是查证痕迹（`ToolTrace` 列表），存 JSON 列故不需迁移 |
 | `ConsultationResponse` | `id` / `status` / `rounds` / `verdict` / `verdict_at` / `error` / `created_at` / `completed_at` | 一场廷议的容器，`status` ∈ pending/running/completed/failed（跟随最新轮）。`verdict` 是用户裁决。`opinions` / `synthesis` / `proposal` 是代理最新一轮的**只读**属性，供 L2 等旧调用方零改动使用 |
 
 > `models.py` 另有一个未在主流程使用的 `ConsultationResult`（精简版三元组），当前 session 走的是 `ConsultationResponse`。
@@ -60,6 +60,16 @@ verdict —— 用户写下的最终裁决（LLM 不做这一步）
 - **言官显式任命**：`censor_persona_ids` 决定谁执异，不再由 `idx == 0` 的列表顺序决定；不点名则无人执异（显式优于隐式）。
 - **票拟 vs 裁决**：LLM 的产出降格为 `round.proposal`（票拟，内阁建议），最终 `consultation.verdict` 由用户写下并计入后续轮次的上下文。
 - **票拟按需触发**：只有第 0 轮自动票拟；追问轮跑完只呈现各官员意见，用户看过之后再决定要不要请首辅汇总（`synthesize_round`）。每轮都自动票拟既多烧一次 LLM 调用，也把「首辅汇总」变成了噪音。
+
+### 官员的工具链（issue #59）
+
+廷议原本是纯文本补全，官员手上一个工具都没有——问「能联网查下吗」只能如实回答「无实时联网之能」。现在 `_get_opinion` 走 `Agent.execute` 的工具循环，官员可先查证再发言。
+
+三条边界：
+
+- **只给只读**：T0（无副作用）+ T2（外部读），且剔除 `lark_cli` / `submit_edict` / `schedule_edict` 这类「因走网络被归为 T2、语义却是写」的工具。议事是为了拿意见，不是为了改东西。
+- **必须有锚点**：工具调用一律绑定议事敕令（`source='consultation'`），策略解析与审计都挂在它上面；取不到敕令就回落无工具的纯文本议政，不允许无主调用。
+- **痕迹可见**：`PersonaOpinion.tool_calls` 记录查了什么，前端在意见旁呈现。没有它，读者无从判断这段意见是查过的还是凭旧记忆编的——而这正是给廷议接工具的价值所在。
 
 ## 3. 与 outer loop L2 的集成 + 降级 L3 的 fallback
 

@@ -1460,7 +1460,9 @@
     "synthesizeHint": "本轮已议毕。需要首辅综合各方意见、拟一份票拟吗？",
     "followUpSynthesisHint": "追问议毕后，可在该轮末尾请首辅票拟——不请则只呈各官员意见。",
     "askedLabel": "问及：",
-    "askedEveryone": "百官皆可"
+    "askedEveryone": "百官皆可",
+    "verified": "已查证 {n}",
+    "traceTitle": "查证痕迹（{n} 次）"
   },
   "hongluisi": {
     "title": "鸿胪寺",

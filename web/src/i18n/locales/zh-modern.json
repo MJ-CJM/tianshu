@@ -1460,7 +1460,9 @@
     "synthesizeHint": "本轮已结束。需要首席顾问综合各方意见、给一份建议吗？",
     "followUpSynthesisHint": "追问结束后，可在该轮末尾请首席顾问汇总——不请则只展示各方意见。",
     "askedLabel": "询问：",
-    "askedEveryone": "所有人"
+    "askedEveryone": "所有人",
+    "verified": "已查证 {n}",
+    "traceTitle": "查证过程（{n} 次调用）"
   },
   "hongluisi": {
     "title": "网络中心",

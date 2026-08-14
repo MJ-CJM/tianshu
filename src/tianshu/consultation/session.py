@@ -14,11 +14,13 @@ from tianshu.consultation.models import (
     ConsultationRound,
     PersonaOpinion,
     RoundRequest,
+    ToolTrace,
 )
 from tianshu.consultation.synthesizer import Synthesizer
 from tianshu.llm import LLMUsageContext
 from tianshu.persona.loader import PersonaLoader
 from tianshu.providers.manager import ProviderManager
+from tianshu.tools.types import ToolTier
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,19 @@ logger = logging.getLogger(__name__)
 # running，前端只能无限轮询（issue #52）。
 DEFAULT_OPINION_TIMEOUT_SECONDS = 180.0
 DEFAULT_SYNTHESIS_TIMEOUT_SECONDS = 180.0
+# 带工具的意见要跑多轮 tool_call，180s 不够；单列一档而不是一味调大无工具那档
+DEFAULT_TOOL_OPINION_TIMEOUT_SECONDS = 600.0
+
+#: tier 归为只读档（T0/T2）但语义上会写外部世界的工具——廷议一律不给。
+#: 它们因为「走网络」被归到 T2_NETWORK，可发飞书消息、颁敕令、排定差事都是
+#: 实打实的副作用；议事只该看，不该动（issue #59）。
+WRITE_TOOLS_DESPITE_READONLY_TIER: frozenset[str] = frozenset(
+    {
+        "lark_cli",  # 发飞书消息/文档写入
+        "submit_edict",  # 颁敕令（另有 ASSISTANT_ONLY 挡，此处显式冗余一道）
+        "schedule_edict",  # 排定周期性差事
+    }
+)
 # 回放给官员的往轮记录字符预算：从最近轮往前累计，至少保留最近一轮（issue #55）
 DEFAULT_HISTORY_MAX_CHARS = 12000
 
@@ -41,7 +56,10 @@ class ConsultationSession:
         memory_manager: object | None = None,
         storage: Any | None = None,
         notifier: Any | None = None,
+        agent: Any | None = None,
+        tools: Any | None = None,
         opinion_timeout: float = DEFAULT_OPINION_TIMEOUT_SECONDS,
+        tool_opinion_timeout: float = DEFAULT_TOOL_OPINION_TIMEOUT_SECONDS,
         synthesis_timeout: float = DEFAULT_SYNTHESIS_TIMEOUT_SECONDS,
         history_max_chars: int = DEFAULT_HISTORY_MAX_CHARS,
     ) -> None:
@@ -51,7 +69,11 @@ class ConsultationSession:
         self._memory_manager = memory_manager
         self._storage = storage
         self._notifier = notifier
+        # agent + tools 齐备时官员才有工具链；缺则回落纯文本补全（issue #59）
+        self._agent = agent
+        self._tools = tools
         self._opinion_timeout = opinion_timeout
+        self._tool_opinion_timeout = tool_opinion_timeout
         self._synthesis_timeout = synthesis_timeout
         self._history_max_chars = history_max_chars
         self._synthesizer = Synthesizer(config_manager, provider_manager)
@@ -120,6 +142,10 @@ class ConsultationSession:
 
     def create_pending(self, request: ConsultationRequest) -> ConsultationResponse:
         """登记一场廷议并落库（含第 0 轮 = 议题本身），返回可供轮询的 id。"""
+        if request.edict_id is None:
+            edict_id = self._create_deliberation_edict(request)
+            if edict_id is not None:
+                request = request.model_copy(update={"edict_id": edict_id})
         consultation = ConsultationResponse(request=request, status="pending")
         self._persist(consultation)
         first = ConsultationRound(
@@ -132,6 +158,42 @@ class ConsultationSession:
         self._persist_round(first)
         consultation.rounds = [first]
         return consultation
+
+    def _create_deliberation_edict(self, request: ConsultationRequest) -> str | None:
+        """建一道「议事敕令」作为本场廷议全部工具调用的策略与审计锚点。
+
+        网络工具硬依赖 ambient edict（解析策略档位 + 记审计），廷议本身没有敕令。
+        伪造一个临时对象会让 edict_id 指向不存在的记录、审计断链——本项目是治理
+        定位，宁可多一条真实记录。source='consultation' 使其默认不出现在御书房
+        列表里（issue #59）。orchestrator L2 廷议自带 edict_id，走不到这里。
+        """
+        if self._storage is None:
+            return None
+        try:
+            from tianshu.models.edict import Edict
+
+            edict = Edict(
+                title=f"廷议：{request.topic[:40]}",
+                goal=request.topic,
+                context=request.context,
+                source="consultation",
+                metadata={"consultation": True},
+            )
+            self._storage.save_edict(edict)
+        except Exception:
+            # 建不出来就退回无工具的纯文本议政，不该让整场廷议开不了场
+            logger.exception("Failed to create deliberation edict; falling back to no tools")
+            return None
+        return edict.id
+
+    def _load_edict(self, edict_id: str | None):
+        if not edict_id or self._storage is None:
+            return None
+        try:
+            return self._storage.get_edict(edict_id)
+        except Exception:
+            logger.exception("Failed to load deliberation edict %s", edict_id)
+            return None
 
     def append_round(
         self,
@@ -434,6 +496,9 @@ class ConsultationSession:
         # 言官由 censor_persona_ids 显式任命；此前是 idx==0 硬编码，谁执异
         # 取决于列表顺序，用户无从指定（issue #55）。
         censors = set(request.censor_persona_ids)
+        # 议事敕令：官员工具调用的策略与审计锚点；取不到则本轮无工具（issue #59）
+        edict = self._load_edict(request.edict_id)
+        timeout = self._tool_opinion_timeout if edict is not None else self._opinion_timeout
 
         async def _one(persona) -> tuple[PersonaOpinion | None, str | None]:
             """单个官员的意见；失败在此收敛为归因文本，不拖垮整场廷议。"""
@@ -445,12 +510,13 @@ class ConsultationSession:
                         prompt=round_.prompt,
                         history=history,
                         is_censor=persona.id in censors,
+                        edict=edict,
                         usage_context=usage_context,
                     ),
-                    timeout=self._opinion_timeout,
+                    timeout=timeout,
                 )
             except TimeoutError:
-                return None, f"{persona.name}: timeout after {self._opinion_timeout:.0f}s"
+                return None, f"{persona.name}: timeout after {timeout:.0f}s"
             except Exception as e:  # noqa: BLE001 — 单个官员失败不应拖垮整场廷议
                 logger.warning("Persona %s failed to opine: %s", persona.id, e)
                 return None, f"{persona.name}: {type(e).__name__}: {e}"
@@ -566,9 +632,13 @@ class ConsultationSession:
         prompt: str,
         history: str = "",
         is_censor: bool = False,
+        edict: Any | None = None,
         usage_context: LLMUsageContext | None = None,
     ) -> PersonaOpinion:
-        """Get a single persona's opinion via LLM call."""
+        """Get a single persona's opinion.
+
+        有 agent + 议事敕令时走工具链（可先查证再发言），否则纯文本补全。
+        """
         from tianshu.llm import LLMClient
 
         state = self._config_manager.state
@@ -608,16 +678,27 @@ class ConsultationSession:
                 "反对理由**、被忽视的风险、隐藏的代价。宁可偏 oppose/conditional,不随大流。\n"
             )
 
-        messages = [
-            {"role": "system", "content": f"You are {persona.name}, {persona.department}."},
-            {"role": "user", "content": user_prompt},
-        ]
-
-        if usage_context is None:
-            response = await llm.chat(messages)
+        # 有 agent 与议事敕令时走工具链：官员可以先查证再发言（issue #59）。
+        # 缺其一则回落纯文本补全——单测与无库装配走的就是这条。
+        if self._agent is not None and edict is not None:
+            content, traces = await self._opine_with_tools(
+                persona,
+                edict,
+                user_prompt,
+                usage_context=usage_context,
+            )
         else:
-            response = await llm.chat(messages, usage_context=usage_context)
-        stance, conditions, opinion_text = self._parse_opinion(response.content or "")
+            messages = [
+                {"role": "system", "content": f"You are {persona.name}, {persona.department}."},
+                {"role": "user", "content": user_prompt},
+            ]
+            if usage_context is None:
+                response = await llm.chat(messages)
+            else:
+                response = await llm.chat(messages, usage_context=usage_context)
+            content, traces = response.content or "", []
+
+        stance, conditions, opinion_text = self._parse_opinion(content)
         return PersonaOpinion(
             persona_id=persona.id,
             persona_name=persona.name,
@@ -626,7 +707,65 @@ class ConsultationSession:
             stance=stance,
             conditions=conditions,
             is_censor=is_censor,
+            tool_calls=traces,
         )
+
+    async def _opine_with_tools(
+        self,
+        persona,
+        edict,
+        user_prompt: str,
+        *,
+        usage_context: LLMUsageContext | None,
+    ) -> tuple[str, list[ToolTrace]]:
+        """走 Agent 的工具循环取意见，并把查证痕迹提炼出来。
+
+        ambient 绑定议事敕令：网络工具据此解析策略档位、记审计（tools/hongluisi
+        /tools.py 无 edict 会直接抛 no_ambient_edict）。
+        """
+        from tianshu.kernel.ambient import bind_edict
+
+        with bind_edict(edict):
+            result = await self._agent.execute(
+                edict,
+                user_content=user_prompt,
+                persona=persona,
+                tool_filter=self._readonly_tool_names(),
+            )
+
+        traces = [
+            ToolTrace(
+                tool=str(e.get("tool", "")),
+                args_preview=str(e.get("args_preview", ""))[:200],
+                result_preview=str(e.get("result_preview", ""))[:200],
+                is_error=bool(e.get("is_error")),
+            )
+            for e in result.events
+            if e.get("type") in {"tool.completed", "tool.failed"}
+        ]
+        return result.result or result.summary or "", traces
+
+    def _readonly_tool_names(self) -> list[str] | None:
+        """廷议只给只读工具：T0（无副作用）+ T2（外部读），再减去写语义的例外。
+
+        议事是为了拿意见，不是为了改东西——写文件、跑命令、发消息一律不给
+        （issue #59 的裁决）。
+
+        光按 tier 筛不够：lark_cli / schedule_edict / submit_edict 因为走网络被
+        归到 T2，语义上却是写操作，必须显式剔除。这是在真实装配下才暴露的——
+        按 tier 过滤的单测看不出问题。
+        """
+        if self._tools is None:
+            return None
+        allowed = {ToolTier.T0_READONLY.value, ToolTier.T2_NETWORK.value}
+        disabled = self._tools.list_disabled()
+        return [
+            d.name
+            for d in self._tools.list_definitions()
+            if d.tier in allowed
+            and d.name not in WRITE_TOOLS_DESPITE_READONLY_TIER
+            and d.name not in disabled
+        ]
 
     @staticmethod
     def _parse_opinion(content: str) -> tuple[str, list[str], str]:

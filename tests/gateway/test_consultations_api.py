@@ -272,3 +272,38 @@ class TestOnDemandSynthesisApi:
         resp = client.post(f"/api/consultations/{consultation_id}/rounds/{round_.id}/synthesis")
 
         assert resp.status_code == 409
+
+
+class TestDeliberationEdict:
+    """议事敕令：工具调用的策略与审计锚点，且不该淹没御书房（issue #59）。"""
+
+    def test_consultation_creates_a_hidden_deliberation_edict(self, storage):
+        session = _StubSession(storage)
+
+        c = session.create_pending(
+            ConsultationRequest(topic="deepseek 的 harness", persona_ids=["wym"])
+        )
+
+        edict_id = c.request.edict_id
+        assert edict_id, "廷议应自带议事敕令，否则官员的工具调用无锚点"
+        edict = storage.get_edict(edict_id)
+        assert edict.source == "consultation"
+        assert edict.goal == "deepseek 的 harness"
+
+        listed, _ = storage.list_edicts(limit=100)
+        assert edict_id not in [e.id for e in listed], "议事敕令不该出现在御书房列表"
+
+        listed, _ = storage.list_edicts(limit=100, include_consultation=True)
+        assert edict_id in [e.id for e in listed], "显式要求时应可查证"
+
+    def test_existing_edict_id_is_respected(self, storage):
+        """orchestrator L2 廷议自带 edict_id，不该再另造一道。"""
+        session = _StubSession(storage)
+
+        c = session.create_pending(
+            ConsultationRequest(topic="t", persona_ids=["wym"], edict_id="edict-from-l2")
+        )
+
+        assert c.request.edict_id == "edict-from-l2"
+        listed, _ = storage.list_edicts(limit=100, include_consultation=True)
+        assert not [e for e in listed if e.source == "consultation"]

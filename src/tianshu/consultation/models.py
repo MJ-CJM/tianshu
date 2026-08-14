@@ -9,6 +9,15 @@ from pydantic import BaseModel, Field
 from ulid import ULID
 
 
+class ToolTrace(BaseModel):
+    """一次工具调用的痕迹，供前端呈现官员查证了什么。"""
+
+    tool: str
+    args_preview: str = ""
+    result_preview: str = ""
+    is_error: bool = False
+
+
 class PersonaOpinion(BaseModel):
     persona_id: str
     persona_name: str
@@ -20,6 +29,10 @@ class PersonaOpinion(BaseModel):
     conditions: list[str] = Field(default_factory=list)
     key_points: list[str] = Field(default_factory=list)
     is_censor: bool = False  # 言官——强制反调,破单模型六官同构的意见趋同
+    # 查证痕迹：本轮调用过哪些工具、抓了什么。没有它，读者无从判断这段意见是
+    # 查过的还是凭旧记忆编的——而这正是给廷议接工具的价值所在（issue #59）。
+    # 存在 opinions_json 里，加字段不需要迁移。
+    tool_calls: list[ToolTrace] = Field(default_factory=list)
 
 
 class ConsultationRequest(BaseModel):

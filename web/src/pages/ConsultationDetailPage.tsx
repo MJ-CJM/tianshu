@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   Alert,
   Button,
+  Collapse,
   Descriptions,
   Divider,
   Empty,
@@ -28,7 +29,12 @@ import {
   useSynthesizeRound,
 } from "../hooks/useConsultation";
 import { usePersonas } from "../hooks/usePersonas";
-import type { ConsultationResponse, ConsultationRound, PersonaOpinion } from "../api/types";
+import type {
+  ConsultationResponse,
+  ConsultationRound,
+  PersonaOpinion,
+  ToolTrace,
+} from "../api/types";
 import { useT } from "../i18n";
 import PageQueryError from "../components/states/PageQueryError";
 
@@ -233,12 +239,18 @@ function RoundBlock({ round, roster }: { round: ConsultationRound; roster: strin
                   {t(`consultation.stance.${opinion.stance}`)}
                 </Tag>
                 {opinion.is_censor && <Tag color="volcano">{t("consultation.censor")}</Tag>}
+                {opinion.tool_calls?.length > 0 && (
+                  <Tag color="cyan">
+                    {t("consultation.verified", { n: opinion.tool_calls.length })}
+                  </Tag>
+                )}
               </Space>
             }
           >
             <div className="memorial-markdown" style={{ color: token.colorText, ...MARKDOWN_STYLE }}>
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{opinion.opinion}</ReactMarkdown>
             </div>
+            <ToolTraceList traces={opinion.tool_calls ?? []} />
             {opinion.conditions.length > 0 && (
               <div style={{ marginTop: 12 }}>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -304,6 +316,46 @@ function RoundBlock({ round, roster }: { round: ConsultationRound; roster: strin
         )}
       </Space>
     </div>
+  );
+}
+
+/** 查证痕迹：没有它，读者无从判断这段意见是查过的还是凭旧记忆编的（issue #59）。 */
+function ToolTraceList({ traces }: { traces: ToolTrace[] }) {
+  const t = useT();
+  const { token } = theme.useToken();
+  if (traces.length === 0) return null;
+
+  return (
+    <Collapse
+      ghost
+      size="small"
+      style={{ marginTop: 8 }}
+      items={[
+        {
+          key: "traces",
+          label: (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {t("consultation.traceTitle", { n: traces.length })}
+            </Typography.Text>
+          ),
+          children: (
+            <Space direction="vertical" size={4} style={{ width: "100%" }}>
+              {traces.map((trace, i) => (
+                <div key={i} style={{ fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>
+                  <Space size={4} wrap>
+                    <Tag color={trace.is_error ? "red" : "cyan"}>{trace.tool}</Tag>
+                    <Typography.Text type="secondary">{trace.args_preview}</Typography.Text>
+                  </Space>
+                  <div style={{ color: token.colorTextSecondary, paddingLeft: 8, marginTop: 2 }}>
+                    → {trace.result_preview}
+                  </div>
+                </div>
+              ))}
+            </Space>
+          ),
+        },
+      ]}
+    />
   );
 }
 

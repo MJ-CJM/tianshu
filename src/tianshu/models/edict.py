@@ -141,7 +141,9 @@ class Edict(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     # Phase 1 fields
     idempotency_key: str | None = None
-    source: Literal["cli", "api", "channel", "scheduler"] = "api"
+    # consultation：廷议为了给官员的工具调用一个策略与审计锚点而合成的「议事敕令」
+    # （issue #59）。它真实入库以保全证据链，但默认不出现在御书房列表里。
+    source: Literal["cli", "api", "channel", "scheduler", "consultation"] = "api"
     submitter: str | None = None
     constraints: list[str] = Field(default_factory=list)
     output_format: str | None = None

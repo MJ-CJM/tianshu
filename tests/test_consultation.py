@@ -498,3 +498,164 @@ class TestOnDemandSynthesis:
 
         with pytest.raises(ValueError, match="not ready for synthesis"):
             await session.synthesize_round(resp.id, resp.rounds[0].id)
+
+
+class _FakeToolRegistry:
+    """只实现 ConsultationSession 用到的两个方法。"""
+
+    def __init__(self, defs, disabled=()):
+        self._defs = defs
+        self._disabled = set(disabled)
+
+    def list_definitions(self):
+        return list(self._defs)
+
+    def list_disabled(self):
+        return set(self._disabled)
+
+
+class _FakeAgent:
+    """记录 execute 入参；返回一段带工具事件的结果。"""
+
+    def __init__(self, content="STANCE: support\nOPINION:\n查证后认为可行。"):
+        self.calls = []
+        self._content = content
+
+    async def execute(self, edict, **kwargs):
+        self.calls.append({"edict": edict, **kwargs})
+        return SimpleNamespace(
+            result=self._content,
+            summary=None,
+            events=[
+                {
+                    "type": "tool.completed",
+                    "tool": "web_search",
+                    "args_preview": '{"query": "deepseek harness"}',
+                    "result_preview": "找到 3 条结果",
+                    "is_error": False,
+                },
+                {"type": "llm.response", "tool": "ignored"},
+                {
+                    "type": "tool.failed",
+                    "tool": "web_fetch",
+                    "args_preview": '{"url": "https://x"}',
+                    "result_preview": "timeout",
+                    "is_error": True,
+                },
+            ],
+        )
+
+
+def _tool_defs():
+    from tianshu.tools.types import ToolTier
+
+    return [
+        SimpleNamespace(name="read_file", tier=ToolTier.T0_READONLY.value),
+        SimpleNamespace(name="web_search", tier=ToolTier.T2_NETWORK.value),
+        SimpleNamespace(name="web_fetch", tier=ToolTier.T2_NETWORK.value),
+        SimpleNamespace(name="edit_file", tier=ToolTier.T1_WORKSPACE.value),
+        SimpleNamespace(name="shell_exec", tier=ToolTier.T4_DANGEROUS.value),
+        SimpleNamespace(name="lark_cli", tier=ToolTier.T2_NETWORK.value),
+        SimpleNamespace(name="submit_edict", tier=ToolTier.T2_NETWORK.value),
+        SimpleNamespace(name="schedule_edict", tier=ToolTier.T2_NETWORK.value),
+        SimpleNamespace(name="api_request", tier=ToolTier.T2_NETWORK.value),
+    ]
+
+
+class TestConsultationTools:
+    """官员的工具链：只读边界、查证痕迹、无 agent 时的回落（issue #59）。"""
+
+    def test_readonly_filter_keeps_reads_and_drops_writes(self, config_manager):
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            tools=_FakeToolRegistry(_tool_defs(), disabled={"api_request"}),
+        )
+
+        names = set(session._readonly_tool_names())
+
+        assert {"read_file", "web_search", "web_fetch"} <= names
+        # T1/T4 按 tier 挡掉
+        assert "edit_file" not in names and "shell_exec" not in names
+        # 这三个因走网络被归为 T2，语义却是写——必须显式剔除
+        assert not ({"lark_cli", "submit_edict", "schedule_edict"} & names)
+        # 启动时禁用的工具不该出现在清单里
+        assert "api_request" not in names
+
+    def test_no_registry_means_no_filter(self, config_manager):
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+        )
+        assert session._readonly_tool_names() is None
+
+    async def test_opinion_goes_through_the_agent_when_wired(self, config_manager):
+        agent = _FakeAgent()
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+            tools=_FakeToolRegistry(_tool_defs()),
+            agent=agent,
+        )
+        edict = SimpleNamespace(id="edict-1", runtime=SimpleNamespace())
+
+        opinion = await session._get_opinion(
+            _personas()["hubu"],
+            ConsultationRequest(topic="deepseek 的 harness"),
+            prompt="deepseek 的 harness",
+            edict=edict,
+        )
+
+        assert len(agent.calls) == 1
+        call = agent.calls[0]
+        assert call["edict"] is edict
+        assert call["persona"].id == "hubu"
+        assert "web_search" in call["tool_filter"]
+        assert "edit_file" not in call["tool_filter"]
+        assert opinion.opinion == "查证后认为可行。"
+
+    async def test_tool_traces_are_recorded_on_the_opinion(self, config_manager):
+        """查证痕迹是本功能的价值所在：没有它无从判断意见是查过的还是编的。"""
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+            tools=_FakeToolRegistry(_tool_defs()),
+            agent=_FakeAgent(),
+        )
+
+        opinion = await session._get_opinion(
+            _personas()["hubu"],
+            ConsultationRequest(topic="t"),
+            prompt="t",
+            edict=SimpleNamespace(id="e", runtime=SimpleNamespace()),
+        )
+
+        assert [t.tool for t in opinion.tool_calls] == ["web_search", "web_fetch"]
+        assert opinion.tool_calls[0].is_error is False
+        assert opinion.tool_calls[1].is_error is True
+        assert "deepseek harness" in opinion.tool_calls[0].args_preview
+
+    async def test_falls_back_to_plain_completion_without_an_edict(self, config_manager):
+        """没有议事敕令就没有策略/审计锚点，宁可无工具也不能无主调用。"""
+        agent = _FakeAgent()
+        llm = _FakeLLM()
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(llm),
+            tools=_FakeToolRegistry(_tool_defs()),
+            agent=agent,
+        )
+
+        opinion = await session._get_opinion(
+            _personas()["hubu"],
+            ConsultationRequest(topic="t"),
+            prompt="t",
+            edict=None,
+        )
+
+        assert agent.calls == []  # 没走 agent
+        assert llm.calls  # 走了纯文本补全
+        assert opinion.tool_calls == []

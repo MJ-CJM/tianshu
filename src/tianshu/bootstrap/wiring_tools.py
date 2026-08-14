@@ -130,4 +130,6 @@ async def wire_tools(app: FastAPI, settings: TianshuSettings) -> ToolRegistry:
     except Exception:
         logger.exception("[hongluisi] failed to load engine_preferences; using profile defaults")
 
+    # 挂到 state 供后续 wiring 取用（wire_consultation 据此给官员算只读工具集，issue #59）
+    app.state.tools = tools
     return tools
