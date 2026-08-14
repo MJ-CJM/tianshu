@@ -1496,6 +1496,10 @@
       "browserEnginesHint": "浏览器引擎需要浏览器二进制 —— 请先运行 `scrapling install`。",
       "enableDynamic": "启用 scrapling_dynamic（Chromium，渲染 JS）",
       "enableStealthy": "启用 scrapling_stealthy（Camoufox，过 Cloudflare）",
+      "searchKeyHint": "Tavily / Jina 需要先配置 API key；DuckDuckGo 免 key 但结果时有为空。",
+      "searchKeyHintLink": "去配置搜索 key",
+      "keyConfigured": "已配 key（{source}）",
+      "keyMissing": "未配 key",
       "engineUnavailable": "未安装或未配 key，选了不会生效"
     },
     "credentials": {

@@ -1496,6 +1496,10 @@
       "browserEnginesHint": "Browser engines need browser binaries — run `scrapling install` first.",
       "enableDynamic": "Enable scrapling_dynamic (Chromium, renders JS)",
       "enableStealthy": "Enable scrapling_stealthy (Camoufox, bypasses Cloudflare)",
+      "searchKeyHint": "Tavily / Jina need an API key; DuckDuckGo is key-free but often returns nothing.",
+      "searchKeyHintLink": "Configure search keys",
+      "keyConfigured": "key set ({source})",
+      "keyMissing": "no key",
       "engineUnavailable": "not installed / no key — selecting it does nothing"
     },
     "credentials": {
