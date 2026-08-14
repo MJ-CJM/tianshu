@@ -6,6 +6,12 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-15
+
+首个 PyPI 发行版。安装从「clone + 建 venv + 装 Node 构建前端」收敛为两行：
+`pipx install tianshu-agent-os` 然后 `tianshu serve`。发行版 wheel 自带前端载荷，
+这条路径不需要 Node.js。能力边界与 0.5.0 相同，本次不含功能变更。
+
 ### Added
 
 - `tianshu serve`：安装后的默认启动入口，替代手写 `uvicorn tianshu.app:create_app

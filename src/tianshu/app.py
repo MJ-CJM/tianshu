@@ -402,7 +402,7 @@ async def lifespan(app: FastAPI):
 
 def create_app(settings: TianshuSettings | None = None) -> FastAPI:
     settings = settings or TianshuSettings()
-    app = FastAPI(title="Tianshu", version="0.5.0", lifespan=lifespan)
+    app = FastAPI(title="Tianshu", version="0.5.1", lifespan=lifespan)
     app.state.settings = settings
     app.state.public_webhook_paths = set()
     app.add_middleware(
