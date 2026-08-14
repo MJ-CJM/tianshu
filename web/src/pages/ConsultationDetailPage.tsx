@@ -1,11 +1,15 @@
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Alert,
   Button,
   Descriptions,
+  Divider,
   Empty,
+  Input,
   Progress,
   Result,
+  Select,
   Space,
   Spin,
   Tag,
@@ -16,8 +20,15 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import PageContainer from "../components/common/PageContainer";
 import GlowCard from "../components/common/GlowCard";
-import { useConsultation, useConsultationLiveUpdates } from "../hooks/useConsultation";
-import type { ConsultationResponse, PersonaOpinion } from "../api/types";
+import {
+  useAppendRound,
+  useConsultation,
+  useConsultationLiveUpdates,
+  useSetVerdict,
+  useSynthesizeRound,
+} from "../hooks/useConsultation";
+import { usePersonas } from "../hooks/usePersonas";
+import type { ConsultationResponse, ConsultationRound, PersonaOpinion } from "../api/types";
 import { useT } from "../i18n";
 import PageQueryError from "../components/states/PageQueryError";
 
@@ -40,9 +51,10 @@ const MARKDOWN_STYLE = {
   lineHeight: 1.7,
 } as const;
 
+type TFunc = (key: string, vars?: Record<string, string | number>) => string;
+
 export default function ConsultationDetailPage() {
   const t = useT();
-  const { token } = theme.useToken();
   const navigate = useNavigate();
   const { consultationId } = useParams<{ consultationId: string }>();
   const activeId = consultationId ?? null;
@@ -82,33 +94,135 @@ export default function ConsultationDetailPage() {
     );
   }
 
+  const busy = consultation.rounds.some(
+    (r) => r.status === "pending" || r.status === "running",
+  );
+
   return (
     <PageContainer title={t("consultation.detailTitle")} extra={back}>
       <Space direction="vertical" size="large" style={{ width: "100%" }}>
         <Overview consultation={consultation} />
-        <Progressing consultation={consultation} />
-        {consultation.status === "failed" && (
+
+        {consultation.rounds.map((round) => (
+          <RoundBlock
+            key={round.id}
+            round={round}
+            roster={consultation.request?.persona_ids ?? []}
+          />
+        ))}
+
+        <VerdictPanel consultation={consultation} />
+        <FollowUpPanel consultation={consultation} disabled={busy} />
+      </Space>
+    </PageContainer>
+  );
+}
+
+function Overview({ consultation }: { consultation: ConsultationResponse }) {
+  const t = useT();
+  const request = consultation.request;
+  return (
+    <GlowCard>
+      <Descriptions size="small" column={1}>
+        <Descriptions.Item label={t("consultation.topic")}>
+          {request?.topic ?? "-"}
+        </Descriptions.Item>
+        {request?.context && (
+          <Descriptions.Item label={t("consultation.context")}>
+            {request.context}
+          </Descriptions.Item>
+        )}
+        <Descriptions.Item label={t("consultation.statusLabel")}>
+          <Tag color={STATUS_COLORS[consultation.status] ?? "default"}>
+            {t(`consultation.status.${consultation.status}`)}
+          </Tag>
+        </Descriptions.Item>
+        <Descriptions.Item label={t("consultation.startedAt")}>
+          {new Date(consultation.created_at).toLocaleString()}
+        </Descriptions.Item>
+      </Descriptions>
+    </GlowCard>
+  );
+}
+
+function RoundBlock({ round, roster }: { round: ConsultationRound; roster: string[] }) {
+  const t = useT();
+  const { token } = theme.useToken();
+  const synthesize = useSynthesizeRound(round.consultation_id);
+  const personasQuery = usePersonas();
+  // 首轮自动票拟；后续轮次由用户看完意见后自行决定要不要汇总
+  const canSynthesize =
+    round.status === "completed" && round.opinions.length > 0 && !round.synthesis;
+
+  // 点名了谁：靠「谁回答了」反推不可靠——某位官员失败时就再也看不出点过他
+  const named = round.participant_ids;
+  const isEveryone =
+    named.length === roster.length && roster.every((id) => named.includes(id));
+  const nameOf = (id: string) => {
+    const persona = (personasQuery.data ?? []).find((p) => p.id === id);
+    return persona ? persona.name : id;
+  };
+
+  return (
+    <div>
+      <Divider orientation="left" style={{ marginTop: 0 }}>
+        <Space>
+          <Typography.Text strong>
+            {t("consultation.roundLabel", { n: round.round_index + 1 })}
+          </Typography.Text>
+          <Tag color={STATUS_COLORS[round.status] ?? "default"}>
+            {t(`consultation.status.${round.status}`)}
+          </Tag>
+        </Space>
+      </Divider>
+
+      <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+          {round.round_index === 0
+            ? t("consultation.topic")
+            : t("consultation.followUpLabel")}
+          ：{round.prompt}
+        </Typography.Text>
+
+        <Space wrap size={4}>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {t("consultation.askedLabel")}
+          </Typography.Text>
+          {isEveryone || named.length === 0 ? (
+            <Tag>{t("consultation.askedEveryone")}</Tag>
+          ) : (
+            named.map((id) => (
+              <Tag key={id} color="geekblue">
+                @{nameOf(id)}
+              </Tag>
+            ))
+          )}
+        </Space>
+
+        <RoundProgress round={round} />
+
+        {round.status === "failed" && (
           <Result
             status="error"
             title={t("consultation.failedTitle")}
-            subTitle={consultation.error || t("consultation.failedSubtitle")}
+            subTitle={round.error || t("consultation.failedSubtitle")}
           />
         )}
-        {consultation.status === "completed" && consultation.error && (
+        {round.status === "completed" && round.error && (
           <Alert
             type="warning"
             showIcon
             message={t("consultation.partialFailure")}
-            description={consultation.error}
+            description={round.error}
           />
         )}
-        {consultation.status === "completed" && consultation.opinions.length === 0 && (
+        {round.status === "completed" && round.opinions.length === 0 && (
           <GlowCard>
             <Empty description={t("consultation.emptyOpinions")} />
           </GlowCard>
         )}
 
-        {consultation.opinions.map((opinion: PersonaOpinion) => (
+        {round.opinions.map((opinion: PersonaOpinion) => (
           <GlowCard
             key={opinion.persona_id}
             title={
@@ -139,102 +253,67 @@ export default function ConsultationDetailPage() {
                 </ul>
               </div>
             )}
-            {opinion.key_points.length > 0 && (
-              <div style={{ marginTop: 8 }}>
-                {opinion.key_points.map((kp, i) => (
-                  <Tag key={i} style={{ marginBottom: 4 }}>
-                    {kp}
-                  </Tag>
-                ))}
-              </div>
-            )}
           </GlowCard>
         ))}
 
-        {consultation.synthesis && (
+        {canSynthesize && (
+          <GlowCard>
+            <Space direction="vertical" size="small" style={{ width: "100%" }}>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {t("consultation.synthesizeHint")}
+              </Typography.Text>
+              <Button
+                loading={synthesize.isPending}
+                onClick={() => synthesize.mutate(round.id)}
+              >
+                {t("consultation.synthesizeAction")}
+              </Button>
+              {synthesize.error && <PageQueryError error={synthesize.error} />}
+            </Space>
+          </GlowCard>
+        )}
+
+        {round.synthesis && (
           <GlowCard
             title={
               <Space>
                 <span>{t("consultation.synthesisTitle")}</span>
-                <Tag color="blue">{synthesizerLabel(consultation, t)}</Tag>
+                <Tag color="blue">{synthesizerLabel(round, t)}</Tag>
               </Space>
             }
           >
             <div className="memorial-markdown" style={{ color: token.colorText, ...MARKDOWN_STYLE }}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{consultation.synthesis}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{round.synthesis}</ReactMarkdown>
             </div>
           </GlowCard>
         )}
 
-        {consultation.decision && (
+        {round.proposal && (
           <GlowCard
             title={
               <Space>
-                <span>{t("consultation.decisionTitle")}</span>
-                <Tag color="blue">{synthesizerLabel(consultation, t)}</Tag>
+                <span>{t("consultation.proposalTitle")}</span>
+                <Tag color="blue">{synthesizerLabel(round, t)}</Tag>
               </Space>
             }
-            style={{ borderLeft: `3px solid ${token.colorSuccess}` }}
           >
             <div className="memorial-markdown" style={{ color: token.colorText, ...MARKDOWN_STYLE }}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{consultation.decision}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{round.proposal}</ReactMarkdown>
             </div>
           </GlowCard>
         )}
       </Space>
-    </PageContainer>
+    </div>
   );
 }
 
-/** 综合/决策的署名：指定了汇聚官就报其名，否则是通用「首席顾问」。 */
-function synthesizerLabel(
-  consultation: ConsultationResponse,
-  t: (key: string, vars?: Record<string, string | number>) => string,
-): string {
-  if (!consultation.synthesizer_name) return t("consultation.synthesizerDefault");
-  return consultation.synthesizer_department
-    ? `${consultation.synthesizer_name} (${consultation.synthesizer_department})`
-    : consultation.synthesizer_name;
-}
-
-function Overview({ consultation }: { consultation: ConsultationResponse }) {
+function RoundProgress({ round }: { round: ConsultationRound }) {
   const t = useT();
-  return (
-    <GlowCard>
-      <Descriptions size="small" column={1}>
-        <Descriptions.Item label={t("consultation.topic")}>
-          {consultation.request?.topic ?? "-"}
-        </Descriptions.Item>
-        {consultation.request?.context && (
-          <Descriptions.Item label={t("consultation.context")}>
-            {consultation.request.context}
-          </Descriptions.Item>
-        )}
-        <Descriptions.Item label={t("consultation.statusLabel")}>
-          <Tag color={STATUS_COLORS[consultation.status] ?? "default"}>
-            {t(`consultation.status.${consultation.status}`)}
-          </Tag>
-        </Descriptions.Item>
-        <Descriptions.Item label={t("consultation.startedAt")}>
-          {new Date(consultation.created_at).toLocaleString()}
-        </Descriptions.Item>
-        {consultation.completed_at && (
-          <Descriptions.Item label={t("consultation.finishedAt")}>
-            {new Date(consultation.completed_at).toLocaleString()}
-          </Descriptions.Item>
-        )}
-      </Descriptions>
-    </GlowCard>
-  );
-}
+  if (round.status !== "pending" && round.status !== "running") return null;
 
-function Progressing({ consultation }: { consultation: ConsultationResponse }) {
-  const t = useT();
-  if (consultation.status !== "pending" && consultation.status !== "running") return null;
-
-  const total = consultation.request?.persona_ids?.length ?? 0;
-  const done = consultation.opinions.length;
-  // 意见收齐后还在 running，说明正在做综合——不该继续显示停在 100% 的「进行中」
+  const total = round.participant_ids.length;
+  const done = round.opinions.length;
+  // 意见收齐后还在 running，说明正在票拟——不该继续显示停在 100% 的「进行中」
   const synthesizing = total > 0 && done >= total;
 
   return (
@@ -242,7 +321,7 @@ function Progressing({ consultation }: { consultation: ConsultationResponse }) {
       <div style={{ textAlign: "center", padding: 24 }}>
         <Spin />
         <Typography.Text style={{ display: "block", marginTop: 12 }}>
-          {consultation.status === "pending"
+          {round.status === "pending"
             ? t("consultation.preparing")
             : synthesizing
               ? t("consultation.synthesizing")
@@ -259,4 +338,146 @@ function Progressing({ consultation }: { consultation: ConsultationResponse }) {
       </div>
     </GlowCard>
   );
+}
+
+/** 裁决：LLM 只出票拟，最终决定由用户写下（issue #55）。 */
+function VerdictPanel({ consultation }: { consultation: ConsultationResponse }) {
+  const t = useT();
+  const { token } = theme.useToken();
+  const [draft, setDraft] = useState("");
+  const mutation = useSetVerdict(consultation.id);
+
+  if (consultation.verdict) {
+    return (
+      <GlowCard
+        title={
+          <Space>
+            <span>{t("consultation.verdictTitle")}</span>
+            {consultation.verdict_at && (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {new Date(consultation.verdict_at).toLocaleString()}
+              </Typography.Text>
+            )}
+          </Space>
+        }
+        style={{ borderLeft: `3px solid ${token.colorSuccess}` }}
+      >
+        <div className="memorial-markdown" style={{ color: token.colorText, ...MARKDOWN_STYLE }}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{consultation.verdict}</ReactMarkdown>
+        </div>
+      </GlowCard>
+    );
+  }
+
+  return (
+    <GlowCard
+      title={
+        <Space>
+          <span>{t("consultation.verdictTitle")}</span>
+          <Tag>{t("consultation.verdictPending")}</Tag>
+        </Space>
+      }
+      style={{ borderLeft: `3px solid ${token.colorWarning}` }}
+    >
+      <Space direction="vertical" size="small" style={{ width: "100%" }}>
+        <Input.TextArea
+          rows={3}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={t("consultation.verdictPlaceholder")}
+        />
+        <Button
+          type="primary"
+          loading={mutation.isPending}
+          disabled={!draft.trim()}
+          onClick={() => mutation.mutate(draft.trim(), { onSuccess: () => setDraft("") })}
+        >
+          {t("consultation.verdictSubmit")}
+        </Button>
+        {mutation.error && <PageQueryError error={mutation.error} />}
+      </Space>
+    </GlowCard>
+  );
+}
+
+/** 追问：@指定官员则仅其作答，不指定则沿用首轮全体（issue #55）。 */
+function FollowUpPanel({
+  consultation,
+  disabled,
+}: {
+  consultation: ConsultationResponse;
+  disabled: boolean;
+}) {
+  const t = useT();
+  const [prompt, setPrompt] = useState("");
+  const [mentions, setMentions] = useState<string[]>([]);
+  const mutation = useAppendRound(consultation.id);
+  const personasQuery = usePersonas();
+
+  const roster = consultation.request?.persona_ids ?? [];
+  const options = (personasQuery.data ?? [])
+    .filter((p) => roster.includes(p.id))
+    .map((p) => ({ value: p.id, label: `${p.name} (${p.department})` }));
+
+  const submit = () => {
+    if (!prompt.trim()) return;
+    mutation.mutate(
+      { prompt: prompt.trim(), participant_ids: mentions },
+      {
+        onSuccess: () => {
+          setPrompt("");
+          setMentions([]);
+        },
+      },
+    );
+  };
+
+  return (
+    <GlowCard title={t("consultation.followUpTitle")}>
+      <Space direction="vertical" size="small" style={{ width: "100%" }}>
+        <Select
+          mode="multiple"
+          allowClear
+          style={{ width: "100%" }}
+          placeholder={t("consultation.mentionPlaceholder")}
+          value={mentions}
+          onChange={setMentions}
+          options={options}
+        />
+        <Input.TextArea
+          rows={2}
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder={t("consultation.followUpPlaceholder")}
+        />
+        <Button
+          type="primary"
+          loading={mutation.isPending}
+          disabled={disabled || !prompt.trim()}
+          onClick={submit}
+        >
+          {t("consultation.followUpSubmit")}
+        </Button>
+        {disabled ? (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {t("consultation.followUpBlocked")}
+          </Typography.Text>
+        ) : (
+          // 预告按需票拟的存在：否则用户在追问前无从知道还能请首辅汇总
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {t("consultation.followUpSynthesisHint")}
+          </Typography.Text>
+        )}
+        {mutation.error && <PageQueryError error={mutation.error} />}
+      </Space>
+    </GlowCard>
+  );
+}
+
+/** 综合/票拟的署名：指定了首席顾问就报其名，否则是通用「首席顾问」。 */
+function synthesizerLabel(round: ConsultationRound, t: TFunc): string {
+  if (!round.synthesizer_name) return t("consultation.synthesizerDefault");
+  return round.synthesizer_department
+    ? `${round.synthesizer_name} (${round.synthesizer_department})`
+    : round.synthesizer_name;
 }

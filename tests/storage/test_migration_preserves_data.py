@@ -61,6 +61,7 @@ _COMPLETE_MIGRATION_LEDGER = [
     (27, "0027_persona_workspace_dir"),
     (28, "0028_consultations"),
     (29, "0029_consultation_synthesizer"),
+    (30, "0030_consultation_rounds"),
 ]
 _POST_BASELINE_TABLES = {
     "auth_tokens",
@@ -97,6 +98,8 @@ _POST_BASELINE_TABLES = {
     "app_settings",
     # v28 廷议落库（issue #52）
     "consultations",
+    # v30 廷议升为多轮朝议（issue #55）
+    "consultation_rounds",
 }
 _POST_BASELINE_INDEXES = {
     "idx_auth_tokens_principal",
@@ -130,6 +133,7 @@ _POST_BASELINE_INDEXES = {
     "idx_evolution_candidates_lifecycle",
     "idx_consultations_created_at",
     "idx_consultations_status",
+    "idx_consultation_rounds_consultation",
 }
 _EVOLUTION_IMMUTABLE_TRIGGERS = {
     "evolution_gate_snapshots_no_update",

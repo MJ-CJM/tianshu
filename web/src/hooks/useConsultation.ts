@@ -1,11 +1,14 @@
 import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  appendConsultationRound,
   createConsultation,
   getConsultation,
   listConsultations,
+  setConsultationVerdict,
+  synthesizeConsultationRound,
 } from "../api/consultations";
-import type { ConsultationRequest } from "../api/types";
+import type { ConsultationRequest, RoundRequest } from "../api/types";
 import { useWebSocket } from "./useWebSocket";
 
 const ACTIVE_STATUSES = new Set(["pending", "running"]);
@@ -38,6 +41,39 @@ export function useCreateConsultation() {
   return useMutation({
     mutationFn: (body: ConsultationRequest) => createConsultation(body),
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["consultations"] });
+    },
+  });
+}
+
+export function useAppendRound(consultationId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: RoundRequest) => appendConsultationRound(consultationId!, body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["consultation", consultationId] });
+    },
+  });
+}
+
+/** 按需请首辅票拟——首轮自动，后续由用户决定何时汇总。 */
+export function useSynthesizeRound(consultationId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (roundId: string) =>
+      synthesizeConsultationRound(consultationId!, roundId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["consultation", consultationId] });
+    },
+  });
+}
+
+export function useSetVerdict(consultationId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (verdict: string) => setConsultationVerdict(consultationId!, verdict),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["consultation", consultationId] });
       void queryClient.invalidateQueries({ queryKey: ["consultations"] });
     },
   });

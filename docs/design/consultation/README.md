@@ -4,34 +4,41 @@
 
 **相关实现**：[../../impl/consultation/README.md](../../impl/consultation/README.md)
 
-## 1. 两层结构：并行收集 → LLM 汇聚
+## 1. 三层结构：轮次 → 并行收集 → LLM 票拟
 
-会诊是「决策并行」：同一个问题分发给 N 个人格，每个人格各自给意见，**互不依赖**，跑完再汇总。
+会诊是「决策并行」：同一个问题分发给 N 个人格，每个人格各自给意见，**互不依赖**，跑完再汇总。一场廷议可以有多轮，用户在轮与轮之间追问，最终由用户裁决。
 
 ```text
-ConsultationRequest(topic, persona_ids)
+Consultation（一场廷议：议题 + 言官名单 + 首席顾问 + 裁决）
    │
-   ├─ persona A ─┐
-   ├─ persona B ─┤  asyncio.gather 并行调 LLM，各出一份 PersonaOpinion
-   ├─ persona C ─┘  （return_exceptions=True：单个人格失败不拖垮整场）
+   ├── Round 0（prompt = topic）
+   │      ├─ persona A ─┐
+   │      ├─ persona B ─┤  as_completed 并行调 LLM，各出一份 PersonaOpinion
+   │      ├─ persona C ─┘  （单个人格失败/超时收敛为归因，不拖垮整轮）
+   │      ▼
+   │   Synthesizer.synthesize(...)          ← 每轮末一次 LLM 调用
+   │      把本轮 opinion 拼进 prompt，由首席顾问合成
+   │      synthesis（主题/分歧）+ proposal（票拟，仅供参考）
    │
+   ├── Round 1（prompt = 用户追问；@点名则只问被点者，否则全体）
+   │      携带此前轮次的完整记录（含票拟与裁决）
+   │      **不自动票拟**——何时请首辅汇总由用户点按钮决定
+   │   …
    ▼
-Synthesizer.synthesize(request, opinions)   ← 第二次 LLM 调用
-   │   把所有 opinion 拼进一个 prompt，让「首席顾问」人格
-   │   合成主题/分歧 + 给出决策建议
-   ▼
-ConsultationResponse(opinions, synthesis, decision)
+verdict —— 用户写下的最终裁决（LLM 不做这一步）
 ```
 
-第一层 `ConsultationSession.start` 负责 fan-out 并行收集；第二层 `Synthesizer` 是一次独立的 LLM 调用做 fan-in 汇聚。两层都用同一个 LLM client（优先 `ProviderManager.get_client()`，否则按 config state 现起一个 `LLMClient`）。
+`ConsultationSession.run_round` 负责单轮的 fan-out 并行收集；`Synthesizer` 是一次独立的 LLM 调用做 fan-in 票拟。两者都用同一个 LLM client（优先 `ProviderManager.get_client_for_slot("court")`，否则按 config state 现起一个 `LLMClient`）。
 
 ## 2. 三个数据模型（`consultation/models.py`）
 
 | 模型 | 字段 | 角色 |
 |---|---|---|
-| `ConsultationRequest` | `topic` / `context` / `edict_id` / `persona_ids` / `synthesizer_persona_id` | 入参：议题 + 参与人格。`persona_ids` 为空时由 session 取「全部人格」；`synthesizer_persona_id` 指定汇聚官，留空则由通用「首席顾问」身份汇总 |
+| `ConsultationRequest` | `topic` / `context` / `edict_id` / `persona_ids` / `censor_persona_ids` / `synthesizer_persona_id` | 入参：议题 + 参与人格。`persona_ids` 为空时由 session 取「全部人格」；`censor_persona_ids` 显式任命言官；`synthesizer_persona_id` 指定首席顾问，留空则由通用身份票拟 |
+| `RoundRequest` | `prompt` / `participant_ids` | 追问一轮；`participant_ids` 为空则沿用首轮全体 |
+| `ConsultationRound` | `round_index` / `prompt` / `participant_ids` / `opinions` / `synthesis` / `proposal` / `synthesizer_*` / `status` / `error` | 一轮朝议。`proposal` 是票拟（内阁建议，仅供参考） |
 | `PersonaOpinion` | `persona_id` / `persona_name` / `department` / `opinion` / `stance` / `conditions` / `key_points` / `is_censor` | 单个人格的意见 |
-| `ConsultationResponse` | `id` / `status` / `opinions` / `synthesis` / `decision` / `synthesizer_*` / `error` / `created_at` / `completed_at` | 出参：聚合结果，`status` ∈ pending/running/completed/failed |
+| `ConsultationResponse` | `id` / `status` / `rounds` / `verdict` / `verdict_at` / `error` / `created_at` / `completed_at` | 一场廷议的容器，`status` ∈ pending/running/completed/failed（跟随最新轮）。`verdict` 是用户裁决。`opinions` / `synthesis` / `proposal` 是代理最新一轮的**只读**属性，供 L2 等旧调用方零改动使用 |
 
 > `models.py` 另有一个未在主流程使用的 `ConsultationResult`（精简版三元组），当前 session 走的是 `ConsultationResponse`。
 
@@ -43,7 +50,16 @@ ConsultationResponse(opinions, synthesis, decision)
 
 ### 汇聚者署名（issue #54）
 
-`synthesizer_persona_id` 曾是声明了却从未被读取的死字段（且默认值 `"neige"` 是部门名而非 persona id）。现已接线：session 解析该 id 取到官员后传给 `Synthesizer`，用其 name/department 作汇聚身份，并把实际生效的身份回填到 `ConsultationResponse.synthesizer_*` 供前端署名。留空时沿用通用「首席顾问」。
+`synthesizer_persona_id` 曾是声明了却从未被读取的死字段（且默认值 `"neige"` 是部门名而非 persona id）。现已接线：session 解析该 id 取到官员后传给 `Synthesizer`，用其 name/department 作票拟身份，并把实际生效的身份回填到轮次的 `synthesizer_*` 供前端署名。留空时沿用通用「首席顾问」。
+
+### 多轮朝议与票拟/裁决分离（issue #55）
+
+廷议此前是一次性问答，且 LLM 直接下「决策」——这与项目的治理定位相反。现在：
+
+- **多轮**：一场廷议由若干 `ConsultationRound` 组成。追问可 @点名部分官员作答，不点名则沿用首轮全体；每轮携带此前轮次的完整记录（含票拟与用户裁决），按字符预算从最近轮往前截断。
+- **言官显式任命**：`censor_persona_ids` 决定谁执异，不再由 `idx == 0` 的列表顺序决定；不点名则无人执异（显式优于隐式）。
+- **票拟 vs 裁决**：LLM 的产出降格为 `round.proposal`（票拟，内阁建议），最终 `consultation.verdict` 由用户写下并计入后续轮次的上下文。
+- **票拟按需触发**：只有第 0 轮自动票拟；追问轮跑完只呈现各官员意见，用户看过之后再决定要不要请首辅汇总（`synthesize_round`）。每轮都自动票拟既多烧一次 LLM 调用，也把「首辅汇总」变成了噪音。
 
 ## 3. 与 outer loop L2 的集成 + 降级 L3 的 fallback
 
@@ -68,10 +84,10 @@ FAIL → decide_escalation
 
 ## 4. 结果落 court Markdown（source of truth）+ 写穿索引
 
-会诊完成且有 `synthesis` 时，`ConsultationSession.start` 把结果写入「court」公共记忆（仅在注入了 `memory_manager` 时；orchestrator 注入了，gateway 路由也注入了）：
+每轮完成且有 `synthesis` 时，`ConsultationSession.run_round` 把结果写入「court」公共记忆（仅在注入了 `memory_manager` 时；orchestrator 注入了，gateway 路由也注入了）：
 
 1. `MemoryEntry(persona_id="court", category="insight", access_level="court")` → `memory_manager.store`：先写 Markdown（source of truth）再 write-through 索引。
-2. 追加一段 `## Consultation (YYYY-MM-DD)` 到 `court/MEMORY.md`（`md_backend.read_core_memory` → 拼接 → `write_core_memory`），含摘要与 decision 摘录。
+2. 追加一段 `## Consultation (YYYY-MM-DD)` 到 `court/MEMORY.md`（`md_backend.read_core_memory` → 拼接 → `write_core_memory`），含摘要与票拟摘录。
 
 记忆的「Markdown 为权威 + 索引为可查缓存」语义见 [../memory/backends.md](../memory/backends.md)。落盘失败只 `logger.debug`、不影响会诊返回——结果落盘是尽力而为的副作用，不阻塞决策。
 

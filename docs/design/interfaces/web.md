@@ -51,7 +51,7 @@
 | `/cost` | `CostDashboardPage` | 户部账房 | 成本汇总/预算 |
 | `/memory` | `MemoryDashboardPage` | 翰林院 | 记忆条目、记忆宫殿 |
 | `/consultation` | `ConsultationPage` | 廷议 | 发起廷议 + 历史列表 |
-| `/consultation/:consultationId` | `ConsultationDetailPage` | 廷议详情 | 单场廷议：各官员意见、综合、决策（含汇聚者署名） |
+| `/consultation/:consultationId` | `ConsultationDetailPage` | 廷议详情 | 单场廷议的轮次时间线：各轮意见 + 票拟（含署名）+ 追问框 + 裁决区 |
 | `/cabinet` | `CabinetPage` | 内阁 | 内阁规划 |
 | `/hongluisi` | `HongluisiPage` | 鸿胪寺 | 外部网络能力 |
 | `/tongzheng` | `TongzhengPage` | 通政司 | 飞书/IM 运行配置 |

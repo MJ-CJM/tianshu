@@ -27,6 +27,7 @@ export default function ConsultationPage() {
   const [topic, setTopic] = useState("");
   const [context, setContext] = useState("");
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
+  const [censors, setCensors] = useState<string[]>([]);
   const [synthesizer, setSynthesizer] = useState<string | undefined>(undefined);
 
   const personasQuery = usePersonas();
@@ -54,6 +55,7 @@ export default function ConsultationPage() {
       persona_ids: selectedPersonas,
     };
     if (context.trim()) body.context = context.trim();
+    if (censors.length > 0) body.censor_persona_ids = censors;
     if (synthesizer) body.synthesizer_persona_id = synthesizer;
     createMutation.mutate(body, {
       onSuccess: (resp) => {
@@ -68,6 +70,15 @@ export default function ConsultationPage() {
     value: p.id,
     label: `${p.name} (${p.department})`,
   }));
+  // 言官与首席顾问只能从已选百官里挑——点名一个没上朝的人没有意义
+  const chosenOptions = personaOptions.filter((o) => selectedPersonas.includes(o.value));
+
+  const handleParticipantsChange = (next: string[]) => {
+    setSelectedPersonas(next);
+    // 移出百官名单的人同时卸任言官/首辅，避免提交一份指向缺席者的任命
+    setCensors((prev) => prev.filter((id) => next.includes(id)));
+    setSynthesizer((prev) => (prev && next.includes(prev) ? prev : undefined));
+  };
 
   return (
     <PageContainer title={t("consultation.title")}>
@@ -107,8 +118,22 @@ export default function ConsultationPage() {
                 style={{ width: "100%", marginTop: 4 }}
                 placeholder={t("consultation.participantsPlaceholder")}
                 value={selectedPersonas}
-                onChange={setSelectedPersonas}
+                onChange={handleParticipantsChange}
                 options={personaOptions}
+              />
+            </div>
+            <div>
+              <Typography.Text style={{ fontSize: 13, color: token.colorTextSecondary }}>
+                {t("consultation.censors")}
+              </Typography.Text>
+              <Select
+                mode="multiple"
+                allowClear
+                style={{ width: "100%", marginTop: 4 }}
+                placeholder={t("consultation.censorsPlaceholder")}
+                value={censors}
+                onChange={setCensors}
+                options={chosenOptions}
               />
             </div>
             <div>
@@ -121,7 +146,7 @@ export default function ConsultationPage() {
                 placeholder={t("consultation.synthesizerPlaceholder")}
                 value={synthesizer}
                 onChange={setSynthesizer}
-                options={personaOptions}
+                options={chosenOptions}
               />
             </div>
             <Button

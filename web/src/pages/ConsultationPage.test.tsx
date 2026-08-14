@@ -111,7 +111,7 @@ describe("ConsultationPage", () => {
     await user.type(screen.getByPlaceholderText("请输入廷议议题"), "边务议题");
     await user.click(screen.getAllByRole("combobox")[0]!); // 参与百官
     await user.click(await screen.findByText("张三 (bingbu)"));
-    await user.click(screen.getAllByRole("combobox")[1]!); // 汇聚官
+    await user.click(screen.getAllByRole("combobox")[2]!); // 首席顾问
     const options = await screen.findAllByText("张三 (bingbu)");
     await user.click(options[options.length - 1]!);
     await user.click(screen.getByRole("button", { name: "发起廷议" }));
@@ -130,12 +130,9 @@ describe("ConsultationPage", () => {
           id: "consultation-9",
           status: "completed",
           request: { topic: "去年的旧议题", persona_ids: [] },
-          opinions: [],
-          synthesis: null,
-          decision: null,
-          synthesizer_persona_id: null,
-          synthesizer_name: null,
-          synthesizer_department: null,
+          rounds: [],
+          verdict: null,
+          verdict_at: null,
           error: null,
           created_at: new Date().toISOString(),
           completed_at: new Date().toISOString(),
@@ -151,5 +148,69 @@ describe("ConsultationPage", () => {
     await user.click(screen.getByText("去年的旧议题"));
 
     expect(screen.getByText("详情页 stub")).toBeInTheDocument();
+  });
+});
+
+describe("ConsultationPage 角色任命", () => {
+  it("passes the named censors through to the request", async () => {
+    const user = userEvent.setup();
+    mocks.create.mockImplementation((_body, options) => {
+      options.onSuccess({ data: { id: "consultation-1" } });
+    });
+    renderPage();
+
+    await user.type(screen.getByPlaceholderText("请输入廷议议题"), "边务议题");
+    await user.click(screen.getAllByRole("combobox")[0]!); // 参与百官
+    await user.click(await screen.findByText("张三 (bingbu)"));
+    await user.click(screen.getAllByRole("combobox")[1]!); // 言官
+    const options = await screen.findAllByText("张三 (bingbu)");
+    await user.click(options[options.length - 1]!);
+    await user.click(screen.getByRole("button", { name: "发起廷议" }));
+
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({ censor_persona_ids: ["persona-1"] }),
+      expect.anything(),
+    );
+  });
+
+  it("omits censors when nobody was named", async () => {
+    const user = userEvent.setup();
+    mocks.create.mockImplementation((_body, options) => {
+      options.onSuccess({ data: { id: "consultation-1" } });
+    });
+    renderPage();
+
+    await user.type(screen.getByPlaceholderText("请输入廷议议题"), "边务议题");
+    await user.click(screen.getAllByRole("combobox")[0]!);
+    await user.click(await screen.findByText("张三 (bingbu)"));
+    await user.click(screen.getByRole("button", { name: "发起廷议" }));
+
+    const body = mocks.create.mock.calls[0]![0];
+    expect(body.censor_persona_ids).toBeUndefined();
+  });
+
+  it("only offers already-chosen participants as censors", async () => {
+    const user = userEvent.setup();
+    mocks.usePersonas.mockReturnValue({
+      data: [
+        { id: "persona-1", name: "张三", department: "bingbu" },
+        { id: "persona-2", name: "李四", department: "hubu" },
+      ],
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderPage();
+
+    await user.click(screen.getAllByRole("combobox")[0]!); // 参与百官
+    await user.click(await screen.findByText("张三 (bingbu)"));
+    await user.click(screen.getAllByRole("combobox")[1]!); // 言官
+
+    // 只看当前展开的那个下拉——已关闭的下拉节点仍留在 DOM 里，全局查会误命中
+    const visible = document.querySelectorAll(
+      ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option-content",
+    );
+    const labels = [...visible].map((el) => el.textContent);
+    // 点名一个没上朝的人没有意义——李四未入选，不该出现在言官候选里
+    expect(labels).toEqual(["张三 (bingbu)"]);
   });
 });

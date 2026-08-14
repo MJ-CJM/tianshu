@@ -28,12 +28,16 @@ class Synthesizer:
         opinions: list[PersonaOpinion],
         *,
         persona: object | None = None,
+        history: str = "",
         usage_context: LLMUsageContext | None = None,
     ) -> dict:
-        """Combine multiple opinions into a synthesis and decision.
+        """Combine multiple opinions into a synthesis and proposal.
 
-        `persona` 是执笔汇聚的官员（`request.synthesizer_persona_id` 解析所得）；
-        留空则沿用通用「首席顾问」身份。前端据此为综合/决策署名（issue #54）。
+        `persona` 是执笔票拟的官员（`request.synthesizer_persona_id` 解析所得）；
+        留空则沿用通用「首席顾问」身份。前端据此为综合/票拟署名（issue #54）。
+
+        `history` 是此前轮次的记录：后续轮次可能只有一两位官员发言，缺了它票拟
+        会脱离上下文（issue #55）。
         """
         from tianshu.llm import LLMClient
 
@@ -72,6 +76,9 @@ class Synthesizer:
         )
         if request.context:
             prompt += f"\nContext: {request.context}\n"
+
+        if history:
+            prompt += f"\n## 此前廷议记录\n{history}\n"
 
         prompt += (
             f"\n## Opinions from officials:\n\n{opinions_text}\n\n"

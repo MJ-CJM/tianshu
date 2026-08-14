@@ -874,7 +874,16 @@ export interface ConsultationRequest {
   context?: string;
   edict_id?: string;
   persona_ids: string[];
+  /** 言官名单：显式任命谁唱反调（此前由列表顺序硬编码决定） */
+  censor_persona_ids?: string[];
+  /** 首席顾问（票拟者）；留空则由通用「首席顾问」身份票拟 */
   synthesizer_persona_id?: string;
+}
+
+/** 追加一轮：可 @指定作答者，留空则沿用首轮全体 */
+export interface RoundRequest {
+  prompt: string;
+  participant_ids?: string[];
 }
 
 export interface PersonaOpinion {
@@ -891,18 +900,37 @@ export interface PersonaOpinion {
 
 export type ConsultationStatus = "pending" | "running" | "completed" | "failed";
 
-export interface ConsultationResponse {
+/** 一轮朝议：一次追问 + 各官员作答 + 首席顾问票拟 */
+export interface ConsultationRound {
   id: string;
+  consultation_id: string;
+  round_index: number;
+  /** 第 0 轮为议题本身，其后为用户追问 */
+  prompt: string;
+  participant_ids: string[];
   status: ConsultationStatus;
-  request: ConsultationRequest | null;
   opinions: PersonaOpinion[];
   synthesis: string | null;
-  decision: string | null;
-  /** 执笔汇聚的官员；为空表示由通用「首席顾问」身份汇总 */
+  /** 票拟：内阁建议，仅供参考——最终裁决在 ConsultationResponse.verdict */
+  proposal: string | null;
+  /** 执笔票拟的官员；为空表示由通用「首席顾问」身份票拟 */
   synthesizer_persona_id: string | null;
   synthesizer_name: string | null;
   synthesizer_department: string | null;
   /** 失败/部分失败归因（哪位官员超时或报错），completed 时也可能非空 */
+  error: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface ConsultationResponse {
+  id: string;
+  status: ConsultationStatus;
+  request: ConsultationRequest | null;
+  rounds: ConsultationRound[];
+  /** 裁决：用户写下的最终决定。LLM 只出票拟，裁决权不外包 */
+  verdict: string | null;
+  verdict_at: string | null;
   error: string | null;
   created_at: string;
   completed_at: string | null;
