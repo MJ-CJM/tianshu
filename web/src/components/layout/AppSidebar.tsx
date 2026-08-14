@@ -6,7 +6,7 @@ import {
   SunOutlined,
 } from "@ant-design/icons";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { useTheme } from "../../hooks/useTheme";
 import { useNeedsReview } from "../../hooks/useApprovals";
 import { useSidebarState } from "../../hooks/useSidebarState";
@@ -50,14 +50,17 @@ export default function AppSidebar() {
   const themeAction = mode === "light" ? t("sidebar.switchToDark") : t("sidebar.switchToLight");
   const collapseAction = collapsed ? t("sidebar.expand") : t("sidebar.collapse");
   const routeSection = sidebarSectionForPath(location.pathname);
-  const [openOverride, setOpenOverride] = useState<{
-    locationKey: string;
-    section: string | null;
-  } | null>(null);
-  const openSection =
-    openOverride?.locationKey === location.key ? openOverride.section : routeSection;
+  // 展开态是「集合」而非单值：收不收由用户决定，别替他手风琴（issue #71）。
+  // 也不再绑 location.key——侧边栏本就是跨页面导航用的，展开状态该撑过跳转。
+  const [openSections, setOpenSections] = useState<string[]>(() =>
+    routeSection ? [routeSection] : [],
+  );
+  // 进入某页面时其所属分组自动展开，但不以收起其他分组为代价
+  useEffect(() => {
+    if (!routeSection) return;
+    setOpenSections((prev) => (prev.includes(routeSection) ? prev : [...prev, routeSection]));
+  }, [routeSection]);
   const handleCollapsedChange = (nextCollapsed: boolean) => {
-    if (nextCollapsed) setOpenOverride(null);
     setCollapsed(nextCollapsed);
   };
 
@@ -79,11 +82,10 @@ export default function AppSidebar() {
           mode="inline"
           inlineCollapsed={collapsed}
           selectedKeys={[sidebarSelectedKey(location.pathname)]}
-          openKeys={collapsed ? undefined : openSection ? [openSection] : []}
+          openKeys={collapsed ? undefined : openSections}
           onOpenChange={(keys) => {
             if (collapsed) return;
-            const next = keys.length > 0 ? String(keys[keys.length - 1]) : null;
-            setOpenOverride({ locationKey: location.key, section: next });
+            setOpenSections(keys.map(String));
           }}
           items={buildSidebarItems(t, reviewCount)}
           onClick={({ key }) => navigate(key)}
