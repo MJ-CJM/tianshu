@@ -727,3 +727,43 @@ class TestConsultationTools:
         assert resp.status == "failed"
         assert resp.opinions == []
         assert "produced no opinion" in resp.error
+
+    async def test_tool_prompt_tells_officials_to_speak_even_if_lookup_fails(self, config_manager):
+        """查不到也要发言——工具是辅助，不是发言的前提（issue #59 实战教训）。"""
+        agent = _FakeAgent()
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+            tools=_FakeToolRegistry(_tool_defs()),
+            agent=agent,
+        )
+
+        await session._get_opinion(
+            _personas()["hubu"],
+            ConsultationRequest(topic="t"),
+            prompt="t",
+            edict=SimpleNamespace(id="e", runtime=SimpleNamespace()),
+        )
+
+        prompt = agent.calls[0]["user_content"]
+        assert "无论查证成败" in prompt
+        assert "切勿因为查不到就不发言" in prompt
+
+    async def test_no_tool_guidance_when_there_are_no_tools(self, config_manager):
+        """没有工具时不该讲查证——那只是徒增困惑的噪音。"""
+        llm = _FakeLLM()
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(llm),
+        )
+
+        await session._get_opinion(
+            _personas()["hubu"],
+            ConsultationRequest(topic="t"),
+            prompt="t",
+            edict=None,
+        )
+
+        assert "关于查证" not in llm.calls[0][1]["content"]
