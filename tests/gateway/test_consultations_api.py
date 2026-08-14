@@ -307,3 +307,44 @@ class TestDeliberationEdict:
         assert c.request.edict_id == "edict-from-l2"
         listed, _ = storage.list_edicts(limit=100, include_consultation=True)
         assert not [e for e in listed if e.source == "consultation"]
+
+
+class TestSynthesisKeepsContainerPollable:
+    """按需票拟期间容器也要置 running，否则前端轮询停摆只能靠 WS（issue #59 回归）。"""
+
+    async def test_container_status_tracks_synthesis(self, storage):
+        from tianshu.consultation.models import ConsultationRound
+
+        seen: list[str] = []
+
+        class _SlowSynthSession(_StubSession):
+            async def _synthesize(self, round_, request, *, history="", usage_context=None):
+                # 票拟进行中：此刻容器必须是 running，前端才会继续轮询
+                seen.append(storage.get_consultation(round_.consultation_id).status)
+                round_.synthesis = "综合意见"
+                round_.proposal = "票拟建议"
+
+        session = _SlowSynthSession(storage)
+        c = session.create_pending(ConsultationRequest(topic="t", persona_ids=["neige"]))
+        done = ConsultationRound(
+            consultation_id=c.id,
+            round_index=1,
+            prompt="追问",
+            participant_ids=["neige"],
+            status="completed",
+            opinions=[
+                {
+                    "persona_id": "neige",
+                    "persona_name": "内阁",
+                    "department": "neige",
+                    "opinion": "已议",
+                    "stance": "support",
+                }
+            ],
+        )
+        storage.save_consultation_round(done)
+
+        await session.synthesize_round(c.id, done.id)
+
+        assert seen == ["running"], "票拟期间容器停在 completed 会让前端停止轮询"
+        assert storage.get_consultation(c.id).status == "completed"

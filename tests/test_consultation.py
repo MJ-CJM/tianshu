@@ -659,3 +659,71 @@ class TestConsultationTools:
         assert agent.calls == []  # 没走 agent
         assert llm.calls  # 走了纯文本补全
         assert opinion.tool_calls == []
+
+    async def test_empty_agent_output_is_a_failure_not_a_blank_card(self, config_manager):
+        """工具全挂、agent 一句话没留时判失败——别渲染出只有标签的空卡片。
+
+        真实踩到过：三次 web_search 连续 search_empty，agent 退出时无文本，
+        意见正文成了空串却静默通过（issue #54 的毛病换个入口重现）。
+        """
+        import pytest
+
+        agent = _FakeAgent(content="")
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+            tools=_FakeToolRegistry(_tool_defs()),
+            agent=agent,
+        )
+
+        with pytest.raises(RuntimeError, match="produced no opinion"):
+            await session._get_opinion(
+                _personas()["hubu"],
+                ConsultationRequest(topic="t"),
+                prompt="t",
+                edict=SimpleNamespace(id="e", runtime=SimpleNamespace()),
+            )
+
+    async def test_empty_opinion_names_the_failing_tools(self, config_manager):
+        """归因要指出是哪些工具挂了，否则用户只知道「没意见」却不知为何。"""
+        import pytest
+
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+            tools=_FakeToolRegistry(_tool_defs()),
+            agent=_FakeAgent(content="   "),
+        )
+
+        with pytest.raises(RuntimeError, match="web_fetch"):
+            await session._get_opinion(
+                _personas()["hubu"],
+                ConsultationRequest(topic="t"),
+                prompt="t",
+                edict=SimpleNamespace(id="e", runtime=SimpleNamespace()),
+            )
+
+    async def test_silent_official_shows_up_as_attribution_not_as_a_blank_card(
+        self, config_manager
+    ):
+        """整轮视角：无产出的官员不进意见列表，而是进 error 归因。"""
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+            tools=_FakeToolRegistry(_tool_defs()),
+            agent=_FakeAgent(content=""),
+            storage=None,
+        )
+        # storage=None 时 create_pending 不建议事敕令 → 无工具 → 走纯文本；
+        # 故直接构造一个带 edict 的请求来逼出工具路径
+        req = ConsultationRequest(topic="t", persona_ids=["hubu"], edict_id="e1")
+        session._load_edict = lambda _id: SimpleNamespace(id="e1", runtime=SimpleNamespace())
+
+        resp = await session.start(req)
+
+        assert resp.status == "failed"
+        assert resp.opinions == []
+        assert "produced no opinion" in resp.error

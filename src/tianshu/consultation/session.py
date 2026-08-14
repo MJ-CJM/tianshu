@@ -397,6 +397,10 @@ class ConsultationSession:
 
         round_.status = "running"
         self._persist_round(round_)
+        # 容器状态必须跟着置 running：前端的轮询条件看的是容器 status，容器停在
+        # completed 会让轮询直接停掉，只剩 WS 一条路——WS 一断就永远卡在「汇总中」。
+        consultation.status = "running"
+        self._persist(consultation)
         # 后续轮次可能只有一两位官员发言，只看本轮意见会让票拟脱离上下文
         history = self._build_history(consultation, round_.round_index)
 
@@ -414,6 +418,9 @@ class ConsultationSession:
         round_.status = "completed"
         round_.completed_at = datetime.now(UTC)
         self._persist_round(round_)
+        consultation.status = "completed"
+        consultation.completed_at = round_.completed_at
+        self._persist(consultation)
         await self._broadcast(
             {
                 "type": "consultation.finished",
@@ -743,7 +750,24 @@ class ConsultationSession:
             for e in result.events
             if e.get("type") in {"tool.completed", "tool.failed"}
         ]
-        return result.result or result.summary or "", traces
+
+        content = (result.result or result.summary or "").strip()
+        if not content:
+            # 工具全挂（如搜索连续 search_empty）时 agent 可能一句话没留就退出。
+            # 静默放行会渲染出只有标签、没有正文的空卡片——issue #54 修过的毛病换个
+            # 入口重现。这里判失败，让归因显示在 error 里而不是伪装成一份意见。
+            raise RuntimeError(self._describe_empty_opinion(result, traces))
+        return content, traces
+
+    @staticmethod
+    def _describe_empty_opinion(result, traces: list[ToolTrace]) -> str:
+        """给空产出一个能看懂的归因，别只报「没内容」。"""
+        reason = getattr(result, "error", None) or getattr(result, "exit_reason", None) or ""
+        failed = [t.tool for t in traces if t.is_error]
+        detail = f"produced no opinion (exit={reason or 'unknown'}"
+        if failed:
+            detail += f", failed tools: {', '.join(dict.fromkeys(failed))}"
+        return detail + ")"
 
     def _readonly_tool_names(self) -> list[str] | None:
         """廷议只给只读工具：T0（无副作用）+ T2（外部读），再减去写语义的例外。
