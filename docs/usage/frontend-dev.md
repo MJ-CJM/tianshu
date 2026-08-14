@@ -15,7 +15,7 @@
 在仓库根目录运行：
 
 ```bash
-uvicorn tianshu.app:create_app --factory --host 127.0.0.1 --port 8000
+tianshu serve --host 127.0.0.1 --port 8000
 ```
 
 用健康检查确认后端已就绪：

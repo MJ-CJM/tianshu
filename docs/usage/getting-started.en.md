@@ -64,7 +64,7 @@ cp .env.example .env
 # Edit .env and fill in TIANSHU_LLM_API_KEY, etc.
 
 # Start (with hot reload)
-uvicorn tianshu.app:create_app --factory --reload --port 8000
+tianshu serve --reload --port 8000
 ```
 
 The backend listens on `http://localhost:8000`, serving the `/api/*` and `/health` endpoints.
@@ -95,9 +95,9 @@ Build the frontend first, then let the backend serve the static files directly, 
 # Build the frontend
 cd web && npm run build && cd ..
 
-# Start the backend, pointing at the static file directory
-TIANSHU_STATIC_DIR=src/tianshu/web/static \
-  uvicorn tianshu.app:create_app --factory --port 8000
+# Start the backend: static assets are located inside the package automatically,
+# so TIANSHU_STATIC_DIR is not required
+tianshu serve
 ```
 
 Visit `http://localhost:8000` for both the API and the Web UI.

@@ -234,7 +234,7 @@ python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e .
 cp .env.example .env   # edit .env and set TIANSHU_LLM_API_KEY
 cd web && npm install && npm run build && cd ..
-TIANSHU_STATIC_DIR=src/tianshu/web/static uvicorn tianshu.app:create_app --factory --port 8000
+tianshu serve
 ```
 
 Then open http://127.0.0.1:8000 for the Web UI. Building the frontend requires Node.js >= 20.

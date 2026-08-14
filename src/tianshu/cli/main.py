@@ -21,6 +21,7 @@ from tianshu.cli.commands import (
     provider,
     schedule,
     secrets,
+    serve,
     worker,
     workspace,
 )
@@ -45,6 +46,7 @@ app.add_typer(secrets.app, name="secrets", help="Credential master-key managemen
 app.add_typer(keqing.app, name="keqing", help="Keqing external executors (Claude Code / Codex)")
 app.add_typer(workspace.app, name="workspace", help="Governed workspace status and apply")
 app.add_typer(keqing.shadow_app, name="shadow", help="Shadow snapshots (one-click rollback)")
+app.command()(serve.serve)
 app.command()(health.health)
 app.command()(doctor.doctor)
 app.command()(watch)

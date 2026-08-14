@@ -225,7 +225,7 @@ python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e .
 cp .env.example .env   # 编辑 .env，填写 TIANSHU_LLM_API_KEY 等
 cd web && npm install && npm run build && cd ..
-TIANSHU_STATIC_DIR=src/tianshu/web/static uvicorn tianshu.app:create_app --factory --port 8000
+tianshu serve
 ```
 
 启动后打开 http://127.0.0.1:8000 即可使用 Web UI。前端构建需要 Node.js >= 20。日常开发

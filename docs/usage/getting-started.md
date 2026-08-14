@@ -60,7 +60,7 @@ cp .env.example .env
 # 编辑 .env，填写 TIANSHU_LLM_API_KEY 等
 
 # 启动（带热重载）
-uvicorn tianshu.app:create_app --factory --reload --port 8000
+tianshu serve --reload --port 8000
 ```
 
 后端监听 `http://localhost:8000`，提供 `/api/*` 和 `/health` 接口。
@@ -91,9 +91,8 @@ npm run dev
 # 构建前端
 cd web && npm run build && cd ..
 
-# 启动后端，指定静态文件目录
-TIANSHU_STATIC_DIR=src/tianshu/web/static \
-  uvicorn tianshu.app:create_app --factory --port 8000
+# 启动后端：静态资产由包内位置自动定位，无需 TIANSHU_STATIC_DIR
+tianshu serve
 ```
 
 访问 `http://localhost:8000` 同时提供 API 和 Web UI。
