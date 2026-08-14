@@ -226,8 +226,13 @@ class EdictMixin:
         exclude_assistant_chat: bool = False,
         instance_id: str | None = None,
         submitter: str | None = None,
+        include_consultation: bool = False,
     ) -> tuple[list[Edict], int]:
         """列敕令。
+
+        include_consultation=False（默认）时过滤掉廷议合成的议事敕令
+        （source='consultation'，issue #59）：它们只是官员工具调用的策略与审计锚点，
+        涌进御书房会把真正的敕令淹没。想查证时显式传 True。
 
         exclude_assistant_chat=True 时过滤掉 metadata.assistant_chat=true 的聊天敕令。
         SQL 用 json_extract(metadata_json, '$.assistant_chat') 实现（SQLite 中 JSON true → 整数 1）。
@@ -239,6 +244,8 @@ class EdictMixin:
         """
         conditions: list[str] = []
         params: list[str | int] = []
+        if not include_consultation:
+            conditions.append("source != 'consultation'")
         if status:
             conditions.append("status = ?")
             params.append(status)

@@ -131,6 +131,9 @@ def wire_consultation(app: FastAPI, settings: TianshuSettings) -> None:
         memory_manager=memory_manager,
         storage=storage,
         notifier=notifier,
+        # 官员据此拥有与执行敕令时同等的工具链（只读档），先查证再发言（issue #59）
+        agent=agent,
+        tools=app.state.tools,
     )
     app.state.consultation = consultation
     # 后台廷议任务的强引用集合（丢引用会被 GC 回收，见 gateway/api.py::_spawn_consultation）

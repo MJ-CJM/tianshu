@@ -49,9 +49,31 @@ set_verdict(consultation_id, verdict)
   用户裁决落容器；LLM 只出票拟，裁决权不外包（issue #55）
 ```
 
-超时上限见 `DEFAULT_OPINION_TIMEOUT_SECONDS` / `DEFAULT_SYNTHESIS_TIMEOUT_SECONDS`（各 180s，构造参数可覆盖）。
+超时上限见 `DEFAULT_OPINION_TIMEOUT_SECONDS`（180s，无工具）/ `DEFAULT_TOOL_OPINION_TIMEOUT_SECONDS`
+（600s，带工具——要跑多轮 tool_call）/ `DEFAULT_SYNTHESIS_TIMEOUT_SECONDS`（180s），构造参数可覆盖。
 
-- `_get_opinion`：按 persona 渲染 prompt（name/department + topic + context），单次 `llm.chat(messages)` → 构造 `PersonaOpinion`。
+### 官员的工具边界（issue #59）
+
+`_readonly_tool_names` 取 T0（只读）+ T2（外部读），再减去两类：
+
+- `WRITE_TOOLS_DESPITE_READONLY_TIER`——`lark_cli` / `submit_edict` / `schedule_edict`
+  因为走网络被归到 T2，语义上却是写操作（发消息、颁敕令、排差事），必须显式剔除。
+  **只按 tier 过滤会漏**，这是在真实装配下才暴露的。
+- `registry.list_disabled()`——启动时禁用的工具（如本机的 `api_request`）。
+
+### 议事敕令
+
+网络工具硬依赖 ambient edict（`tools/hongluisi/tools.py` 无 edict 直接抛
+`no_ambient_edict`），它承载网络策略解析、审计锚点与 runtime override。廷议本身没有敕令，
+故 `create_pending` 合成一道 `source='consultation'` 的**议事敕令**并落库：伪造临时对象会让
+edict_id 指向不存在的记录、审计断链，本项目是治理定位，宁可多一条真实记录。
+`list_edicts(include_consultation=False)`（默认）使其不出现在御书房列表。
+`ConsultationRequest.edict_id` 已有值时（orchestrator L2）直接复用，不另造。
+
+- `_get_opinion`：按 persona 渲染 prompt（name/department + topic + context + 往轮记录）。
+  **有 agent + 议事敕令时走 `Agent.execute` 的工具循环**（官员可先查证再发言，issue #59），
+  工具调用痕迹从 `AgentResult.events` 的 `tool.completed` / `tool.failed` 提炼进
+  `PersonaOpinion.tool_calls`；缺其一则回落单次 `llm.chat(messages)`（单测与无库装配走这条）。
 - **意见解析**（`_parse_opinion` + `_split_marked_sections`）：按 `STANCE:` / `CONDITIONS:` / `OPINION:` 三个标记分段，每段内容延续到下一个标记为止，因此正文换行、跨段都不会丢（issue #54 修复；旧实现只取 `OPINION:` 冒号后同一行，LLM 一换行整段正文就变空串）。完全不按格式输出时回落「全文即意见」。
 - **占位字段**：`key_points=[]` 恒空——LLM 输出中的要点未被解析回填。`confidence` 已按 ADR-0008 废除，换成 `stance` + `conditions`。
 - LLM client 解析顺序（session 与 synthesizer 一致）：`provider_manager.get_client()` 优先，缺失则按 `config_manager.state` 现起 `LLMClient(model, api_key, api_base)`。

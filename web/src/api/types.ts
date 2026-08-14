@@ -886,6 +886,14 @@ export interface RoundRequest {
   participant_ids?: string[];
 }
 
+/** 一次工具调用的痕迹：官员查证了什么 */
+export interface ToolTrace {
+  tool: string;
+  args_preview: string;
+  result_preview: string;
+  is_error: boolean;
+}
+
 export interface PersonaOpinion {
   persona_id: string;
   persona_name: string;
@@ -896,6 +904,8 @@ export interface PersonaOpinion {
   conditions: string[];
   key_points: string[];
   is_censor: boolean;
+  /** 查证痕迹；空数组表示这段意见是凭学识给的，没查过外部资料 */
+  tool_calls: ToolTrace[];
 }
 
 export type ConsultationStatus = "pending" | "running" | "completed" | "failed";

@@ -43,6 +43,7 @@ function opinion(overrides: Partial<PersonaOpinion> = {}): PersonaOpinion {
     conditions: ["严禁将核心决策权外包"],
     key_points: [],
     is_censor: true,
+    tool_calls: [],
     ...overrides,
   };
 }
@@ -420,5 +421,49 @@ describe("ConsultationDetailPage", () => {
     renderDetail();
 
     expect(screen.getByText("@ghost")).toBeInTheDocument();
+  });
+
+  it("surfaces the research trail behind an opinion", async () => {
+    const user = userEvent.setup();
+    mockConsultation(
+      consultation({
+        rounds: [
+          round({
+            opinions: [
+              opinion({
+                tool_calls: [
+                  {
+                    tool: "web_search",
+                    args_preview: '{"query": "deepseek harness"}',
+                    result_preview: "找到 3 条结果",
+                    is_error: false,
+                  },
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    renderDetail();
+
+    // 徽标先告诉读者「这段意见查过资料」
+    expect(screen.getByText("已查证 1")).toBeInTheDocument();
+    // 展开后能看到查了什么
+    await user.click(screen.getByText("查证痕迹（1 次）"));
+    expect(screen.getByText("web_search")).toBeInTheDocument();
+    expect(screen.getByText(/deepseek harness/)).toBeInTheDocument();
+  });
+
+  it("shows no trail affordance when the official did not look anything up", () => {
+    mockConsultation(
+      consultation({ rounds: [round({ opinions: [opinion({ tool_calls: [] })] })] }),
+    );
+
+    renderDetail();
+
+    expect(screen.queryByText(/已查证/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/查证痕迹/)).not.toBeInTheDocument();
   });
 });

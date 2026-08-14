@@ -498,3 +498,272 @@ class TestOnDemandSynthesis:
 
         with pytest.raises(ValueError, match="not ready for synthesis"):
             await session.synthesize_round(resp.id, resp.rounds[0].id)
+
+
+class _FakeToolRegistry:
+    """只实现 ConsultationSession 用到的两个方法。"""
+
+    def __init__(self, defs, disabled=()):
+        self._defs = defs
+        self._disabled = set(disabled)
+
+    def list_definitions(self):
+        return list(self._defs)
+
+    def list_disabled(self):
+        return set(self._disabled)
+
+
+class _FakeAgent:
+    """记录 execute 入参；返回一段带工具事件的结果。"""
+
+    def __init__(self, content="STANCE: support\nOPINION:\n查证后认为可行。"):
+        self.calls = []
+        self._content = content
+
+    async def execute(self, edict, **kwargs):
+        self.calls.append({"edict": edict, **kwargs})
+        return SimpleNamespace(
+            result=self._content,
+            summary=None,
+            events=[
+                {
+                    "type": "tool.completed",
+                    "tool": "web_search",
+                    "args_preview": '{"query": "deepseek harness"}',
+                    "result_preview": "找到 3 条结果",
+                    "is_error": False,
+                },
+                {"type": "llm.response", "tool": "ignored"},
+                {
+                    "type": "tool.failed",
+                    "tool": "web_fetch",
+                    "args_preview": '{"url": "https://x"}',
+                    "result_preview": "timeout",
+                    "is_error": True,
+                },
+            ],
+        )
+
+
+def _tool_defs():
+    from tianshu.tools.types import ToolTier
+
+    return [
+        SimpleNamespace(name="read_file", tier=ToolTier.T0_READONLY.value),
+        SimpleNamespace(name="web_search", tier=ToolTier.T2_NETWORK.value),
+        SimpleNamespace(name="web_fetch", tier=ToolTier.T2_NETWORK.value),
+        SimpleNamespace(name="edit_file", tier=ToolTier.T1_WORKSPACE.value),
+        SimpleNamespace(name="shell_exec", tier=ToolTier.T4_DANGEROUS.value),
+        SimpleNamespace(name="lark_cli", tier=ToolTier.T2_NETWORK.value),
+        SimpleNamespace(name="submit_edict", tier=ToolTier.T2_NETWORK.value),
+        SimpleNamespace(name="schedule_edict", tier=ToolTier.T2_NETWORK.value),
+        SimpleNamespace(name="api_request", tier=ToolTier.T2_NETWORK.value),
+    ]
+
+
+class TestConsultationTools:
+    """官员的工具链：只读边界、查证痕迹、无 agent 时的回落（issue #59）。"""
+
+    def test_readonly_filter_keeps_reads_and_drops_writes(self, config_manager):
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            tools=_FakeToolRegistry(_tool_defs(), disabled={"api_request"}),
+        )
+
+        names = set(session._readonly_tool_names())
+
+        assert {"read_file", "web_search", "web_fetch"} <= names
+        # T1/T4 按 tier 挡掉
+        assert "edit_file" not in names and "shell_exec" not in names
+        # 这三个因走网络被归为 T2，语义却是写——必须显式剔除
+        assert not ({"lark_cli", "submit_edict", "schedule_edict"} & names)
+        # 启动时禁用的工具不该出现在清单里
+        assert "api_request" not in names
+
+    def test_no_registry_means_no_filter(self, config_manager):
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+        )
+        assert session._readonly_tool_names() is None
+
+    async def test_opinion_goes_through_the_agent_when_wired(self, config_manager):
+        agent = _FakeAgent()
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+            tools=_FakeToolRegistry(_tool_defs()),
+            agent=agent,
+        )
+        edict = SimpleNamespace(id="edict-1", runtime=SimpleNamespace())
+
+        opinion = await session._get_opinion(
+            _personas()["hubu"],
+            ConsultationRequest(topic="deepseek 的 harness"),
+            prompt="deepseek 的 harness",
+            edict=edict,
+        )
+
+        assert len(agent.calls) == 1
+        call = agent.calls[0]
+        assert call["edict"] is edict
+        assert call["persona"].id == "hubu"
+        assert "web_search" in call["tool_filter"]
+        assert "edit_file" not in call["tool_filter"]
+        assert opinion.opinion == "查证后认为可行。"
+
+    async def test_tool_traces_are_recorded_on_the_opinion(self, config_manager):
+        """查证痕迹是本功能的价值所在：没有它无从判断意见是查过的还是编的。"""
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+            tools=_FakeToolRegistry(_tool_defs()),
+            agent=_FakeAgent(),
+        )
+
+        opinion = await session._get_opinion(
+            _personas()["hubu"],
+            ConsultationRequest(topic="t"),
+            prompt="t",
+            edict=SimpleNamespace(id="e", runtime=SimpleNamespace()),
+        )
+
+        assert [t.tool for t in opinion.tool_calls] == ["web_search", "web_fetch"]
+        assert opinion.tool_calls[0].is_error is False
+        assert opinion.tool_calls[1].is_error is True
+        assert "deepseek harness" in opinion.tool_calls[0].args_preview
+
+    async def test_falls_back_to_plain_completion_without_an_edict(self, config_manager):
+        """没有议事敕令就没有策略/审计锚点，宁可无工具也不能无主调用。"""
+        agent = _FakeAgent()
+        llm = _FakeLLM()
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(llm),
+            tools=_FakeToolRegistry(_tool_defs()),
+            agent=agent,
+        )
+
+        opinion = await session._get_opinion(
+            _personas()["hubu"],
+            ConsultationRequest(topic="t"),
+            prompt="t",
+            edict=None,
+        )
+
+        assert agent.calls == []  # 没走 agent
+        assert llm.calls  # 走了纯文本补全
+        assert opinion.tool_calls == []
+
+    async def test_empty_agent_output_is_a_failure_not_a_blank_card(self, config_manager):
+        """工具全挂、agent 一句话没留时判失败——别渲染出只有标签的空卡片。
+
+        真实踩到过：三次 web_search 连续 search_empty，agent 退出时无文本，
+        意见正文成了空串却静默通过（issue #54 的毛病换个入口重现）。
+        """
+        import pytest
+
+        agent = _FakeAgent(content="")
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+            tools=_FakeToolRegistry(_tool_defs()),
+            agent=agent,
+        )
+
+        with pytest.raises(RuntimeError, match="produced no opinion"):
+            await session._get_opinion(
+                _personas()["hubu"],
+                ConsultationRequest(topic="t"),
+                prompt="t",
+                edict=SimpleNamespace(id="e", runtime=SimpleNamespace()),
+            )
+
+    async def test_empty_opinion_names_the_failing_tools(self, config_manager):
+        """归因要指出是哪些工具挂了，否则用户只知道「没意见」却不知为何。"""
+        import pytest
+
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+            tools=_FakeToolRegistry(_tool_defs()),
+            agent=_FakeAgent(content="   "),
+        )
+
+        with pytest.raises(RuntimeError, match="web_fetch"):
+            await session._get_opinion(
+                _personas()["hubu"],
+                ConsultationRequest(topic="t"),
+                prompt="t",
+                edict=SimpleNamespace(id="e", runtime=SimpleNamespace()),
+            )
+
+    async def test_silent_official_shows_up_as_attribution_not_as_a_blank_card(
+        self, config_manager
+    ):
+        """整轮视角：无产出的官员不进意见列表，而是进 error 归因。"""
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+            tools=_FakeToolRegistry(_tool_defs()),
+            agent=_FakeAgent(content=""),
+            storage=None,
+        )
+        # storage=None 时 create_pending 不建议事敕令 → 无工具 → 走纯文本；
+        # 故直接构造一个带 edict 的请求来逼出工具路径
+        req = ConsultationRequest(topic="t", persona_ids=["hubu"], edict_id="e1")
+        session._load_edict = lambda _id: SimpleNamespace(id="e1", runtime=SimpleNamespace())
+
+        resp = await session.start(req)
+
+        assert resp.status == "failed"
+        assert resp.opinions == []
+        assert "produced no opinion" in resp.error
+
+    async def test_tool_prompt_tells_officials_to_speak_even_if_lookup_fails(self, config_manager):
+        """查不到也要发言——工具是辅助，不是发言的前提（issue #59 实战教训）。"""
+        agent = _FakeAgent()
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(_FakeLLM()),
+            tools=_FakeToolRegistry(_tool_defs()),
+            agent=agent,
+        )
+
+        await session._get_opinion(
+            _personas()["hubu"],
+            ConsultationRequest(topic="t"),
+            prompt="t",
+            edict=SimpleNamespace(id="e", runtime=SimpleNamespace()),
+        )
+
+        prompt = agent.calls[0]["user_content"]
+        assert "无论查证成败" in prompt
+        assert "切勿因为查不到就不发言" in prompt
+
+    async def test_no_tool_guidance_when_there_are_no_tools(self, config_manager):
+        """没有工具时不该讲查证——那只是徒增困惑的噪音。"""
+        llm = _FakeLLM()
+        session = ConsultationSession(
+            persona_loader=_FakePersonaLoader(personas=_personas()),
+            config_manager=config_manager,
+            provider_manager=_FakeProviderManager(llm),
+        )
+
+        await session._get_opinion(
+            _personas()["hubu"],
+            ConsultationRequest(topic="t"),
+            prompt="t",
+            edict=None,
+        )
+
+        assert "关于查证" not in llm.calls[0][1]["content"]
