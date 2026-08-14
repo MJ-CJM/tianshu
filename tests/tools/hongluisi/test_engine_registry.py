@@ -29,7 +29,7 @@ def test_duckduckgo_skipped_when_lxml_not_installed(monkeypatch):
 
     回归守卫：duckduckgo_search 曾在模块级无条件 ``import lxml.html``，而 lxml
     并非核心依赖（开发 venv 里由 scrapling/web extra 传递带入，所以单测从没
-    发现）——结果只装 ``tianshu[cli]`` 的发行物在 import engine_registry 时就
+    发现）——结果只装 ``tianshu-agent-os[cli]`` 的发行物在 import engine_registry 时就
     炸，API 根本起不来。这个洞是 S1.5 fresh-wheel 黑盒第一次跑就抓到的。
     """
     monkeypatch.setattr(engine_registry, "build_duckduckgo", lambda: None)

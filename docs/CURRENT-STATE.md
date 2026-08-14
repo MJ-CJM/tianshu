@@ -46,7 +46,8 @@
 | Keqing 外部执行器 | 实验、可发现且默认关闭 | 从天工院的客卿馆查看本机 adapter 状态；进入页面、每 15 秒及窗口重新聚焦时同步已安装 CLI 版本；当前本地 Pi `0.83.0` 已完成契约与离线 RPC 验证 | 不自动升级外部 CLI；新版本先标记“待兼容验证”，通过契约后才更新已验证基线；不属于黄金路径，且无 Provider 侧硬成本上限或自动晋升保证 |
 | remote/open stdio MCP | 延期、默认关闭 | 当前不作为正式开放能力 | 需要独立完成远程安全与 executable/argv/env/workdir 精确绑定后才可开放 |
 | Docker | 可本地试用 | 构建三阶段、非 root 的本地镜像并检查健康路由 | 不是官方发布制品；体积与运行时依赖锁定仍可优化 |
-| PyPI/GHCR/签名发布 | 未发布 | 无 | 需要新的发布授权、正式 provenance 与发布 Gate |
+| PyPI 发布 | 链路就绪、待首发 | `release.yml` 在 tag 触发时经 Trusted Publishing（OIDC，无长期 token）发布 `tianshu-agent-os` | 首个版本以 PyPI 上实际存在的发行版为准；需先在 PyPI 侧配置 pending publisher |
+| GHCR/签名发布 | 未发布 | 无 | 需要新的发布授权、正式 provenance 与发布 Gate |
 
 ## 长程任务与定时任务组合
 
@@ -189,8 +190,9 @@ serious/critical、键盘可达性、200% 缩放）与关键流程（裁决、�
 ## 当前发布状态
 
 - 设计已定稿，实现经本地验证（`verified_local`）；
-- 发行渠道：源码检出与自构建 wheel 是当前支持的安装路径；GitHub Release 附带
-  构建产物与校验和；PyPI/GHCR/官方容器/签名发布为 `deferred`；
+- 发行渠道：PyPI（`tianshu-agent-os`）、源码检出与自构建 wheel 是当前支持的安装
+  路径；GitHub Release 附带构建产物与校验和；PyPI 发布链路已就绪、以首个实际发布
+  的版本为准；GHCR/官方容器/签名发布为 `deferred`；
 - 视觉终审：最新 7 路由视觉基线重建与人工视觉终审尚未完成，属已知待办；
 - tag 与 Release 由维护者统一执行。
 

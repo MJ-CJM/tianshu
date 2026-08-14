@@ -163,7 +163,7 @@ class TianshuSettings(BaseSettings):
     notify_quiet_hours_start: int = 23
     notify_quiet_hours_end: int = 8
     # LSP 诊断(迭代 5):默认关。开启后 edit_file 编辑 .py 落盘即跑 basedpyright,
-    # 类型/语义诊断回灌 agent(需 `pip install 'tianshu[lsp]'`；不可用返回关联 advisory)。
+    # 类型/语义诊断回灌 agent(需 `pip install 'tianshu-agent-os[lsp]'`；不可用返回关联 advisory)。
     lsp_enabled: bool = False
 
     @property

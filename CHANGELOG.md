@@ -6,6 +6,24 @@
 
 ## [Unreleased]
 
+### Added
+
+- `tianshu serve`：安装后的默认启动入口，替代手写 `uvicorn tianshu.app:create_app
+  --factory`。host/port 取自 `TianshuSettings`，静态资产自动回落到包内 Web 载荷，
+  不再需要 `TIANSHU_STATIC_DIR`。`--host` 经环境变量回灌后重建 settings，因此
+  trusted-local 的 loopback 校验对命令行同样生效。
+- PyPI 发布链路：`release.yml` 在 `v*` tag 上经 Trusted Publishing（OIDC，仓库不存
+  长期 token）发布，发布集为 sdist 与从该 sdist 构建并通过安装 smoke 的 wheel。
+
+### Changed
+
+- **发行名从 `tianshu` 改为 `tianshu-agent-os`**：PyPI 上 `tianshu` 已被无关的第三方
+  包占用。`import tianshu`、`tianshu` / `tianshu-lean-demo` 命令与包目录结构均不变，
+  安装命令改为 `pipx install tianshu-agent-os`。构建产物随之变为
+  `tianshu_agent_os-<version>-py3-none-any.whl`。
+- `all` extra 的自引用改写为发行名：`tianshu[...]` 在改名后会解析到 PyPI 上那个同名
+  第三方包，把它连同其依赖一并装入。
+
 ## [0.5.0] - 2026-08-01
 
 首个公开版本：仓库转公开与开源收口。当前可用性与边界以

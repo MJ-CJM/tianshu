@@ -3129,7 +3129,7 @@ wheels = [
 ]
 
 [[package]]
-name = "tianshu"
+name = "tianshu-agent-os"
 version = "0.5.0"
 source = { editable = "." }
 dependencies = [
@@ -3236,7 +3236,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "scrapling", extras = ["fetchers"], marker = "extra == 'scrapling'", specifier = ">=0.3" },
     { name = "tenacity", specifier = ">=8.0" },
-    { name = "tianshu", extras = ["feishu", "telegram", "web", "mcp", "cli", "notify"], marker = "extra == 'all'" },
+    { name = "tianshu-agent-os", extras = ["feishu", "telegram", "web", "mcp", "cli", "notify"], marker = "extra == 'all'" },
     { name = "trafilatura", marker = "extra == 'web'", specifier = ">=1.12" },
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },

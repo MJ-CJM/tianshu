@@ -178,7 +178,7 @@ class ChannelBotManager:
                 from tianshu.gateway.feishu.settings import from_global_settings as feishu_from_env
             except ImportError as exc:
                 raise ImportError(
-                    "飞书通道依赖未安装，请执行: pip install 'tianshu[feishu]'"
+                    "飞书通道依赖未安装，请执行: pip install 'tianshu-agent-os[feishu]'"
                 ) from exc
             settings = feishu_from_env(self._env_settings)
         else:
@@ -188,7 +188,7 @@ class ChannelBotManager:
                 )
             except ImportError as exc:
                 raise ImportError(
-                    "Telegram 通道依赖未安装，请执行: pip install 'tianshu[telegram]'"
+                    "Telegram 通道依赖未安装，请执行: pip install 'tianshu-agent-os[telegram]'"
                 ) from exc
             settings = telegram_from_env(self._env_settings)
         return ChannelInstance(
@@ -233,14 +233,14 @@ class ChannelBotManager:
                 from tianshu.gateway.feishu import FeishuBot
             except ImportError as exc:
                 raise ImportError(
-                    "飞书通道依赖未安装，请执行: pip install 'tianshu[feishu]'"
+                    "飞书通道依赖未安装，请执行: pip install 'tianshu-agent-os[feishu]'"
                 ) from exc
             return FeishuBot(**common)
         try:
             from tianshu.gateway.telegram import TelegramBot
         except ImportError as exc:
             raise ImportError(
-                "Telegram 通道依赖未安装，请执行: pip install 'tianshu[telegram]'"
+                "Telegram 通道依赖未安装，请执行: pip install 'tianshu-agent-os[telegram]'"
             ) from exc
         return TelegramBot(**common)
 

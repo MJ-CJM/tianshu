@@ -52,7 +52,8 @@ Planned 表示路线图目标，不是当前能力。状态标签另行区分
 | remote MCP | **Disabled / Deferred** | Candidate 开放面保持 `disabled` | [`P2-A1`](../cc-fable-v1/06-deferred-work-backlog.md#p2-a1-remote-mcp-公开安全s24) |
 | stdio exact grant / executable binding | **Deferred / 延期** | open stdio MCP 保持 `disabled` | [`P2-A2`](../cc-fable-v1/06-deferred-work-backlog.md#p2-a2-stdio-mcp-准入与漂移绑定s25) |
 | local legacy Docker | **Locally verified / 本地已验证** | 仅开发 smoke，不是官方发行物 | [`Dockerfile`](../../Dockerfile) |
-| official container / PyPI / GHCR / signing | **Deferred / 延期** | 当前正式路径仅 source 与本地 Wheel | [`P2-A3/A4`](../cc-fable-v1/06-deferred-work-backlog.md#p2-a3-官方-exact-wheel-容器s26s67-部分) |
+| PyPI 发布（`tianshu-agent-os`） | **Pipeline ready / 链路就绪待首发** | tag 触发 Trusted Publishing（OIDC，无长期 token）；首个版本以 PyPI 上实际存在的发行版为准 | [`release.yml`](../../.github/workflows/release.yml) |
+| official container / GHCR / signing | **Deferred / 延期** | 当前正式路径为 PyPI、source 与本地 Wheel | [`P2-A3/A4`](../cc-fable-v1/06-deferred-work-backlog.md#p2-a3-官方-exact-wheel-容器s26s67-部分) |
 
 ## Candidate 状态摘要
 
@@ -67,5 +68,6 @@ Planned 表示路线图目标，不是当前能力。状态标签另行区分
 | S5 Lean Core evolution | `experimental` with implemented path | full G4 `external_pending` | [S5 report](../cc-fable-v1/reports/s5-lean-evolution-report.md) |
 | remote/open stdio MCP | `disabled` | reopening requires P2-A1/A2 | [deferred roadmap](../cc-fable-v1/06-deferred-work-backlog.md) |
 | local legacy Docker | `locally verified` | 非 root smoke；not official artifact | [local checklist](checklist.md) |
-| official container/PyPI/GHCR/full G5 | `deferred` | not in Candidate | [deferred roadmap](../cc-fable-v1/06-deferred-work-backlog.md) |
+| PyPI publishing | `pipeline ready` | tag-triggered Trusted Publishing; first release authoritative once published | [`release.yml`](../../.github/workflows/release.yml) |
+| official container/GHCR/full G5 | `deferred` | not in Candidate | [deferred roadmap](../cc-fable-v1/06-deferred-work-backlog.md) |
 | OpenHands/ROI/cost calibration/full G4 | `external_pending` | not in Candidate | [deferred roadmap](../cc-fable-v1/06-deferred-work-backlog.md) |

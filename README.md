@@ -209,14 +209,40 @@
   `Darwin/arm64/Python 3.12.12`。这证明本机验证环境，不替代尚待执行的 Ubuntu 外部复验。
 - **部署模型**：单机、单节点 SQLite。宿主机管理员可读取数据库、主密钥和进程内明文，
   因而不在当前威胁模型的防护对象内。
-- **正式安装路径**：源码 checkout 与同一 checkout 构建的 exact Wheel。官方容器、PyPI、
-  GHCR、签名和正式供应链 provenance 均为 `deferred`。
+- **正式安装路径**：PyPI（发行名 `tianshu-agent-os`）、源码 checkout 与同一 checkout
+  构建的 exact Wheel。PyPI 发布链路已就绪（tag 触发 Trusted Publishing），首个版本以
+  实际发布为准。官方容器、GHCR、签名和正式供应链 provenance 仍为 `deferred`。
 - **MCP**：持久 env/header secret mapping 已密文落库；remote MCP 与 open stdio MCP
   在当前支持面内保持 `disabled`，完整开放安全工作为 `deferred`。
 - **演化边界**：managed OpenHands、执行器兼容套件、ROI 与 cost calibration 均为
   `external_pending`；更完整的自动化演化门禁为 `deferred`。
 
-## 本地安装与验证
+## 安装
+
+### 一行安装（推荐）
+
+```bash
+pipx install tianshu-agent-os
+tianshu serve
+```
+
+只想试一下、不在系统里留安装痕迹：
+
+```bash
+uvx --from tianshu-agent-os tianshu serve
+```
+
+打开命令提示的 http://127.0.0.1:8000 即可使用 Web UI——wheel 自带前端载荷，这条路径
+**不需要 Node.js**。首次使用前给一个 LLM 凭证（如 `export TIANSHU_LLM_API_KEY=sk-...`），
+`tianshu doctor` 可自检配置是否齐备。
+
+发行名是 `tianshu-agent-os`：PyPI 上 `tianshu` 已被无关的第三方包占用。`import tianshu`
+与 `tianshu` 命令均不受影响。推荐 pipx/uvx 而非 `pip install`——天枢是应用不是库，pipx
+会把它装进独立环境并把 `tianshu` 挂上 PATH，不与其他包争抢 litellm/pydantic 版本；且较
+新的 Ubuntu/Debian/Homebrew Python 是 externally-managed 环境（PEP 668），直接
+`pip install` 会被拒绝。
+
+### 从源码安装（开发者）
 
 ```bash
 git clone https://github.com/MJ-CJM/tianshu.git
@@ -228,8 +254,8 @@ cd web && npm install && npm run build && cd ..
 tianshu serve
 ```
 
-启动后打开 http://127.0.0.1:8000 即可使用 Web UI。前端构建需要 Node.js >= 20。日常开发
-推荐一键脚本 `./scripts/local.sh start --dev`（热重载 + 进程托管）；开发模式、环境变量
+源码路径需要自行构建前端，因而要 Node.js >= 20。日常开发推荐一键脚本
+`./scripts/local.sh start --dev`（热重载 + 进程托管）；开发模式、环境变量
 与部署说明见[快速开始](docs/usage/getting-started.md)。
 需要严格复验路径（exact Wheel 安装、黄金 Demo 与 provenance 校验）时，参见
 [Lean Developer Preview 使用指南](docs/usage/lean-developer-preview.md)。

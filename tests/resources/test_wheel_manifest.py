@@ -38,7 +38,7 @@ def _build_wheel(out_dir: Path) -> Path:
         f"wheel 构建失败（前端未构建时这是预期行为，见 scripts/build_release.sh）：\n"
         f"{result.stderr[-2000:]}"
     )
-    wheels = sorted(out_dir.glob("tianshu-*.whl"))
+    wheels = sorted(out_dir.glob("tianshu_agent_os-*.whl"))
     assert len(wheels) == 1, f"expected exactly one wheel, got {wheels}"
     return wheels[0]
 
@@ -204,7 +204,7 @@ def _build_sdist(out_dir: Path) -> Path:
         timeout=300,
     )
     assert result.returncode == 0, f"sdist 构建失败：\n{result.stderr[-2000:]}"
-    sdists = sorted(out_dir.glob("tianshu-*.tar.gz"))
+    sdists = sorted(out_dir.glob("tianshu_agent_os-*.tar.gz"))
     assert len(sdists) == 1, f"expected exactly one sdist, got {sdists}"
     return sdists[0]
 
@@ -244,7 +244,7 @@ def test_wheel_built_from_sdist_matches_direct_build(tmp_path: Path) -> None:
         timeout=600,
     )
     assert result.returncode == 0, f"从 sdist 构建 wheel 失败：\n{result.stderr[-2000:]}"
-    from_sdist = sorted(out.glob("tianshu-*.whl"))
+    from_sdist = sorted(out.glob("tianshu_agent_os-*.whl"))
     assert len(from_sdist) == 1
     direct = _build_wheel(tmp_path / "direct")
 
