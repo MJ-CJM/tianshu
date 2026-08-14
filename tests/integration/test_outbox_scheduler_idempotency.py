@@ -41,6 +41,21 @@ class _FailFirstConsumptionAck:
         return self._repository.record_consumption(**kwargs)
 
 
+#: once 作业的调度窗。断言要在 job 触发「之前」跑完，窗口太窄会让测试在慢机器上
+#: 假失败（issue #65）。给足余量，代价只是每例多等几秒。
+SCHEDULING_WINDOW_SECONDS = 3
+
+
+def _only_job(scheduler: Scheduler, context: str):
+    """取唯一在册作业；空集合时给出可读原因而不是晦涩的 StopIteration。"""
+    jobs = list(scheduler._jobs.values())  # noqa: SLF001
+    assert jobs, (
+        f"{context}: scheduler has no registered job — it most likely fired before "
+        f"the assertion ran. Widen SCHEDULING_WINDOW_SECONDS."
+    )
+    return jobs[0]
+
+
 def _register_scheduler(bus: EventBus, storage: Storage) -> Scheduler:
     scheduler = Scheduler(event_bus=bus, storage=storage)
     bus.on(
@@ -206,7 +221,7 @@ async def test_pause_resume_preserves_authoritative_initial_memorial(
         assert storage.get_memorial(memorial.id).status == TaskStatus.SUBMITTED
 
         assert await scheduler.resume(job_id) is True
-        await asyncio.wait_for(delivered.wait(), timeout=2)
+        await asyncio.wait_for(delivered.wait(), timeout=SCHEDULING_WINDOW_SECONDS + 3)
 
         assert received[0].memorial_id == memorial.id
         assert storage.get_memorial(memorial.id).status == TaskStatus.SCHEDULED
@@ -269,10 +284,10 @@ async def test_published_submission_restart_preserves_initial_memorial_until_fir
     if schedule_type == "cron":
         monkeypatch.setattr(
             "tianshu.scheduler.scheduler._next_cron_utc",
-            lambda *_args: datetime.now(UTC) + timedelta(seconds=1),
+            lambda *_args: datetime.now(UTC) + timedelta(seconds=SCHEDULING_WINDOW_SECONDS),
         )
     schedule = (
-        EdictSchedule(type="once", at=now + timedelta(seconds=1))
+        EdictSchedule(type="once", at=now + timedelta(seconds=SCHEDULING_WINDOW_SECONDS))
         if schedule_type == "once"
         else EdictSchedule(type="cron", cron="* * * * *", timezone="UTC")
     )
@@ -337,7 +352,7 @@ async def test_published_submission_restart_preserves_initial_memorial_until_fir
     await second_scheduler.start()
 
     try:
-        await asyncio.wait_for(delivered.wait(), timeout=2)
+        await asyncio.wait_for(delivered.wait(), timeout=SCHEDULING_WINDOW_SECONDS + 3)
         assert received[0].memorial_id == memorial.id
         assert second_storage.get_memorial(memorial.id).status == TaskStatus.SCHEDULED
         expected_active_jobs = 0 if schedule_type == "once" else 1
@@ -354,7 +369,9 @@ async def test_restart_replay_reattaches_initial_memorial_to_restored_once_job(
 ) -> None:
     database_path = tmp_path / "scheduler-memorial-replay.sqlite3"
     now = datetime.now(UTC)
-    target = now + timedelta(milliseconds=250)
+    # 窗口要覆盖「建库→存敕令→写 outbox→重启调度器」整串耗时：CI 上这串
+    # 常超 250ms，job 提前触发后 _jobs 变空，断言拿到的是 StopIteration。
+    target = now + timedelta(seconds=SCHEDULING_WINDOW_SECONDS)
     event_id = "scheduler-memorial-replay-event"
 
     first_storage = Storage(str(database_path))
@@ -426,12 +443,12 @@ async def test_restart_replay_reattaches_initial_memorial_to_restored_once_job(
     )
 
     try:
-        restored_task = next(iter(second_scheduler._jobs.values())).task  # noqa: SLF001
+        restored_task = _only_job(second_scheduler, "after restart").task
         assert await restarted_dispatcher.drain_once() == 1
-        replayed_job = next(iter(second_scheduler._jobs.values()))  # noqa: SLF001
+        replayed_job = _only_job(second_scheduler, "after outbox replay")
         assert replayed_job.task is restored_task
         assert replayed_job.initial_memorial_id == memorial.id
-        await asyncio.wait_for(delivered.wait(), timeout=1)
+        await asyncio.wait_for(delivered.wait(), timeout=SCHEDULING_WINDOW_SECONDS + 3)
         assert received[0].memorial_id == memorial.id
         assert second_storage.get_memorial(memorial.id).status == TaskStatus.SCHEDULED
     finally:
@@ -490,7 +507,7 @@ async def test_future_schedule_replay_reuses_one_durable_job_and_timer_after_ack
         assert first_jobs[0]["job_id"].startswith("submitted-")
         assert len(first_jobs[0]["job_id"]) == len("submitted-") + 64
         assert len(first_scheduler._jobs) == 1  # noqa: SLF001 - one live timer proof
-        first_job = next(iter(first_scheduler._jobs.values()))  # noqa: SLF001
+        first_job = _only_job(first_scheduler, "before restart")
         assert first_job.task is not None and not first_job.task.done()
     finally:
         await first_scheduler.stop()
@@ -513,7 +530,7 @@ async def test_future_schedule_replay_reuses_one_durable_job_and_timer_after_ack
 
     try:
         assert len(second_scheduler._jobs) == 1  # noqa: SLF001 - restored timer proof
-        restored_task = next(iter(second_scheduler._jobs.values())).task  # noqa: SLF001
+        restored_task = _only_job(second_scheduler, "after restart").task
         assert restored_task is not None and not restored_task.done()
         assert await restarted_dispatcher.drain_once() == 1
 
@@ -521,7 +538,7 @@ async def test_future_schedule_replay_reuses_one_durable_job_and_timer_after_ack
         assert len(jobs) == 1
         assert jobs[0]["job_id"] == first_jobs[0]["job_id"]
         assert len(second_scheduler._jobs) == 1  # noqa: SLF001
-        live_job = next(iter(second_scheduler._jobs.values()))  # noqa: SLF001
+        live_job = _only_job(second_scheduler, "after outbox replay")
         assert live_job.task is not None and not live_job.task.done()
         assert live_job.task is restored_task
 
