@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue.svg)](pyproject.toml)
-[![Version 0.5.0](https://img.shields.io/badge/version-0.5.0-informational.svg)](https://github.com/MJ-CJM/tianshu/releases)
+[![Version 0.5.1](https://img.shields.io/badge/version-0.5.1-informational.svg)](https://github.com/MJ-CJM/tianshu/releases)
 
 [中文](README.md) · [Current implementation](docs/CURRENT-STATE.md) · [Getting started](docs/usage/getting-started.en.md) · [Capability matrix](docs/launch/capability-matrix.md)
 
