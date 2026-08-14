@@ -57,10 +57,21 @@
 - **要抓 SPA**：把 `scrapling_dynamic` 插在 `scrapling` 之后，并在鸿胪寺开启浏览器引擎开关。
 - **别把没装/没 key 的引擎留在链里**：它们只会拖长失败路径，并让最终错误停在一个误导性的状态码上。
 
+### 依赖装齐了吗
+
+`scrapling` 与 `local` 抓到页面后都要经 `markdown_extract` 把 HTML 转 Markdown，它依赖 **`trafilatura`（`web` extra）**。缺了它，这两个引擎会在最后一步倒下——页面其实已经抓到了——只有 `firecrawl`（服务端直接返回 Markdown）和「目标本身就是纯文本」的情况幸免。
+
+```bash
+# 一次装齐开发 + 网络能力，别只装单个 extra
+uv sync --extra dev --extra web --extra scrapling
+```
+
+⚠️ `uv sync` 会把环境同步成「lock + 指定 extra」的**精确状态**，未列出的 extra 一律移除。只跑 `uv sync --extra scrapling` 会把 `trafilatura`、`pytest`、`ruff` 等一并卸掉。
+
 ### 抓不到时按这个顺序查
 
 1. `GET /hongluisi/engine-status` → `fetch_engines` 里有没有你选的那个（没有 = 未安装/未配 key，链里是空转的）
-2. 事件流里 `tool.failed` 的 `details.network.attempts` → 逐个引擎的 `status` 与 `reason`，能直接看出断在哪一环
+2. 事件流里 `tool.failed` 的 `details.network.attempts` → 逐个引擎的 `status` 与 `reason`，能直接看出断在哪一环。`missing_dependency:` 开头的 reason 会直接给出该执行的安装命令
 3. `providers` 字段 → 该 provider 的 key 来源（`db` / `env` / `none`）；有 key 仍 401/402 说明 key 无效或配额耗尽
 
 ## 3. profile / host 白名单解析
