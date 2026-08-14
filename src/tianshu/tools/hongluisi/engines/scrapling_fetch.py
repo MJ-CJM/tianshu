@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 
 from tianshu.tools.hongluisi.engines import FetchOutcome
+from tianshu.tools.hongluisi.failure_reason import describe_engine_exception
 from tianshu.tools.hongluisi.markdown_extract import extract_markdown, is_empty
 from tianshu.tools.hongluisi.ssrf_guard import SSRFViolation, validate_url
 
@@ -60,7 +61,7 @@ class ScraplingFetchEngine:
                 content="",
                 status="error",
                 http_status=None,
-                reason=f"scrapling_error:{type(e).__name__}",
+                reason=describe_engine_exception(e),
                 bytes_fetched=0,
                 final_url=None,
             )

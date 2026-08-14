@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 
 from tianshu.tools.hongluisi.engines import FetchAttempt, FetchEngine, FetchOutcome
+from tianshu.tools.hongluisi.failure_reason import describe_engine_exception
 from tianshu.tools.hongluisi.policy import NetworkPolicy
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ class FetchRouter:
                     content="",
                     status="error",
                     http_status=None,
-                    reason=f"engine_exception:{type(e).__name__}",
+                    reason=describe_engine_exception(e),
                     bytes_fetched=0,
                     final_url=None,
                 )

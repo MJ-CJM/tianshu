@@ -74,7 +74,24 @@ async def test_fetch_exception_wrapped(monkeypatch):
     monkeypatch.setattr(engine, "_invoke", fake_invoke)
     outcome = await engine.fetch("https://example.com")
     assert outcome.status == "error"
-    assert outcome.reason == "scrapling_error:RuntimeError"
+    # 归因要带上原始 message：只写类名会把「到底哪里出错」咽回去（issue #68）
+    assert outcome.reason.startswith("engine_exception:RuntimeError")
+    assert "boom" in outcome.reason
+
+
+@pytest.mark.unit
+async def test_missing_dependency_surfaces_install_hint(monkeypatch):
+    """缺依赖是「少装了东西」而非「引擎坏了」，修复动作必须直达用户（issue #68）。"""
+    engine = ScraplingFetchEngine("http")
+
+    async def fake_invoke(url):
+        raise ImportError("本地网页正文提取依赖未安装，请执行: pip install 'tianshu[web]'")
+
+    monkeypatch.setattr(engine, "_invoke", fake_invoke)
+    outcome = await engine.fetch("https://example.com")
+    assert outcome.status == "error"
+    assert outcome.reason.startswith("missing_dependency:")
+    assert "pip install 'tianshu[web]'" in outcome.reason
 
 
 @pytest.mark.unit
