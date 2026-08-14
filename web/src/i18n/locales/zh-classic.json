@@ -1493,7 +1493,11 @@
       "browserEnginesLabel": "鸿胪寺浏览器引擎",
       "browserEnginesHint": "浏览器引擎需先备齐浏览器二进制 —— 请先运行 `scrapling install`。",
       "enableDynamic": "启用 scrapling_dynamic（Chromium，渲染动态页）",
-      "enableStealthy": "启用 scrapling_stealthy（Camoufox，破 Cloudflare 关卡）"
+      "enableStealthy": "启用 scrapling_stealthy（Camoufox，破 Cloudflare 关卡）",
+      "searchKeyHint": "Tavily / Jina 须先配好 API key 方可用；DuckDuckGo 免 key 但时有落空。",
+      "searchKeyHintLink": "前往配置搜索 key",
+      "keyConfigured": "key 已配（{source}）",
+      "keyMissing": "未配 key"
     },
     "credentials": {
       "goto": "前往藏兵阁",

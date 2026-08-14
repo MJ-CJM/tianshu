@@ -399,9 +399,20 @@ export default function HongluisiPage() {
               >
                 <Radio value="">{t("hongluisi.preferences.fallbackProfile")}</Radio>
                 <Radio value="duckduckgo">DuckDuckGo (free)</Radio>
-                <Radio value="tavily">Tavily</Radio>
-                <Radio value="jina">Jina Search</Radio>
+                <Radio value="tavily">
+                  Tavily <ProviderKeyTag provider="tavily" sources={engineStatus?.providers} />
+                </Radio>
+                <Radio value="jina">
+                  Jina Search <ProviderKeyTag provider="jina" sources={engineStatus?.providers} />
+                </Radio>
               </Radio.Group>
+              {/* 选了没配 key 的 provider 会静默失败——把去哪儿配说清楚（issue #61） */}
+              <Typography.Text type="secondary" style={{ fontSize: 12, display: "block" }}>
+                {t("hongluisi.preferences.searchKeyHint")}{" "}
+                <Typography.Link onClick={() => navigate("/system?tab=external-creds")}>
+                  {t("hongluisi.preferences.searchKeyHintLink")}
+                </Typography.Link>
+              </Typography.Text>
             </Form.Item>
 
             <Form.Item
@@ -494,4 +505,20 @@ export default function HongluisiPage() {
       </Space>
     </PageContainer>
   );
+}
+
+/** provider 的 key 状态徽标：选中一个没配 key 的 provider 会静默失败，得让它可见（issue #61）。 */
+function ProviderKeyTag({
+  provider,
+  sources,
+}: {
+  provider: string;
+  sources?: Record<string, string>;
+}) {
+  const t = useT();
+  const source = sources?.[provider];
+  if (source === "db" || source === "env") {
+    return <Tag color="green">{t("hongluisi.preferences.keyConfigured", { source })}</Tag>;
+  }
+  return <Tag>{t("hongluisi.preferences.keyMissing")}</Tag>;
 }
