@@ -1495,7 +1495,8 @@
       "browserEnginesLabel": "鸿胪寺浏览器引擎",
       "browserEnginesHint": "浏览器引擎需先备齐浏览器二进制 —— 请先运行 `scrapling install`。",
       "enableDynamic": "启用 scrapling_dynamic（Chromium，渲染动态页）",
-      "enableStealthy": "启用 scrapling_stealthy（Camoufox，破 Cloudflare 关卡）"
+      "enableStealthy": "启用 scrapling_stealthy（Camoufox，破 Cloudflare 关卡）",
+      "engineUnavailable": "未安装/未配 key，选了也是空转"
     },
     "credentials": {
       "goto": "前往藏兵阁",

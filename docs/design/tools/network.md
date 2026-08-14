@@ -28,6 +28,41 @@
 | `NETWORK_DEFAULT` | scrapling→local | duckduckgo | 禁 |
 | `NETWORK_RESEARCH` | scrapling→local→jina→firecrawl | duckduckgo | GET/HEAD（写需显式启用） |
 
+## 2.1 引擎选型速查
+
+引擎链按顺序尝试，第一个成功即返回（`fallback_mode` 决定失败/空内容是否继续下一个）。**链里排着一个没装的引擎不会报错，只会被 `skipped` 掉**——它仍占着优先级，却什么也不做。
+
+### fetch 引擎
+
+| 引擎 | 机制 | 额外依赖 | key | 何时用 |
+|---|---|---|---|---|
+| `scrapling` | 伪装 TLS 指纹的 HTTP 抓取 | `uv sync --extra scrapling` | 免 | **默认首选**。纯 pip、轻量，专治 `local` 撞上的反爬 |
+| `scrapling_dynamic` | Playwright Chromium，渲染 JS | 上述 + `scrapling install` 下浏览器二进制 | 免 | 目标是前端渲染的 SPA。重（30s 超时），且需在鸿胪寺页显式开启 |
+| `scrapling_stealthy` | Camoufox，过 Cloudflare | 同上 | 免 | 被人机验证挡住时。最重（60s 超时），同样需显式开启 |
+| `local` | httpx + trafilatura 提正文 | 内置 | 免 | 兜底。最快最省，但不伪装、不渲染，遇反爬即失手 |
+| `jina` | r.jina.ai 代理转 markdown | 内置 | 可选 | 无 key 也能走，限流严；配 key 后额度按 jina 账户计 |
+| `firecrawl` | api.firecrawl.dev 商业抓取 | 内置 | **必需** | 前面都拿不下时的付费兜底。key 无效会以 `firecrawl_error:401` 收尾 |
+
+### search provider
+
+| provider | key | 说明 |
+|---|---|---|
+| `duckduckgo` | 免 | 硬依赖 lxml（`web` extra）。无 key、易被限流，返回空结果是常态化的间歇故障 |
+| `tavily` | **必需** | 面向 agent 的检索 API，结果结构化、稳定 |
+| `jina` | 可选 | 与 fetch 侧共用同一把 key；配额用尽表现为 HTTP 402 |
+
+### 选型建议
+
+- **只想要能用**：`scrapling → local` + `tavily`。前者免费管抓取，后者花小钱换稳定检索。
+- **要抓 SPA**：把 `scrapling_dynamic` 插在 `scrapling` 之后，并在鸿胪寺开启浏览器引擎开关。
+- **别把没装/没 key 的引擎留在链里**：它们只会拖长失败路径，并让最终错误停在一个误导性的状态码上。
+
+### 抓不到时按这个顺序查
+
+1. `GET /hongluisi/engine-status` → `fetch_engines` 里有没有你选的那个（没有 = 未安装/未配 key，链里是空转的）
+2. 事件流里 `tool.failed` 的 `details.network.attempts` → 逐个引擎的 `status` 与 `reason`，能直接看出断在哪一环
+3. `providers` 字段 → 该 provider 的 key 来源（`db` / `env` / `none`）；有 key 仍 401/402 说明 key 无效或配额耗尽
+
 ## 3. profile / host 白名单解析
 
 `resolve_network_for_edict(edict)` 是 NetworkSafetyRule 与 hongluisi/tools.py **共用**的解析器（防两处 fallback 不一致）：

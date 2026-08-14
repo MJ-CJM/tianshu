@@ -1495,7 +1495,8 @@
       "browserEnginesLabel": "Scrapling browser engines",
       "browserEnginesHint": "Browser engines need browser binaries — run `scrapling install` first.",
       "enableDynamic": "Enable scrapling_dynamic (Chromium, renders JS)",
-      "enableStealthy": "Enable scrapling_stealthy (Camoufox, bypasses Cloudflare)"
+      "enableStealthy": "Enable scrapling_stealthy (Camoufox, bypasses Cloudflare)",
+      "engineUnavailable": "not installed / no key — selecting it does nothing"
     },
     "credentials": {
       "goto": "Go to System",

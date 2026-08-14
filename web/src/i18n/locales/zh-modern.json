@@ -1495,7 +1495,8 @@
       "browserEnginesLabel": "Scrapling 浏览器引擎",
       "browserEnginesHint": "浏览器引擎需要浏览器二进制 —— 请先运行 `scrapling install`。",
       "enableDynamic": "启用 scrapling_dynamic（Chromium，渲染 JS）",
-      "enableStealthy": "启用 scrapling_stealthy（Camoufox，过 Cloudflare）"
+      "enableStealthy": "启用 scrapling_stealthy（Camoufox，过 Cloudflare）",
+      "engineUnavailable": "未安装或未配 key，选了不会生效"
     },
     "credentials": {
       "goto": "前往系统",
