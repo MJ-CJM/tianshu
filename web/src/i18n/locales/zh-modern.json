@@ -1499,7 +1499,8 @@
       "searchKeyHint": "Tavily / Jina 需要先配置 API key；DuckDuckGo 免 key 但结果时有为空。",
       "searchKeyHintLink": "去配置搜索 key",
       "keyConfigured": "已配 key（{source}）",
-      "keyMissing": "未配 key"
+      "keyMissing": "未配 key",
+      "engineUnavailable": "未安装或未配 key，选了不会生效"
     },
     "credentials": {
       "goto": "前往系统",

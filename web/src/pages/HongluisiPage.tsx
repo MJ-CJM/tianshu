@@ -55,6 +55,15 @@ const TOOL_COLORS: Record<string, string> = {
   web_extract: "purple",
 };
 
+const FETCH_ENGINE_OPTIONS = [
+  { value: "scrapling", label: "scrapling (free, TLS stealth)" },
+  { value: "local", label: "local (trafilatura)" },
+  { value: "scrapling_dynamic", label: "scrapling_dynamic (browser)" },
+  { value: "scrapling_stealthy", label: "scrapling_stealthy (browser)" },
+  { value: "jina", label: "jina (r.jina.ai)" },
+  { value: "firecrawl", label: "firecrawl" },
+] as const;
+
 const PROVIDERS_BY_TOOL: Record<string, string[]> = {
   web_fetch: ["jina", "firecrawl"],
   web_search: ["tavily", "jina"],
@@ -74,6 +83,8 @@ export default function HongluisiPage() {
     staleTime: 30000,
   });
   const engineStatus = engineStatusQuery.data;
+  // 后端真正注册成功的 fetch 引擎；没进这个集合的选了也是空转
+  const installedEngines = new Set(engineStatus?.fetch_engines ?? []);
   const [recent, setRecent] = useState<NetworkEventRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [recentProblem, setRecentProblem] = useState<ApiProblem | null>(null);
@@ -366,14 +377,14 @@ export default function HongluisiPage() {
                 placeholder={t("hongluisi.preferences.fetchChainPlaceholder")}
                 value={fetchChain}
                 onChange={setFetchChain}
-                options={[
-                  { value: "scrapling", label: "scrapling (free, TLS stealth)" },
-                  { value: "local", label: "local (trafilatura)" },
-                  { value: "scrapling_dynamic", label: "scrapling_dynamic (browser)" },
-                  { value: "scrapling_stealthy", label: "scrapling_stealthy (browser)" },
-                  { value: "jina", label: "jina (r.jina.ai)" },
-                  { value: "firecrawl", label: "firecrawl" },
-                ]}
+                options={FETCH_ENGINE_OPTIONS.map((o) => ({
+                  value: o.value,
+                  // 未注册的引擎留在链里只会被 skipped 掉——它仍占优先级却什么都不做，
+                  // 全程无提示。把可用性直接标在选项上（issue #63）。
+                  label: `${o.label}${
+                    installedEngines.has(o.value) ? "" : ` — ${t("hongluisi.preferences.engineUnavailable")}`
+                  }`,
+                }))}
                 style={{ width: "100%" }}
               />
             </Form.Item>
