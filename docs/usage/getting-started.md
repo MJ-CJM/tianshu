@@ -14,8 +14,27 @@ tianshu/
 ## 前置条件
 
 - Python >= 3.12
-- Node.js >= 20
+- Node.js >= 20（只有自行构建前端时需要；下面「直接安装使用」那条路径不需要）
 - Docker（仅本地容器验证需要）
+
+---
+
+## 0. 直接安装使用（不编译）
+
+只想跑起来、不改代码时走这条：发行版 wheel 自带前端载荷，不需要 Node.js，也不需要
+设置 `TIANSHU_STATIC_DIR`。
+
+```bash
+pipx install tianshu-agent-os     # 常驻安装，tianshu 命令进 PATH
+tianshu serve
+```
+
+```bash
+uvx --from tianshu-agent-os tianshu serve   # 只想试一下，跑完不留痕迹
+```
+
+发行名是 `tianshu-agent-os`（PyPI 上 `tianshu` 已被无关的第三方包占用），`import tianshu`
+与 `tianshu` 命令不受影响。以下各节面向需要改代码或自行构建的读者。
 
 ---
 
@@ -172,8 +191,9 @@ cron / interval 周期运行，因此 Web、API 与调度工具都会拒绝该�
 
 本轮已经从当前代码构建出 Wheel 和 sdist，并通过制品清单、许可证通知和 Python
 依赖安全检查。**没有**执行用户明确排除的“Ubuntu 全新 HOME 安装 exact Wheel 并完成
-核心黄金路径”，因此不能把本地构建成功写成该环境已通过，也不能据此发布 PyPI、
-GHCR、tag 或 release。完整复验步骤见
+核心黄金路径”，因此不能把本地构建成功写成该环境已通过。发布链路本身已就绪：打 `v*`
+tag 会触发 GitHub Release 与 PyPI Trusted Publishing（发行名 `tianshu-agent-os`）；
+GHCR、官方容器与签名 provenance 仍为 `deferred`。完整复验步骤见
 [Lean Developer Preview](lean-developer-preview.md)。
 
 ---

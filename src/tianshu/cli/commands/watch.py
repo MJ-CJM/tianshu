@@ -65,7 +65,7 @@ def watch(
     try:
         import websockets.sync.client as ws_client
     except ImportError:
-        console.print("[red]websockets 未安装，请执行: pip install 'tianshu[cli]'[/red]")
+        console.print("[red]websockets 未安装，请执行: pip install 'tianshu-agent-os[cli]'[/red]")
         raise SystemExit(1) from None
 
     base = os.environ.get("TIANSHU_API_URL", "http://localhost:8000")

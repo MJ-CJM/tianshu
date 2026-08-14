@@ -20,4 +20,4 @@ uv build --wheel --out-dir "$OUT_DIR"
 
 echo
 echo "wheel → $OUT_DIR"
-ls -1 "$OUT_DIR"/tianshu-*.whl
+ls -1 "$OUT_DIR"/tianshu_agent_os-*.whl

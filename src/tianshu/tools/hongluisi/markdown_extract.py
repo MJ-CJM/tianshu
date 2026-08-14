@@ -21,7 +21,9 @@ def extract_markdown(html: str, url: str | None = None) -> str:
     try:
         import trafilatura
     except ImportError as exc:
-        raise ImportError("本地网页正文提取依赖未安装，请执行: pip install 'tianshu[web]'") from exc
+        raise ImportError(
+            "本地网页正文提取依赖未安装，请执行: pip install 'tianshu-agent-os[web]'"
+        ) from exc
     try:
         extracted = trafilatura.extract(
             html,

@@ -3,7 +3,7 @@
 真实踩到：装好 scrapling 后抓取仍次次失败，事件流只显示
 `engine_exception:ImportError`，看上去像两个免费引擎都坏了；实际是
 trafilatura 缺席，两者都倒在 HTML→Markdown 那一步。markdown_extract 本来写了
-「请执行: pip install 'tianshu[web]'」，却被压成了异常类名。
+「请执行: pip install 'tianshu-agent-os[web]'」，却被压成了异常类名。
 """
 
 from __future__ import annotations
@@ -15,13 +15,13 @@ from tianshu.tools.hongluisi.failure_reason import describe_engine_exception
 
 class TestDescribeEngineException:
     def test_missing_dependency_keeps_the_actionable_hint(self):
-        exc = ImportError("本地网页正文提取依赖未安装，请执行: pip install 'tianshu[web]'")
+        exc = ImportError("本地网页正文提取依赖未安装，请执行: pip install 'tianshu-agent-os[web]'")
 
         reason = describe_engine_exception(exc)
 
         assert reason.startswith("missing_dependency:")
         # 用户要能直接照着做，而不是去 grep 源码
-        assert "pip install 'tianshu[web]'" in reason
+        assert "pip install 'tianshu-agent-os[web]'" in reason
 
     def test_module_not_found_is_also_a_missing_dependency(self):
         reason = describe_engine_exception(ModuleNotFoundError("No module named 'trafilatura'"))
@@ -62,7 +62,9 @@ class TestRouterSurfacesTheHint:
             name = "local"
 
             async def fetch(self, url):
-                raise ImportError("本地网页正文提取依赖未安装，请执行: pip install 'tianshu[web]'")
+                raise ImportError(
+                    "本地网页正文提取依赖未安装，请执行: pip install 'tianshu-agent-os[web]'"
+                )
 
         router = FetchRouter(
             {"local": _MissingDep()},
@@ -74,5 +76,5 @@ class TestRouterSurfacesTheHint:
 
         # 用户在鸿胪寺「最近访问」里看到的就是这行 reason
         assert outcome.reason.startswith("missing_dependency:")
-        assert "pip install 'tianshu[web]'" in outcome.reason
+        assert "pip install 'tianshu-agent-os[web]'" in outcome.reason
         assert attempts[0].reason == outcome.reason

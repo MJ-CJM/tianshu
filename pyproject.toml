@@ -6,7 +6,9 @@ build-backend = "tianshu_build"
 backend-path = ["build_backend"]
 
 [project]
-name = "tianshu"
+# 发行名带 -agent-os 后缀：PyPI 上 ``tianshu`` 已被无关的第三方包占用，无法申请。
+# import 名、console script、包目录一律保持 ``tianshu``，改的只是发行名。
+name = "tianshu-agent-os"
 version = "0.5.0"
 description = "Tianshu - Async AI Execution Platform"
 readme = { file = "README.md", content-type = "text/markdown" }
@@ -55,7 +57,7 @@ Issues = "https://github.com/MJ-CJM/tianshu/issues"
 Documentation = "https://github.com/MJ-CJM/tianshu/blob/main/docs/README.md"
 
 [project.optional-dependencies]
-# Kept as an empty compatibility alias for existing ``tianshu[cli]`` install
+# Kept as an empty compatibility alias for existing ``tianshu-agent-os[cli]`` install
 # commands. CLI dependencies are now part of the base package.
 cli = []
 notify = [
@@ -90,7 +92,9 @@ otel = [
 # LSP 诊断(迭代 5):edit 落盘即跑 basedpyright(pip 单依赖内嵌 Node runtime);
 # TIANSHU_LSP_ENABLED 才启用,未装则静默跳过。
 lsp = ["basedpyright>=1.20"]
-all = ["tianshu[feishu,telegram,web,mcp,cli,notify]"]
+# 自引用 extra:必须写发行名而非 import 名。写 import 名会解析到 PyPI 上那个同名的
+# 无关第三方包,把它连同其依赖一起装进来。
+all = ["tianshu-agent-os[feishu,telegram,web,mcp,cli,notify]"]
 
 [project.scripts]
 tianshu = "tianshu.cli.main:app"

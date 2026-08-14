@@ -16,8 +16,29 @@ tianshu/
 ## Prerequisites
 
 - Python >= 3.12
-- Node.js >= 20
+- Node.js >= 20 (only when building the frontend yourself; the "Install and run" path below
+  does not need it)
 - Docker (only needed for local container verification)
+
+---
+
+## 0. Install and Run (No Build)
+
+Take this path when you just want it running and are not changing code: the released wheel
+ships the frontend payload, so neither Node.js nor `TIANSHU_STATIC_DIR` is required.
+
+```bash
+pipx install tianshu-agent-os     # persistent install, puts tianshu on PATH
+tianshu serve
+```
+
+```bash
+uvx --from tianshu-agent-os tianshu serve   # one-off trial, leaves nothing behind
+```
+
+The distribution name is `tianshu-agent-os` (`tianshu` on PyPI is taken by an unrelated
+third-party package); `import tianshu` and the `tianshu` command are unchanged. The sections
+below are for readers who need to modify or build the code.
 
 ---
 
@@ -185,9 +206,10 @@ you need periodic execution.
 ## 4. Local Wheel Builds and Distribution Status
 
 Wheels and sdists build from the current source tree and pass the artifact manifest, license
-notice, and Python dependency security checks. Tianshu is not yet published to PyPI or GHCR:
-the supported installation path is a source checkout, or the exact wheel built from that same
-checkout. For the full verification steps, see the
+notice, and Python dependency security checks. The release pipeline itself is in place:
+pushing a `v*` tag triggers both the GitHub Release and PyPI Trusted Publishing under the
+distribution name `tianshu-agent-os`. GHCR, an official container, and signing provenance
+remain `deferred`. For the full verification steps, see the
 [Lean Developer Preview](lean-developer-preview.md).
 
 ---

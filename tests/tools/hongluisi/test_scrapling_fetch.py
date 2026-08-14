@@ -85,13 +85,13 @@ async def test_missing_dependency_surfaces_install_hint(monkeypatch):
     engine = ScraplingFetchEngine("http")
 
     async def fake_invoke(url):
-        raise ImportError("本地网页正文提取依赖未安装，请执行: pip install 'tianshu[web]'")
+        raise ImportError("本地网页正文提取依赖未安装，请执行: pip install 'tianshu-agent-os[web]'")
 
     monkeypatch.setattr(engine, "_invoke", fake_invoke)
     outcome = await engine.fetch("https://example.com")
     assert outcome.status == "error"
     assert outcome.reason.startswith("missing_dependency:")
-    assert "pip install 'tianshu[web]'" in outcome.reason
+    assert "pip install 'tianshu-agent-os[web]'" in outcome.reason
 
 
 @pytest.mark.unit

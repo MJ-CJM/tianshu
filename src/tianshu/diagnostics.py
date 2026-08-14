@@ -638,7 +638,7 @@ def _check_default_search_provider() -> DoctorCheck:
         evidence=_safe_evidence({"provider": provider, "registered": registered}),
         remediation=""
         if registered
-        else f"默认搜索引擎 {provider} 未注册（缺可选依赖）；装 tianshu[web] 或改用其他 provider",
+        else f"默认搜索引擎 {provider} 未注册（缺可选依赖）；装 tianshu-agent-os[web] 或改用其他 provider",
     )
 
 

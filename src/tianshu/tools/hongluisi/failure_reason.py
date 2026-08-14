@@ -4,7 +4,7 @@
 只写异常类名等于把话说了一半：真实踩到过——装好 scrapling 后抓取仍次次失败，
 事件流只显示 `engine_exception:ImportError`，看上去像两个免费引擎都坏了，实际是
 `trafilatura` 缺席、两者都倒在 HTML→Markdown 那一步。`markdown_extract` 本来写了
-「请执行: pip install 'tianshu[web]'」，却在这里被压成了类名（issue #68）。
+「请执行: pip install 'tianshu-agent-os[web]'」，却在这里被压成了类名（issue #68）。
 """
 
 from __future__ import annotations

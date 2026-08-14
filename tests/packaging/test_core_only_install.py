@@ -1,8 +1,8 @@
-"""核心发行物（``tianshu[cli]``）的可导入性守卫。
+"""核心发行物（``tianshu-agent-os[cli]``）的可导入性守卫。
 
 这类缺陷开发环境里永远看不见：可选依赖被别的 extra 传递带入（lxml 由 scrapling/
 trafilatura 带来、lark_oapi 由 feishu extra 带来），于是全部单测都绿，而只装
-``tianshu[cli]`` 的用户 API 起不来。S1.5 黑盒抓到第一个（duckduckgo 模块级
+``tianshu-agent-os[cli]`` 的用户 API 起不来。S1.5 黑盒抓到第一个（duckduckgo 模块级
 ``import lxml`` 让 uvicorn 加载 app 即失败）后，这里把它变成一条常设防线。
 
 做法：**在子进程里**把可选依赖从 import 系统摘掉，再走真实的导入/调用路径。
@@ -90,7 +90,7 @@ def test_core_module_imports_without_optional_dependencies(module_name: str) -> 
     """)
     assert result.returncode == 0, (
         f"{module_name} 在核心发行物里 import 不到——把这个 import 惰性化，"
-        f"否则 tianshu[cli] 的用户装上就起不来：\n{result.stderr[-1500:]}"
+        f"否则 tianshu-agent-os[cli] 的用户装上就起不来：\n{result.stderr[-1500:]}"
     )
 
 

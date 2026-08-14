@@ -97,13 +97,13 @@ def build_duckduckgo() -> DuckDuckGoSearchEngine | None:
     """无 key，但依赖 lxml —— 未安装时返回 None（引擎不注册）。
 
     lxml 不是核心依赖（由 scrapling/web extra 传递带入）。曾在模块级无条件
-    `import lxml.html`，导致只装 `tianshu[cli]` 的发行物**连服务都起不来**
+    `import lxml.html`，导致只装 `tianshu-agent-os[cli]` 的发行物**连服务都起不来**
     （engine_registry 模块级导入本模块）。沿用 build_scrapling 的既有模式：
     构建期探测，缺失即不注册，而不是让整个进程起不来。
     """
     try:
         import lxml.html  # noqa: F401
     except ImportError:
-        logger.info("duckduckgo: lxml 未安装，跳过注册（pip install tianshu[web]）")
+        logger.info("duckduckgo: lxml 未安装，跳过注册（pip install tianshu-agent-os[web]）")
         return None
     return DuckDuckGoSearchEngine()

@@ -218,14 +218,42 @@ Per-capability maturity conclusions are in the
   evidence that the Ubuntu external validation has already run.
 - Persistence is single-host, single-node SQLite. A host administrator can read the database,
   master key, process memory, and local artifacts and is outside this threat boundary.
-- The official local installation paths are a source checkout and an exact Wheel built from that
-  checkout. An official container, PyPI, GHCR, signing, and release provenance are `deferred`.
+- The official installation paths are PyPI (distribution name `tianshu-agent-os`), a source
+  checkout, and an exact Wheel built from that checkout. The PyPI pipeline is in place
+  (tag-triggered Trusted Publishing); the first release is authoritative once actually
+  published. An official container, GHCR, signing, and release provenance remain `deferred`.
 - Persisted MCP env/header mappings are ciphertext. remote MCP and open stdio MCP remain
   `disabled` in the current support surface; their full admission work is `deferred`.
 - managed OpenHands, executor compatibility, ROI, and cost calibration are `external_pending`;
   the fuller automated evolution gating is `deferred`.
 
-## Install and verify locally
+## Install
+
+### One-line install (recommended)
+
+```bash
+pipx install tianshu-agent-os
+tianshu serve
+```
+
+Just want to try it without leaving anything installed:
+
+```bash
+uvx --from tianshu-agent-os tianshu serve
+```
+
+Open the http://127.0.0.1:8000 address the command prints. The wheel ships the frontend
+payload, so this path **does not require Node.js**. Set an LLM credential before first use
+(e.g. `export TIANSHU_LLM_API_KEY=sk-...`); `tianshu doctor` verifies the configuration.
+
+The distribution name is `tianshu-agent-os` because `tianshu` on PyPI is taken by an
+unrelated third-party package. Neither `import tianshu` nor the `tianshu` command changes.
+pipx/uvx is preferred over `pip install`: Tianshu is an application rather than a library,
+so pipx installs it into its own environment and puts `tianshu` on PATH without competing
+for litellm/pydantic versions — and recent Ubuntu/Debian/Homebrew Pythons are
+externally-managed environments (PEP 668) where a plain `pip install` is refused outright.
+
+### Install from source (developers)
 
 ```bash
 git clone https://github.com/MJ-CJM/tianshu.git
@@ -237,7 +265,7 @@ cd web && npm install && npm run build && cd ..
 tianshu serve
 ```
 
-Then open http://127.0.0.1:8000 for the Web UI. Building the frontend requires Node.js >= 20.
+The source path builds the frontend itself and therefore requires Node.js >= 20.
 For day-to-day development, prefer the one-command script `./scripts/local.sh start --dev`
 (hot reload + managed processes). See the
 [getting started guide](docs/usage/getting-started.en.md) for the development mode,

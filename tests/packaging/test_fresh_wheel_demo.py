@@ -118,7 +118,7 @@ def wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
         text=True,
         timeout=600,
     )
-    wheels = sorted(out_dir.glob("tianshu-*.whl"))
+    wheels = sorted(out_dir.glob("tianshu_agent_os-*.whl"))
     assert len(wheels) == 1, f"expected exactly one wheel, got {wheels}"
     return wheels[0]
 
@@ -151,7 +151,7 @@ def installed(wheel: Path, tmp_path_factory: pytest.TempPathFactory) -> dict:
             "pip",
             "install",
             "--only-binary=:all:",
-            f"tianshu[cli] @ {wheel.resolve().as_uri()}",
+            f"tianshu-agent-os[cli] @ {wheel.resolve().as_uri()}",
         ],
         check=True,
         capture_output=True,

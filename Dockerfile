@@ -49,9 +49,9 @@ RUN apt-get update \
     && install -d -o 10001 -g 10001 /app /data /workspace
 
 WORKDIR /app
-COPY --from=wheel-builder /dist/tianshu-*.whl /tmp/
-RUN python -m pip install --no-cache-dir /tmp/tianshu-*.whl \
-    && python -c "from pathlib import Path; [path.unlink() for path in Path('/tmp').glob('tianshu-*.whl')]"
+COPY --from=wheel-builder /dist/tianshu_agent_os-*.whl /tmp/
+RUN python -m pip install --no-cache-dir /tmp/tianshu_agent_os-*.whl \
+    && python -c "from pathlib import Path; [path.unlink() for path in Path('/tmp').glob('tianshu_agent_os-*.whl')]"
 
 VOLUME ["/data", "/workspace"]
 EXPOSE 8000

@@ -53,9 +53,13 @@ def license_file() -> Traversable:
 
 
 def version() -> str:
-    """安装制品版本；未安装（纯源码树）时回退到包内 ``__version__``。"""
+    """安装制品版本；未安装（纯源码树）时回退到包内 ``__version__``。
+
+    查的是发行名 ``tianshu-agent-os`` 而非 import 名：PyPI 上 ``tianshu`` 是个无关的
+    第三方包，若它恰好装在同一环境里，按 import 名查会拿到它的版本号。
+    """
     try:
-        return metadata.version("tianshu")
+        return metadata.version("tianshu-agent-os")
     except metadata.PackageNotFoundError:
         from tianshu import __version__
 

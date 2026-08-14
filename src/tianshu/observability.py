@@ -6,7 +6,7 @@
 
 激活条件(两个都满足才真埋点,否则全程 no-op、零成本):
 1. ``TIANSHU_OTEL_ENDPOINT`` 已配(如 Phoenix 的 http://localhost:4318);
-2. ``opentelemetry-sdk`` 已装(``pip install 'tianshu[otel]'``)。
+2. ``opentelemetry-sdk`` 已装(``pip install 'tianshu-agent-os[otel]'``)。
 
 任一不满足 → ``genai_span`` 返回空上下文管理器,调用点零改动、零依赖。
 """
@@ -49,7 +49,7 @@ def init_tracing(settings) -> Callable[[], None] | None:
     except ImportError:
         logger.warning(
             "[otel] TIANSHU_OTEL_ENDPOINT 已配但未装 opentelemetry;"
-            "运行 `pip install 'tianshu[otel]'` 后生效(当前埋点跳过)"
+            "运行 `pip install 'tianshu-agent-os[otel]'` 后生效(当前埋点跳过)"
         )
         return None
 

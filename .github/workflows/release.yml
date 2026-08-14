@@ -2,8 +2,9 @@ name: release
 
 # tag 触发的发布链路：复用 ci.yml release-wheel 验证过的构建顺序
 # （前端先构建 → wheel 清单断言 → sdist → wheel → 安装 smoke），
-# 通过后把 wheel + sdist + 校验和附到 GitHub Release。
-# 不发布 PyPI/GHCR（当前为 deferred；PyPI 名称另行确定后再加 Trusted Publishing）。
+# 通过后把 wheel + sdist + 校验和附到 GitHub Release，再发布到 PyPI。
+# PyPI 走 Trusted Publishing（OIDC），仓库不存任何长期 token。
+# GHCR 与签名 provenance 仍为 deferred。
 
 on:
   push:
@@ -16,8 +17,14 @@ permissions:
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+    # environment 让 PyPI 侧的 pending publisher 可以按 environment 收口，
+    # 也给这条链路留出「发布前需人工审批」的挂载点（保护规则在仓库设置里配）。
+    environment:
+      name: pypi
+      url: https://pypi.org/p/tianshu-agent-os
     permissions:
       contents: write
+      id-token: write # Trusted Publishing 的 OIDC 令牌
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -66,3 +73,21 @@ jobs:
             --title "${GITHUB_REF_NAME}" \
             --notes "见 [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/CHANGELOG.md)。产物校验和见 SHA256SUMS.txt。" \
             release-assets/*
+
+      # 只放 sdist 与「从该 sdist 构建出的」wheel：release-assets/ 还有
+      # SHA256SUMS.txt，混进上传集会被 twine 拒绝；dist/ 根目录下的 wheel 也不取，
+      # 保证发布出去的正是通过了 sdist→wheel→安装 smoke 的那一个。
+      - name: Stage the PyPI upload set
+        run: |
+          set -euo pipefail
+          mkdir -p pypi-dist
+          cp dist/*.tar.gz pypi-dist/
+          cp dist/from-sdist/*.whl pypi-dist/
+          ls -1 pypi-dist/
+
+      # 排在 GitHub Release 之后：PyPI 同一版本号不可重传，若先发 PyPI 再失败，
+      # 版本号就被烧掉了；反过来 Release 已建、PyPI 未发，重跑本 job 即可补齐。
+      - name: Publish to PyPI (Trusted Publishing, no token)
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: pypi-dist
