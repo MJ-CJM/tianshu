@@ -67,6 +67,7 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "pytest-asyncio>=0.23",
+    "pytest-xdist>=3.6",
     "respx>=0.21",
     "ruff>=0.5",
     "mypy>=1.10",
@@ -122,6 +123,9 @@ markers = [
     "slow: 真实子进程/慢测试",
     "unit: 纯单元测试（无 IO / 无外部依赖）",
     "integration: 跨组件集成测试（真 Storage / 多协作者编排）",
+    # 断言「某操作在有界时间内完成」的用例:并行执行时 worker 争抢 CPU 会突破
+    # 这个上界,产生与代码无关的假失败。CI 把它们从并行集里摘出来单独串行跑。
+    "timing_sensitive: 对系统负载/时序敏感，必须串行执行",
 ]
 
 [tool.ruff]

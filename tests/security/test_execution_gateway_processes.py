@@ -41,6 +41,12 @@ from tianshu.models.governance_contract import (
 )
 from tianshu.models.principal import Principal, PrincipalKind
 
+# 整个文件断言真实子进程的生命周期时限（取消/终止要在 1 秒内完成），并行执行时
+# worker 争抢 CPU 会突破这些上界，产生与代码无关的假失败。标记为文件级而非逐个
+# 用例:已知的时序敏感清单里记的是 test_cancelling_wait_kills_the_whole_process_group，
+# 而 -n 4 实测挂的是它的邻居 test_wait_cancellation_is_bounded_...——逐个点名会漏。
+pytestmark = pytest.mark.timing_sensitive
+
 
 @pytest.fixture(scope="module")
 def effective_contract():
