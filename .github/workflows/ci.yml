@@ -42,7 +42,11 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run mypy
       - run: uv run lint-imports
-      - run: uv run pytest -m "not slow" -q
+      # 分两步:绝大多数用例并行跑（pytest 此前占本 job 13 分钟里的 746 秒），
+      # timing_sensitive 的 26 个断言「操作在有界时间内完成」，worker 争抢 CPU
+      # 会突破那个上界产生假失败，摘出来串行——它们串行只要 16 秒。
+      - run: uv run pytest -m "not slow and not timing_sensitive" -q -n auto
+      - run: uv run pytest -m "not slow and timing_sensitive" -q
 
   frontend:
     runs-on: ubuntu-latest

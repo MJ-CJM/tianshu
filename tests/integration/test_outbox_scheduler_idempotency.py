@@ -20,6 +20,10 @@ from tianshu.scheduler.scheduler import Scheduler, submission_job_id
 from tianshu.storage import Storage
 from tianshu.storage.outbox_repo import OutboxRepository
 
+# 调度用例依赖真实时间窗（once 触发的提前量、pause/resume 的重放时序），机器忙时
+# 本就会假失败；并行执行会显著放大。标记为文件级，CI 单独串行跑。
+pytestmark = pytest.mark.timing_sensitive
+
 _CONSUMER_NAME = "scheduler.edict_submitted.v1"
 #: once 用例的提前量。窗口只需覆盖 save_edict + schedule() 这两步（建库与
 #: init_db 已移到起算之前），1 秒对 CI 慢盘也绰绰有余，又不至于拖慢用例。
