@@ -10,7 +10,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue.svg)](pyproject.toml)
-[![Version 0.5.1](https://img.shields.io/badge/version-0.5.1-informational.svg)](https://github.com/MJ-CJM/tianshu/releases)
+[![Version 0.5.2](https://img.shields.io/badge/version-0.5.2-informational.svg)](https://github.com/MJ-CJM/tianshu/releases)
 
 [English](README.en.md) · [当前实现](docs/CURRENT-STATE.md) · [快速开始](docs/usage/getting-started.md) · [能力事实矩阵](docs/launch/capability-matrix.md)
 

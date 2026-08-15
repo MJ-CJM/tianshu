@@ -6,7 +6,23 @@
 
 ## [Unreleased]
 
-## [0.5.1] - 2026-08-15
+## [0.5.2] - 2026-08-15
+
+维护版本：依赖安全修复与 CI 提速，无功能变更。
+
+### Fixed
+
+- `web/` 的 `postcss` 8.5.19 → 8.5.26（GHSA-fxqj-rqcc-2cmp：`sourceMappingURL`
+  在 `from` 未设时可读取任意 `.map` 文件）与 `nanoid` 3.3.16 → 3.3.18。
+- 清理 `prototypes/tianshu-agent-os/` 的依赖告警：删除其 `package-lock.json`
+  并把写死的 `vite` 提到 6.4.3。该原型不参与构建也不进发行物，其告警对安全态势
+  零信息量却会淹没真正需要关注的条目。仓库 Dependabot open alerts 从 12 降到 0。
+
+### Changed
+
+- CI 的 `pytest` 改为并行执行（`-n auto`），并新增 `timing_sensitive` marker 把
+  26 个断言「操作在有界时间内完成」的用例摘出来串行——并行时 worker 争抢 CPU 会
+  突破那些时间上界，产生与代码无关的假失败。`backend` job 从 13m06s 降至 6m03s。
 
 首个 PyPI 发行版。安装从「clone + 建 venv + 装 Node 构建前端」收敛为两行：
 `pipx install tianshu-agent-os` 然后 `tianshu serve`。发行版 wheel 自带前端载荷，
