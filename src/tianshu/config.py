@@ -81,6 +81,9 @@ class TianshuSettings(BaseSettings):
     static_dir: str = ""  # 空 = 使用打包 Web 资产；显式值（含 TIANSHU_STATIC_DIR）优先
     plugins_dir: str = "~/.tianshu/plugins"
     universe_repo_root: str = ""  # 空 = 开发模式回退仓库根推断；wheel 部署必须显式配置
+    universe_root: str = "~/.tianshu/universes"
+    # 已归档位面的行为快照目录保留期；超期回收磁盘，DB 记录保留（证据链不可变）。
+    universe_archived_retention_days: int = 30
     eval_repo_root: str = ""
     memory_dir: str = "~/.tianshu/memory"
     runtime_personas_dir: str = "~/.tianshu/personas"
@@ -186,6 +189,7 @@ class TianshuSettings(BaseSettings):
         "durable_retry_base_seconds",
         "durable_retry_max_seconds",
         "outbox_shutdown_timeout_seconds",
+        "universe_archived_retention_days",
         mode="before",
     )
     @classmethod
@@ -193,6 +197,15 @@ class TianshuSettings(BaseSettings):
         if isinstance(value, bool):
             raise ValueError("bounded numeric settings cannot be boolean")
         return value
+
+    @model_validator(mode="after")
+    def validate_universe_retention(self) -> Self:
+        if (
+            type(self.universe_archived_retention_days) is not int
+            or self.universe_archived_retention_days < 0
+        ):
+            raise ValueError("universe_archived_retention_days must be a non-negative integer")
+        return self
 
     @model_validator(mode="after")
     def validate_artifact_store(self) -> Self:

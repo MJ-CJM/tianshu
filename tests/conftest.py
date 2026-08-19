@@ -66,6 +66,9 @@ def _isolate_db(tmp_path, monkeypatch):
     monkeypatch.setenv("TIANSHU_DB_PATH", str(db))
     # 也禁用真实 logs 目录写入
     monkeypatch.setenv("TIANSHU_LOGS_DIR", str(tmp_path / "logs"))
+    # 位面快照是全量目录拷贝（单份约 9.5M）：不隔离就会把 ~/.tianshu/universes 撑爆，
+    # 且测试 DB 建在 tmp_path、跑完即弃，留下的目录再也无人认领。
+    monkeypatch.setenv("TIANSHU_UNIVERSE_ROOT", str(tmp_path / "universes"))
     # 安全边界测试隔离：第三方 import 可能把项目 .env 注入 os.environ；
     # 测试宿主使用 ASGI 的 test/testserver Host，显式列入测试白名单。
     monkeypatch.setenv("TIANSHU_HOST", "127.0.0.1")

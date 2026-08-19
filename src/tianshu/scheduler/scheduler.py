@@ -148,6 +148,7 @@ class Scheduler:
         profile_trigger: Any,
         skill_curator: Any = None,
         universe_evolver: Any = None,
+        universe_gc: Any = None,
     ) -> None:
         """Register built-in system cron jobs (daily profile synthesis, weekly skill curation)."""
 
@@ -190,6 +191,16 @@ class Scheduler:
                 }
             )
             logger.info("Registered system job: universe.daily_code_propose (30 5 * * *)")
+
+        if universe_gc is not None:
+
+            async def _fire_universe_gc() -> None:
+                await universe_gc.run(trigger_source="cron")
+
+            self._system_jobs.append(
+                {"cron": "0 6 * * *", "name": "universe.daily_gc", "fn": _fire_universe_gc}
+            )
+            logger.info("Registered system job: universe.daily_gc (0 6 * * *)")
 
     async def start(self) -> None:
         # _running 必须先置位：_restore_jobs 恢复出来的 cron/one-shot 循环体以
