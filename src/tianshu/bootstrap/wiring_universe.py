@@ -29,6 +29,7 @@ from tianshu.universe.eval_harness import EvalHarness
 from tianshu.universe.evolver import UniverseEvolver
 from tianshu.universe.execution import UniverseExecutionContextFactory
 from tianshu.universe.gate import Gate
+from tianshu.universe.gc import UniverseGC
 from tianshu.universe.manager import UniverseManager
 from tianshu.universe.sandbox import SandboxRunner
 from tianshu.universe.store import UniverseStore
@@ -64,14 +65,15 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
     skill_curator = app.state.skill_curator
 
     # --- 平行位面（parallel universe）---
+    universe_root = Path(settings.universe_root).expanduser()
     universe_store = UniverseStore(
-        root=Path("~/.tianshu/universes").expanduser(),
+        root=universe_root,
         live_personas_dir=persona_loader.runtime_dir,
         live_skills_dir=skills.user_dir,
     )
     code_variant_store = CodeVariantStore(
         repo_root=_universe_repo_root(settings),
-        worktrees_root=Path("~/.tianshu/universes/worktrees").expanduser(),
+        worktrees_root=universe_root / "worktrees",
     )
     universe_manager = UniverseManager(
         storage=storage,
@@ -169,8 +171,17 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
     universe_evolver.attach_event_bus(event_bus)
     app.state.universe_evolver = universe_evolver
 
+    universe_gc = UniverseGC(
+        storage,
+        universe_store,
+        retention_days=settings.universe_archived_retention_days,
+        event_bus=event_bus,
+    )
+    app.state.universe_gc = universe_gc
+
     scheduler.register_system_jobs(
         profile_trigger,
         skill_curator=skill_curator,
         universe_evolver=universe_evolver,
+        universe_gc=universe_gc,
     )

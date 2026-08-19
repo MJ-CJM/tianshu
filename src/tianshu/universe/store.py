@@ -32,6 +32,10 @@ class UniverseStore:
         self._live_skills = Path(live_skills_dir).expanduser()
         self._root.mkdir(parents=True, exist_ok=True)
 
+    @property
+    def root(self) -> Path:
+        return self._root
+
     def universe_dir(self, universe_id: str) -> Path:
         return self._root / universe_id
 
