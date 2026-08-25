@@ -8,6 +8,10 @@
 `manifest.json`，不安装依赖、不 import `entry_point`，也不执行第三方插件代码。因此它是
 实验性的插件清单，不是动态 PluginHost。
 
+P2 新增的是另一条独立能力：**已经由受信任源码实例化的进程内对象**可以按 owner 登记、
+通过 handle 安全释放。它没有改变 manifest catalog 的边界，也没有把第三方插件变成可安装、
+可激活或可执行。
+
 本页合并原 `docs/design/plugins/` 与 `docs/impl/plugins/` 的内容，作为本报告目录中的唯一
 插件现状说明。用户开发示例仍在 [扩展开发指南](../../usage/extension-guide.md)，但当前/目标
 能力边界以本目录为准。
@@ -24,6 +28,10 @@
 | 激活/停用 | 不支持 | `PUT /api/plugins/{name}/status` 返回 `501 plugin_activation_not_supported` |
 | entry point 加载 | 不支持 | 启动过程不会 import 或调用 `entry_point` |
 | 依赖与指纹验证 | 不支持 | `dependencies`、`sha256`、`permissions`、`auto_install` 只是声明字段 |
+| 六类受信任源码贡献 | 可用 | Tool / Hook / Channel / Provider / Skill / Command 注册返回 owned handle |
+| owner 整体释放 | 可用 | `dispose_owner(owner)` 按注册逆序释放，返回 `(disposed, skipped_stale)` |
+| stale 身份保护 | 可用 | 旧 handle 不会摘除后来注册的同名对象，并尽力写 `contribution_dispose_stale` |
+| MCP session 工具清理 | 可用 | 重新发现、断连、重连与 shutdown 都撤回当前 session 的旧工具集合 |
 
 单个清单解析失败只记录 WARNING 并跳过，不影响主服务启动。这里的 fail-soft 仅适用于无副
 作用的元数据发现；代码加载继续 fail closed。
@@ -37,9 +45,11 @@
 | [`manifest.py`](../../../src/tianshu/plugins/manifest.py) | `PluginManifest` 数据模型；entry point、依赖、权限和 SHA-256 均为声明字段 |
 | [`loader.py`](../../../src/tianshu/plugins/loader.py) | `discover()` / `load_manifest()` 只读取并解析 JSON |
 | [`api.py`](../../../src/tianshu/plugins/api.py) | 登记 manifest 元数据；为受信任源码装配提供显式 `register_*` 门面 |
+| [`contribution.py`](../../../src/tianshu/plugins/contribution.py) | frozen `ContributionHandle`、三态 dispose 结果、默认源码 owner 与 stale audit |
 
-仓库目前不存在 `PluginInstaller`，也没有通用 import、pip 安装、SHA-256 验证、依赖解析、
-卸载或隔离执行链。
+仓库目前不存在 `PluginInstaller`，也没有第三方插件的通用 import、pip 安装、SHA-256 验证、
+依赖解析、entry-point 生命周期、隔离执行或 generation 热替换链。受信任源码贡献与 MCP
+session 工具则已经具备身份安全的进程内释放原语。
 
 启动装配如下：
 
@@ -71,7 +81,23 @@ Web 只展示“仅清单”和发现时间，不把数据库中的历史 `activ
 ## 4. 受信任源码扩展
 
 `PluginApi.register_tool/hook/channel/provider/skill/command` 可以把已经由内建代码实例化的
-对象交给相应注册表。这是程序化扩展门面，不是 manifest 自动加载路径。
+对象交给相应注册表，并返回 frozen `ContributionHandle`。这是程序化扩展门面，不是
+manifest 自动加载路径。
+
+调用方应传入稳定、可追踪的 `owner`；缺省 `plugin:anonymous` 只为兼容既有源码调用。
+`handle.dispose()` 可重复调用：首次成功返回 `disposed`，旧身份被替换时返回
+`skipped_stale`，已经释放或无对应注册表时返回 `noop`。`dispose_owner(owner)` 按注册逆序
+释放该 owner 的全部贡献并返回 `(disposed, skipped_stale)`。
+
+身份校验按注册表能力落实：Tool / Channel / Skill / Command 同时核对当前对象身份；Hook
+为每次 contribution 建立唯一 wrapper，再复用 handler identity 注销，因而两个 owner 复用
+同一原 handler 也不会相互误删；Provider 持久化到 SQLite、没有对应内存槽位，因此只按
+PluginApi 的 owner/current-handle 记账，释放结果照实透传底层——demo mode 不删除 Provider
+行并返回 `noop`。旧 handle 遇到同名新对象时不会摘除新对象，并尽力
+记录 SystemAudit `contribution_dispose_stale`；审计写失败不阻断释放流程。
+
+若底层注销本身抛异常，handle 不会被提前标记完成，owner 账本也不会丢弃失败项或尚未处理
+的较早贡献；调用方可在故障解除后再次 `dispose_owner`，继续按逆序释放。
 
 显式使用这些门面的调用者仍需在源码和部署流程中承担：
 
@@ -79,11 +105,17 @@ Web 只展示“仅清单”和发现时间，不把数据库中的历史 `activ
 - Policy、Decision 和凭据边界；
 - 失败、关闭和测试责任。
 
-现有注册表并非全部没有卸载原语：`HookRegistry.unregister` 与
-`ProviderManager.unregister` 已存在。真实缺口是 `ToolRegistry`、`ChannelRegistry` 和
-`ExecutorAdapterRegistry` 没有对应的安全 `unregister`，同时 `PluginApi` 没有跨注册表的
-contribution owner、统一 disposer、generation、依赖闭包与单插件逆序卸载语义。因此仍不能
-把这些 `register_*` 方法描述成目标态 PluginHost。
+P2 已补齐 Tool / Channel / Skill 的注销原语和六类贡献的 owner/disposer；
+`ExecutorAdapterRegistry` 仍不进入这套机制，它要在 P3 通过 RuntimeGeneration 处理
+stage/warm/activate/drain。当前也仍无依赖闭包、隔离、健康探针和第三方 entry-point
+生命周期，因此不能把这些 `register_*` 方法描述成目标态 PluginHost。
+
+### 4.1 MCP session 生命周期
+
+MCP 工具以 `mcp:<server>` 归属。每次工具重新发现时，manager 先释放该 session 的上一组
+handles，再登记新集合；连接离开 connected 状态、重连和 shutdown 都撤回当前集合。释放
+使用 owner + handler identity 校验，所以旧 session 不会删除后来注册的同名工具。管理 API
+重启 session 只调用 manager 的 shutdown/start，不再直接修改 `ToolRegistry._tools` 私有字典。
 
 ## 5. P1 典制影子归因
 
@@ -110,7 +142,8 @@ Evidence 中增加 `application/vnd.tianshu.system-snapshot.v1+json` required ar
 SystemAudit 与 durable outbox，但不改变任务结果；`system_snapshot_strict` 只登记配置，严格
 拒绝语义留到 P6。它也不等于完整运行内容已经全部可归因：dependency-lock 目前仍是零值占位，
 policy 只覆盖 id/priority，prompt key 尚未填充；更没有 RuntimeGeneration、动态加载、第三方
-依赖闭包、Canary 切换或热卸载。
+依赖闭包、Canary 切换或第三方插件级热替换。P2 只完成受信任进程内贡献的确定性清理，
+没有把贡献接入 Candidate → Generation → Canary → Promotion。
 
 ## 6. 为什么当前不开自动加载
 
@@ -118,7 +151,7 @@ policy 只覆盖 id/priority，prompt key 尚未填充；更没有 RuntimeGenera
 
 - 可安装来源、依赖锁定、内容寻址、签名和 provenance；
 - API/ABI、Host 版本和状态 schema 协商；
-- entry point 生命周期、owner/disposer、健康检查和卸载语义；
+- owner/disposer 基础原语已经完成；仍需 entry point 生命周期、健康检查、依赖闭包和隔离；
 - Tool、Hook、Channel、Provider、Skill、Command 的 Capability 与冲突规则；
 - 文件、网络、Secret 和资源配额；
 - generation 并存、warming、Canary、last-good 和回滚。

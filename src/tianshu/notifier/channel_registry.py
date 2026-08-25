@@ -32,6 +32,14 @@ class ChannelRegistry:
         self._send_log[channel.name] = []
         logger.info("Notification channel registered: %s (rpm=%d)", channel.name, rpm)
 
+    def unregister(self, name: str) -> bool:
+        if name not in self._channels:
+            return False
+        self._channels.pop(name, None)
+        self._rate_limits.pop(name, None)
+        self._send_log.pop(name, None)
+        return True
+
     def get(self, name: str) -> NotificationChannel | None:
         return self._channels.get(name)
 

@@ -39,8 +39,8 @@
 | 记忆 | 可用（有限边界） | 写入、召回、同步、删除并使用稳定标识 | 以当前支持的本地 Markdown/SQLite 路径为准；不宣称跨节点一致性 |
 | 成本与用量 | 可用 | 记录多模型/多 Provider token、缓存读取和取消任务成本 | 结果取决于 Provider 返回的用量与价格配置，不等于账单系统 |
 | Skills | 读取可用、变更受治理 | 在统一目录查看 live Skill、读取详情、为 Agent Skill Pin；API 可创建候选 | Web 不直接新建/编辑/delete/archive live；Persona 外部导入只预览 Skill、不安装；自动 reviewer/curator 默认关闭并在 LLM 前 fail fast |
-| 插件清单 | 实验、只读 | 查看本地发现的 manifest 元数据 | 不安装、不加载、不执行插件代码；安装与激活 API 明确返回 501；P1 典制归因没有改变这条边界 |
-| 自进化（Evolution） | 实验、影子归因 | 从天工院的演化司查看候选、Gate、分流、回滚和当前启用状态；新受管 attempt 成功影子绑定后，可从 assignment、Edict 详情及 Evidence artifact 核对 `SystemSnapshotV1` 内容摘要 | V31 只做典制内容身份与 per-attempt 双写；解析/写入/审计失败不阻断当前 run，`system_snapshot_strict` 尚未生效；dependency lock、policy 与 prompt 组件仍是部分投影；无 RuntimeGeneration、动态插件加载或自动晋升 |
+| 插件清单 / 受信任源码贡献 | 清单实验只读；内部生命周期可用 | 查看本地 manifest 元数据；内建装配可让 Tool/Hook/Channel/Provider/Skill/Command 按 owner 登记、逆序释放；MCP session 工具随重新发现、断连与 shutdown 清理 | 用户仍不能安装、加载、激活或执行第三方插件代码，相关 API 仍返回 501；ContributionHandle 只覆盖受信任进程内对象，不是动态 PluginHost |
+| 自进化（Evolution） | 实验、影子归因 | 从天工院的演化司查看候选、Gate、分流、回滚和当前启用状态；新受管 attempt 成功影子绑定后，可从 assignment、Edict 详情及 Evidence artifact 核对 `SystemSnapshotV1` 内容摘要 | V31 只做典制内容身份与 per-attempt 双写；dependency lock 仍为零值、policy 仅投影 id/priority、prompts 未填，且影子期失败不阻断 run；P2 ContributionHandle 是未来按插件演化的可逆基础，但仍无 RuntimeGeneration、动态插件加载或自动晋升 |
 | 平行位面（Universes / Code variant） | 实验、可发现 | 从天工院的诸界台创建快照/分支、diff、评估、归档和恢复 | switch、rollback、promote-code 固定 fail closed；代码候选只到 evaluated/recommended |
 | 评测（Evals） | Beta、导航标记“试行”、可发现 | 从天工院的考功司查看真实评测集、运行、分数、失败分布和历史差异 | 数据为空时展示真实启动方式，不生成示例成绩 |
 | Keqing 外部执行器 | 实验、可发现且默认关闭 | 从天工院的客卿馆查看本机 adapter 状态；进入页面、每 15 秒及窗口重新聚焦时同步已安装 CLI 版本；当前本地 Pi `0.83.0` 已完成契约与离线 RPC 验证 | 不自动升级外部 CLI；新版本先标记“待兼容验证”，通过契约后才更新已验证基线；不属于黄金路径，且无 Provider 侧硬成本上限或自动晋升保证 |

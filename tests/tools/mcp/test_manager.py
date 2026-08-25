@@ -18,6 +18,7 @@ from tianshu.tools.mcp.config import (
     ToolFilter,
 )
 from tianshu.tools.registry import ToolRegistry
+from tianshu.tools.types import ok_result
 
 _FIXTURE_PATH = Path(__file__).parent / "_fixture_server.py"
 
@@ -87,6 +88,8 @@ async def test_start_registers_tools(manager: MCPManager, registry: ToolRegistry
         assert echo_defn.parameters.get("type") == "object"
     finally:
         await manager.shutdown()
+    assert registry.get_definition("mcp_fx_echo") is None
+    assert registry.get_definition("mcp_fx_add") is None
 
 
 @pytest.mark.integration
@@ -148,9 +151,7 @@ async def test_same_manager_can_restart_and_register_tools_after_shutdown(
     manager._config = MCPConfig(mcp_servers={"fx": _fixture_server_config(name="fx")})
     await manager.start()
     await manager.shutdown()
-    for name in list(registry._tools):
-        if name.startswith("mcp_fx_"):
-            del registry._tools[name]
+    assert registry.get_definition("mcp_fx_echo") is None
 
     try:
         await manager.start()
@@ -161,6 +162,7 @@ async def test_same_manager_can_restart_and_register_tools_after_shutdown(
         assert "echo:reloaded" in result.content
     finally:
         await manager.shutdown()
+    assert registry.get_definition("mcp_fx_echo") is None
 
 
 @pytest.mark.integration
@@ -181,6 +183,172 @@ async def test_api_restart_helper_restores_tools_on_same_manager(
         assert registry.get_definition("mcp_fx_echo") is not None
     finally:
         await manager.shutdown()
+    assert registry.get_definition("mcp_fx_echo") is None
+
+
+@pytest.mark.asyncio
+async def test_parallel_start_does_not_republish_tools_withdrawn_before_gather_finishes(
+    manager: MCPManager,
+    registry: ToolRegistry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tianshu.tools.mcp import manager as manager_module
+    from tianshu.tools.mcp.client import DiscoveredTool
+
+    fast_dropped = asyncio.Event()
+
+    class _CallbackSession:
+        def __init__(
+            self,
+            *,
+            config: MCPServerConfig,
+            on_tools_changed,
+            on_tools_unavailable,
+            **_: object,
+        ) -> None:
+            self.config = config
+            self.on_tools_changed = on_tools_changed
+            self.on_tools_unavailable = on_tools_unavailable
+            self.status = "pending"
+            self.tools = (
+                [
+                    DiscoveredTool(
+                        name="echo",
+                        description="fast tool",
+                        input_schema={"type": "object", "properties": {}},
+                    )
+                ]
+                if config.name == "fast"
+                else []
+            )
+            self.terminal_receipt = None
+
+        async def start(self) -> bool:
+            if self.config.name == "slow":
+                await fast_dropped.wait()
+            self.on_tools_changed(self)
+            self.status = "connected"
+            if self.config.name == "fast":
+                self.status = "reconnecting"
+                self.on_tools_unavailable(self)
+                fast_dropped.set()
+            return True
+
+        async def shutdown(self) -> None:
+            self.status = "stopped"
+            self.on_tools_unavailable(self)
+
+    monkeypatch.setattr(manager_module, "MCPServerSession", _CallbackSession)
+    manager._config = MCPConfig(
+        mcp_servers={
+            "fast": _fixture_server_config(name="fast"),
+            "slow": _fixture_server_config(name="slow"),
+        }
+    )
+
+    try:
+        await manager.start()
+
+        assert manager.sessions["fast"].status == "reconnecting"
+        assert registry.get_definition("mcp_fast_echo") is None
+    finally:
+        await manager.shutdown()
+
+
+def test_session_tool_refresh_replaces_removed_and_changed_contributions(
+    manager: MCPManager,
+    registry: ToolRegistry,
+) -> None:
+    from tianshu.tools.mcp.client import DiscoveredTool, MCPServerSession
+
+    config = _fixture_server_config(name="fx")
+    session = MCPServerSession(
+        config=config,
+        execution_gateway=manager._execution_gateway,
+        workspace_root=manager._workspace_root,
+        security_mode="trusted-local",
+    )
+    manager._sessions["fx"] = session
+    session.tools = [
+        DiscoveredTool(name="echo", description="old", input_schema={"type": "object"}),
+        DiscoveredTool(name="add", description="removed", input_schema={"type": "object"}),
+    ]
+    assert manager._register_session_tools(session) == 2
+    old_echo_handler = registry._tools["mcp_fx_echo"][1]
+
+    session.tools = [
+        DiscoveredTool(
+            name="echo",
+            description="new",
+            input_schema={"type": "object", "properties": {"text": {"type": "string"}}},
+        ),
+        DiscoveredTool(name="env_value", description="added", input_schema={"type": "object"}),
+    ]
+    assert manager._register_session_tools(session) == 2
+
+    assert registry.get_definition("mcp_fx_add") is None
+    assert registry.get_definition("mcp_fx_env_value") is not None
+    assert registry.get_definition("mcp_fx_echo").description.endswith("new")
+    assert registry._tools["mcp_fx_echo"][1] is not old_echo_handler
+    manager._dispose_session_tools(session)
+    assert registry.get_definition("mcp_fx_echo") is None
+    assert registry.get_definition("mcp_fx_env_value") is None
+
+
+def test_session_tool_refresh_rolls_back_partial_registration_on_invalid_tool(
+    manager: MCPManager,
+    registry: ToolRegistry,
+) -> None:
+    from tianshu.tools.mcp.client import DiscoveredTool, MCPServerSession
+
+    config = _fixture_server_config(
+        name="fx",
+        tools=ToolFilter(include=["ok", ""]),
+    )
+    session = MCPServerSession(
+        config=config,
+        execution_gateway=manager._execution_gateway,
+        workspace_root=manager._workspace_root,
+        security_mode="trusted-local",
+    )
+    manager._sessions["fx"] = session
+    session.tools = [
+        DiscoveredTool(name="ok", description="valid", input_schema={"type": "object"}),
+        DiscoveredTool(name="", description="invalid", input_schema={"type": "object"}),
+    ]
+
+    with pytest.raises(ValueError, match="tool name must be non-empty"):
+        manager._register_session_tools(session)
+
+    assert registry.get_definition("mcp_fx_ok") is None
+    assert manager._tool_contributions == {}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_shutdown_does_not_remove_newer_same_name_tool(
+    manager: MCPManager,
+    registry: ToolRegistry,
+) -> None:
+    manager._config = MCPConfig(mcp_servers={"fx": _fixture_server_config(name="fx")})
+    await manager.start()
+
+    async def replacement(**kwargs):
+        return ok_result("replacement")
+
+    current = registry.get_definition("mcp_fx_echo")
+    assert current is not None
+    registry.register(
+        "mcp_fx_echo",
+        replacement,
+        current,
+        owner="plugin:replacement",
+    )
+
+    await manager.shutdown()
+
+    assert registry._tools["mcp_fx_echo"][1] is replacement
+    assert registry._owners["mcp_fx_echo"] == "plugin:replacement"
 
 
 @pytest.mark.integration
@@ -296,6 +464,26 @@ async def test_session_task_cancellation_reaps_stdio_process_tree(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_session_task_cancellation_withdraws_registry_tools(
+    manager: MCPManager,
+    registry: ToolRegistry,
+) -> None:
+    manager._config = MCPConfig(mcp_servers={"fx": _fixture_server_config(name="fx")})
+    await manager.start()
+    session = manager.sessions["fx"]
+    assert registry.get_definition("mcp_fx_echo") is not None
+    assert session._task is not None
+
+    session._task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await session._task
+
+    assert registry.get_definition("mcp_fx_echo") is None
+    await manager.shutdown()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_reconnect_reaps_previous_stdio_process_tree(
     manager: MCPManager,
     monkeypatch: pytest.MonkeyPatch,
@@ -319,6 +507,32 @@ async def test_reconnect_reaps_previous_stdio_process_tree(
 
     await _assert_pid_gone(first_child_pid)
     assert session.terminal_receipt is not None
+    await manager.shutdown()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_reconnect_replaces_registry_handler_and_remains_callable(
+    manager: MCPManager,
+    registry: ToolRegistry,
+) -> None:
+    manager._config = MCPConfig(mcp_servers={"fx": _fixture_server_config(name="fx")})
+    await manager.start()
+    session = manager.sessions["fx"]
+    old_handler = registry._tools["mcp_fx_echo"][1]
+
+    session.request_reconnect()
+    for _ in range(200):
+        current = registry._tools.get("mcp_fx_echo")
+        if current is not None and current[1] is not old_handler:
+            break
+        await asyncio.sleep(0.01)
+    else:
+        pytest.fail("MCP reconnect did not replace the registered handler")
+
+    result = await registry.execute("mcp_fx_echo", {"text": "after-reconnect"})
+    assert result.is_error is False
+    assert "echo:after-reconnect" in result.content
     await manager.shutdown()
 
 

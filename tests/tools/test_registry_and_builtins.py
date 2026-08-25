@@ -12,8 +12,13 @@ import pytest
 
 from tianshu.models.side_effect import SideEffectSemantics
 from tianshu.tools.builtins import register_builtins
-from tianshu.tools.registry import ToolDefinition, ToolRegistry
+from tianshu.tools.registry import ToolDefinition, ToolRegistry, ToolRegistryConflict
 from tianshu.tools.types import ok_result
+
+
+async def _noop_tool() -> object:
+    return ok_result("ok")
+
 
 # ── tool_registry：过滤 schema 外 kwargs ────────────────────────────────────
 
@@ -135,6 +140,75 @@ async def test_registry_restores_nested_invocation_id_after_tool_error() -> None
     assert result.is_error is True
     assert seen == ["outer-call", "inner-call", "outer-call"]
     assert get_current_tool_invocation_id() is None
+
+
+def test_registry_keeps_legacy_replace_default_and_tracks_owner() -> None:
+    registry = ToolRegistry()
+
+    async def first() -> object:
+        return ok_result("first")
+
+    async def second() -> object:
+        return ok_result("second")
+
+    definition = ToolDefinition(name="replace", description="replace", parameters={})
+    registry.register("replace", first, definition)
+    registry.register("replace", second, definition, owner="wiring:replacement")
+
+    assert registry._tools["replace"][1] is second
+    assert registry._owners["replace"] == "wiring:replacement"
+
+
+def test_registry_conflict_is_structured() -> None:
+    registry = ToolRegistry()
+    definition = ToolDefinition(name="conflict", description="conflict", parameters={})
+    registry.register("conflict", _noop_tool, definition, owner="kernel:one")
+
+    with pytest.raises(ToolRegistryConflict) as raised:
+        registry.register(
+            "conflict",
+            _noop_tool,
+            definition,
+            owner="plugin:two",
+            on_conflict="error",
+        )
+
+    assert raised.value.name == "conflict"
+    assert raised.value.existing_owner == "kernel:one"
+
+
+@pytest.mark.asyncio
+async def test_unregister_clears_tool_owner_disabled_and_receipt_lookup() -> None:
+    registry = ToolRegistry()
+    definition = ToolDefinition(name="gone", description="gone", parameters={})
+    registry.register("gone", _noop_tool, definition, owner="plugin:gone")
+
+    async def receipt_lookup(_provider_key: str) -> object | None:
+        return None
+
+    registry.set_managed_receipt_lookup("gone", receipt_lookup)
+    registry.disable("gone")
+
+    assert registry.unregister("gone") is True
+    assert registry.get_definition("gone") is None
+    assert "gone" not in registry._owners
+    assert "gone" not in registry._managed_receipt_lookups
+    assert registry.is_disabled("gone") is False
+    assert registry.unregister("gone") is False
+    result = await registry.execute("gone", {})
+    assert result.is_error is True
+    assert "not found" in result.content
+
+
+def test_unregister_requires_owner_and_target_identity_independently() -> None:
+    registry = ToolRegistry()
+    definition = ToolDefinition(name="owned", description="owned", parameters={})
+    registry.register("owned", _noop_tool, definition, owner="plugin:owner")
+
+    assert registry.unregister("owned", owner="plugin:other", target=_noop_tool) is False
+    assert registry.unregister("owned", owner="plugin:owner", target=object()) is False
+    assert registry.is_registered("owned", owner="plugin:owner", target=_noop_tool) is True
+    assert registry.unregister("owned", owner="plugin:owner", target=_noop_tool) is True
 
 
 @pytest.mark.asyncio

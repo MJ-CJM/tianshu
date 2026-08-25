@@ -136,6 +136,7 @@ class SkillsLoader:
         self._l2_stats: dict[str, tuple[int, int]] = {}
         self._l2_metadata: list[dict] | None = None
         self._content_digest_cache: str | None = None
+        self._injected_skills: dict[str, str] = {}
 
     @property
     def user_dir(self) -> Path | None:
@@ -161,8 +162,7 @@ class SkillsLoader:
         overlay._fallback_dirs = self._search_dirs()
         overlay._workspace_writes_only = True
         overlay._workspace_overlay_root = resolved_root
-        if hasattr(self, "_injected_skills"):
-            overlay._injected_skills = dict(self._injected_skills)
+        overlay._injected_skills = dict(self._injected_skills)
         return overlay
 
     def set_char_budget(self, budget: int) -> None:
@@ -332,10 +332,18 @@ class SkillsLoader:
     def register_skill(self, name: str, content: str) -> None:
         """Register an externally-provided skill (from PluginApi)."""
         validate_skill_name(name)
-        if not hasattr(self, "_injected_skills"):
-            self._injected_skills: dict[str, str] = {}
         self._injected_skills[name] = content
-        self._content_digest_cache = None
+        self.invalidate_cache()
+
+    def unregister_skill(self, name: str) -> bool:
+        """Remove one PluginApi-injected skill and invalidate every cache layer."""
+
+        validate_skill_name(name)
+        if name not in self._injected_skills:
+            return False
+        self._injected_skills.pop(name)
+        self.invalidate_cache()
+        return True
 
     def load_all(self, filter_names: list[str] | None = None) -> str:
         filter_set = _validated_filter_names(filter_names)
