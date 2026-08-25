@@ -36,6 +36,37 @@
 不使用 `importlib.reload()` 或其他进程内模块 reload，不原地改写活体注册表或正在执行的
 对象。变化发生在版本之间，不发生在活体对象内部。
 
+### 2.1 发布物与运行实例分离
+
+P3 将可物化的运行发布建模为不可变、内容寻址的 `RuntimeRelease`，将某 scope 对该发布的
+一次部署建模为 `RuntimeGeneration`。release digest 必须覆盖完整 manifest 与其摘要、CLI
+版本来源、解析后的绝对二进制路径、二进制或 package 内容摘要、单发/会话 argv shape、
+Pi wire version 和 materializer 版本。重启只能按已持久化 material 验证并重建，不得重新
+按 `PATH` 解析后静默替换。一个 release 可以产生多个朝，因此 release 与 generation 不
+共用主键，也不把完整 material 重复嵌进每一条 generation 记录。
+
+### 2.2 切代与回滚是数据库原子操作
+
+新 bundle 必须先在事务外完成 materialize 与 warm。activate 随后在同一
+`BEGIN IMMEDIATE` 事务中按顺序执行：旧 active 置 draining、新 ready 置 active、最后 CAS
+更新 active/last-good pointer。SQLite 事务外读者只会看到完整旧态或完整新态；不得先切
+pointer，也不得先产生第二个 active。
+
+常规状态图只允许 `draining → disposed`。`draining → active` 是
+`rollback_to_last_good()` 的专用权威边，目标必须等于 pointer 的 last-good；失败的新代
+不得成为 last-good。active 与 last-good 都是回收根，普通 reconciler 永不 dispose 它们。
+
+### 2.3 引用按 attempt，连续性按现有谱系推导
+
+运行期 lease 以精确 `attempt_id` 为身份，避免同一 Memorial 的基础设施重试产生 ABA；
+Dispatcher attempt 外层退出是唯一权威 release 点，DAG 子节点复用 root attempt lease。
+不持久化整数 refcount，durable 引用由 `execution_attempts` 与 insert-once binding 推导。
+
+root 运行完成后，OPEN conversation Edict 仍可能在未来接收 follow-up，因此该 Edict 最新
+root binding 的朝继续形成 retention，直至 Edict 关闭或取消。cron/interval 每次 fire 是
+新 continuity，只在触发时选择 active；保留旧朝不等于把未来定时触发固定到旧朝。首期不
+新增第二张 continuity 真相表，跨 Edict session 成为真实需求时再另立 ADR。
+
 ### 3. Ring 0 不进入普通进化
 
 Edict、Memorial、Attempt、Decision、Evidence、Effect journal 和 Promotion Authority 构成
@@ -60,6 +91,7 @@ canary；既有 `automatic_promotion_allowed: Literal[False]` 保持不变。
 
 ## 影响
 
-- 插件或执行器更新的原子发布、运行归因与回滚单位是完整典制，实际承载单位是朝。
+- release 是不可变内容单位，`(scope, RuntimeGeneration)` 是 rollout/rollback 单位，
+  `SystemSnapshot + generation set` 是一次运行的完整归因单位。
 - 插件可以保持启用并锁定版本，同时由进化策略单独冻结其进化。
 - 动态加载第三方代码、进程内 reload 和普通 Evolution 修改治理微内核均不由本 ADR 开放。

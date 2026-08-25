@@ -1,6 +1,6 @@
 # 目标领域模型与治理契约
 
-> **Status: Target model；P1 已落地 SystemSnapshot 影子归因子集。**
+> **Status: Target model；P1 已落地 SystemSnapshot 影子归因子集，P3 正在实现 executor runtime release/generation 子集。**
 > `SystemSnapshot`（典制）、`RuntimeGeneration`（朝）和 `EvolutionPolicy`（进化策略）已进入
 > `CONTEXT.md` 与 ADR；下表其余状态描述代码实现成熟度，不以术语已接受反推能力已实现。
 
@@ -17,7 +17,7 @@
 | `PluginSetSpec` | 用户期望选择、版本约束、配置、权限及 EvolutionPolicy 引用 | Proposed |
 | `PluginSetSnapshot` | Resolver 产出的完整依赖闭包、Capability binding 与有效 Policy digest | Proposed |
 | `AgentDeployment` | 期望 SystemSnapshot、rollout 策略及 observed/active/last-good 状态 | Proposed |
-| `RuntimeGeneration` | SystemSnapshot 在具体 Host 上 materialize 后的运行实例；ID 非内容摘要 | Canonical 术语；P3 实现 Proposed |
+| `RuntimeGeneration` | SystemSnapshot 中某个受管 release 在具体 Host/scope 上 materialize 后的运行实例；ID 非内容摘要 | Canonical 术语；P3 实现中 |
 | `PluginInstance` | RuntimeGeneration 内一个 PluginRelease 的实际实例 | Proposed |
 | `SystemSnapshot` | 完整有效运行配置的不可变身份 | Shadow/Partial：P1 已实现组件摘要、内容寻址存储与 Evidence 归因；尚无完整依赖闭包、prompt 摘要和 generation 激活 |
 | `ExecutionAssignment` | Memorial 与 SystemSnapshot、generation、实验选择的不可变绑定 | Partial：P1 仅以 `run_system_bindings` 追加 snapshot 关联事实，不改既有 `RunAssignmentV1`；generation 留待 P3 |
@@ -27,11 +27,12 @@
 
 ### 1.1 第 1–3 阶段最小代码词汇
 
-目标术语不等于需要立即建立同名代码对象。前三阶段只新增三个代码级承载：
+目标术语不等于需要立即建立同名代码对象。前三阶段新增四个代码级承载：
 
 | 代码承载 | 吸收的目标语义 | 首期形态 |
 |---|---|---|
 | `SystemSnapshotV1` | `SystemSnapshot`、`PluginSetSnapshot`，以及作为 components 条目的 `PluginRelease` 身份 | P1 Current/Shadow：frozen 内容摘要模型 + `system_snapshots`；当前 components 是最小语义投影，不等于完整 PluginSet 依赖锁 |
+| `RuntimeReleaseV1` | 宿主已解析、可跨重启精确物化的 executor release；不等于完整生态通用 `PluginRelease` | P3：canonical material + `runtime_generation_releases`；内容寻址、不可变，可被多个朝复用 |
 | `RuntimeGenerationV1` | `RuntimeGeneration`、`PluginInstance`，以及 active/last-good 运行指针 | executor/process scope 的代际记录 |
 | `run_system_bindings` | `ExecutionAssignment` 中 SystemSnapshot 与 generation 的关联事实 | 每 `(memorial_id, attempt_id)` insert-once；现有 `RunAssignmentV1` 不改 |
 

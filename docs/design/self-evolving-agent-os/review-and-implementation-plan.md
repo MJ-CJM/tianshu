@@ -64,7 +64,7 @@ Phase 1 比报告写的便宜得多（§3.5）。
 | 代码对象 | 吸收了报告中的 | 形态 |
 |---|---|---|
 | `SystemSnapshotV1` | `SystemSnapshot`、`PluginSetSnapshot`、`PluginRelease`（作为 components 中的条目） | 一个 frozen pydantic：`components: dict[str, str]`（组件 id → 内容 digest）+ `digest`；内容寻址，落 `system_snapshots` 表 |
-| `RuntimeGenerationV1` | `RuntimeGeneration`、`PluginInstance`、`AgentDeployment`（active/last-good 指针） | 一行：`generation_id / snapshot_digest / scope / state / refcount / activated_at`；`scope` 第一阶段只有 `executor:<adapter_id>` 与 `process` |
+| `RuntimeReleaseV1` + `RuntimeGenerationV1` | executor runtime release、`RuntimeGeneration`、`PluginInstance`、active/last-good 指针 | release 行保存不可变 canonical material；generation 行保存 `generation_id / release_digest / scope / state / version / activated_at`；不持久化 refcount |
 | `ExecutionAssignmentV1` | `ExecutionAssignment` | 现有 `RunAssignmentV1` **不动**，另起一张 `run_system_bindings(memorial_id, attempt_id, snapshot_digest, generation_ids_json)`；后续若合并再合并 |
 
 其余名词的去向：
@@ -102,7 +102,7 @@ ADR 里同时定中文 canonical 词；宫廷隐喻下一个可选方案：`Syst
 
 ```text
 子进程执行器：stage(new release) → warm(probe + 契约验证) → activate(指针) → 新 run 取新代
-              → 旧代 refcount 归零 → dispose
+              → exact attempt 与 OPEN continuity 引用释放且非 last-good → dispose
 声明式内容：  candidate 晋升 = 写新 artifact + 原子换指针；run 在 bind_runtime 冻结视图，
               晋升不影响已开始的 run；SkillsWatcher 只失效缓存，不再等于"换代"
 进程实现：    优雅重启进入 snapshot；warm-up 失败 → 回 last-good；不做进程内并存
@@ -145,8 +145,8 @@ snapshot、在 Memorial/RunState/Evidence 三处双写"。实际：
 
 ### 3.6 Reconciler 与 ADR 数量
 
-- 六个 Reconciler → 一个 `GenerationReconciler`，扩自现有 `EvolutionRollbackReconciler`：
-  同一把锁、同一个 `reconcile_once()`，内部按 `runtime_generations.state` 分支；
+- 六项逻辑职责 → 一个后台 control-plane tick：保留现有 `EvolutionRollbackReconciler`，新增
+  独立 `GenerationReconciler`，各自持锁并顺序执行；
 - 七个 ADR → 先两个：ADR-0013「代际并存 + drain，不做进程内 reload；治理微内核不由普通
   Evolution 自动修改」、ADR-0014「每个 Memorial 在第一个受管副作用前绑定 SystemSnapshot；
   continuity 固定规则：conversation/深度 Edict 固定、scheduled root 每次选择、DAG/retry 继承
@@ -204,19 +204,19 @@ snapshot、在 Memorial/RunState/Evidence 三处双写"。实际：
 
 不引入 generation 概念，只补 owner/disposer。
 
-### PR-3a Pi 执行器代际与引用计数（≈1.5–2 周）
+### PR-3a Pi 执行器代际、attempt lease 与 continuity retention（≈1.5–2 周）
 
 | 文件 | 内容 |
 |---|---|
-| `src/tianshu/models/runtime_generation.py`（新） | `RuntimeGenerationV1`：`generation_id`（`rg-` + uuid4，非内容摘要）、`scope`（`executor:keqing:pi`）、`release_digest`（= `canonical_sha256({manifest, cli_version, argv_shape})`）、`state ∈ {staged, warming, ready, active, draining, disposed, failed}`、`refcount`、时间戳 |
-| `migrations.py` V32 `0032_runtime_generations` | `runtime_generations`、不可变 `runtime_generation_journal` 与 `generation_pointers(scope PK, active_generation_id, last_good_generation_id)` |
-| `executor/adapters/__init__.py` | `ExecutorAdapterRegistry` 增加 `stage(adapter) -> gen`、`warm(gen)`（`probe()` + Pi 离线 RPC 契约验证，失败 → `failed`，指针不动）、`activate(gen)`（仅 `ready` 可切；旧 active → `draining`）、`prepare()` 对 active 代 `refcount += 1` 并把 `generation_id` 写进 `PreparedExecutor`、`release(run_id)`、`draining` 且 refcount==0 → `disposed` |
+| `src/tianshu/models/runtime_generation.py`（新） | `RuntimeReleaseV1` 保存完整可重建 executor material；`RuntimeGenerationV1` 保存 `generation_id`（`rg-` + uuid4，非内容摘要）、`scope`、`release_digest`、七态、CAS version 与时间戳；不存 refcount |
+| `migrations.py` V32 `0032_runtime_generations` | 不可变 `runtime_generation_releases`、`runtime_generations`、不可变 `runtime_generation_journal` 与复合 scope FK 的 `generation_pointers` |
+| `generation_controller.py` + `executor/adapters/__init__.py` | Controller 独占 stage/warm/activate/rollback/recovery；Registry 保管同代 single/session bundle、按 exact `attempt_id` lease、同锁 selection/manifest；Dispatcher 唯一 release |
 | `run_system_bindings` | V31 已包含 `generation_ids_json DEFAULT '[]'`；本阶段开始填值，不修改 V31 表形状 |
 | `application/managed_run_ingress.py`、`edicts.py`、`scheduled_runs.py` | continuity 规则：conversation/深度 Edict 的 follow-up 读 root Memorial 的 binding 复用其 `generation_id`；若该代已 `disposed` → fail closed `generation_retired`（等待 Decision 显式换代）；cron/interval 每次 fire 取当时 active；DAG 子节点与基础设施重试继承 root |
-| `evolution/reconciler.py` → `GenerationReconciler` | 在现有 `reconcile_once()` 里追加：`draining && refcount==0 → disposed`；进程重启后把上一进程遗留的 `warming` 置 `failed`、`active` 保持并 refcount 归零重算 |
+| `evolution/reconciler.py` + control-plane wiring | 新 `GenerationReconciler` 与既有 rollback reconciler 顺序组合、各自持锁；draining 仅在无 exact-attempt/OPEN-continuity 引用且非 active/last-good 时 disposed；重启按 release material 重建 |
 
 **退出条件**：活跃长任务换代期间不换 executor（故障注入：换代中途 kill 新 Pi，旧任务不受影响）；
-新代 warm 失败 active/last-good 不变；旧任务完成后旧代 `disposed`；rollback 在
+新代 warm 失败 active/last-good 不变；旧 task、OPEN continuity 与 last-good 均释放后旧代才 `disposed`；rollback 在
 `rollback_slo_seconds` 内恢复指针。
 
 ### PR-4 按 subject 路由 + per-subject EvolutionPolicy（≈1.5 周）

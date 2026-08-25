@@ -22,6 +22,12 @@ binding 是独立关联事实，不塞入 `RunAssignmentV1`、`LegacyRunAssignme
 `EvidenceSnapshotV1`。完整典制作为独立 Evidence artifact 留证，generation ids 随 binding
 记录；P1 尚无朝时使用空集合，P3 起写入实际朝身份。
 
+P3 起，generation selection、对应 bundle 与 executor manifest digests 必须来自同一个锁内
+快照，并按 `(scope, generation_id)` canonical 排序。非空 generation 集合必须逐项验证存在、
+scope 唯一、状态可绑定且 material 可用；未知、重复 scope、重复 ID、跨 scope 或不可物化
+任一项都在首个受管副作用前 fail closed。空集合继续表达 P1 的 legacy/shadow 路径，不伪造
+`legacy/default` 朝。
+
 ### 2. continuity 固定规则只有四条
 
 1. conversation 与深度 Edict 固定 root Memorial 的典制、朝和 assignment 选择；follow-up
@@ -42,6 +48,11 @@ P1 以 shadow 模式双写 binding：解析或写入失败只记录结构化审�
 
 shadow 豁免只覆盖 binding 的可用性，不放宽 assignment、Candidate、Evidence 或其他既有
 fail-closed 契约。
+
+P3 对该豁免作窄化：仅 `generation_ids=()` 的 legacy 路径继续使用 P1 shadow 写法；一旦
+本次 selection 含真实朝，binding、snapshot override 或 materialization 失败都必须立即拒绝
+运行，不能吞错后回退 live adapter。P6 仍负责把无朝的 snapshot/binding 完整性整体翻转为
+strict，这两个翻转时点互不混淆。
 
 ### 4. 典制组件与版本语义
 
