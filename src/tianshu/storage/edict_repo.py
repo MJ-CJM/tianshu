@@ -12,6 +12,38 @@ from tianshu.models.governance_contract import (
     RequestedGovernanceContractV1,
 )
 from tianshu.storage.mappers import _row_to_edict
+from tianshu.tools.path_utils import validate_allowed_path_glob
+from tianshu.tools.policy_profile import BUILTIN_TEMPLATES
+
+_BUILTIN_RELATIVE_ALLOWED_PATH_GLOBS = frozenset(
+    path_glob
+    for template in BUILTIN_TEMPLATES.values()
+    for path_glob in template.allowed_paths
+    if not path_glob.startswith("/")
+)
+
+
+class InvalidAllowedPathGlob(ValueError):
+    """An Edict requested an unsafe or ineffective allowed-path glob."""
+
+    def __init__(self, path_glob: str, reason: str) -> None:
+        self.path_glob = path_glob
+        self.reason = reason
+        super().__init__(f"invalid allowed_paths glob {path_glob!r}: {reason}")
+
+
+def _validate_allowed_paths_admission(edict: Edict) -> None:
+    profile = edict.runtime.policy_profile
+    if profile is None:
+        return
+    for path_glob in profile.allowed_paths:
+        if path_glob != path_glob.strip():
+            raise InvalidAllowedPathGlob(path_glob, "不能包含首尾空白")
+        if path_glob in _BUILTIN_RELATIVE_ALLOWED_PATH_GLOBS:
+            continue
+        reason = validate_allowed_path_glob(path_glob)
+        if reason is not None:
+            raise InvalidAllowedPathGlob(path_glob, reason)
 
 
 def _insert_requested_governance_contract(
@@ -44,6 +76,7 @@ def _insert_edict(
     conn: sqlite3.Connection,
     edict: Edict,
 ) -> RequestedGovernanceContractV1:
+    _validate_allowed_paths_admission(edict)
     acceptance_json = edict.acceptance.model_dump_json() if edict.acceptance else None
     conn.execute(
         """INSERT INTO edicts
