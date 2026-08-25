@@ -26,6 +26,14 @@ def test_delete_edict_cleans_legacy_evolution_assignment(storage):
             "VALUES (?, ?, NULL, 1, 0, '{}', '{}', ?, '{}', ?, '2026-07-29T00:00:00+00:00')",
             (f"assignment:{memorial.id}", memorial.id, "a" * 64, "b" * 64),
         )
+        storage._conn.execute(
+            "INSERT INTO system_snapshots VALUES (?, 1, '{}', ?)",
+            ("c" * 64, "2026-08-25T00:00:00+00:00"),
+        )
+        storage._conn.execute(
+            "INSERT INTO run_system_bindings VALUES (?, ?, ?, '[]', ?)",
+            (memorial.id, "attempt-1", "c" * 64, "2026-08-25T00:00:00+00:00"),
+        )
 
     storage.delete_edict(edict.id)
 
@@ -35,6 +43,13 @@ def test_delete_edict_cleans_legacy_evolution_assignment(storage):
         (memorial.id,),
     ).fetchone()[0]
     assert remaining == 0
+    assert (
+        storage._conn.execute(
+            "SELECT COUNT(*) FROM run_system_bindings WHERE memorial_id = ?",
+            (memorial.id,),
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_delete_falls_back_to_archive_when_evidence_retained(storage):
@@ -49,6 +64,14 @@ def test_delete_falls_back_to_archive_when_evidence_retained(storage):
     storage.save_memorial(memorial)
     with storage._lock, storage._conn:
         storage._conn.execute(
+            "INSERT INTO system_snapshots VALUES (?, 1, '{}', ?)",
+            ("d" * 64, "2026-08-25T00:00:00+00:00"),
+        )
+        storage._conn.execute(
+            "INSERT INTO run_system_bindings VALUES (?, ?, ?, '[]', ?)",
+            (memorial.id, "attempt-1", "d" * 64, "2026-08-25T00:00:00+00:00"),
+        )
+        storage._conn.execute(
             "INSERT INTO evidence_bundles "
             "(bundle_id, schema_version, edict_id, memorial_id, status, body_json, "
             " content_hash, version, created_at, closed_at) "
@@ -59,6 +82,14 @@ def test_delete_falls_back_to_archive_when_evidence_retained(storage):
 
     with pytest.raises(sqlite3.IntegrityError):
         storage.delete_edict(edict.id)
+
+    assert (
+        storage._conn.execute(
+            "SELECT COUNT(*) FROM run_system_bindings WHERE memorial_id = ?",
+            (memorial.id,),
+        ).fetchone()[0]
+        == 1
+    )
 
     storage.archive_edict(edict.id)
     assert storage.get_edict(edict.id) is not None  # 详情仍可达

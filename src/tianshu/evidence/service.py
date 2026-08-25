@@ -21,6 +21,7 @@ from typing import Literal, Protocol, cast
 
 from pydantic import ValidationError
 
+from tianshu import __version__
 from tianshu.evidence.models import (
     ArtifactRefV1,
     AuditorConclusionV1,
@@ -60,9 +61,18 @@ from tianshu.storage.artifact_repo import (
 from tianshu.storage.correlation import correlation_for_memorial
 from tianshu.storage.evolution_repo import EvolutionRepository
 from tianshu.storage.run_state_repo import RunStateRepository
+from tianshu.storage.system_snapshot_repo import SystemSnapshotRepository
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
+
+
+def dependency_lock_hash() -> str:
+    """Return the shared unavailable marker for the non-packaged dependency lock."""
+
+    # The dependency lock is not a packaged runtime resource. Keep source and
+    # wheel evidence identical by recording the established unavailable value.
+    return "0" * 64
 
 
 class ArtifactStoreError(RuntimeError):
@@ -639,9 +649,7 @@ class EvidenceService:
 
     @staticmethod
     def _lock_hash() -> str:
-        # The dependency lock is not a packaged runtime resource. Keep source and
-        # wheel evidence identical by recording the established unavailable value.
-        return "0" * 64
+        return dependency_lock_hash()
 
     def _environment(
         self,
@@ -653,11 +661,11 @@ class EvidenceService:
             "dependency_lock_hash": lock_hash,
             "platform": platform.system() or "unknown",
             "python_version": platform.python_version(),
-            "tianshu_version": "0.5.2",
+            "tianshu_version": __version__,
             "workspace_base_revision": effective.resolved_base_revision,
         }
         return EnvironmentEvidenceV1(
-            tianshu_version="0.5.2",
+            tianshu_version=__version__,
             python_version=platform.python_version(),
             platform=platform.system() or "unknown",
             architecture=platform.machine() or "unknown",
@@ -926,6 +934,24 @@ class EvidenceService:
                 )
                 artifact_by_digest[assignment_artifact.digest] = assignment_artifact
                 required_artifact_digests.add(assignment_artifact.digest)
+        system_binding = SystemSnapshotRepository().get_last_binding(
+            connection,
+            memorial_id,
+        )
+        if system_binding is not None:
+            system_snapshot_artifact = self._artifacts.put_bytes_current(
+                connection,
+                canonical_json_bytes(
+                    {
+                        "snapshot": system_binding.snapshot.model_dump(mode="json"),
+                        "generation_ids": list(system_binding.generation_ids),
+                    }
+                ),
+                media_type="application/vnd.tianshu.system-snapshot.v1+json",
+                redaction="safe",
+            )
+            artifact_by_digest[system_snapshot_artifact.digest] = system_snapshot_artifact
+            required_artifact_digests.add(system_snapshot_artifact.digest)
         for check in checks:
             if check.output_artifact_digest is None:
                 continue
@@ -1320,4 +1346,5 @@ __all__ = [
     "EvidenceNotFound",
     "EvidenceService",
     "EvidenceServiceError",
+    "dependency_lock_hash",
 ]

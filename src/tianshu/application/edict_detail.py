@@ -21,6 +21,7 @@ from tianshu.models.run_state import agent_plan_continuation
 from tianshu.storage import Storage
 from tianshu.storage.edict_repo import get_edict_current
 from tianshu.storage.memorial_repo import list_memorials_for_edict_current
+from tianshu.storage.system_snapshot_repo import SystemSnapshotRepository
 
 _DISCLOSED_DECISION_PAYLOAD_KEYS = frozenset(
     {
@@ -99,6 +100,20 @@ class EdictDetailQueryService:
                     connection,
                     edict_id,
                 )
+                system_snapshot_digest_by_bundle: dict[str, str] = {}
+                system_snapshot_repository = SystemSnapshotRepository()
+                for bundle in bundles:
+                    if not any(
+                        artifact.media_type == "application/vnd.tianshu.system-snapshot.v1+json"
+                        for artifact in bundle.snapshot.artifacts
+                    ):
+                        continue
+                    binding = system_snapshot_repository.get_last_binding(
+                        connection,
+                        bundle.memorial_id,
+                    )
+                    if binding is not None:
+                        system_snapshot_digest_by_bundle[bundle.bundle_id] = binding.snapshot.digest
                 unit_of_work.commit()
         except EdictDetailNotFound:
             raise
@@ -147,6 +162,7 @@ class EdictDetailQueryService:
                     created_at=bundle.created_at,
                     closed_at=closed_at,
                     download_available=download_available,
+                    system_snapshot_digest=system_snapshot_digest_by_bundle.get(bundle.bundle_id),
                     executor=EvidenceExecutorIdentityV1(
                         adapter_id=snapshot.executor_manifest.adapter_id,
                         display_name=snapshot.executor_manifest.display_name,

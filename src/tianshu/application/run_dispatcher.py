@@ -222,7 +222,10 @@ class RunDispatcher:
         runner_task: asyncio.Task[AttemptRunResult] | None = None
         heartbeat_task: asyncio.Task[None] | None = None
         try:
-            with self._challenger_router.bind_runtime(authority.memorial_id):
+            with self._challenger_router.bind_runtime(
+                authority.memorial_id,
+                attempt_id=authority.attempt_id,
+            ):
                 runner_task = asyncio.create_task(
                     self._runner(authority),
                     name=f"run-body-{authority.attempt_id}",

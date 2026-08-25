@@ -77,20 +77,23 @@
 
 工作：
 
-- 将当前 `wire_*` 装配解析为 `builtin/default` PluginSetSnapshot；
-- 为旧数据建立 `legacy/default` snapshot；
-- 在 Memorial、RunState、Evidence 中双写 SystemSnapshot digest，并写入合成的
-  `legacy/default` runtime identity；该 identity 仅证明当前进程归属，不代表真实的
-  side-by-side RuntimeGeneration 已经存在；
-- 引入 `ExecutionAssignment`，但继续使用现有运行路径；
-- 对双写结果做 shadow comparison，不改变 active 行为。
+- 将当前 `wire_*` 装配的 kernel、已注册 executor manifest、skills、personas、policy rules、
+  provider profiles 与 governed overlay 解析为 `SystemSnapshotV1` 的确定性组件摘要；本阶段不另建
+  `PluginSetSnapshot` 聚合；
+- 用 V31 `system_snapshots` 保存内容身份，并在第一个受管执行作用域前按
+  `(memorial_id, attempt_id)` insert-once 写 `run_system_bindings`；旧数据不回填；
+- Evidence 关闭时增加包含 `snapshot + generation_ids` 的 required artifact，assignment API 与
+  Edict 详情只读投影内容摘要；不修改 `EvidenceSnapshotV1` 与既有 `RunAssignmentV1`；
+- 解析、binding、漂移与审计都保持 shadow：失败不改变 active 行为，关闭开关后旧运行路径保持
+  兼容；严格拒绝留到落地方案 P6；
+- 不伪造 `legacy/default` RuntimeGeneration，不提前引入完整 `ExecutionAssignment` 聚合。
 
 退出条件：
 
-- 每个新 Memorial 都能回答“实际使用了什么”；
+- 开关启用且影子绑定成功的每个新受管 attempt 都能回答“实际使用了什么”；
 - 同一输入解析出的 snapshot digest 确定一致；
-- Evidence 独立重算后与 Assignment 完全匹配；
-- `legacy/default` 不会被 UI/API 误报为已经具备 warming、drain 或动态卸载；
+- Evidence artifact 独立重算后与持久 binding 完全匹配；
+- API/UI 不会把典制摘要误报为已经具备 warming、drain、generation 或动态卸载；
 - 关闭新双写后旧路径仍保持行为兼容。
 
 ### Phase 2：Continuity pinning 与首条垂直切片

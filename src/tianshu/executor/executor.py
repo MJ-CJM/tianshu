@@ -181,6 +181,11 @@ class Executor:
     def set_fenced_completion(self, completion: Any) -> None:
         self._fenced_completion = completion
 
+    def executor_manifest_digests(self) -> dict[str, str]:
+        """Expose a read-only snapshot of active executor manifest identities."""
+
+        return self._adapter_registry.manifest_digests()
+
     @property
     def managed_run_ingress(self) -> Any | None:
         return self._managed_run_ingress

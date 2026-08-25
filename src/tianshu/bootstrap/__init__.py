@@ -49,6 +49,7 @@ from tianshu.bootstrap.wiring_skills import (
     wire_skills,
     wire_skills_watcher,
 )
+from tianshu.bootstrap.wiring_snapshot import wire_system_snapshot
 from tianshu.bootstrap.wiring_storage import wire_storage
 from tianshu.bootstrap.wiring_tools import wire_tools
 from tianshu.bootstrap.wiring_universe import wire_universe
@@ -80,6 +81,7 @@ __all__ = [
     "wire_skills",
     "wire_skills_watcher",
     "wire_storage",
+    "wire_system_snapshot",
     "wire_tools",
     "wire_universe",
     "wire_worker_lane",

@@ -100,6 +100,10 @@ class EdictEvidenceDetailV1(_StrictModel):
     created_at: datetime
     closed_at: datetime | None
     download_available: bool
+    system_snapshot_digest: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     executor: EvidenceExecutorIdentityV1
     artifacts: tuple[EvidenceArtifactDetailV1, ...]
     checks: tuple[CheckEvidenceV1, ...]

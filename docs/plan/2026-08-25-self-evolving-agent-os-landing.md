@@ -2,7 +2,7 @@
 
 > **文档性质**：可直接开工的重构落地方案（最终合成版）。由三份独立视角方案（风险优先 / 最小改动 / 目标纯度）经总架构师合成，合成准则按优先级为：①与当前源码相符；②每步不破坏 fail-closed 不变量、可独立合入与回退；③最少过渡债（对象边界与目标架构一致）；④篇幅完整（分歧处的取舍理由写在各阶段"决策与取舍"小节）。
 > **修订记录**：本方案经三路校验（符号核对/可行性/完备性）修订并落盘，日期 2026-08-25。
-> **基线**：工作树 `feat/plugin-v1`（近端提交 `3b9aff35`，含 X1 PR #89）；目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
+> **基线**：集成分支 `feat/plugin-v1`（近端提交 `dc0fc7ca`，含 X1 PR #89 与 P0 PR #91）；目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
 > **迁移编号基线**：`0025_persona_allowed_paths` 已占用 V25（[../../src/tianshu/storage/migrations.py](../../src/tianshu/storage/migrations.py):4005），live tail 是 V30 `0030_consultation_rounds`（migrations.py:4160）。**本方案全部新迁移从 V31 起编号（0031–0035）**；P0 已把设计与评审正文同步到这一口径。
 > **流程约定（用户既有偏好）**：每阶段走 issue → `feat/`|`fix/` 分支 → PR（`Closes #n`）；PR 由用户合入、tag 由用户操作；跑 Python 一律 `.venv/bin/python`；宣称 CI 绿前 `gh pr checks` 亲验；前端改动后单跑 `cd web && npm run typecheck`（vitest/eslint 不查类型）。
 
@@ -10,8 +10,8 @@
 
 | 任务 | 状态 | 日期 | 验证 |
 |---|---|---|---|
-| P0 术语冻结与 Ring 0 守卫 | ✅ 已完成，待 PR 合入 | 2026-08-25 | 4/4 import 契约；46 项架构测试；全量 4746 passed、2 skipped；Web typecheck/test/lint/build 全绿 |
-| P1 SystemSnapshotV1 影子双写 | ⬜ 未开始 | — | — |
+| P0 术语冻结与 Ring 0 守卫 | ✅ 已合入（PR #91） | 2026-08-25 | 4/4 import 契约；46 项架构测试；全量 4746 passed、2 skipped；Web typecheck/test/lint/build 全绿 |
+| P1 SystemSnapshotV1 影子双写 | ✅ 实现完成，待 PR 合入（Issue #92） | 2026-08-25 | V31 `0031_system_snapshots`；202 项 P1 聚焦测试；全量 4806 passed、2 skipped；Web typecheck/338 tests/lint/build 全绿；真实 Demo 开启态三面摘要对账、关闭态零 binding/artifact |
 | P2 ContributionHandle | ⬜ 未开始 | — | — |
 | P3 Pi 执行器代际与 continuity 固定 | ⬜ 未开始 | — | — |
 | P4a EvolutionPolicy 与 per-subject canary | ⬜ 未开始 | — | — |
@@ -106,8 +106,8 @@
 
 | 表 | 迁移 | 关键约束 | 可变性 |
 |---|---|---|---|
-| `system_snapshots` | V31 | `snapshot_digest` PK（64hex 小写 CHECK）、`schema_version` CHECK=1、`components_json` CHECK(json object) | no_update + no_delete 触发器（内容寻址，永不改） |
-| `run_system_bindings` | V31 | `PRIMARY KEY(memorial_id, attempt_id)`、`snapshot_digest` FK→system_snapshots RESTRICT、`generation_ids_json` CHECK(json array) DEFAULT `'[]'`（**建表即带此列**，P3 起填值） | no_update 触发器；允许 DELETE、不 FK memorials（与敕令删除清理对齐；不可变权威副本在 Evidence artifact——见 §7 决策 5） |
+| `system_snapshots` | V31 | `snapshot_digest` PK（严格 64hex 小写 CHECK）、`schema_version` CHECK=1、`components_json` CHECK(json object) | no_replace + no_update + no_delete 触发器（内容寻址，永不改） |
+| `run_system_bindings` | V31 | `PRIMARY KEY(memorial_id, attempt_id)`、`snapshot_digest` FK→system_snapshots RESTRICT、`generation_ids_json` CHECK(json array) DEFAULT `'[]'`（**建表即带此列**，P3 起填值） | no_replace + no_update 触发器；允许普通 DELETE、不 FK memorials（与敕令删除清理对齐；不可变权威副本在 Evidence artifact——见 §7 决策 5） |
 | `runtime_generations` | V32 | `generation_id` PK、`state` CHECK 七态、`version>0`（CAS）、部分唯一索引 `(scope) WHERE state='active'` | 可变（CAS + journal） |
 | `runtime_generation_journal` | V32 | `journal_id` PK = sha256(generation_id:version:to_state) 幂等键、FK RESTRICT、`UNIQUE(generation_id, generation_version)` | no_update + no_delete 触发器 |
 | `generation_pointers` | V32 | `scope` PK、`active_generation_id`、`last_good_generation_id`、`version>0`（CAS） | 可变（CAS） |
@@ -328,7 +328,7 @@
 |---|---|
 | src/tianshu/models/system_snapshot.py | `class SystemSnapshotV1(_StrictModel)`（frozen+extra=forbid+strict，仿 evidence/models.py:70）。字段表：<br>· `schema_version: Literal[1] = 1`<br>· `components: dict[str, str]` — key 白名单：`kernel` / `executor:<adapter_id>`（每 adapter 一条）/ `skills` / `personas` / `policy_rules` / `provider_profiles` / `evolution_overlay`（仅 governed assignment 存在，legacy 省略该 key）；key 白名单另预留 `prompts`（prompt/harness 模板内容摘要，本轮不填——见 §6 延期表，加 key 不改 schema_version）；value 匹配 `^[0-9a-f]{64}$`；组件数上界 ≤64（防 evidence body_json 4MB CHECK）<br>· `digest: str` — `^[0-9a-f]{64}$`<br>`model_validator(mode="after")`：`digest == canonical_sha256(self.components)`（models/canonical.py:74）+ key 前缀白名单校验 |
 | src/tianshu/evolution/system_snapshot.py | `class SystemSnapshotResolver:`<br>`def __init__(self, *, kernel_facts: Callable[[], dict[str, str]], executor_digests: Callable[[], dict[str, str]], skills_digest: Callable[[], str], personas_digest: Callable[[], str], policy_rules_digest: Callable[[], str], provider_profiles_digest: Callable[[], str]) -> None`<br>`def resolve_base(self) -> dict[str, str]`（不含 evolution_overlay；组件 digest 进程内按内容源失效缓存）<br>`def resolve(self) -> SystemSnapshotV1`<br>`def resolve_for_run(self, assignment: RunAssignmentV1 | LegacyRunAssignmentV1, overlay: EffectiveEvolutionOverlayV1 | None) -> SystemSnapshotV1` — governed 时追加 `evolution_overlay = overlay_digest`（sha256(EffectiveEvolutionOverlayV1 canonical)，与 evolution_repo.py:373-381 同算法），legacy 省略该 key。<br>kernel = `canonical_sha256({"tianshu_version": ..., "dependency_lock_hash": dependency_lock_hash()})`；executor = 每个已注册 adapter 的 `manifest.content_hash`（capabilities.py:52-98 已是 canonical 摘要，content_hash 继承自 models/governance_contract.py:69 CanonicalContractModel；**不用 probe.semantic_id**——它不含 CLI 版本且被回放钉死） |
-| src/tianshu/storage/system_snapshot_repo.py | `class SystemSnapshotRepository`（无构造参数、方法显式传 connection，仿 evolution_repo.py:242 形态）：<br>`def insert_snapshot(self, connection, snapshot: SystemSnapshotV1) -> None` — INSERT OR IGNORE by digest；已存在时校验 components_json 等值，不等值抛错<br>`def insert_binding(self, connection, *, memorial_id: str, attempt_id: str, snapshot: SystemSnapshotV1, generation_ids: tuple[str, ...] = ()) -> None` — insert-once；IntegrityError → 重读逐字段等值即幂等返回，不等值抛 `EvolutionAssignmentConflict`（仿 evolution_repo.py:414-423/464-469）；同事务比对同 memorial 上一行，snapshot_digest 不同 → SystemAudit 记 `system_snapshot_drift`（只记不拒）<br>`def get_last_binding(self, connection, memorial_id: str) -> SystemBinding | None` — 按 created_at, attempt_id 取最后一行（Evidence"最后一个 attempt 赢"语义）；解码复核 digest == canonical_sha256(components)（读 fail-closed）<br>`def get_binding(self, connection, *, memorial_id: str, attempt_id: str) -> SystemBinding | None` — P3 起供 continuity 继承读 generation_ids |
+| src/tianshu/storage/system_snapshot_repo.py | `class SystemSnapshotRepository`（无构造参数、方法显式传 connection，仿 evolution_repo.py:242 形态）：<br>`def insert_snapshot(self, connection, snapshot: SystemSnapshotV1) -> None` — 预读后普通 INSERT；IntegrityError 后重读，逐字段等值才视为幂等，不等值抛错（不用 `INSERT OR REPLACE` / `INSERT OR IGNORE`）<br>`def insert_binding(self, connection, *, memorial_id: str, attempt_id: str, snapshot: SystemSnapshotV1, generation_ids: tuple[str, ...] = ()) -> SystemBindingWriteResult` — SAVEPOINT 内原子 insert-once；IntegrityError → 重读逐字段等值即幂等返回，不等值抛 `EvolutionAssignmentConflict`（仿 evolution_repo.py:414-423/464-469）；同事务比对同 memorial 上一行，snapshot_digest 不同 → SystemAudit + durable outbox 记 `system_snapshot_drift`（只记不拒）；`try_insert_binding(...)` 是 bind_runtime 唯一影子豁免入口，失败原子回滚数据段并 best-effort 记 `system_snapshot_binding_failed`<br>`def get_last_binding(self, connection, memorial_id: str) -> SystemBinding | None` — 按 created_at, attempt_id 取最后一行（Evidence"最后一个 attempt 赢"语义）；解码复核 digest == canonical_sha256(components)（读 fail-closed）<br>`def get_binding(self, connection, *, memorial_id: str, attempt_id: str) -> SystemBinding | None` — P3 起供 continuity 继承读 generation_ids |
 | src/tianshu/bootstrap/wiring_snapshot.py | `def wire_system_snapshot(app, settings) -> None`：从 app.state（skills / persona_loader / model_registry / executor adapter registry / policy_rules）组装组件源，构造 Resolver 挂 `app.state.system_snapshot_resolver`。在 app.py lifespan `wire_hook_registrations` 之后调用——ChallengerRouter 装配早于各内容源（test_evolution_composition 顺序守卫），故 router 侧的 resolver 引用必须**晚绑定**（注入 `Callable[[], SystemSnapshotResolver | None]`，bind 时取用） |
 
 **修改文件**
@@ -347,18 +347,19 @@
 | src/tianshu/evidence/service.py:911-928 之后、:939 排序之前（`_snapshot_current` 内） | 完全复刻 assignment artifact 块：`binding = SystemSnapshotRepository().get_last_binding(connection, memorial_id)`；非 None → `payload = {"snapshot": snapshot.model_dump(mode="json"), "generation_ids": list(generation_ids)}`（**首版即含 generation_ids key，形状一次定死**——open/close 各算一次 digest，二次变形会漂移）→ `put_bytes_current(connection, canonical_json_bytes(payload), media_type="application/vnd.tianshu.system-snapshot.v1+json", redaction="safe")` → `artifact_by_digest[ref.digest] = ref; required_artifact_digests.add(ref.digest)`。binding 为 None（legacy/影子失败/存量）→ **整块跳过**（仿 :912-914 分流，保证老数据可关闭）。artifact 字节**只在此处写**（open/close 各一次，内容寻址幂等去重），binding 表只存 digest——规避 `is_referenced_current` 引用清单封闭（artifact_repo.py:68-86）的 GC 竞态 |
 | src/tianshu/config.py | `TianshuSettings` 加 `system_snapshot_enabled: bool = True`（env `TIANSHU_SYSTEM_SNAPSHOT_ENABLED`；False = wiring 不注入 resolver，一键停写）与 `system_snapshot_strict: bool = False`（env `TIANSHU_SNAPSHOT_STRICT`；P1 仅占位登记，P6 获得完整语义） |
 | src/tianshu/gateway/evolution_api.py:56-95（可选，随本 PR） | run assignment 响应 data 加键 `"system_snapshot": {digest, components, generation_ids} | null`（读 binding；owner-or-admin 语义不变） |
-| src/tianshu/models/edict_detail.py:94 +application/edict_detail.py:140-179 + web/src/api/edicts.ts:170（可选） | `EdictEvidenceDetailV1` 加 `system_snapshot_digest: str | None = None`；投影循环按 media_type 提取；前端镜像可选字段；gateway（edicts_api.py:582）model_dump 透传免改 |
+| src/tianshu/models/edict_detail.py:94 +application/edict_detail.py:140-179 + web/src/api/edicts.ts:170 | `EdictEvidenceDetailV1` 加 `system_snapshot_digest: str | None = None`；Evidence 中存在 system-snapshot media type 时，从对应 Memorial 的最后一条 binding 投影 `SystemSnapshotV1.digest`（不能误用包含 `generation_ids` 的 ArtifactRef digest）；前端镜像可选字段；gateway（edicts_api.py:582）model_dump 透传免改 |
 
 #### 数据迁移（V31 `0031_system_snapshots`，V18 严格模板）
 
 ```sql
 CREATE TABLE system_snapshots (
   snapshot_digest TEXT PRIMARY KEY
-      CHECK (length(snapshot_digest) = 64 AND snapshot_digest = lower(snapshot_digest)),
+      CHECK (length(snapshot_digest) = 64
+             AND snapshot_digest NOT GLOB '*[^0-9a-f]*'),
   schema_version  INTEGER NOT NULL CHECK (schema_version = 1),
   components_json TEXT NOT NULL
       CHECK (json_valid(components_json) AND json_type(components_json) = 'object'),
-  first_seen_at   TEXT NOT NULL
+  first_seen_at   TEXT NOT NULL CHECK (length(trim(first_seen_at)) > 0)
 );
 CREATE TABLE run_system_bindings (
   memorial_id         TEXT NOT NULL CHECK (length(trim(memorial_id)) BETWEEN 1 AND 256),
@@ -366,15 +367,17 @@ CREATE TABLE run_system_bindings (
   snapshot_digest     TEXT NOT NULL REFERENCES system_snapshots(snapshot_digest) ON DELETE RESTRICT,
   generation_ids_json TEXT NOT NULL DEFAULT '[]'
       CHECK (json_valid(generation_ids_json) AND json_type(generation_ids_json) = 'array'),
-  created_at          TEXT NOT NULL,
+  created_at          TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
   PRIMARY KEY (memorial_id, attempt_id)
 );
--- 触发器：system_snapshots_no_update / system_snapshots_no_delete；run_system_bindings_no_update。
+-- 触发器：system_snapshots_no_replace / no_update / no_delete；
+-- run_system_bindings_no_replace / no_update。no_replace 防 recursive_triggers=OFF 时
+-- INSERT OR REPLACE 绕过不可变约束。
 -- bindings 不建 no_delete、不建 memorials FK：与敕令删除清理路径对齐（V22 动机 migrations.py:3903-3915）；
 -- 不可变权威副本在 Evidence artifact（closed bundle 触发器冻结）。见 §7 决策 5。
 ```
 
-存量数据：不回填（存量 Memorial 无 binding，Evidence 侧跳过分流兜底）。另检查 tests/storage/test_migration_preserves_data.py:691 fresh-schema 断言是否需补新表（新表非 `_OWNED_TABLES`，预期无需，跑一遍确认）。
+存量数据：不回填（存量 Memorial 无 binding，Evidence 侧跳过分流兜底）。fresh-schema 与迁移前缀测试必须同步登记 V31：`test_migration_preserves_data.py` 的完整 ledger、post-baseline 表和不可变触发器集合，`test_mcp_secret_migration.py` 的完整 ledger，以及 `test_s4_s5_handoff.py` 的 live-tail 表集合；`test_evolution_migration_schema.py` 另建 V31 对象锁定段，不污染冻结的 V18 注册表。
 
 #### 兼容策略与开关
 
@@ -387,22 +390,22 @@ CREATE TABLE run_system_bindings (
 
 | 测试文件 | 断言 |
 |---|---|
-| tests/storage/test_durable_schema_v31.py（新） | `MIGRATIONS[:30]` 建库→哨兵 memorial→apply `MIGRATIONS[:31]`==(31,)→两表形状/FK/CHECK/触发器拒 UPDATE 与（snapshots 表）DELETE→前序 V1-V30 三元组冻结 |
+| tests/storage/test_durable_schema_v31.py（新） | `MIGRATIONS[:30]` 建库→哨兵 memorial→apply `MIGRATIONS[:31]`==(31,)→两表形状/FK/CHECK/五个不可变触发器拒 UPDATE/REPLACE 与（snapshots 表）DELETE、binding 普通 DELETE 仍允许→前序 V1-V30 三元组冻结 |
 | tests/storage/test_migration_callback_freeze.py（改） | 登记 `0031_system_snapshots` 指纹（先记 PROGRESS.md 裁决） |
 | tests/models/test_system_snapshot.py（新） | digest 自校验拒错值；非法 key/非 hex value/超上界拒；键序无关 digest 稳定 |
 | tests/evolution/test_system_snapshot_resolver.py（新） | 同进程两次 resolve digest 相同；改一个 SKILL.md 后 digest 变且**只有 skills 组件变**；改 provider 行后只有 provider_profiles 变；legacy 无 evolution_overlay key |
 | tests/universe/test_snapshot_binding.py（新） | binding 在 bind_runtime 的 UoW 内、yield 前落库并随事务原子回滚（复用 test_challenger_routing.py:754 回滚矩阵模式）；governed 与 legacy 两路都写；同 (memorial,attempt) 重复 bind 等值幂等/不等值冲突；resolver=None 零写入；**故障注入**：insert 抛错→run 照常执行 + 审计含 `system_snapshot_binding_failed`；两 attempt 不同 snapshot→两行 + drift 审计 |
 | tests/evidence/test_system_snapshot_artifact.py（新，基于 tests/evidence/_fixtures.seed_closed_run + 固定 clock） | 有 binding：artifact 进 required、close 成功、verify/export/import 泛型通过、篡改字节→artifact_invalid；无 binding：跳过且可关闭（对照 test_close_snapshot_immutable.py:132-160 legacy 先例）；open/close 两次重算 digest 一致 |
-| tests/gateway/test_run_snapshot_api.py（新，若投影随本 PR） | assignment 端点返回 system_snapshot；owner 404 语义不变 |
+| tests/gateway/test_evolution_view.py（改）+ tests/application/test_edict_detail_system_snapshot.py（新） | assignment 端点返回 system_snapshot 且 owner 404 语义不变；Edict 详情只在 artifact 存在时投影内容 digest |
 | 存量影响 | bind_runtime 新参 keyword-only 带默认——tests/universe/test_challenger_routing*.py、tests/application/test_run_dispatcher_lifecycle.py 现有调用不破（fake router 需接受 attempt_id）；tests/evidence/test_schema_contract.py 不红（未改模型）；test_s4_s5_handoff.py:41 布局断言按新尾更新 |
 
 #### 验收 checklist
 
-- [ ] V31 四件套齐；上表测试全绿；mypy / ruff / lint-imports 绿
-- [ ] 每个新受管 run 有 binding 行；Evidence 独立重算 snapshot 与 binding 等值
-- [ ] drift 只记不拒；同 memorial 两 attempt snapshot 不同 → 两行 + SystemAudit 一条
-- [ ] demo 栈手工：提交 edict → assignment 端点正常 → Evidence 下载含 system-snapshot artifact digest
-- [ ] 关 `TIANSHU_SYSTEM_SNAPSHOT_ENABLED` 后重跑全量，行为与主干一致
+- [x] V31 两张表与五个不可变/no-replace 触发器齐；上表测试全绿；mypy / ruff / lint-imports 绿
+- [x] 每个开启态新受管 attempt 有 binding 行；Evidence artifact 的 snapshot 与 binding 等值
+- [x] drift 只记不拒；同 memorial 两 attempt snapshot 不同 → 两行 + SystemAudit 一条
+- [x] 真实 Demo：提交 Edict → assignment、Edict 详情与 required Evidence artifact 三面摘要一致，artifact 字节摘要复核通过
+- [x] `TIANSHU_SYSTEM_SNAPSHOT_ENABLED=false` 独立 Demo 仍完成，assignment 字段为 null、Evidence 无该 artifact、两表计数均为 0；默认启用态全量 4806 passed / 2 skipped
 
 **回退方式**：开关置 0（运行时回退）或 revert PR（代码回退）；V31 两表无消费者时留存无害——迁移 append-only，不回滚迁移本身。
 
@@ -868,7 +871,7 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 | tests/architecture/test_evolution_composition.py:13-56 | wire 顺序与单 ChallengerRouter 断言保持；P1 resolver 晚绑定设计使其零改动；GenerationReconciler 换类用 alias 免改 | P1/P3 |
 | tests/architecture/test_no_direct_process_launch.py | `verify_pi_rpc_contract` 必须经 ExecutionGateway + grant；allowlist 不扩 | P3 |
 | import-linter（pyproject.toml:161-176） | P0 补层 `tianshu.application : tianshu.evolution : tianshu.evidence : tianshu.plugins`（过不了退逐条 forbidden 契约 + ADR 例外清单，P7 前清零）；不为改层而重排既有 import | P0 |
-| DB 级不变量 | system_snapshots / runtime_generation_journal 不可变触发器；`(scope) WHERE state='active'` 部分唯一索引；evolution_policies mode CHECK 无 'auto'；run_subject_assignments V22 同款条件 no_delete | P1/P3/P4 |
+| DB 级不变量 | system_snapshots 的 no_replace/no_update/no_delete 与 run_system_bindings 的 no_replace/no_update；runtime_generation_journal 不可变触发器；`(scope) WHERE state='active'` 部分唯一索引；evolution_policies mode CHECK 无 'auto'；run_subject_assignments V22 同款条件 no_delete | P1/P3/P4 |
 | 类型级不变量 | `automatic_promotion_allowed: Literal[False]` 不动；`HIGH_RISK_PROMOTION_KINDS` frozenset 地板；EvolutionPolicyV1.mode Literal 三值 | P4/P5 |
 | 迁移纪律 | 每条 V31–V35：checksum + callback 指纹 + PROGRESS.md 裁决 + per-version 切片测试 + 空库回放可通 +（V35）`_RESERVED_TEMP_TABLES`；版本连续性由 test_durable_schema_v14.py:64 自动锁 | 各阶段 |
 | tests/architecture/test_route_scope_coverage.py（Codex B1，并行轨） | 每条路由模板恰好被 `_public_route` 与 `route_policy` 之一认领、无 0 命中僵尸规则；**P4a/P5 新增端点前合入**，新路由不登记即红 | 并行轨 → P4a 前 |
@@ -878,17 +881,17 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 
 | 面 | 落点 | 阶段 |
 |---|---|---|
-| GET /api/evolution/runs/{memorial_id}/assignment | data 加 `system_snapshot: {digest, components, generation_ids} \| null`（evolution_api.py:56-95；`{data, correlation_id}` 信封） | P1（可选）→ P3 补 generation_ids |
+| GET /api/evolution/runs/{memorial_id}/assignment | data 加 `system_snapshot: {digest, components, generation_ids} \| null`（evolution_api.py:56-95；`{data, correlation_id}` 信封） | P1 → P3 填 generation_ids |
 | GET /api/keqing/status | backend 行加 `generation: {id, state, active_runs, last_good_id} \| null`（keqing_api.py:90-124）；gateway_enabled 恒 False 等断言不动；P5 drift 行加候选链接 | P3 / P5 |
 | GET /api/evolution（Evolution Center） | routing summary 加 `subject_key`；快照加 `active_generation`/`last_good_generation` 只读字段 | P4b / P6 |
 | GET/PUT /api/evolution/policies/{subject_key} | 新端点（admin scope、CAS、correlation_id 信封）；**不复活** plugins install/activate 501 | P4a |
-| Edict 详情 | `EdictEvidenceDetailV1` 加可选 `system_snapshot_digest`（models/edict_detail.py:94 → application/edict_detail.py:140-179 按 media_type 提取 → web/src/api/edicts.ts:170；gateway model_dump 透传免改） | P1 可选 |
+| Edict 详情 | `EdictEvidenceDetailV1` 加可选 `system_snapshot_digest`（models/edict_detail.py:94 → application/edict_detail.py:140-179 先按 media_type 确认 artifact 存在，再从同 Memorial 最后 binding 取内容 digest → web/src/api/edicts.ts:170；gateway model_dump 透传免改）。ArtifactRef digest 是 `snapshot + generation_ids` 整体字节摘要，不能冒充 SystemSnapshot 内容 digest | P1 |
 | 前端手写白名单三处 | web/src/api/evolution.ts:15 kind union、web/src/api/types.ts:440 KeqingBackendStatus、models/evolution_view.py:42——每个含枚举扩展的 PR 列入 checklist；`npm run typecheck` 单独跑 | P3/P4/P5 |
 | Web 天工院 | 每插件一行 enabled / pinned / evolution mode（消费 policy API）；KeqingManagementPage 加「代际」列 | P4b / P3 |
 | CLI | `tianshu serve --system-snapshot`（env 回灌）；`tianshu keqing status`（HTTP client，可选）；CLI 测试 `env -u FORCE_COLOR` | P6 / P5 |
 | e2e | 新 spec 按具名读契约注入模式（web/e2e/fixtures.ts helper）；复用 /evolution、/keqing 路由，CORE_ROUTES 不加新路由 | P3–P5 |
 | i18n | 三份 locale（en / zh-modern / zh-classic）同步；zh-classic「彩蛋」label 不动 | 各阶段 |
-| 新增端点契约纪律（Codex B5） | 本方案新增的每个端点（policies / assignment system_snapshot / keqing status generation / P5 候选投影）必须 `response_model=ApiResponse[XxxView]` + frozen View 模型；**不再新增裸 `response_model=ApiResponse`**。存量 117 处回填与 TS codegen 单开迭代（§8） | P1/P3/P4a/P5 |
+| 响应契约纪律（Codex B5） | 本方案新增端点必须 `response_model=ApiResponse[XxxView]` + frozen View 模型，**不再新增裸 `response_model=ApiResponse`**。assignment 是既有 `{data, correlation_id}` 端点，P1 为它补具名 frozen data/envelope response model 并保持线上 JSON 信封不变；不为满足新端点规则强加 `success` 字段。存量回填与 TS codegen 单开迭代（§8） | P1/P3/P4a/P5 |
 | 插件面 | install/activate 501 与 manifest_only 投影全程不动（tests/gateway/test_plugin_manifest_api.py）——本方案不打开任何动态加载 | 全程 |
 
 ### 4.3 可观测性

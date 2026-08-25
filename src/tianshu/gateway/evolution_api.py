@@ -21,7 +21,13 @@ from tianshu.evolution.promotion import (
     StartCanaryCommand,
 )
 from tianshu.gateway.auth import get_auth_context
+from tianshu.models.run_assignment import (
+    EffectiveEvolutionOverlayV1,
+    LegacyRunAssignmentV1,
+    RunAssignmentV1,
+)
 from tianshu.storage.evolution_repo import EvolutionRepository, EvolutionRepositoryConflict
+from tianshu.storage.system_snapshot_repo import SystemSnapshotRepository
 
 evolution_router = APIRouter(prefix="/evolution", tags=["evolution-center"])
 
@@ -30,6 +36,29 @@ class _EvaluateGateRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     expected_version: int = Field(ge=1)
+
+
+class RunSystemSnapshotViewV1(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    components: dict[str, str]
+    generation_ids: tuple[str, ...]
+
+
+class RunEvolutionAssignmentViewV1(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    assignment: RunAssignmentV1 | LegacyRunAssignmentV1
+    effective_overlay: EffectiveEvolutionOverlayV1 | None
+    system_snapshot: RunSystemSnapshotViewV1 | None
+
+
+class RunEvolutionAssignmentResponseV1(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    data: RunEvolutionAssignmentViewV1
+    correlation_id: str
 
 
 @evolution_router.get("")
@@ -53,8 +82,14 @@ def get_evolution_center(request: Request) -> dict[str, object]:
     }
 
 
-@evolution_router.get("/runs/{memorial_id}/assignment")
-def get_run_evolution_assignment(memorial_id: str, request: Request) -> dict[str, object]:
+@evolution_router.get(
+    "/runs/{memorial_id}/assignment",
+    response_model=RunEvolutionAssignmentResponseV1,
+)
+def get_run_evolution_assignment(
+    memorial_id: str,
+    request: Request,
+) -> RunEvolutionAssignmentResponseV1:
     context = get_auth_context(request)
     storage = request.app.state.storage
     with storage.unit_of_work() as unit_of_work:
@@ -85,14 +120,24 @@ def get_run_evolution_assignment(memorial_id: str, request: Request) -> dict[str
                 },
             )
         assignment, overlay = loaded
+        binding = SystemSnapshotRepository().get_last_binding(connection, memorial_id)
         unit_of_work.commit()
-    return {
-        "data": {
-            "assignment": assignment.model_dump(mode="json"),
-            "effective_overlay": overlay.model_dump(mode="json") if overlay is not None else None,
-        },
-        "correlation_id": context.correlation_id,
-    }
+    return RunEvolutionAssignmentResponseV1(
+        data=RunEvolutionAssignmentViewV1(
+            assignment=assignment,
+            effective_overlay=overlay,
+            system_snapshot=(
+                RunSystemSnapshotViewV1(
+                    digest=binding.snapshot.digest,
+                    components=binding.snapshot.components,
+                    generation_ids=binding.generation_ids,
+                )
+                if binding is not None
+                else None
+            ),
+        ),
+        correlation_id=context.correlation_id,
+    )
 
 
 @evolution_router.get("/candidates/{candidate_id}")

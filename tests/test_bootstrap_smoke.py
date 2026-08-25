@@ -58,6 +58,7 @@ NON_NULLABLE_STATE_KEYS = [
     "planner",
     "scheduler",
     "plugin_api",
+    "system_snapshot_resolver",
     "profile_synthesizer",
     "profile_trigger",
     "skill_curator",
@@ -123,6 +124,25 @@ class TestBootstrapSmoke:
             is booted_app.state.code_sandbox.context_factory
             is booted_app.state.universe_execution_context_factory
         )
+
+    async def test_system_snapshot_resolver_is_late_bound_after_router_wiring(self, booted_app):
+        assert (
+            booted_app.state.challenger_router._snapshot_resolver()
+            is booted_app.state.system_snapshot_resolver
+        )
+
+    async def test_system_snapshot_can_be_disabled_for_the_full_lifespan(self):
+        app = create_app(
+            TianshuSettings(
+                _env_file=None,
+                system_snapshot_enabled=False,
+                system_snapshot_strict=False,
+            )
+        )
+
+        async with lifespan(app):
+            assert app.state.system_snapshot_resolver is None
+            assert app.state.challenger_router._snapshot_resolver() is None
 
     async def test_lifespan_closes_drawer_store(self):
         # 不复用 booted_app fixture：需要在 lifespan 退出*之后*断言 close 是否

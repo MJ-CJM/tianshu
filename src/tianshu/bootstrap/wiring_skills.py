@@ -125,6 +125,7 @@ def wire_evolution_services(
         allocation_secret=settings.evolution_routing_secret.encode() or None,
         bucket_calculator=_routing_bucket_calculator(settings.startup_profile),
         payload_resolver=candidates.resolve_effective_payload_current,
+        snapshot_resolver=lambda: getattr(app.state, "system_snapshot_resolver", None),
     )
     app.state.challenger_router = challenger_router
     app.state.edict_application_service = EdictApplicationService(

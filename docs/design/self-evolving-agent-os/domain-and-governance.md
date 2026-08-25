@@ -1,6 +1,6 @@
 # 目标领域模型与治理契约
 
-> **Status: Proposed。**
+> **Status: Target model；P1 已落地 SystemSnapshot 影子归因子集。**
 > `SystemSnapshot`（典制）、`RuntimeGeneration`（朝）和 `EvolutionPolicy`（进化策略）已进入
 > `CONTEXT.md` 与 ADR；下表其余状态描述代码实现成熟度，不以术语已接受反推能力已实现。
 
@@ -19,8 +19,8 @@
 | `AgentDeployment` | 期望 SystemSnapshot、rollout 策略及 observed/active/last-good 状态 | Proposed |
 | `RuntimeGeneration` | SystemSnapshot 在具体 Host 上 materialize 后的运行实例；ID 非内容摘要 | Canonical 术语；P3 实现 Proposed |
 | `PluginInstance` | RuntimeGeneration 内一个 PluginRelease 的实际实例 | Proposed |
-| `SystemSnapshot` | 完整有效运行配置的不可变身份 | Canonical 术语；P1 实现 Proposed |
-| `ExecutionAssignment` | Memorial 与 SystemSnapshot、generation、实验选择的不可变绑定 | Proposed |
+| `SystemSnapshot` | 完整有效运行配置的不可变身份 | Shadow/Partial：P1 已实现组件摘要、内容寻址存储与 Evidence 归因；尚无完整依赖闭包、prompt 摘要和 generation 激活 |
+| `ExecutionAssignment` | Memorial 与 SystemSnapshot、generation、实验选择的不可变绑定 | Partial：P1 仅以 `run_system_bindings` 追加 snapshot 关联事实，不改既有 `RunAssignmentV1`；generation 留待 P3 |
 | `EvolutionCandidate` | 精确基线上的候选变化、来源、Gate、Evidence 和生命周期 | Current/Partial |
 | `EvaluationCampaign` | 版本化数据集、Evaluator、对照组、预算和评测结果的组合 | Proposed |
 | `Universe` | 实验分支、谱系和评估容器，不拥有生产 active pointer | Legacy/Partial |
@@ -31,9 +31,12 @@
 
 | 代码承载 | 吸收的目标语义 | 首期形态 |
 |---|---|---|
-| `SystemSnapshotV1` | `SystemSnapshot`、`PluginSetSnapshot`，以及作为 components 条目的 `PluginRelease` 身份 | frozen 内容摘要模型 + `system_snapshots` |
+| `SystemSnapshotV1` | `SystemSnapshot`、`PluginSetSnapshot`，以及作为 components 条目的 `PluginRelease` 身份 | P1 Current/Shadow：frozen 内容摘要模型 + `system_snapshots`；当前 components 是最小语义投影，不等于完整 PluginSet 依赖锁 |
 | `RuntimeGenerationV1` | `RuntimeGeneration`、`PluginInstance`，以及 active/last-good 运行指针 | executor/process scope 的代际记录 |
 | `run_system_bindings` | `ExecutionAssignment` 中 SystemSnapshot 与 generation 的关联事实 | 每 `(memorial_id, attempt_id)` insert-once；现有 `RunAssignmentV1` 不改 |
+
+P1 的 `run_system_bindings` 按 `(memorial_id, attempt_id)` insert-once，并把同一典制作为 required
+Evidence artifact 保存；影子写失败只审计、不阻断运行，严格翻转留到 P6。
 
 `Artifact` 继续复用现有 `ArtifactRefV1`/`ArtifactStore`；`Capability`、`Contribution` 先作为注册表
 契约；`EvolutionPolicy` 到 per-subject 阶段才落表。`PluginSetSpec`、独立

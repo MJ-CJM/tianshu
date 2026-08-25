@@ -238,6 +238,7 @@ async def lifespan(app: FastAPI):
         bootstrap.wire_scheduling(app, settings)
         bootstrap.wire_plugins(app, settings)
         bootstrap.wire_hook_registrations(app, settings)
+        bootstrap.wire_system_snapshot(app, settings)
         bootstrap.wire_profile(app, settings)
         bootstrap.wire_skill_curator(app, settings)
         skills_watcher = bootstrap.wire_skills_watcher(app, settings)

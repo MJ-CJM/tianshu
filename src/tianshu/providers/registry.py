@@ -16,8 +16,10 @@ from __future__ import annotations
 import logging
 import os
 import re
+from dataclasses import asdict
 from typing import TYPE_CHECKING
 
+from tianshu.models.canonical import canonical_sha256
 from tianshu.providers.model_catalog import CatalogModel, ModelCatalog
 from tianshu.providers.profiles import (
     BUILTIN_PROFILES,
@@ -57,6 +59,31 @@ class ModelProviderRegistry:
 
     def profile_for(self, row: dict) -> ProviderProfile:
         return get_profile(row.get("profile_id", "")) or custom_profile()
+
+    def content_digest(self) -> str:
+        """Return a secret-free semantic digest of profiles and provider rows."""
+
+        profiles: list[dict[str, object]] = []
+        for profile in sorted(BUILTIN_PROFILES, key=lambda item: item.id):
+            projected = asdict(profile)
+            projected["aliases"] = list(profile.aliases)
+            profiles.append(projected)
+
+        providers = [
+            {
+                "api_key_ref": row.get("api_key_ref", ""),
+                "base_url": row.get("base_url", ""),
+                "display_name": row.get("display_name", ""),
+                "enabled": bool(row.get("enabled", 1)),
+                "id": row["id"],
+                "profile_id": row["profile_id"],
+            }
+            for row in sorted(
+                self._storage.list_model_providers(),
+                key=lambda item: str(item["id"]),
+            )
+        ]
+        return canonical_sha256({"profiles": profiles, "providers": providers})
 
     # --- provider CRUD ---
 

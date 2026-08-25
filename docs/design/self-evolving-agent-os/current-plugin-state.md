@@ -85,7 +85,34 @@ Web 只展示“仅清单”和发现时间，不把数据库中的历史 `activ
 contribution owner、统一 disposer、generation、依赖闭包与单插件逆序卸载语义。因此仍不能
 把这些 `register_*` 方法描述成目标态 PluginHost。
 
-## 5. 为什么当前不开自动加载
+## 5. P1 典制影子归因
+
+P1 在不打开动态插件加载的前提下，新增了 `SystemSnapshotV1`（典制）的内容身份和影子绑定。
+它解决的是“这次运行实际看到了哪些系统内容”，不是“如何安装或热替换第三方插件”。
+
+| 组件键 | P1 的实际内容投影 |
+|---|---|
+| `kernel` | 天枢版本与共享 dependency-lock 标记 |
+| `executor:<adapter_id>` | 当前注册表中每个执行器 manifest 的内容摘要 |
+| `skills` | 各搜索层的 `SKILL.md`、`scripts/references/assets/templates` 资源及受信任源码注入的 Skill 内容 |
+| `personas` | 当前在编 Persona 的语义字段及其 runtime `SOUL.md` / `ROLE.md` 内容 |
+| `policy_rules` | 内建规则 id 与 priority 的确定性投影 |
+| `provider_profiles` | 内建 Profile 与持久 Provider 的无明文密钥、无时间戳语义投影 |
+| `evolution_overlay` | 仅 governed assignment 存在；legacy assignment 明确省略 |
+| `prompts` | schema 已预留，本阶段不填 |
+
+V31 `0031_system_snapshots` 用不可更新、不可删除、不可 replace 的内容寻址表保存典制，
+`run_system_bindings` 按 `(memorial_id, attempt_id)` insert-once 记录运行事实。成功绑定会在
+Evidence 中增加 `application/vnd.tianshu.system-snapshot.v1+json` required artifact；assignment
+只读 API 和 Edict 详情可以投影同一内容摘要。
+
+这一阶段仍是 **shadow / 影子模式**：默认开关只控制是否写入，解析或持久化失败会尽力写入
+SystemAudit 与 durable outbox，但不改变任务结果；`system_snapshot_strict` 只登记配置，严格
+拒绝语义留到 P6。它也不等于完整运行内容已经全部可归因：dependency-lock 目前仍是零值占位，
+policy 只覆盖 id/priority，prompt key 尚未填充；更没有 RuntimeGeneration、动态加载、第三方
+依赖闭包、Canary 切换或热卸载。
+
+## 6. 为什么当前不开自动加载
 
 执行第三方入口前至少需要完成：
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import re
@@ -134,6 +135,7 @@ class SkillsLoader:
         # L2: File stat snapshot for list_all_metadata() — {path: (mtime_ns, size)}
         self._l2_stats: dict[str, tuple[int, int]] = {}
         self._l2_metadata: list[dict] | None = None
+        self._content_digest_cache: str | None = None
 
     @property
     def user_dir(self) -> Path | None:
@@ -171,7 +173,61 @@ class SkillsLoader:
         self._l1_cache.clear()
         self._l2_stats.clear()
         self._l2_metadata = None
+        self._content_digest_cache = None
         logger.debug("Skills cache invalidated")
+
+    def content_digest(self) -> str:
+        """Return the canonical digest of disk and PluginApi skill content."""
+
+        if self._content_digest_cache is not None:
+            return self._content_digest_cache
+
+        from tianshu.models.canonical import canonical_sha256
+
+        members: dict[str, str] = {}
+        layer = 0
+        for base, source in self._search_dirs():
+            if not base.is_dir():
+                continue
+            candidates = sorted(base.iterdir())[:_MAX_CANDIDATES_PER_DIR]
+            skill_entries = [
+                entry
+                for entry in candidates
+                if entry.is_dir()
+                and _is_canonical_discovered_skill_name(entry.name)
+                and (entry / "SKILL.md").is_file()
+            ]
+            if not skill_entries:
+                continue
+            for entry in skill_entries:
+                skill_file = entry / "SKILL.md"
+                logical_root = f"layer:{layer}:{source}/{entry.name}"
+                members[f"{logical_root}/SKILL.md"] = hashlib.sha256(
+                    skill_file.read_bytes()
+                ).hexdigest()
+                for resource_name in _SKILL_RESOURCE_DIRS:
+                    resource_dir = entry / resource_name
+                    if not resource_dir.is_dir():
+                        continue
+                    resource_files = sorted(
+                        (path for path in resource_dir.rglob("*") if path.is_file()),
+                        key=lambda path: path.relative_to(entry).as_posix(),
+                    )
+                    for resource_file in resource_files:
+                        relative = resource_file.relative_to(entry).as_posix()
+                        members[f"{logical_root}/{relative}"] = hashlib.sha256(
+                            resource_file.read_bytes()
+                        ).hexdigest()
+            layer += 1
+
+        if hasattr(self, "_injected_skills"):
+            for name, content in sorted(self._injected_skills.items()):
+                members[f"injected/{name}/SKILL.md"] = hashlib.sha256(
+                    content.encode("utf-8")
+                ).hexdigest()
+
+        self._content_digest_cache = canonical_sha256(members)
+        return self._content_digest_cache
 
     def load_index(
         self,
@@ -279,6 +335,7 @@ class SkillsLoader:
         if not hasattr(self, "_injected_skills"):
             self._injected_skills: dict[str, str] = {}
         self._injected_skills[name] = content
+        self._content_digest_cache = None
 
     def load_all(self, filter_names: list[str] | None = None) -> str:
         filter_set = _validated_filter_names(filter_names)
@@ -617,6 +674,7 @@ class SkillsLoader:
                 _atomic_write(skill_file, content)
             self._l1_cache.pop(name, None)
             self._l2_metadata = None
+            self._content_digest_cache = None
             return self.get_skill(name)  # type: ignore[return-value]
         for base, source in self._search_dirs():
             skill_file = base / name / "SKILL.md"
@@ -636,6 +694,7 @@ class SkillsLoader:
                 # Invalidate caches for this skill
                 self._l1_cache.pop(name, None)
                 self._l2_metadata = None
+                self._content_digest_cache = None
                 return self.get_skill(name)  # type: ignore[return-value]
         raise FileNotFoundError(f"Skill '{name}' not found")
 
@@ -659,6 +718,7 @@ class SkillsLoader:
         skill_file = self._validate_overlay_write_path(skill_dir / "SKILL.md")
         _atomic_write(skill_file, content)
         self._l2_metadata = None  # Invalidate metadata cache
+        self._content_digest_cache = None
         return self.get_skill(name)  # type: ignore[return-value]
 
     def _resolve_skill_resource(self, name: str, rel_path: str) -> Path:
@@ -708,6 +768,7 @@ class SkillsLoader:
         _atomic_write(target, content)
         self._l1_cache.pop(name, None)
         self._l2_metadata = None
+        self._content_digest_cache = None
         return {"name": name, "file": rel_path, "bytes": len(content.encode("utf-8"))}
 
     def remove_skill_file(self, name: str, rel_path: str) -> bool:
@@ -718,6 +779,7 @@ class SkillsLoader:
             target.unlink()
             self._l1_cache.pop(name, None)
             self._l2_metadata = None
+            self._content_digest_cache = None
             return True
         return False
 
@@ -733,6 +795,7 @@ class SkillsLoader:
                 _shutil.rmtree(skill_dir)
                 self._l1_cache.pop(name, None)
                 self._l2_metadata = None
+                self._content_digest_cache = None
                 return True
         return False
 
@@ -789,6 +852,7 @@ class SkillsLoader:
                 shutil.move(str(skill_dir), str(target))
                 self._l1_cache.pop(name, None)
                 self._l2_metadata = None
+                self._content_digest_cache = None
                 logger.info("Archived skill '%s' → %s", name, target)
                 return True
         return False
@@ -807,6 +871,7 @@ class SkillsLoader:
                 self._validate_overlay_write_path(target)
                 shutil.move(str(src), str(target))
                 self._l2_metadata = None
+                self._content_digest_cache = None
                 logger.info("Restored skill '%s' from archive", name)
                 return True
         return False
@@ -831,7 +896,18 @@ class SkillsWatcher:
 
         class _Handler(FileSystemEventHandler):
             def on_any_event(self, event):
-                if event.src_path.endswith("SKILL.md"):
+                paths = (
+                    getattr(event, "src_path", ""),
+                    getattr(event, "dest_path", ""),
+                )
+                if any(
+                    path
+                    and (
+                        Path(path).name == "SKILL.md"
+                        or any(part in _SKILL_RESOURCE_DIRS for part in Path(path).parts)
+                    )
+                    for path in paths
+                ):
                     watcher._schedule_reload()
 
         self._observer = Observer()

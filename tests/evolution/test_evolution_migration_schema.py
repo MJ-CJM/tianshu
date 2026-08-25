@@ -27,6 +27,8 @@ from tianshu.storage.migrations import (
     _EVOLUTION_CANDIDATE_OBJECT_NAMES,
     _EVOLUTION_CANDIDATE_STATEMENTS,
     _LEGACY_ASSIGNMENT_CLEANUP_STATEMENTS,
+    _SYSTEM_SNAPSHOTS_OBJECT_NAMES,
+    _SYSTEM_SNAPSHOTS_STATEMENTS,
     MIGRATIONS,
 )
 
@@ -228,6 +230,38 @@ _V18_UNIQUE_COLUMN_SETS = {
     "evolution_routing_allocations": {("candidate_id",)},
     "run_evolution_assignments": {("assignment_id",), ("memorial_id",)},
 }
+
+
+def test_v31_system_snapshot_objects_are_exact_and_separate_from_v18(
+    connection: sqlite3.Connection,
+) -> None:
+    assert _SYSTEM_SNAPSHOTS_OBJECT_NAMES == (
+        "system_snapshots",
+        "run_system_bindings",
+        "system_snapshots_no_replace",
+        "system_snapshots_no_update",
+        "system_snapshots_no_delete",
+        "run_system_bindings_no_replace",
+        "run_system_bindings_no_update",
+    )
+    assert set(_SYSTEM_SNAPSHOTS_OBJECT_NAMES).isdisjoint(_EVOLUTION_CANDIDATE_OBJECT_NAMES)
+    expected = {
+        name: " ".join(statement.split())
+        for name, statement in zip(
+            _SYSTEM_SNAPSHOTS_OBJECT_NAMES,
+            _SYSTEM_SNAPSHOTS_STATEMENTS,
+            strict=True,
+        )
+    }
+    placeholders = ",".join("?" for _ in _SYSTEM_SNAPSHOTS_OBJECT_NAMES)
+    actual = {
+        str(row["name"]): " ".join(str(row["sql"]).split())
+        for row in connection.execute(
+            f"SELECT name, sql FROM sqlite_master WHERE name IN ({placeholders})",
+            _SYSTEM_SNAPSHOTS_OBJECT_NAMES,
+        ).fetchall()
+    }
+    assert actual == expected
 
 
 @pytest.fixture

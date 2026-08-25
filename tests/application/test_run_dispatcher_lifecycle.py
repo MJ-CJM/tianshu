@@ -27,8 +27,8 @@ _NOW = datetime(2026, 7, 15, 8, tzinfo=UTC)
 
 class _PassthroughRouter:
     @contextmanager
-    def bind_runtime(self, memorial_id: str):
-        del memorial_id
+    def bind_runtime(self, memorial_id: str, *, attempt_id: str | None = None):
+        del memorial_id, attempt_id
         yield None
 
 
@@ -90,8 +90,8 @@ async def test_runtime_bind_failure_completes_claimed_attempt_and_cleans_project
 ) -> None:
     class FailingRouter:
         @contextmanager
-        def bind_runtime(self, memorial_id: str):
-            del memorial_id
+        def bind_runtime(self, memorial_id: str, *, attempt_id: str | None = None):
+            del memorial_id, attempt_id
             raise error
             yield  # pragma: no cover
 
@@ -246,15 +246,15 @@ async def test_runner_executes_inside_existing_assignment_runtime_scope() -> Non
 
     class BindingRouter:
         @contextmanager
-        def bind_runtime(self, memorial_id: str):
-            events.append(f"enter:{memorial_id}")
+        def bind_runtime(self, memorial_id: str, *, attempt_id: str | None = None):
+            events.append(f"enter:{memorial_id}:{attempt_id}")
             try:
                 yield
             finally:
-                events.append(f"exit:{memorial_id}")
+                events.append(f"exit:{memorial_id}:{attempt_id}")
 
     async def runner(authority: AttemptAuthority) -> AttemptRunResult:
-        assert events == [f"enter:{authority.memorial_id}"]
+        assert events == [f"enter:{authority.memorial_id}:{authority.attempt_id}"]
         return AttemptRunResult(disposition=AttemptDisposition.SUCCEEDED)
 
     authority = AttemptAuthority(
@@ -273,7 +273,10 @@ async def test_runner_executes_inside_existing_assignment_runtime_scope() -> Non
 
     await dispatcher._execute(authority)  # noqa: SLF001
 
-    assert events == ["enter:memorial-overlay", "exit:memorial-overlay"]
+    assert events == [
+        "enter:memorial-overlay:attempt-overlay",
+        "exit:memorial-overlay:attempt-overlay",
+    ]
 
 
 def test_heartbeat_interval_must_be_below_lease_deadline() -> None:

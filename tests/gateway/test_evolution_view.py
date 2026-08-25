@@ -13,9 +13,13 @@ from pydantic import ValidationError
 from tianshu.app import create_app
 from tianshu.config import TianshuSettings
 from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
+from tianshu.gateway.evolution_api import RunEvolutionAssignmentResponseV1
 from tianshu.models import Edict, Memorial
+from tianshu.models.canonical import canonical_sha256
 from tianshu.models.principal import Principal, PrincipalKind
+from tianshu.models.system_snapshot import SystemSnapshotV1
 from tianshu.storage import Storage
+from tianshu.storage.system_snapshot_repo import SystemSnapshotRepository
 from tianshu.universe.router import ChallengerRouter
 
 TOKEN = "evolution-view-bootstrap-token"
@@ -369,6 +373,19 @@ def test_assignment_endpoint_is_owner_scoped_and_disclosure_safe(tmp_path) -> No
         storage.save_memorial(other_memorial)
         assignment = ChallengerRouter(storage).assign(owner_memorial.id)
         ChallengerRouter(storage).assign(other_memorial.id)
+        snapshot_components = {"kernel": HASH_A}
+        system_snapshot = SystemSnapshotV1(
+            components=snapshot_components,
+            digest=canonical_sha256(snapshot_components),
+        )
+        with storage.unit_of_work() as unit_of_work:
+            SystemSnapshotRepository().insert_binding(
+                unit_of_work.connection,
+                memorial_id=owner_memorial.id,
+                attempt_id="attempt-owner",
+                snapshot=system_snapshot,
+            )
+            unit_of_work.commit()
 
         owner_token = app.state.auth_service.issue_pat(
             Principal(
@@ -411,13 +428,23 @@ def test_assignment_endpoint_is_owner_scoped_and_disclosure_safe(tmp_path) -> No
         assert owner.status_code == 200
         assert owner.json()["data"]["assignment"] == assignment.model_dump(mode="json")
         assert owner.json()["data"]["effective_overlay"] is None
+        assert owner.json()["data"]["system_snapshot"] == {
+            "digest": system_snapshot.digest,
+            "components": snapshot_components,
+            "generation_ids": [],
+        }
         assert "secret" not in owner.text.lower()
         assert "host_path" not in owner.text
         assert outsider.status_code == 404
         assert outsider.json()["detail"]["code"] == "run_assignment_not_found"
         assert admin.status_code == 200
+        assert admin.json()["data"]["system_snapshot"] is None
         assert admin_missing.status_code == 404
         assert admin_missing.json()["detail"]["code"] == outsider.json()["detail"]["code"]
+        route_schema = app.openapi()["paths"]["/api/evolution/runs/{memorial_id}/assignment"][
+            "get"
+        ]["responses"]["200"]["content"]["application/json"]["schema"]
+        assert route_schema["$ref"].endswith(RunEvolutionAssignmentResponseV1.__name__)
     finally:
         storage.close()
 
