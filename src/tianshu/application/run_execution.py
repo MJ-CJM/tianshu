@@ -216,6 +216,15 @@ def _authority_key(authority: AttemptAuthority) -> tuple[str, str, int]:
 
 
 def _redacted_failure(exc: Exception) -> RedactedError:
+    from tianshu.executor.adapters import ExecutorGenerationUnavailable
+
+    if isinstance(exc, ExecutorGenerationUnavailable):
+        return RedactedError(
+            code="generation_retired",
+            message="Pinned runtime generation is unavailable",
+            retryable=False,
+            details_hash=None,
+        )
     digest = hashlib.sha256(type(exc).__name__.encode()).hexdigest()
     retryable = isinstance(exc, (ConnectionError, TimeoutError))
     return RedactedError(

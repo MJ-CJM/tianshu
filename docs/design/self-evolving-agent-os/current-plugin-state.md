@@ -12,6 +12,10 @@ P2 新增的是另一条独立能力：**已经由受信任源码实例化的进
 通过 handle 安全释放。它没有改变 manifest catalog 的边界，也没有把第三方插件变成可安装、
 可激活或可执行。
 
+P3 又新增一条窄的运行面切片：`keqing:pi` 可以由内部 controller 按不可变 release 执行
+stage → warm → activate → drain，并让运行中的 attempt 固定到同一代。它验证了代际机械，
+但没有开放 stage/activate API 或 CLI，也没有把这一能力泛化成第三方 PluginHost。
+
 本页合并原 `docs/design/plugins/` 与 `docs/impl/plugins/` 的内容，作为本报告目录中的唯一
 插件现状说明。用户开发示例仍在 [扩展开发指南](../../usage/extension-guide.md)，但当前/目标
 能力边界以本目录为准。
@@ -32,6 +36,9 @@ P2 新增的是另一条独立能力：**已经由受信任源码实例化的进
 | owner 整体释放 | 可用 | `dispose_owner(owner)` 按注册逆序释放，返回 `(disposed, skipped_stale)` |
 | stale 身份保护 | 可用 | 旧 handle 不会摘除后来注册的同名对象，并尽力写 `contribution_dispose_stale` |
 | MCP session 工具清理 | 可用 | 重新发现、断连、重连与 shutdown 都撤回当前 session 的旧工具集合 |
+| Pi 不可变 release / runtime generation | 内部可用 | 单发与 session adapter 同代物化；stage/warm/activate/rollback/recover 仅由内部组合根调用 |
+| attempt 代际固定与 continuity | 内部可用 | exact attempt 租约、follow-up/基础设施重试/DAG root 继承；周期任务每次 fresh root 取当时 active |
+| 代际生产写入口 | 不支持 | P3 不提供 HTTP/CLI，也不接 Candidate/Promotion；P5 才引入治理授权入口 |
 
 单个清单解析失败只记录 WARNING 并跳过，不影响主服务启动。这里的 fail-soft 仅适用于无副
 作用的元数据发现；代码加载继续 fail closed。
@@ -105,10 +112,10 @@ PluginApi 的 owner/current-handle 记账，释放结果照实透传底层——
 - Policy、Decision 和凭据边界；
 - 失败、关闭和测试责任。
 
-P2 已补齐 Tool / Channel / Skill 的注销原语和六类贡献的 owner/disposer；
-`ExecutorAdapterRegistry` 仍不进入这套机制，它要在 P3 通过 RuntimeGeneration 处理
-stage/warm/activate/drain。当前也仍无依赖闭包、隔离、健康探针和第三方 entry-point
-生命周期，因此不能把这些 `register_*` 方法描述成目标态 PluginHost。
+P2 已补齐 Tool / Channel / Skill 的注销原语和六类贡献的 owner/disposer；P3 则为
+`ExecutorAdapterRegistry` 增加了 generation-owned bundle、exact-attempt lease 与同锁 selection，
+但只服务 `keqing:pi` 的内部代际切片。当前仍无第三方依赖闭包、隔离和 entry-point 生命周期，
+因此不能把这些 `register_*` 方法或 Pi 代际描述成目标态 PluginHost。
 
 ### 4.1 MCP session 生命周期
 
@@ -141,11 +148,57 @@ Evidence 中增加 `application/vnd.tianshu.system-snapshot.v1+json` required ar
 这一阶段仍是 **shadow / 影子模式**：默认开关只控制是否写入，解析或持久化失败会尽力写入
 SystemAudit 与 durable outbox，但不改变任务结果；`system_snapshot_strict` 只登记配置，严格
 拒绝语义留到 P6。它也不等于完整运行内容已经全部可归因：dependency-lock 目前仍是零值占位，
-policy 只覆盖 id/priority，prompt key 尚未填充；更没有 RuntimeGeneration、动态加载、第三方
-依赖闭包、Canary 切换或第三方插件级热替换。P2 只完成受信任进程内贡献的确定性清理，
-没有把贡献接入 Candidate → Generation → Canary → Promotion。
+policy 只覆盖 id/priority，prompt key 尚未填充。P3 已让非空 generation tuple 在绑定与执行面
+fail closed，但 P1 的典制写入本身仍是影子模式；系统仍没有动态加载、第三方依赖闭包、
+Canary 切换或第三方插件级热替换。P2 的受信任 contribution 也尚未接入
+Candidate → Generation → Canary → Promotion。
 
-## 6. 为什么当前不开自动加载
+## 6. P3 Pi 运行代际的准确边界
+
+V32 `0032_runtime_generations` 共增加五张表：不可变 release、运行代、不可变 journal、
+active/last-good pointer，以及独立 insert-once 的 `run_generation_bindings`。
+`PiReleaseMaterializer` 从持久化的绝对 binary path、完整受管 package、
+版本与来源、binary/package digest、manifest、argv shape、wire version 和 materializer 版本重建
+同一份单发/session bundle；恢复时不会重新 `which()` 后静默换用另一份 Pi。
+
+内部 `GenerationController` 负责 stage、warm、activate、rollback 和 recover：外部 probe 与材料
+校验不占用 SQLite 写事务；active 切换、旧代 draining 和 pointer CAS 在同一事务内完成。
+warm、activate、rollback、重启恢复和每次 pinned Pi 执行都会复核材料。commit 后 registry 发布
+若短暂失败，会按 durable truth 严格核对 identity 后收敛；身份漂移、仍有 lease 或持续发布失败
+不会被伪装成 ready。这里证明的是数据库状态切换的原子性与检查到的材料一致性；材料复验发生
+在 SQLite CAS 事务之外，不能宣称对可并发改写同一路径的同 UID hostile writer 存在
+“verify 与 CAS 不可分割”的原子保证。宿主目录与同 UID 写权限仍属于部署信任边界。
+
+Router 在第一个受管副作用前把每个新 attempt 的实际 generation 选择写入
+`run_generation_bindings`；即使选择为空也显式写 `bound []`。这是 P3 的 exact-attempt 代际权威。
+snapshot 启用时还可写 `run_system_bindings` shadow；它只作为典制归因与 V31 历史 fallback，
+两者同在时 generation ids 必须一致。snapshot 关闭时 `run_system_bindings` 为零行，但新的
+attempt marker 仍存在。同 Memorial 的新 attempt、follow-up 和 DAG root/child 保持 continuity；
+cron/interval 每次触发由 scheduler 创建无 parent 的 fresh root，并在推进调度 cursor 的同一事务内
+预绑定触发时 active，因此不会继承上一次 fire。每个 OPEN Edict 仍保留最新 root binding，目的只是
+封住完成后到潜在 follow-up 创建之间的 continuity gap；下一次周期 fire 会以自己的新 binding 取代它。
+进程内 registry 只按 exact attempt id 记 lease，唯一释放点是 dispatcher 的 `finally`。
+已固定代若 failed/disposed、材料不可读或内容漂移，运行以 `generation_retired` 失败，并在当前
+fence 完成成功后追加脱敏 SystemAudit 与 durable outbox。
+
+`GenerationReconciler` 只回收既非 active/last-good、又没有 exact-attempt 或 OPEN Edict 最新 root
+continuity 引用的 draining 代；启动只物化 durable retained roots，遗留 pre-active 记录按 P3
+规则失败化。它以同锁原子 `(ready,error_codes)` 快照参与 `/health/ready`：活动代或仍被 continuity
+引用的旧代材料缺失/不匹配、journal 断链与探针异常是 required failure（HTTP 503）；只有无引用
+draining/terminal bundle 待清理是 optional degraded（HTTP 200）。全新数据库没有 pointer 时继续走
+原 static adapter，live/demo 行为不变，状态页的 generation 为 `null`。
+
+V32 升级对既有 attempt 做三分回填：已有 `run_system_bindings` 就复制其 generation ids；能由
+governance contract/runtime override 证明为非 Pi 就写 `bound []`；无法可靠还原历史 Pi 选择则写
+`unresolved`。后者不会猜测 active，也不会静默退回 static；continuity/retention 读取会失败关闭。
+
+这套能力当前**不包含**：自动下载/升级 Pi、公开 stage/activate 接口、Candidate/Canary/Promotion、
+任意第三方 package、进程内 Python contribution 热替换，以及 Tool/Hook/Provider 等 built-in
+对象的多代并存。P5 引入 canary READY 代后，还必须持久化精确
+`candidate_id → generation_id` 授权映射并把有效映射纳入 retention root；只有带合法 canary
+authority 的 READY 才能在重启后重建，无映射、映射歧义或候选已终止的 READY 仍应失败化。
+
+## 7. 为什么当前不开自动加载
 
 执行第三方入口前至少需要完成：
 

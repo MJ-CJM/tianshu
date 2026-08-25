@@ -1,0 +1,89 @@
+{
+  "$defs": {
+    "RuntimeGenerationState": {
+      "description": "Durable states for one materialized runtime generation.",
+      "enum": [
+        "staged",
+        "warming",
+        "ready",
+        "active",
+        "draining",
+        "disposed",
+        "failed"
+      ],
+      "title": "RuntimeGenerationState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One durable runtime instance pinned to an immutable release.",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "generation_id": {
+      "pattern": "^rg-[0-9a-f]{32}$",
+      "title": "Generation Id",
+      "type": "string"
+    },
+    "scope": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Scope",
+      "type": "string"
+    },
+    "release_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Release Digest",
+      "type": "string"
+    },
+    "state": {
+      "$ref": "#/$defs/RuntimeGenerationState"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "activated_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Activated At"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "generation_id",
+    "scope",
+    "release_digest",
+    "state",
+    "version",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "RuntimeGenerationV1",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tianshu.dev/schemas/runtime-generation-v1.schema.json",
+  "x-pydantic-version": "2.13.0"
+}

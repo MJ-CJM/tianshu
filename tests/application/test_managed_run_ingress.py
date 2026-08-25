@@ -12,6 +12,8 @@ from tianshu.bootstrap.wiring_scheduler import wire_scheduling
 from tianshu.models import DAGExecution, DAGNode, DAGNodeStatus, Edict, Memorial, TaskStatus
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 from tianshu.models.events import EventEnvelope
+from tianshu.models.run_assignment import LegacyRunAssignmentV1
+from tianshu.universe.router import ChallengerRouter
 
 _NOW = datetime(2026, 7, 16, 13, tzinfo=UTC)
 
@@ -23,6 +25,20 @@ class _Reconciler:
     async def reconcile_once(self) -> int:
         self.calls += 1
         return 1
+
+
+class _UnexpectedGenerationController:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.releases: list[str] = []
+
+    def resolve_for_binding_current(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+        self.calls += 1
+        raise AssertionError("historical replay must not resolve a current generation")
+
+    def release_binding(self, attempt_id: str) -> bool:
+        self.releases.append(attempt_id)
+        return True
 
 
 def _boundary_types():  # type: ignore[no-untyped-def]
@@ -184,11 +200,37 @@ async def test_terminal_legacy_replay_requires_exact_canonical_envelope(storage)
     root.completed_at = _NOW
     storage.update_memorial(root)
 
+    with storage.unit_of_work() as unit_of_work:
+        unit_of_work.connection.execute(
+            "DELETE FROM run_generation_bindings WHERE memorial_id=? AND attempt_id=?",
+            ("root-1", first.attempt_id),
+        )
+        unit_of_work.commit()
+    controller = _UnexpectedGenerationController()
+    ingress = ManagedRunIngress(
+        storage,
+        _Reconciler(),
+        clock=lambda: _NOW,
+        challenger_router=ChallengerRouter(
+            storage,
+            generation_controller=lambda: controller,
+        ),
+    )
+
     replay = await ingress.adopt_legacy(event)
 
     assert replay.attempt_id == first.attempt_id
     assert replay.memorial.status is TaskStatus.COMPLETED
     assert replay.deduplicated is True
+    assert controller.calls == 0
+    assert controller.releases == []
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM run_generation_bindings WHERE memorial_id=? AND attempt_id=?",
+            ("root-1", first.attempt_id),
+        ).fetchone()[0]
+        == 0
+    )
     with pytest.raises(RuntimeError, match="conflict"):
         await ingress.adopt_legacy(event.model_copy(update={"event_id": "legacy-scheduled-2"}))
     with pytest.raises(RuntimeError, match="conflict"):
@@ -205,7 +247,14 @@ async def test_follow_up_exact_replay_precedes_busy_check_and_parent_selection(s
         completed_at=_NOW,
     )
     storage.save_memorial(previous)
-    ingress = ManagedRunIngress(storage, _Reconciler(), clock=lambda: _NOW)
+    router = ChallengerRouter(storage)
+    parent_assignment = router.assign(previous.id)
+    ingress = ManagedRunIngress(
+        storage,
+        _Reconciler(),
+        clock=lambda: _NOW,
+        challenger_router=router,
+    )
     command = ManagedRunCommand(
         edict_id="edict-1",
         idempotency_key="api:follow-up-1",
@@ -219,6 +268,10 @@ async def test_follow_up_exact_replay_precedes_busy_check_and_parent_selection(s
 
     assert replay.memorial.id == first.memorial.id
     assert replay.memorial.parent_memorial_id == previous.id
+    child_assignment = router.get(first.memorial.id)
+    assert child_assignment is not None
+    assert child_assignment.assignment_id != parent_assignment.assignment_id
+    assert child_assignment.mode == parent_assignment.mode
     with pytest.raises(RuntimeError, match="active|busy"):
         await ingress.start(
             ManagedRunCommand(
@@ -229,6 +282,50 @@ async def test_follow_up_exact_replay_precedes_busy_check_and_parent_selection(s
                 event_payload={"instruction": "different"},
             )
         )
+
+
+async def test_follow_up_from_historical_parent_without_assignment_stays_legacy(storage) -> None:
+    ManagedRunCommand, ManagedRunIngress = _boundary_types()
+    storage.save_edict(Edict(id="edict-1", goal="work"))
+    storage.save_memorial(
+        Memorial(
+            id="root-without-assignment",
+            edict_id="edict-1",
+            status=TaskStatus.COMPLETED,
+            completed_at=_NOW,
+        )
+    )
+    reconciler = _Reconciler()
+    router = ChallengerRouter(storage)
+    ingress = ManagedRunIngress(
+        storage,
+        reconciler,
+        clock=lambda: _NOW,
+        challenger_router=router,
+    )
+
+    result = await ingress.start(
+        ManagedRunCommand(
+            edict_id="edict-1",
+            idempotency_key="api:missing-parent-assignment",
+            instruction="continue",
+            event_type="followup.submitted",
+            event_payload={"instruction": "continue"},
+        )
+    )
+
+    assert result.memorial.parent_memorial_id == "root-without-assignment"
+    assignment = router.get(result.memorial.id)
+    assert isinstance(assignment, LegacyRunAssignmentV1)
+    assert router.get("root-without-assignment") is None
+    assert reconciler.calls == 1
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM execution_attempts WHERE memorial_id=?",
+            (result.memorial.id,),
+        ).fetchone()[0]
+        == 1
+    )
 
 
 @pytest.mark.parametrize("boundary", ["after_root", "after_dag", "after_attempt", "after_outbox"])
@@ -263,6 +360,8 @@ async def test_dag_retry_is_atomic_and_exact_replay_is_stable(
             ],
         )
     )
+    router = ChallengerRouter(storage)
+    parent_assignment = router.assign("root-1")
     before = (
         storage._conn.execute("SELECT COUNT(*) FROM memorials").fetchone()[0],  # noqa: SLF001
         storage._conn.execute("SELECT status, root_memorial_id FROM dag_executions").fetchone(),  # noqa: SLF001
@@ -279,6 +378,7 @@ async def test_dag_retry_is_atomic_and_exact_replay_is_stable(
         _Reconciler(),
         clock=lambda: _NOW,
         boundary_hook=fail_at,
+        challenger_router=router,
     )
     with pytest.raises(RuntimeError, match="injected DAG retry failure"):
         await failing.retry_dag(
@@ -296,7 +396,12 @@ async def test_dag_retry_is_atomic_and_exact_replay_is_stable(
     assert before[0] == after[0]
     assert before[2:] == after[2:]
 
-    ingress = ManagedRunIngress(storage, _Reconciler(), clock=lambda: _NOW)
+    ingress = ManagedRunIngress(
+        storage,
+        _Reconciler(),
+        clock=lambda: _NOW,
+        challenger_router=router,
+    )
     first = await ingress.retry_dag(
         dag_id="dag-1",
         idempotency_key="request-1",
@@ -308,3 +413,7 @@ async def test_dag_retry_is_atomic_and_exact_replay_is_stable(
         from_node_ids=["one"],
     )
     assert replay == first
+    retry_assignment = router.get(first.memorial.id)
+    assert retry_assignment is not None
+    assert retry_assignment.assignment_id != parent_assignment.assignment_id
+    assert retry_assignment.mode == parent_assignment.mode

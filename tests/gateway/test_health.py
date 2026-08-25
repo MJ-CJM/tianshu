@@ -11,6 +11,13 @@ from httpx import ASGITransport, AsyncClient
 from tianshu.app import create_app, lifespan
 
 
+@pytest.fixture(autouse=True)
+def _disable_native_skills_watcher(monkeypatch):
+    """Health tests exercise readiness, not the macOS FSEvents extension."""
+
+    monkeypatch.setattr("tianshu.bootstrap.wire_skills_watcher", lambda *_args, **_kwargs: None)
+
+
 @pytest.fixture
 async def client(tmp_path, monkeypatch):
     monkeypatch.setenv("TIANSHU_RUNTIME_PERSONAS_DIR", str(tmp_path / "runtime-personas"))
@@ -130,6 +137,90 @@ async def test_outbox_unexpected_exit_flips_readiness_but_not_liveness(client):
         "evidence": {"ok": False},
     }
     assert (await c.get("/health/live")).status_code == 200
+
+
+async def test_run_reconciler_unexpected_exit_flips_readiness_but_not_liveness(client):
+    c, app = client
+    task = app.state.run_reconciler.task
+    assert task is not None
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    ready = await c.get("/health/ready")
+    assert ready.status_code == 503
+    dispatcher = next(check for check in ready.json()["checks"] if check["id"] == "dispatcher")
+    assert dispatcher == {
+        "id": "dispatcher",
+        "status": "fail",
+        "required": True,
+        "evidence": {"ok": False},
+    }
+    assert (await c.get("/health/live")).status_code == 200
+
+
+async def test_generation_traffic_safety_failure_returns_503(client, monkeypatch):
+    c, app = client
+    reconciler = app.state.generation_reconciler
+    monkeypatch.setattr(
+        reconciler,
+        "readiness_snapshot",
+        lambda: (False, ("active_generation_material_missing",)),
+    )
+
+    ready = await c.get("/health/ready")
+
+    assert ready.status_code == 503
+    assert ready.json()["status"] == "not_ready"
+    generation = next(
+        check for check in ready.json()["checks"] if check["id"] == "generation.runtime"
+    )
+    assert generation == {
+        "id": "generation.runtime",
+        "status": "fail",
+        "required": True,
+        "evidence": {"ok": False},
+    }
+    assert (await c.get("/health/live")).status_code == 200
+
+
+async def test_generation_cleanup_pending_remains_degraded_200(client, monkeypatch):
+    c, app = client
+    reconciler = app.state.generation_reconciler
+    monkeypatch.setattr(
+        reconciler,
+        "readiness_snapshot",
+        lambda: (False, ("generation_draining_pending",)),
+    )
+
+    ready = await c.get("/health/ready")
+
+    assert ready.status_code == 200
+    assert ready.json()["status"] == "degraded"
+    checks = {check["id"]: check for check in ready.json()["checks"]}
+    assert checks["generation.runtime"]["status"] == "pass"
+    assert checks["evolution.rollback"]["status"] == "degraded"
+
+
+async def test_generation_readiness_is_sampled_once_per_health_request(client, monkeypatch):
+    c, app = client
+    reconciler = app.state.generation_reconciler
+    calls = 0
+
+    def alternating_probe() -> tuple[bool, tuple[str, ...]]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return True, ()
+        return False, ("active_generation_material_missing",)
+
+    monkeypatch.setattr(reconciler, "readiness_snapshot", alternating_probe)
+
+    ready = await c.get("/health/ready")
+
+    assert ready.status_code == 200
+    assert ready.json()["status"] == "ready"
+    assert calls == 1
 
 
 async def test_internal_delivery_unexpected_exit_flips_readiness_but_not_liveness(client):

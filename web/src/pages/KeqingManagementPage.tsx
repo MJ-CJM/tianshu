@@ -151,6 +151,29 @@ export default function KeqingManagementPage() {
         ),
     },
     {
+      title: t("keqing.col.generation"),
+      dataIndex: "generation",
+      render: (generation: KeqingBackendStatus["generation"]) =>
+        generation ? (
+          <Space direction="vertical" size={0}>
+            <Space size={4}>
+              <Text code>{generation.id}</Text>
+              <Tag color={generation.state === "active" ? "green" : "orange"}>
+                {t(`keqing.generation.state.${generation.state}`)}
+              </Tag>
+            </Space>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t("keqing.generation.activeRuns", { count: generation.active_runs })}
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t("keqing.generation.lastGood", { id: generation.last_good_id })}
+            </Text>
+          </Space>
+        ) : (
+          <Text type="secondary">{t("keqing.generation.none")}</Text>
+        ),
+    },
+    {
       title: t("keqing.col.credential"),
       dataIndex: "credential_status",
       render: () => <Tag color="blue">{t("keqing.cred.selfManaged")}</Tag>,
@@ -189,7 +212,7 @@ export default function KeqingManagementPage() {
             dataSource={status?.backends ?? []}
             columns={columns}
             pagination={false}
-            scroll={{ x: 720 }}
+            scroll={{ x: 920 }}
             style={{ maxWidth: "100%" }}
           />
         </Card>

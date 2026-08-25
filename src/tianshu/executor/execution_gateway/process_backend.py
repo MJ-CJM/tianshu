@@ -718,6 +718,16 @@ class ExecutionHandle:
             cwd=self.request.cwd,
             command_kind=command_kind,
             executable=self.request.command_argv[0],
+            executable_version=(
+                self.request.argv_command.executable_version
+                if self.request.argv_command is not None
+                else None
+            ),
+            executable_version_source=(
+                self.request.argv_command.executable_version_source
+                if self.request.argv_command is not None
+                else "unverified"
+            ),
             env_keys=self._env_keys,
             secret_refs=self._secret_refs,
             network_mode=self.request.network.mode,

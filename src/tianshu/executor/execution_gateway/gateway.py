@@ -292,6 +292,16 @@ class ExecutionGateway:
             cwd=request.cwd,
             command_kind="argv" if request.argv_command is not None else "shell",
             executable=request.command_argv[0],
+            executable_version=(
+                request.argv_command.executable_version
+                if request.argv_command is not None
+                else None
+            ),
+            executable_version_source=(
+                request.argv_command.executable_version_source
+                if request.argv_command is not None
+                else "unverified"
+            ),
             env_keys=env_keys,
             secret_refs=secret_refs,
             network_mode=request.network.mode,

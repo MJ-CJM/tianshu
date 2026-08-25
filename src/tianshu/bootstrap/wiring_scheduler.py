@@ -42,13 +42,14 @@ from tianshu.application.managed_run_ingress import ManagedRunIngress
 from tianshu.application.plan_review_lifecycle import PlanReviewAttemptCoordinator
 from tianshu.application.run_dispatcher import RunDispatcher
 from tianshu.application.run_execution import ProductionAttemptCompleter, ProductionRunRunner
-from tianshu.application.run_reconciler import RunReconciler
+from tianshu.application.run_reconciler import ControlPlaneUnavailable, RunReconciler
 from tianshu.application.scheduled_runs import ScheduledRunPreparer
 from tianshu.auditor.auditor import Auditor
 from tianshu.bootstrap.universe_hooks import _update_universe_fitness
 from tianshu.bootstrap.wiring_llm import _assistant_persona_id_provider
 from tianshu.config import TianshuSettings
 from tianshu.consultation.session import ConsultationSession
+from tianshu.evolution.reconciler import GENERATION_CLEANUP_ONLY_ERRORS
 from tianshu.executor.managed_tools import ManagedToolEffectExecutor
 from tianshu.executor.orchestrator import OrchestratorContext
 from tianshu.models.events import EventEnvelope
@@ -56,6 +57,7 @@ from tianshu.planner.planner import Planner
 from tianshu.plugins.api import PluginApi
 from tianshu.plugins.loader import PluginLoader
 from tianshu.scheduler.scheduler import Scheduler
+from tianshu.storage.generation_repo import GenerationRepository
 from tianshu.tools.schedule_edict import register_schedule_edict
 
 logger = logging.getLogger(__name__)
@@ -207,21 +209,44 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         storage.attempt_repo,
         production_runner,
     )
+    generation_audit_repository = GenerationRepository()
+
+    def record_attempt_failure(authority, failure_code: str) -> None:
+        if failure_code != "generation_retired":
+            return
+        with storage.unit_of_work() as unit_of_work:
+            generation_audit_repository.record_retired(
+                unit_of_work.connection,
+                memorial_id=authority.memorial_id,
+                attempt_id=authority.attempt_id,
+            )
+            unit_of_work.commit()
+
     run_dispatcher = RunDispatcher(
         storage.attempt_repo,
         production_runner,
         owner_id=f"run-{uuid4().hex}",
         completer=production_completer,
         exit_cleanup=production_runner.discard_projection,
+        generation_release=app.state.generation_controller.release_binding,
+        failure_audit=record_attempt_failure,
         challenger_router=app.state.challenger_router,
     )
     plan_review_coordinator = PlanReviewAttemptCoordinator(storage)
 
     def reconcile_control_planes() -> int:
         evolution_count = app.state.evolution_reconciler.reconcile_once()
+        generation_count = app.state.generation_reconciler.reconcile_once()
+        _generation_ready, generation_errors = app.state.generation_reconciler.readiness_snapshot()
+        blocking_generation_errors = set(generation_errors) - GENERATION_CLEANUP_ONLY_ERRORS
+        if blocking_generation_errors:
+            raise ControlPlaneUnavailable(
+                "generation control plane is unavailable: "
+                + ",".join(sorted(blocking_generation_errors))
+            )
         plan_review_count = plan_review_coordinator.reconcile_once()
         dead_letter_count = fenced_completion.reconcile_dead_lettered_roots()
-        return evolution_count + plan_review_count + dead_letter_count
+        return evolution_count + generation_count + plan_review_count + dead_letter_count
 
     run_reconciler = RunReconciler(
         storage.attempt_repo,
@@ -238,6 +263,7 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         storage.unit_of_work,
         storage.attempt_repo,
         app.state.challenger_router,
+        require_runtime_binding=settings.system_snapshot_enabled,
     )
     app.state.production_run_runner = production_runner
     app.state.fenced_run_completion = fenced_completion

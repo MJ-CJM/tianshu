@@ -219,6 +219,7 @@ def _inputs(**overrides) -> ReadinessInputs:
         provider_ready=lambda: True,
         provider_profile=lambda: "demo",
         workspace_ready=lambda: True,
+        generation_runtime_ready=lambda: True,
         evolution_rollback_ready=lambda: True,
         optional_integrations=lambda: {"mcp": None},
     )
@@ -247,6 +248,7 @@ def test_readiness_all_pass_is_ready():
         "delivery_ready",
         "resources_ok",
         "workspace_ready",
+        "generation_runtime_ready",
         "provider_ready",
     ],
 )

@@ -42,10 +42,17 @@ from tianshu.models.principal import (
     Principal,
     PrincipalKind,
 )
-from tianshu.models.run_assignment import EffectiveEvolutionOverlayV1, RunAssignmentV1
+from tianshu.models.run_assignment import (
+    EffectiveEvolutionOverlayV1,
+    LegacyRunAssignmentV1,
+    RunAssignmentV1,
+)
 from tianshu.persona.prompt_builder import PromptBuilder
 from tianshu.skills.loader import SkillsLoader
-from tianshu.storage.evolution_repo import EvolutionRepository
+from tianshu.storage.evolution_repo import (
+    EvolutionRepository,
+    EvolutionRepositoryDecodeError,
+)
 from tianshu.tools.skill_tools import _skill_list, _skill_view
 from tianshu.universe.router import ChallengerRouter, allocation_bucket, selects_challenger
 
@@ -340,6 +347,129 @@ def test_restart_and_routing_rotation_never_reroute_existing_assignment(storage)
 
     assert replay == first
     assert canonical_json_bytes(replay) == canonical_json_bytes(first)
+
+
+def test_governed_assignment_inheritance_copies_routing_without_rebucketing(storage) -> None:
+    _seed_canary(storage, allocation=1_000)
+    _seed_memorial(storage, "memorial-parent")
+    _seed_memorial(storage, "memorial-child")
+    router = _router(storage, bucket_calculator=lambda *_: 0)
+    parent = router.assign("memorial-parent")
+
+    def reject_rebucket(*_args) -> int:
+        raise AssertionError("inherited assignments must not be re-bucketed")
+
+    inheriting = _router(storage, bucket_calculator=reject_rebucket)
+    with storage.unit_of_work() as unit_of_work:
+        child = inheriting.assign_current(
+            unit_of_work,
+            memorial_id="memorial-child",
+            inherit_from_memorial_id="memorial-parent",
+            created_at=NOW + timedelta(seconds=1),
+        )
+        unit_of_work.commit()
+
+    assert isinstance(parent, RunAssignmentV1)
+    assert isinstance(child, RunAssignmentV1)
+    assert child.assignment_id != parent.assignment_id
+    assert child.memorial_id == "memorial-child"
+    assert child.created_at == NOW + timedelta(seconds=1)
+    assert child.candidate_id == parent.candidate_id
+    assert child.champion_ref == parent.champion_ref
+    assert child.selected_ref == parent.selected_ref
+    assert child.routing_version == parent.routing_version
+    assert child.bucket == parent.bucket
+    parent_overlay = router.overlay_for("memorial-parent")
+    child_overlay = router.overlay_for("memorial-child")
+    assert parent_overlay is not None
+    assert child_overlay == parent_overlay.model_copy(update={"assignment_id": child.assignment_id})
+
+
+def test_legacy_assignment_inheritance_preserves_mode_with_new_identity(storage) -> None:
+    _seed_memorial(storage, "legacy-parent")
+    _seed_memorial(storage, "legacy-child")
+    router = ChallengerRouter(storage)
+    parent = router.assign("legacy-parent")
+
+    with storage.unit_of_work() as unit_of_work:
+        child = router.assign_current(
+            unit_of_work,
+            memorial_id="legacy-child",
+            inherit_from_memorial_id="legacy-parent",
+            created_at=NOW + timedelta(seconds=1),
+        )
+        unit_of_work.commit()
+
+    assert isinstance(parent, LegacyRunAssignmentV1)
+    assert isinstance(child, LegacyRunAssignmentV1)
+    assert child.mode == parent.mode
+    assert child.assignment_id != parent.assignment_id
+    assert child.memorial_id == "legacy-child"
+    assert child.created_at == NOW + timedelta(seconds=1)
+
+
+def test_historical_parent_without_assignment_inherits_as_legacy_without_rebucketing(
+    storage,
+) -> None:
+    _seed_canary(storage, allocation=1_000)
+    _seed_memorial(storage, "historical-parent")
+    _seed_memorial(storage, "historical-child")
+
+    def reject_rebucket(*_args) -> int:
+        raise AssertionError("historical legacy continuity must not be re-bucketed")
+
+    router = _router(storage, bucket_calculator=reject_rebucket)
+    with storage.unit_of_work() as unit_of_work:
+        child = router.assign_current(
+            unit_of_work,
+            memorial_id="historical-child",
+            inherit_from_memorial_id="historical-parent",
+            created_at=NOW + timedelta(seconds=1),
+        )
+        unit_of_work.commit()
+
+    assert isinstance(child, LegacyRunAssignmentV1)
+    assert child.memorial_id == "historical-child"
+    assert child.created_at == NOW + timedelta(seconds=1)
+    assert router.get("historical-parent") is None
+    assert router.get("historical-child") == child
+
+
+def test_assignment_inheritance_fails_closed_for_missing_or_corrupt_parent(storage) -> None:
+    _seed_memorial(storage, "missing-child")
+    router = ChallengerRouter(storage)
+    with (
+        storage.unit_of_work() as unit_of_work,
+        pytest.raises(LookupError, match="parent run assignment"),
+    ):
+        router.assign_current(
+            unit_of_work,
+            memorial_id="missing-child",
+            inherit_from_memorial_id="missing-parent",
+        )
+
+    _seed_memorial(storage, "corrupt-parent")
+    _seed_memorial(storage, "corrupt-child")
+    router.assign("corrupt-parent")
+    storage._conn.execute(  # noqa: SLF001 - durable corruption injection
+        "DROP TRIGGER run_evolution_assignments_no_update"
+    )
+    storage._conn.execute(  # noqa: SLF001 - durable corruption injection
+        "UPDATE run_evolution_assignments SET assignment_hash=? WHERE memorial_id=?",
+        (_digest("corrupt"), "corrupt-parent"),
+    )
+    storage._conn.commit()  # noqa: SLF001 - durable corruption injection
+
+    with (
+        storage.unit_of_work() as unit_of_work,
+        pytest.raises(EvolutionRepositoryDecodeError, match="hash"),
+    ):
+        router.assign_current(
+            unit_of_work,
+            memorial_id="corrupt-child",
+            inherit_from_memorial_id="corrupt-parent",
+        )
+    assert router.get("corrupt-child") is None
 
 
 def test_concurrent_assignment_produces_one_immutable_row(storage) -> None:

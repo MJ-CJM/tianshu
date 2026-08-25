@@ -538,6 +538,7 @@ def test_v8_prior_prefix_upgrade_preserves_yaml_override_semantics(
             (29, "0029_consultation_synthesizer"),
             (30, "0030_consultation_rounds"),
             (31, "0031_system_snapshots"),
+            (32, "0032_runtime_generations"),
         ]
     finally:
         storage.close()

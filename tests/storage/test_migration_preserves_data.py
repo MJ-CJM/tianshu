@@ -63,6 +63,7 @@ _COMPLETE_MIGRATION_LEDGER = [
     (29, "0029_consultation_synthesizer"),
     (30, "0030_consultation_rounds"),
     (31, "0031_system_snapshots"),
+    (32, "0032_runtime_generations"),
 ]
 _POST_BASELINE_TABLES = {
     "auth_tokens",
@@ -104,6 +105,12 @@ _POST_BASELINE_TABLES = {
     # v31 运行期系统内容快照及每次 attempt 的不可变绑定
     "system_snapshots",
     "run_system_bindings",
+    # v32 运行期发布物、代际状态、不可变迁移日志与双指针
+    "runtime_generation_releases",
+    "runtime_generations",
+    "runtime_generation_journal",
+    "generation_pointers",
+    "run_generation_bindings",
 }
 _POST_BASELINE_INDEXES = {
     "idx_auth_tokens_principal",
@@ -138,6 +145,7 @@ _POST_BASELINE_INDEXES = {
     "idx_consultations_created_at",
     "idx_consultations_status",
     "idx_consultation_rounds_consultation",
+    "idx_runtime_generations_active",
 }
 _EVOLUTION_IMMUTABLE_TRIGGERS = {
     "evolution_gate_snapshots_no_update",
@@ -153,6 +161,19 @@ _EVOLUTION_IMMUTABLE_TRIGGERS = {
     "system_snapshots_no_delete",
     "run_system_bindings_no_replace",
     "run_system_bindings_no_update",
+    "runtime_generation_releases_no_replace",
+    "runtime_generation_releases_no_update",
+    "runtime_generation_releases_no_delete",
+    "runtime_generations_no_replace",
+    "runtime_generations_material_immutable",
+    "runtime_generation_journal_no_replace",
+    "runtime_generation_journal_no_update",
+    "runtime_generation_journal_no_delete",
+    "generation_pointers_no_replace",
+    "generation_pointers_no_delete",
+    "generation_pointers_scope_immutable",
+    "run_generation_bindings_no_replace",
+    "run_generation_bindings_no_update",
 }
 _V042_OWNED_TABLE_MANIFEST = (
     48,

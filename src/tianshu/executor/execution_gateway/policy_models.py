@@ -26,6 +26,8 @@ class _StrictModel(BaseModel):
 
 class ArgvCommand(_StrictModel):
     argv: tuple[str, ...]
+    executable_version: str | None = None
+    executable_version_source: Literal["package_json", "pinned", "unverified"] = "unverified"
 
     @field_validator("argv", mode="before")
     @classmethod
@@ -316,6 +318,8 @@ class ExecutionReceipt(_StrictModel):
     cwd: str
     command_kind: Literal["argv", "shell"]
     executable: str
+    executable_version: str | None = None
+    executable_version_source: Literal["package_json", "pinned", "unverified"] = "unverified"
     env_keys: tuple[str, ...]
     secret_refs: tuple[str, ...]
     network_mode: str

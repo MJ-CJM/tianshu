@@ -223,3 +223,43 @@ typecheck, 338 tests, lint and production build; real demo proved identical
 snapshot digest across assignment, Edict detail and required Evidence artifact,
 while `system_snapshot_enabled=false` preserved execution with no binding or
 snapshot artifact.
+
+=== Agent OS P3 / V32 callback freeze decision (2026-08-26) ===
+Decision: accept one append-only live migration, `0032_runtime_generations`,
+before freezing its callback fingerprint. The final V32 shape contains five
+tables: immutable releases, generations, transition journal, active/last-good
+pointers, and the immutable per-attempt `run_generation_bindings` continuity
+marker. The callback applies the V31 exact-object replay rule to all V32-owned
+tables, the partial unique active index, and lifecycle immutability triggers:
+every owned object must either be absent or match the authoritative normalized
+SQL exactly; partial or drifted schemas are rejected atomically, while an exact
+pre-created schema is adopted without replacing rows. On both a normal V31
+upgrade and exact-schema adoption, the callback idempotently backfills provable
+system-bound selections, records a bound empty selection for provably non-Pi
+attempts, and records `unresolved` for Pi or otherwise ambiguous historical
+attempts so replay fails closed instead of silently rebucketing them. Existing
+markers that conflict with that provable history reject adoption atomically.
+Rationale: release material, generation state, transition journal, and
+active/last-good pointers jointly form one continuity authority. Partial
+adoption or permissive shape matching could select an unverified binary,
+violate the one-active-per-scope invariant, or discard the rollback root.
+Status: callback frozen after the decision above. V32 checksum is
+`e8926305465f9372891379fb73298fbbb7b0e490032543abdbbafd29a1258142`;
+callback fingerprint is
+`67c47b31f787a514d567fd2cdb8754599073648fba412e2e66f5f8ea32a8470c`.
+Verification snapshot: focused P3 lifecycle/readiness/continuity/migration tests
+cover V31 prefix freeze, exact-shape replay, SQL-fault rollback, canonical
+journal-chain validation, exact-attempt and latest OPEN Edict retention,
+periodic trigger-time prebinding, warm-time package recheck, and required
+readiness failure for serving-material drift. Rollback rechecks material after
+the first verifier returns and execution rechecks pinned material before use;
+material verification and SQLite pointer CAS are not claimed to be atomic
+against a concurrent same-UID filesystem writer, which remains outside the
+trusted-local threat model. Final gates: backend 5096 passed / 2 skipped across
+one isolated full run plus the two default-setting assertions rerun without
+path overrides; the macOS run used watchdog's equivalent polling observer to
+avoid the known native FSEvents teardown crash. Web typecheck, 76 files / 339
+tests, lint (0 errors / 31 pre-existing warnings), and production build passed.
+Mypy, Ruff check/format, all four import-linter contracts, schema export check,
+SVG validation, and `git diff --check` passed. Both checked-in Runtime
+Release/Generation schemas regenerate deterministically.

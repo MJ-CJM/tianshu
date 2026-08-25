@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from collections.abc import Callable, Coroutine
 from contextlib import suppress
@@ -10,6 +11,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from tianshu.executor.adapters import (
+    ExecutorGenerationError,
+    ExecutorGenerationUnavailable,
+)
 from tianshu.models.attempt import (
     AttemptDisposition,
     AttemptLeaseV1,
@@ -20,8 +25,12 @@ from tianshu.storage.attempt_ledger import AttemptFenceLost
 from tianshu.universe.router import (
     ChallengerRouter,
     EvolutionRuntimeUnavailable,
+    GenerationBindingUnavailable,
+    GenerationRetired,
     RunAssignmentUnavailable,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class RunShutdownTimeout(TimeoutError):
@@ -91,6 +100,8 @@ class _HeartbeatLost(RuntimeError):
 AttemptRunner = Callable[[AttemptAuthority], Coroutine[Any, Any, AttemptRunResult]]
 AttemptCompleter = Callable[[AttemptAuthority, AttemptOutcomeV1], bool]
 AttemptExitCleanup = Callable[[AttemptAuthority], None]
+GenerationRelease = Callable[[str], bool]
+AttemptFailureAudit = Callable[[AttemptAuthority, str], None]
 
 
 class RunDispatcher:
@@ -104,6 +115,8 @@ class RunDispatcher:
         owner_id: str,
         completer: AttemptCompleter | None = None,
         exit_cleanup: AttemptExitCleanup | None = None,
+        generation_release: GenerationRelease | None = None,
+        failure_audit: AttemptFailureAudit | None = None,
         clock: Callable[[], datetime] | None = None,
         lease_seconds: int = 30,
         heartbeat_interval_seconds: float = 10,
@@ -128,6 +141,8 @@ class RunDispatcher:
         self._runner = runner
         self._completer = completer or self._complete_with_repository
         self._exit_cleanup = exit_cleanup
+        self._generation_release = generation_release
+        self._failure_audit = failure_audit
         self._owner_id = owner_id
         self._clock = clock or (lambda: datetime.now(UTC))
         self._lease_seconds = lease_seconds
@@ -221,11 +236,13 @@ class RunDispatcher:
             raise RuntimeError("challenger_router_required")
         runner_task: asyncio.Task[AttemptRunResult] | None = None
         heartbeat_task: asyncio.Task[None] | None = None
+        runtime_bound = False
         try:
             with self._challenger_router.bind_runtime(
                 authority.memorial_id,
                 attempt_id=authority.attempt_id,
             ):
+                runtime_bound = True
                 runner_task = asyncio.create_task(
                     self._runner(authority),
                     name=f"run-body-{authority.attempt_id}",
@@ -253,18 +270,29 @@ class RunDispatcher:
                 outcome = result.to_outcome(completed_at=self._clock())
                 if not self._completer(authority, outcome):
                     raise AttemptFenceLost("attempt completion lost its fence")
-        except (EvolutionRuntimeUnavailable, LookupError) as exc:
-            failure_code = (
-                "run_assignment_unavailable"
-                if isinstance(exc, (RunAssignmentUnavailable, LookupError))
-                else "candidate_overlay_unavailable"
-            )
+                if outcome.failure is not None and outcome.failure.code == "generation_retired":
+                    self._record_failure_audit(authority, outcome.failure.code)
+        except (EvolutionRuntimeUnavailable, ExecutorGenerationError, LookupError) as exc:
+            if isinstance(exc, GenerationRetired) or (
+                runtime_bound and isinstance(exc, ExecutorGenerationUnavailable)
+            ):
+                failure_code = "generation_retired"
+                failure_message = "pinned runtime generation is unavailable"
+            elif isinstance(exc, (GenerationBindingUnavailable, ExecutorGenerationError)):
+                failure_code = "generation_binding_unavailable"
+                failure_message = "runtime generation binding is unavailable"
+            elif isinstance(exc, (RunAssignmentUnavailable, LookupError)):
+                failure_code = "run_assignment_unavailable"
+                failure_message = "governed evolution runtime is unavailable"
+            else:
+                failure_code = "candidate_overlay_unavailable"
+                failure_message = "governed evolution runtime is unavailable"
             outcome = AttemptOutcomeV1(
                 disposition=AttemptDisposition.FAILED,
                 completed_at=self._clock(),
                 failure=RedactedError(
                     code=failure_code,
-                    message="governed evolution runtime is unavailable",
+                    message=failure_message,
                     retryable=False,
                     details_hash=None,
                 ),
@@ -272,19 +300,35 @@ class RunDispatcher:
             )
             if not self._completer(authority, outcome):
                 raise AttemptFenceLost("attempt completion lost its fence") from exc
+            self._record_failure_audit(authority, failure_code)
         finally:
             if heartbeat_task is not None:
                 heartbeat_task.cancel()
             if runner_task is not None:
                 runner_task.cancel()
             if heartbeat_task is not None:
-                with suppress(asyncio.CancelledError):
+                with suppress(asyncio.CancelledError, Exception):
                     await heartbeat_task
             if runner_task is not None:
-                with suppress(asyncio.CancelledError):
+                with suppress(asyncio.CancelledError, Exception):
                     await runner_task
-            if self._exit_cleanup is not None:
-                self._exit_cleanup(authority)
+            try:
+                if self._generation_release is not None:
+                    self._generation_release(authority.attempt_id)
+            finally:
+                if self._exit_cleanup is not None:
+                    self._exit_cleanup(authority)
+
+    def _record_failure_audit(self, authority: AttemptAuthority, failure_code: str) -> None:
+        if self._failure_audit is None:
+            return
+        try:
+            self._failure_audit(authority, failure_code)
+        except Exception:
+            logger.warning(
+                "attempt failure audit could not be persisted",
+                extra={"failure_code": failure_code},
+            )
 
     def _complete_with_repository(
         self,
@@ -355,6 +399,7 @@ __all__ = [
     "AttemptExitCleanup",
     "AttemptRunResult",
     "AttemptRunner",
+    "GenerationRelease",
     "RunDispatcher",
     "RunShutdownTimeout",
 ]

@@ -721,6 +721,8 @@ class ReadinessInputs:
     provider_ready: Callable[[], bool]
     provider_profile: Callable[[], str | None]  # 仅用于证据展示
     workspace_ready: Callable[[], bool]
+    # Serving generations are traffic-critical; cleanup-only drift remains degraded below.
+    generation_runtime_ready: Callable[[], bool]
     # rollback_pending is operationally degraded: traffic is sealed, restore is incomplete.
     evolution_rollback_ready: Callable[[], bool]
     # 可选集成：name -> None(未启用) | True(健康) | False(启用但异常)
@@ -780,6 +782,7 @@ def assess_readiness(inputs: ReadinessInputs) -> ReadinessReport:
         ("delivery", inputs.delivery_ready),
         ("resources", inputs.resources_ok),
         ("workspace", inputs.workspace_ready),
+        ("generation.runtime", inputs.generation_runtime_ready),
     )
     checks: list[DoctorCheck] = []
     for check_id, fn in required_specs:

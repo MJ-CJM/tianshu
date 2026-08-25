@@ -111,9 +111,11 @@ SystemSnapshot 用 digest 标识内容，RuntimeGeneration 用独立运行身份
 - Canary、路由、晋升、排空和回滚；
 - 兼容状态迁移和回滚检查。
 
-首期只有一个 `GenerationReconciler`，扩展现有 `EvolutionRollbackReconciler`：复用同一把锁和
-同一个 `reconcile_once()`，按持久化 generation state/scope 分支，并继续通过既有授权服务执行
-晋升或回滚。其余逻辑职责保留在现有服务中，出现独立持久状态机需求后再拆分。
+首期保持一个后台 reconcile loop，但保留两个职责清晰的 reconciler：既有
+`EvolutionRollbackReconciler` 不改，新 `GenerationReconciler` 使用独立锁与持久状态机；
+同一个 control-plane tick 顺序调用二者。这样既不复制后台扫描服务，也不让 generation
+故障改变 candidate rollback 的锁与 fault matrix。其余逻辑职责保留在现有服务中，出现
+独立调度需求后再拆分。
 
 ## 4. 代际化运行面
 
@@ -123,7 +125,7 @@ SystemSnapshot 用 digest 标识内容，RuntimeGeneration 用独立运行身份
 
 ```text
 子进程执行器：resolve → verify → stage → warm/probe → ready → activate pointer
-              → 新 run 取新代 → 旧 run 排空/refcount=0 → dispose
+              → 新 run 取新代 → exact attempt 与 OPEN continuity 均释放、且非 last-good → dispose
 声明式内容：  candidate 晋升写不可变 artifact + 原子切指针
               → run 在 bind_runtime 冻结只读视图；watcher 只失效缓存
 进程内实现：  优雅重启进入指定 SystemSnapshot → 启动校验

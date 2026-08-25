@@ -4344,6 +4344,371 @@ def _system_snapshots_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+# --- V32: immutable releases + runtime generation continuity ---
+
+_RUNTIME_GENERATIONS_VERSION = _SYSTEM_SNAPSHOTS_VERSION + 1
+_RUNTIME_GENERATIONS_NAME = f"{_RUNTIME_GENERATIONS_VERSION:04d}_runtime_generations"
+_RUNTIME_GENERATIONS_STATEMENTS = (
+    """
+    CREATE TABLE runtime_generation_releases (
+        release_digest TEXT NOT NULL PRIMARY KEY CHECK (
+            length(release_digest) = 64
+            AND release_digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+        scope TEXT NOT NULL CHECK (length(trim(scope)) BETWEEN 1 AND 256),
+        release_json TEXT NOT NULL CHECK (
+            json_valid(release_json) AND json_type(release_json) = 'object'
+        ),
+        first_seen_at TEXT NOT NULL,
+        UNIQUE (release_digest, scope)
+    )
+    """,
+    """
+    CREATE TABLE runtime_generations (
+        generation_id TEXT NOT NULL PRIMARY KEY CHECK (
+            length(generation_id) = 35
+            AND substr(generation_id, 1, 3) = 'rg-'
+            AND substr(generation_id, 4) NOT GLOB '*[^0-9a-f]*'
+        ),
+        schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+        scope TEXT NOT NULL CHECK (length(trim(scope)) BETWEEN 1 AND 256),
+        release_digest TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (
+            state IN ('staged', 'warming', 'ready', 'active', 'draining', 'disposed', 'failed')
+        ),
+        version INTEGER NOT NULL CHECK (version > 0),
+        created_at TEXT NOT NULL,
+        activated_at TEXT,
+        updated_at TEXT NOT NULL,
+        UNIQUE (scope, generation_id),
+        FOREIGN KEY (release_digest, scope)
+            REFERENCES runtime_generation_releases(release_digest, scope) ON DELETE RESTRICT
+    )
+    """,
+    """
+    CREATE UNIQUE INDEX idx_runtime_generations_active
+    ON runtime_generations(scope) WHERE state = 'active'
+    """,
+    """
+    CREATE TABLE runtime_generation_journal (
+        journal_id TEXT NOT NULL PRIMARY KEY CHECK (
+            length(journal_id) = 64
+            AND journal_id NOT GLOB '*[^0-9a-f]*'
+        ),
+        generation_id TEXT NOT NULL REFERENCES runtime_generations(generation_id)
+            ON DELETE RESTRICT,
+        generation_version INTEGER NOT NULL CHECK (generation_version > 0),
+        from_state TEXT CHECK (
+            from_state IS NULL
+            OR from_state IN (
+                'staged', 'warming', 'ready', 'active', 'draining', 'disposed', 'failed'
+            )
+        ),
+        to_state TEXT NOT NULL CHECK (
+            to_state IN (
+                'staged', 'warming', 'ready', 'active', 'draining', 'disposed', 'failed'
+            )
+        ),
+        entry_json TEXT NOT NULL CHECK (
+            json_valid(entry_json) AND json_type(entry_json) = 'object'
+        ),
+        entry_hash TEXT NOT NULL CHECK (
+            length(entry_hash) = 64
+            AND entry_hash NOT GLOB '*[^0-9a-f]*'
+        ),
+        created_at TEXT NOT NULL,
+        UNIQUE (generation_id, generation_version),
+        CHECK (
+            (generation_version = 1 AND from_state IS NULL AND to_state = 'staged')
+            OR (generation_version > 1 AND from_state IS NOT NULL)
+        )
+    )
+    """,
+    """
+    CREATE TABLE generation_pointers (
+        scope TEXT NOT NULL PRIMARY KEY,
+        active_generation_id TEXT NOT NULL,
+        last_good_generation_id TEXT NOT NULL,
+        version INTEGER NOT NULL CHECK (version > 0),
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (scope, active_generation_id)
+            REFERENCES runtime_generations(scope, generation_id) ON DELETE RESTRICT,
+        FOREIGN KEY (scope, last_good_generation_id)
+            REFERENCES runtime_generations(scope, generation_id) ON DELETE RESTRICT
+    )
+    """,
+    """
+    CREATE TABLE run_generation_bindings (
+        memorial_id TEXT NOT NULL CHECK (length(trim(memorial_id)) BETWEEN 1 AND 256),
+        attempt_id TEXT NOT NULL CHECK (length(trim(attempt_id)) BETWEEN 1 AND 256),
+        state TEXT NOT NULL CHECK (state IN ('bound', 'unresolved')),
+        generation_ids_json TEXT CHECK (
+            (state = 'bound'
+             AND json_valid(generation_ids_json)
+             AND json_type(generation_ids_json) = 'array')
+            OR (state = 'unresolved' AND generation_ids_json IS NULL)
+        ),
+        created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
+        PRIMARY KEY (memorial_id, attempt_id)
+    )
+    """,
+    """
+    CREATE TRIGGER run_generation_bindings_no_replace
+    BEFORE INSERT ON run_generation_bindings
+    WHEN EXISTS (
+        SELECT 1 FROM run_generation_bindings
+        WHERE memorial_id = NEW.memorial_id AND attempt_id = NEW.attempt_id
+    ) BEGIN
+        SELECT RAISE(ABORT, 'run generation binding is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER run_generation_bindings_no_update
+    BEFORE UPDATE ON run_generation_bindings BEGIN
+        SELECT RAISE(ABORT, 'run generation binding is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER runtime_generation_releases_no_replace
+    BEFORE INSERT ON runtime_generation_releases
+    WHEN EXISTS (
+        SELECT 1 FROM runtime_generation_releases
+        WHERE release_digest = NEW.release_digest
+    ) BEGIN
+        SELECT RAISE(ABORT, 'runtime generation release is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER runtime_generation_releases_no_update
+    BEFORE UPDATE ON runtime_generation_releases BEGIN
+        SELECT RAISE(ABORT, 'runtime generation release is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER runtime_generation_releases_no_delete
+    BEFORE DELETE ON runtime_generation_releases BEGIN
+        SELECT RAISE(ABORT, 'runtime generation release is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER runtime_generations_no_replace
+    BEFORE INSERT ON runtime_generations
+    WHEN EXISTS (
+        SELECT 1 FROM runtime_generations
+        WHERE generation_id = NEW.generation_id
+    ) BEGIN
+        SELECT RAISE(ABORT, 'runtime generation identity already exists');
+    END
+    """,
+    """
+    CREATE TRIGGER runtime_generations_material_immutable
+    BEFORE UPDATE ON runtime_generations
+    WHEN NEW.generation_id != OLD.generation_id
+      OR NEW.schema_version != OLD.schema_version
+      OR NEW.scope != OLD.scope
+      OR NEW.release_digest != OLD.release_digest
+      OR NEW.created_at != OLD.created_at
+    BEGIN
+        SELECT RAISE(ABORT, 'runtime generation material is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER runtime_generation_journal_no_replace
+    BEFORE INSERT ON runtime_generation_journal
+    WHEN EXISTS (
+        SELECT 1 FROM runtime_generation_journal
+        WHERE journal_id = NEW.journal_id
+           OR (
+               generation_id = NEW.generation_id
+               AND generation_version = NEW.generation_version
+           )
+    ) BEGIN
+        SELECT RAISE(ABORT, 'runtime generation journal is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER runtime_generation_journal_no_update
+    BEFORE UPDATE ON runtime_generation_journal BEGIN
+        SELECT RAISE(ABORT, 'runtime generation journal is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER runtime_generation_journal_no_delete
+    BEFORE DELETE ON runtime_generation_journal BEGIN
+        SELECT RAISE(ABORT, 'runtime generation journal is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER generation_pointers_no_replace
+    BEFORE INSERT ON generation_pointers
+    WHEN EXISTS (
+        SELECT 1 FROM generation_pointers WHERE scope = NEW.scope
+    ) BEGIN
+        SELECT RAISE(ABORT, 'generation pointer identity already exists');
+    END
+    """,
+    """
+    CREATE TRIGGER generation_pointers_no_delete
+    BEFORE DELETE ON generation_pointers BEGIN
+        SELECT RAISE(ABORT, 'generation pointer is retained');
+    END
+    """,
+    """
+    CREATE TRIGGER generation_pointers_scope_immutable
+    BEFORE UPDATE ON generation_pointers
+    WHEN NEW.scope != OLD.scope
+    BEGIN
+        SELECT RAISE(ABORT, 'generation pointer scope is immutable');
+    END
+    """,
+)
+_RUNTIME_GENERATIONS_EXPECTED_BINDINGS = """
+SELECT
+    attempt.memorial_id,
+    attempt.attempt_id,
+    CASE
+        WHEN system_binding.attempt_id IS NOT NULL THEN 'bound'
+        WHEN requested.contract_json IS NULL THEN 'unresolved'
+        WHEN memorial.runtime_override_json IS NOT NULL
+         AND NOT json_valid(memorial.runtime_override_json) THEN 'unresolved'
+        WHEN json_type(memorial.runtime_override_json, '$.executor') IS NOT NULL
+         AND json_type(memorial.runtime_override_json, '$.executor') != 'text'
+            THEN 'unresolved'
+        WHEN COALESCE(
+            json_extract(memorial.runtime_override_json, '$.executor'),
+            json_extract(requested.contract_json, '$.executor.adapter_id')
+        ) = 'keqing:pi' THEN 'unresolved'
+        ELSE 'bound'
+    END AS state,
+    CASE
+        WHEN system_binding.attempt_id IS NOT NULL
+            THEN system_binding.generation_ids_json
+        WHEN requested.contract_json IS NULL THEN NULL
+        WHEN memorial.runtime_override_json IS NOT NULL
+         AND NOT json_valid(memorial.runtime_override_json) THEN NULL
+        WHEN json_type(memorial.runtime_override_json, '$.executor') IS NOT NULL
+         AND json_type(memorial.runtime_override_json, '$.executor') != 'text' THEN NULL
+        WHEN COALESCE(
+            json_extract(memorial.runtime_override_json, '$.executor'),
+            json_extract(requested.contract_json, '$.executor.adapter_id')
+        ) = 'keqing:pi' THEN NULL
+        ELSE '[]'
+    END AS generation_ids_json,
+    COALESCE(system_binding.created_at, attempt.created_at) AS created_at
+FROM execution_attempts AS attempt
+JOIN memorials AS memorial ON memorial.id = attempt.memorial_id
+LEFT JOIN requested_governance_contracts AS requested
+  ON requested.edict_id = memorial.edict_id
+LEFT JOIN run_system_bindings AS system_binding
+  ON system_binding.memorial_id = attempt.memorial_id
+ AND system_binding.attempt_id = attempt.attempt_id
+"""
+_RUNTIME_GENERATIONS_BACKFILL = f"""
+WITH expected AS (
+    {_RUNTIME_GENERATIONS_EXPECTED_BINDINGS}
+)
+INSERT INTO run_generation_bindings (
+    memorial_id, attempt_id, state, generation_ids_json, created_at
+)
+SELECT
+    expected.memorial_id,
+    expected.attempt_id,
+    expected.state,
+    expected.generation_ids_json,
+    expected.created_at
+FROM expected
+WHERE NOT EXISTS (
+    SELECT 1 FROM run_generation_bindings AS durable
+    WHERE durable.memorial_id = expected.memorial_id
+      AND durable.attempt_id = expected.attempt_id
+)
+"""
+_RUNTIME_GENERATIONS_BACKFILL_CONFLICT = f"""
+WITH expected AS (
+    {_RUNTIME_GENERATIONS_EXPECTED_BINDINGS}
+)
+SELECT 1
+FROM expected
+LEFT JOIN run_generation_bindings AS durable
+  ON durable.memorial_id = expected.memorial_id
+ AND durable.attempt_id = expected.attempt_id
+WHERE durable.attempt_id IS NULL
+   OR durable.state != expected.state
+   OR (
+       durable.state = 'bound'
+       AND json(durable.generation_ids_json) != json(expected.generation_ids_json)
+   )
+   OR (
+       durable.state = 'unresolved'
+       AND durable.generation_ids_json IS NOT NULL
+   )
+LIMIT 1
+"""
+_RUNTIME_GENERATIONS_CHECKSUM = hashlib.sha256(
+    (
+        _RUNTIME_GENERATIONS_NAME
+        + "\n"
+        + "\n".join(" ".join(statement.split()) for statement in _RUNTIME_GENERATIONS_STATEMENTS)
+        + "\n"
+        + " ".join(_RUNTIME_GENERATIONS_BACKFILL.split())
+        + "\n"
+        + " ".join(_RUNTIME_GENERATIONS_BACKFILL_CONFLICT.split())
+    ).encode("utf-8")
+).hexdigest()
+_RUNTIME_GENERATIONS_OBJECT_NAMES = (
+    "runtime_generation_releases",
+    "runtime_generations",
+    "idx_runtime_generations_active",
+    "runtime_generation_journal",
+    "generation_pointers",
+    "run_generation_bindings",
+    "run_generation_bindings_no_replace",
+    "run_generation_bindings_no_update",
+    "runtime_generation_releases_no_replace",
+    "runtime_generation_releases_no_update",
+    "runtime_generation_releases_no_delete",
+    "runtime_generations_no_replace",
+    "runtime_generations_material_immutable",
+    "runtime_generation_journal_no_replace",
+    "runtime_generation_journal_no_update",
+    "runtime_generation_journal_no_delete",
+    "generation_pointers_no_replace",
+    "generation_pointers_no_delete",
+    "generation_pointers_scope_immutable",
+)
+
+
+def _runtime_generations_upgrade(conn: MigrationConnection) -> None:
+    placeholders = ",".join("?" for _ in _RUNTIME_GENERATIONS_OBJECT_NAMES)
+    rows = conn.execute(
+        f"SELECT name, sql FROM sqlite_master WHERE name IN ({placeholders})",
+        _RUNTIME_GENERATIONS_OBJECT_NAMES,
+    ).fetchall()
+    if rows:
+        actual = {str(row[0]): " ".join(str(row[1]).split()) for row in rows}
+        expected = {
+            name: " ".join(statement.split())
+            for name, statement in zip(
+                _RUNTIME_GENERATIONS_OBJECT_NAMES,
+                _RUNTIME_GENERATIONS_STATEMENTS,
+                strict=True,
+            )
+        }
+        if actual != expected:
+            raise SchemaCompatibilityError(
+                "existing runtime generation schema does not match the live migration"
+            )
+    else:
+        for statement in _RUNTIME_GENERATIONS_STATEMENTS:
+            conn.execute(statement)
+    conn.execute(_RUNTIME_GENERATIONS_BACKFILL)
+    if conn.execute(_RUNTIME_GENERATIONS_BACKFILL_CONFLICT).fetchone() is not None:
+        raise SchemaCompatibilityError(
+            "existing runtime generation bindings conflict with the live migration"
+        )
+
+
 MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
     Migration(
         version=_EVOLUTION_CANDIDATE_MIGRATION_VERSION,
@@ -4428,6 +4793,12 @@ MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
         name=_SYSTEM_SNAPSHOTS_NAME,
         checksum=_SYSTEM_SNAPSHOTS_CHECKSUM,
         upgrade=_system_snapshots_upgrade,
+    ),
+    Migration(
+        version=_RUNTIME_GENERATIONS_VERSION,
+        name=_RUNTIME_GENERATIONS_NAME,
+        checksum=_RUNTIME_GENERATIONS_CHECKSUM,
+        upgrade=_runtime_generations_upgrade,
     ),
 )
 

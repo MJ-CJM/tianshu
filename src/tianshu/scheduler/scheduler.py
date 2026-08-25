@@ -26,6 +26,7 @@ from tianshu.models.edict import (
 from tianshu.models.events import EventEnvelope, make_event
 from tianshu.storage import Storage
 from tianshu.storage.outbox_repo import OutboxRepository
+from tianshu.universe.router import GenerationBindingUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ _AsyncFn = Callable[[], Coroutine[Any, Any, None]]
 # 孤儿任务回收（Multica 借鉴 #1）
 ORPHAN_SWEEP_INTERVAL_SECONDS = 120
 ORPHAN_IDLE_THRESHOLD_SECONDS = 900  # 15min 无心跳视为孤儿
+MANAGED_READINESS_BACKOFF_SECONDS = 1.0
 
 
 def submission_job_id(event_id: str) -> str:
@@ -754,7 +756,15 @@ class Scheduler:
         )
         self._jobs[job_id] = job
         if schedule_type == "immediate":
-            await self._prepare_managed_fire(job_id, cursor, memorial_id)
+            if await self._admit_managed_prepare():
+                prepared = await self._prepare_managed_fire(job_id, cursor, memorial_id)
+            else:
+                prepared = False
+            if not prepared:
+                job.task = self._spawn_managed_job_task(
+                    job_id,
+                    initial_memorial_id=memorial_id,
+                )
             return job_id
         if inserted or job.task is None:
             job.task = self._spawn_managed_job_task(
@@ -830,26 +840,39 @@ class Scheduler:
             ),
         )
 
+    async def _admit_managed_prepare(self) -> bool:
+        admission = getattr(self._run_reconciler, "admit_durable_prepare", None)
+        return True if admission is None else bool(await admission())
+
     async def _prepare_managed_fire(
         self,
         job_id: str,
         scheduled_at: datetime,
         initial_memorial_id: str | None,
-    ) -> None:
+    ) -> bool:
         preparer = self._scheduled_run_preparer
         if preparer is None:
             raise RuntimeError("managed scheduled-run preparer is not configured")
-        prepared = preparer.prepare(
-            job_id=job_id,
-            scheduled_at=scheduled_at,
-            initial_memorial_id=initial_memorial_id,
-        )
+        reconciler = self._run_reconciler
+        try:
+            prepared = preparer.prepare(
+                job_id=job_id,
+                scheduled_at=scheduled_at,
+                initial_memorial_id=initial_memorial_id,
+            )
+        except GenerationBindingUnavailable:
+            logger.warning(
+                "Managed schedule %s deferred because generation binding is unavailable",
+                job_id,
+            )
+            return False
         job = self._jobs.get(job_id)
         if job is not None:
             job.next_run = prepared.next_run
             job.initial_memorial_id = None
-        if prepared.attempt_id is not None and self._run_reconciler is not None:
-            await self._run_reconciler.reconcile_once()
+        if prepared.attempt_id is not None and reconciler is not None:
+            await reconciler.reconcile_once()
+        return True
 
     async def _managed_job_loop(
         self,
@@ -862,6 +885,9 @@ class Scheduler:
                 row = self._storage.get_scheduler_job(job_id)
                 if row is None or row["status"] != "active" or row["next_run"] is None:
                     return
+                if not await self._admit_managed_prepare():
+                    await asyncio.sleep(MANAGED_READINESS_BACKOFF_SECONDS)
+                    continue
                 persisted_cursor = str(row["next_run"])
                 scheduled_at = datetime.fromisoformat(persisted_cursor).astimezone(UTC)
                 now = self._clock().astimezone(UTC)
@@ -883,11 +909,17 @@ class Scheduler:
                 delay = (scheduled_at - now).total_seconds()
                 if delay > 0:
                     await asyncio.sleep(delay)
-                await self._prepare_managed_fire(
+                    if not await self._admit_managed_prepare():
+                        await asyncio.sleep(MANAGED_READINESS_BACKOFF_SECONDS)
+                        continue
+                prepared = await self._prepare_managed_fire(
                     job_id,
                     scheduled_at,
                     initial_memorial_id,
                 )
+                if not prepared:
+                    await asyncio.sleep(MANAGED_READINESS_BACKOFF_SECONDS)
+                    continue
                 initial_memorial_id = None
         except asyncio.CancelledError:
             logger.info("Managed schedule loop cancelled for job %s", job_id)
@@ -1206,11 +1238,16 @@ class Scheduler:
         if self._scheduled_run_preparer is not None:
             if idempotency_key is None or not idempotency_key.strip():
                 raise ValueError("run_now idempotency_key is required in managed mode")
-            prepared = self._scheduled_run_preparer.prepare_manual(
-                job_id=job_id,
-                idempotency_key=idempotency_key,
-                scheduled_at=self._clock(),
-            )
+            if not await self._admit_managed_prepare():
+                return False
+            try:
+                prepared = self._scheduled_run_preparer.prepare_manual(
+                    job_id=job_id,
+                    idempotency_key=idempotency_key,
+                    scheduled_at=self._clock(),
+                )
+            except GenerationBindingUnavailable:
+                return False
             if prepared.attempt_id is not None and self._run_reconciler is not None:
                 await self._run_reconciler.reconcile_once()
             return True

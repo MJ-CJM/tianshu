@@ -70,9 +70,14 @@
 [ADR-0013](../../adr/0013-generation-based-rollout.md)、
 [ADR-0014](../../adr/0014-memorial-system-snapshot-binding.md)与
 [`CONTEXT.md`](../../../CONTEXT.md) 接受为 canonical 术语；这只冻结命名与不变量，不表示目标
-运行能力已经实现。`PluginSetSpec`、`PluginSetSnapshot` 和 `ExecutionAssignment` 仍是目标态
-设计词汇，前三阶段不各建同名代码聚合。`AgentSession` 明确不在首期引入，continuity 先按
-conversation/长任务、scheduled root、DAG/retry 的 Edict/Memorial 规则固定。
+运行能力已经完整实现。当前源码已落地 P1 的 SystemSnapshot 影子归因与 P3 的
+`keqing:pi` RuntimeGeneration 内部机械；per-subject policy/canary、统一 Promotion Authority
+和通用 PluginHost 仍在后续阶段。P3 的 attempt 代际权威是独立
+`run_generation_bindings`；V31 `run_system_bindings` 仍只是 snapshot-on shadow 与历史 fallback，
+两者同在必须一致。`PluginSetSpec`、`PluginSetSnapshot` 和
+`ExecutionAssignment` 仍是目标态设计词汇，前三阶段不各建同名代码聚合。`AgentSession`
+明确不在首期引入，continuity 先按 conversation/长任务、scheduled root、DAG/retry 的
+Edict/Memorial 规则固定。
 
 ## 与现有文档的关系
 

@@ -437,6 +437,22 @@ export interface KeqingCapabilities {
   usage_reporting: string;
 }
 
+export type RuntimeGenerationState =
+  | "staged"
+  | "warming"
+  | "ready"
+  | "active"
+  | "draining"
+  | "failed"
+  | "disposed";
+
+export interface RuntimeGenerationStatus {
+  id: string;
+  state: RuntimeGenerationState;
+  active_runs: number;
+  last_good_id: string;
+}
+
 export interface KeqingBackendStatus {
   id: string;
   backend: string;
@@ -447,6 +463,7 @@ export interface KeqingBackendStatus {
   version_drift: boolean;
   capabilities: KeqingCapabilities | null;
   credential_status: string;
+  generation: RuntimeGenerationStatus | null;
 }
 
 export interface KeqingStatusData {

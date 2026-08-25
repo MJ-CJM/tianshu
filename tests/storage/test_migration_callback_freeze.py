@@ -132,6 +132,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     ),
     # v31 appends immutable system snapshots and per-attempt bindings.
     "0031_system_snapshots": ("877bc05eba9dfce696739fb8f754cd3e4d3eb7525b8e6263e1cab99cf4e814c2"),
+    # v32 appends immutable runtime releases, generations, journal, and continuity pointers.
+    "0032_runtime_generations": (
+        "67c47b31f787a514d567fd2cdb8754599073648fba412e2e66f5f8ea32a8470c"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

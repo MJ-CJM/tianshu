@@ -34,6 +34,10 @@ def test_delete_edict_cleans_legacy_evolution_assignment(storage):
             "INSERT INTO run_system_bindings VALUES (?, ?, ?, '[]', ?)",
             (memorial.id, "attempt-1", "c" * 64, "2026-08-25T00:00:00+00:00"),
         )
+        storage._conn.execute(
+            "INSERT INTO run_generation_bindings VALUES (?, ?, 'bound', '[]', ?)",
+            (memorial.id, "attempt-1", "2026-08-25T00:00:00+00:00"),
+        )
 
     storage.delete_edict(edict.id)
 
@@ -46,6 +50,13 @@ def test_delete_edict_cleans_legacy_evolution_assignment(storage):
     assert (
         storage._conn.execute(
             "SELECT COUNT(*) FROM run_system_bindings WHERE memorial_id = ?",
+            (memorial.id,),
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        storage._conn.execute(
+            "SELECT COUNT(*) FROM run_generation_bindings WHERE memorial_id = ?",
             (memorial.id,),
         ).fetchone()[0]
         == 0
@@ -72,6 +83,10 @@ def test_delete_falls_back_to_archive_when_evidence_retained(storage):
             (memorial.id, "attempt-1", "d" * 64, "2026-08-25T00:00:00+00:00"),
         )
         storage._conn.execute(
+            "INSERT INTO run_generation_bindings VALUES (?, ?, 'bound', '[]', ?)",
+            (memorial.id, "attempt-1", "2026-08-25T00:00:00+00:00"),
+        )
+        storage._conn.execute(
             "INSERT INTO evidence_bundles "
             "(bundle_id, schema_version, edict_id, memorial_id, status, body_json, "
             " content_hash, version, created_at, closed_at) "
@@ -86,6 +101,13 @@ def test_delete_falls_back_to_archive_when_evidence_retained(storage):
     assert (
         storage._conn.execute(
             "SELECT COUNT(*) FROM run_system_bindings WHERE memorial_id = ?",
+            (memorial.id,),
+        ).fetchone()[0]
+        == 1
+    )
+    assert (
+        storage._conn.execute(
+            "SELECT COUNT(*) FROM run_generation_bindings WHERE memorial_id = ?",
             (memorial.id,),
         ).fetchone()[0]
         == 1

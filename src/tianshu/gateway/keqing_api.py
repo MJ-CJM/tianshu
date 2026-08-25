@@ -9,11 +9,7 @@ revert 是危险动作(覆盖工作区文件),但影子仓独立于用户 .git,�
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import shutil
-from pathlib import Path
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
@@ -45,22 +41,11 @@ def _detect_installed_version(binary: str) -> str | None:
     """从 CLI 的 package.json **读文件**取安装版本(不 spawn 进程,遵守进程启动守卫)。
 
     npm 全局装的 CLI:bin 符号链接 → realpath 落在包目录内,向上找 package.json 读 version。
-    非 npm 布局/找不到 → None。best-effort,任何异常吞掉。
+    Pi 非 npm 布局可回退仓库钉死版本；其余读不到 → None。best-effort,任何异常吞掉。
     """
-    path = shutil.which(binary)
-    if not path:
-        return None
-    try:
-        real = Path(os.path.realpath(path))
-        for parent in [real, *real.parents][:6]:
-            pkg = parent / "package.json"
-            if pkg.is_file():
-                data = json.loads(pkg.read_text(encoding="utf-8"))
-                ver = data.get("version")
-                return str(ver) if ver else None
-    except (OSError, ValueError, json.JSONDecodeError):
-        return None
-    return None
+    from tianshu.executor.keqing.versions import detect_installed_version
+
+    return detect_installed_version(binary)
 
 
 def _pinned_version(backend: str) -> str | None:
@@ -85,6 +70,26 @@ def _capabilities(backend: str) -> dict | None:
             "usage_reporting": c.usage_reporting,
         }
     return None  # 单发档(claude-code/codex)能力见 manifest,本页只展示会话客卿能力声明
+
+
+def _generation_status(request: Request, backend: str) -> dict | None:
+    """Return the read-only active generation projection for a generational backend."""
+
+    if backend != "pi":
+        return None
+    controller = getattr(request.app.state, "generation_controller", None)
+    if controller is None:
+        return None
+    status = controller.status_for_scope("executor:keqing:pi")
+    if status is None:
+        return None
+    state = status.state.value if hasattr(status.state, "value") else str(status.state)
+    return {
+        "id": status.id,
+        "state": state,
+        "active_runs": status.active_runs,
+        "last_good_id": status.last_good_id,
+    }
 
 
 @keqing_router.get("/keqing/status")
@@ -116,6 +121,7 @@ def get_keqing_status(request: Request):
                 "version_drift": drift,
                 "capabilities": _capabilities(name),
                 "credential_status": credential_status,
+                "generation": _generation_status(request, name),
             }
         )
     return ApiResponse(

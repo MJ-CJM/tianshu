@@ -56,6 +56,7 @@ SYSTEM_AUDIT_METADATA_KEYS: dict[str, frozenset[str]] = {
     ),
     "system_snapshot_drift": frozenset(),
     "system_snapshot_binding_failed": frozenset(),
+    "generation_retired": frozenset(),
     "contribution_dispose_stale": frozenset(),
 }
 

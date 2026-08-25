@@ -103,6 +103,59 @@ describe("KeqingManagementPage data truth", () => {
     expect(screen.queryByText("模型白名单")).not.toBeInTheDocument();
   });
 
+  it("shows the active Pi generation and null state for non-generational backends", async () => {
+    apiMocks.getKeqingStatus.mockResolvedValue({
+      backends: [
+        {
+          id: "keqing:pi",
+          backend: "pi",
+          binary: "pi",
+          installed: true,
+          installed_version: "0.83.0",
+          pinned_version: "0.83.0",
+          version_drift: false,
+          capabilities: null,
+          credential_status: "self-managed",
+          generation: {
+            id: "rg-pi-active",
+            state: "active",
+            active_runs: 2,
+            last_good_id: "rg-pi-previous",
+          },
+        },
+        {
+          id: "keqing:codex",
+          backend: "codex",
+          binary: "codex",
+          installed: true,
+          installed_version: "1.0.0",
+          pinned_version: null,
+          version_drift: false,
+          capabilities: null,
+          credential_status: "self-managed",
+          generation: null,
+        },
+      ],
+      gateway_enabled: false,
+    });
+    apiMocks.getAgentConfig.mockResolvedValue({});
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <KeqingManagementPage />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("rg-pi-active")).toBeInTheDocument();
+    expect(screen.getByText("现行")).toBeInTheDocument();
+    expect(screen.getByText("在办 2")).toBeInTheDocument();
+    expect(screen.getByText("上个良本 rg-pi-previous")).toBeInTheDocument();
+    expect(screen.getByText("未启代际")).toBeInTheDocument();
+  });
+
   it("does not present a status outage as an empty backend registry", async () => {
     apiMocks.getKeqingStatus.mockRejectedValue({
       status: 503,

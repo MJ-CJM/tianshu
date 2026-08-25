@@ -14,14 +14,17 @@ from tianshu.gateway.keqing_api import (
     _pinned_version,
     keqing_router,
 )
+from tianshu.models.runtime_generation import RuntimeGenerationState
 
 
-def _app(gateway_enabled: bool = False):
+def _app(gateway_enabled: bool = False, *, generation_controller=None):
     app = FastAPI()
     app.include_router(keqing_router)
     app.state.config_manager = SimpleNamespace(
         agent_config=SimpleNamespace(keqing_gateway_enabled=gateway_enabled)
     )
+    if generation_controller is not None:
+        app.state.generation_controller = generation_controller
     return TestClient(app)
 
 
@@ -42,7 +45,38 @@ class TestStatusEndpoint:
                 "version_drift",
                 "capabilities",
                 "credential_status",
+                "generation",
             }
+        assert all(b["generation"] is None for b in backends.values())
+
+    def test_pi_exposes_read_only_generation_status(self):
+        class ReadOnlyGenerationController:
+            def __init__(self):
+                self.scopes = []
+
+            def status_for_scope(self, scope: str):
+                self.scopes.append(scope)
+                return SimpleNamespace(
+                    id="rg-pi-active",
+                    state=RuntimeGenerationState.ACTIVE,
+                    active_runs=2,
+                    last_good_id="rg-pi-previous",
+                )
+
+        controller = ReadOnlyGenerationController()
+        data = _app(generation_controller=controller).get("/keqing/status").json()["data"]
+        by_backend = {backend["backend"]: backend for backend in data["backends"]}
+
+        assert by_backend["pi"]["generation"] == {
+            "id": "rg-pi-active",
+            "state": "active",
+            "active_runs": 2,
+            "last_good_id": "rg-pi-previous",
+        }
+        assert all(
+            backend["generation"] is None for name, backend in by_backend.items() if name != "pi"
+        )
+        assert controller.scopes == ["executor:keqing:pi"]
 
     def test_pi_exposes_capabilities_and_pinned_version(self):
         data = _app().get("/keqing/status").json()["data"]

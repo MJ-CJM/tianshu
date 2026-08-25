@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from tianshu.application.scheduled_runs import PreparedFire
+from tianshu.application.scheduled_runs import PreparedFire, ScheduledRunPreparer
 from tianshu.bus.event_bus import EventBus
-from tianshu.models import Edict, Memorial
-from tianshu.scheduler.scheduler import Scheduler
+from tianshu.models import Edict, EdictSchedule, Memorial
+from tianshu.models.events import EventEnvelope
+from tianshu.scheduler.scheduler import Scheduler, submission_job_id
+from tianshu.storage.outbox_repo import OutboxRepository
+from tianshu.universe.router import ChallengerRouter, GenerationBindingUnavailable
 
 _NOW = datetime(2026, 7, 16, 11, tzinfo=UTC)
 
@@ -61,6 +65,38 @@ class _Reconciler:
         return 1
 
 
+class _ReadinessGate:
+    def __init__(self) -> None:
+        self.available = False
+        self.admission_calls = 0
+        self.dispatch_calls = 0
+        self.admission_observed = asyncio.Event()
+
+    async def admit_durable_prepare(self) -> bool:
+        self.admission_calls += 1
+        self.admission_observed.set()
+        return self.available
+
+    async def reconcile_once(self) -> int:
+        self.dispatch_calls += 1
+        return 1
+
+
+class _FlakyGenerationRouter:
+    def __init__(self, storage) -> None:  # type: ignore[no-untyped-def]
+        self._delegate = ChallengerRouter(storage)
+        self.failure_observed = asyncio.Event()
+
+    def assign_current(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return self._delegate.assign_current(*args, **kwargs)
+
+    def prebind_runtime_current(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if not self.failure_observed.is_set():
+            self.failure_observed.set()
+            raise GenerationBindingUnavailable("generation_binding_unavailable")
+        return self._delegate.prebind_runtime_current(*args, **kwargs)
+
+
 async def test_immediate_fire_is_prepared_before_dispatch(storage) -> None:
     order: list[str] = []
     preparer = _Preparer(order)
@@ -86,6 +122,196 @@ async def test_immediate_fire_is_prepared_before_dispatch(storage) -> None:
     assert order == ["prepare", "dispatch"]
     assert preparer.calls[0]["initial_memorial_id"] == root.id
     assert storage.get_scheduler_job("job-1")["next_run"] == _NOW.isoformat()
+
+
+async def test_readiness_gate_preserves_immediate_job_then_recovers(storage) -> None:
+    gate = _ReadinessGate()
+    router = _FlakyGenerationRouter(storage)
+    preparer = ScheduledRunPreparer(
+        storage.unit_of_work,
+        storage.attempt_repo,
+        router,  # type: ignore[arg-type]
+    )
+    scheduler = Scheduler(
+        EventBus(),
+        storage,
+        scheduled_run_preparer=preparer,
+        run_reconciler=gate,
+        clock=lambda: _NOW,
+    )
+    edict = Edict(id="edict-1", goal="work")
+    root = Memorial(id="root-1", edict_id=edict.id, instruction=edict.goal)
+    storage.save_edict(edict)
+    storage.save_memorial(root)
+    event_id = "readiness-gated-submission"
+    with storage.unit_of_work() as unit_of_work:
+        OutboxRepository().add(
+            unit_of_work.connection,
+            EventEnvelope(
+                event_id=event_id,
+                event_type="edict.submitted",
+                edict_id=edict.id,
+                memorial_id=root.id,
+                timestamp=_NOW,
+                producer="test",
+                payload={"goal": edict.goal},
+            ),
+        )
+        unit_of_work.commit()
+    job_id = submission_job_id(event_id)
+    scheduler._running = True  # noqa: SLF001
+
+    await scheduler.schedule(
+        edict,
+        memorial_id=root.id,
+        job_id=job_id,
+        scheduled_at=_NOW,
+    )
+    job = scheduler._jobs[job_id]  # noqa: SLF001
+    try:
+        await asyncio.sleep(0)
+        durable = storage.get_scheduler_job(job_id)
+        assert durable is not None
+        assert durable["status"] == "active"
+        assert durable["next_run"] == _NOW.isoformat()
+        assert job.task is not None and not job.task.done()
+        assert gate.admission_calls >= 1
+        assert gate.dispatch_calls == 0
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM execution_attempts"
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM schedule_run"
+            ).fetchone()[0]
+            == 0
+        )
+
+        gate.available = True
+        await asyncio.wait_for(router.failure_observed.wait(), timeout=2)
+        durable = storage.get_scheduler_job(job_id)
+        assert durable is not None
+        assert durable["status"] == "active"
+        assert durable["next_run"] == _NOW.isoformat()
+        assert job.task is not None and not job.task.done()
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM execution_attempts"
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM schedule_run"
+            ).fetchone()[0]
+            == 0
+        )
+
+        await asyncio.wait_for(job.task, timeout=2)
+
+        durable = storage.get_scheduler_job(job_id)
+        assert durable is not None
+        assert durable["status"] == "completed"
+        assert durable["next_run"] is None
+        assert gate.dispatch_calls == 1
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM execution_attempts"
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM schedule_run"
+            ).fetchone()[0]
+            == 1
+        )
+    finally:
+        scheduler._running = False  # noqa: SLF001
+        if job.task is not None and not job.task.done():
+            job.task.cancel()
+            await asyncio.gather(job.task, return_exceptions=True)
+
+
+async def test_readiness_gate_precedes_overdue_cursor_coalesce(storage) -> None:
+    gate = _ReadinessGate()
+    preparer = _Preparer([])
+    edict = Edict(
+        id="edict-1",
+        goal="periodic work",
+        schedule=EdictSchedule(
+            type="interval",
+            interval_seconds=60,
+            misfire_policy="coalesce",
+        ),
+    )
+    storage.save_edict(edict)
+    overdue = _NOW - timedelta(minutes=5)
+    storage.save_scheduler_job(
+        "job-1",
+        edict.id,
+        "interval",
+        interval_seconds=60,
+        next_run=overdue,
+    )
+    scheduler = Scheduler(
+        EventBus(),
+        storage,
+        scheduled_run_preparer=preparer,
+        run_reconciler=gate,
+        clock=lambda: _NOW,
+    )
+    scheduler._running = True  # noqa: SLF001
+    task = asyncio.create_task(  # noqa: SLF001
+        scheduler._managed_job_loop("job-1", initial_memorial_id=None)
+    )
+    try:
+        await asyncio.sleep(0)
+        assert gate.admission_calls == 1
+        assert preparer.calls == []
+        assert storage.get_scheduler_job("job-1")["next_run"] == overdue.isoformat()
+    finally:
+        scheduler._running = False  # noqa: SLF001
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_future_fire_rechecks_readiness_after_timer_sleep(storage) -> None:
+    gate = _ReadinessGate()
+    gate.available = True
+    preparer = _Preparer([])
+    future = _NOW + timedelta(seconds=0.05)
+    storage.save_edict(Edict(id="edict-1", goal="future work"))
+    storage.save_scheduler_job("job-1", "edict-1", "once", next_run=future)
+    scheduler = Scheduler(
+        EventBus(),
+        storage,
+        scheduled_run_preparer=preparer,
+        run_reconciler=gate,
+        clock=lambda: _NOW,
+    )
+    scheduler._running = True  # noqa: SLF001
+    task = asyncio.create_task(  # noqa: SLF001
+        scheduler._managed_job_loop("job-1", initial_memorial_id=None)
+    )
+    try:
+        await gate.admission_observed.wait()
+        gate.available = False
+        await asyncio.sleep(0.1)
+
+        assert gate.admission_calls >= 2
+        assert preparer.calls == []
+        durable = storage.get_scheduler_job("job-1")
+        assert durable is not None
+        assert durable["status"] == "active"
+        assert durable["next_run"] == future.isoformat()
+    finally:
+        scheduler._running = False  # noqa: SLF001
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 async def test_orphan_sweeper_is_diagnostic_only_in_managed_mode(storage) -> None:
@@ -125,6 +351,26 @@ async def test_run_now_uses_explicit_stable_key_without_moving_cursor(storage) -
 
     assert order == ["prepare_manual", "dispatch"]
     assert preparer.calls[0]["idempotency_key"] == "manual-1"
+
+
+async def test_run_now_gate_rejects_before_manual_prepare(storage) -> None:
+    order: list[str] = []
+    preparer = _Preparer(order)
+    gate = _ReadinessGate()
+    scheduler = Scheduler(
+        EventBus(),
+        storage,
+        scheduled_run_preparer=preparer,
+        run_reconciler=gate,
+        clock=lambda: _NOW,
+    )
+    storage.save_edict(Edict(id="edict-1", goal="work"))
+    storage.save_scheduler_job("job-1", "edict-1", "immediate", next_run=_NOW)
+
+    assert not await scheduler.run_now("job-1", idempotency_key="manual-1")
+    assert order == []
+    assert preparer.calls == []
+    assert gate.dispatch_calls == 0
 
 
 async def test_managed_run_now_rejects_missing_stable_key(storage) -> None:

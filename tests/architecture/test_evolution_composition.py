@@ -54,3 +54,19 @@ def test_dispatcher_and_submission_share_the_one_router_from_app_state() -> None
 
     assert "challenger_router=challenger_router" in evolution_wiring
     assert "challenger_router=app.state.challenger_router" in scheduler_wiring
+
+
+def test_control_plane_tick_and_attempt_cleanup_compose_generation_after_evolution() -> None:
+    scheduler_wiring = _source("src/tianshu/bootstrap/wiring_scheduler.py")
+
+    evolution = scheduler_wiring.index("app.state.evolution_reconciler.reconcile_once()")
+    generation = scheduler_wiring.index("app.state.generation_reconciler.reconcile_once()")
+    generation_readiness = scheduler_wiring.index(
+        "app.state.generation_reconciler.readiness_snapshot()"
+    )
+    plan_review = scheduler_wiring.index("plan_review_coordinator.reconcile_once()")
+    assert evolution < generation < generation_readiness < plan_review
+    assert "blocking_generation_errors" in scheduler_wiring
+    assert "ControlPlaneUnavailable" in scheduler_wiring
+    assert "raise ControlPlaneUnavailable(" in scheduler_wiring
+    assert "generation_release=app.state.generation_controller.release_binding" in scheduler_wiring

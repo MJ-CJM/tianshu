@@ -18,6 +18,7 @@ from tianshu.application.run_execution import (
 )
 from tianshu.bootstrap.wiring_scheduler import _require_restart_safe_legacy_plan
 from tianshu.bus.event_bus import EventBus
+from tianshu.executor.adapters import ExecutorGenerationUnavailable
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.executor import Executor
 from tianshu.gateway.core.edict_bridge import EdictBridge
@@ -67,6 +68,16 @@ class _Executor:
         return self.projection
 
 
+class _UnavailableExecutor:
+    async def execute_attempt(
+        self,
+        authority: AttemptAuthority,
+        plan: Plan,
+    ) -> ManagedExecutionProjection:
+        del authority, plan
+        raise ExecutorGenerationUnavailable("managed package drifted")
+
+
 async def test_runner_directly_awaits_planner_then_executor() -> None:
     planner = _Planner(ManagedPlanningResult(plan=_PLAN))
     executor = _Executor(
@@ -99,6 +110,22 @@ async def test_runner_carries_full_memorial_terminal_evidence() -> None:
 
     assert (await runner(_AUTHORITY)).disposition is AttemptDisposition.SUCCEEDED
     assert runner.take_projection(_AUTHORITY) == projection
+
+
+async def test_runner_classifies_execution_time_generation_loss_as_retired() -> None:
+    runner = ProductionRunRunner(
+        _Planner(ManagedPlanningResult(plan=_PLAN)),
+        _UnavailableExecutor(),
+    )
+
+    result = await runner(_AUTHORITY)
+
+    assert result.disposition is AttemptDisposition.FAILED
+    assert result.failure is not None
+    assert result.failure.code == "generation_retired"
+    projection = runner.take_projection(_AUTHORITY)
+    assert projection is not None
+    assert projection.error == result.failure
 
 
 async def test_retryable_projection_is_classified_for_managed_retry() -> None:

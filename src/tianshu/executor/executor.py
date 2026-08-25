@@ -17,10 +17,12 @@ from tianshu.application.run_execution import ManagedExecutionProjection
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager
 from tianshu.dag import validate_dag_structure
+from tianshu.evolution.runtime_context import current_run_binding
 from tianshu.executor.adapters import (
     DelegatingExecutorAdapter,
     ExecutionMode,
     ExecutorAdapterRegistry,
+    ExecutorGenerationUnavailable,
     PreparedExecutor,
     UnsupportedExecutorMode,
 )
@@ -187,6 +189,12 @@ class Executor:
         return self._adapter_registry.manifest_digests()
 
     @property
+    def adapter_registry(self) -> ExecutorAdapterRegistry:
+        """Expose the process-local registry to the generation composition root."""
+
+        return self._adapter_registry
+
+    @property
     def managed_run_ingress(self) -> Any | None:
         return self._managed_run_ingress
 
@@ -206,6 +214,7 @@ class Executor:
         edict = self._storage.get_edict(memorial.edict_id)
         if edict is None:
             raise RuntimeError("managed execution edict is unavailable")
+        edict = self._apply_memorial_override(edict, memorial)
         if edict.acceptance is not None and self._orchestrator_ctx is not None:
             await self._execute_outer_loop(
                 edict,
@@ -464,6 +473,20 @@ class Executor:
                     execution.status,
                     completed_at=execution.completed_at,
                 )
+            except ExecutorGenerationUnavailable:
+                root_memorial.status = TaskStatus.FAILED
+                root_memorial.error = "pinned runtime generation is unavailable"
+                root_memorial.failure_reason = "generation_retired"
+                root_memorial.completed_at = datetime.now(UTC)
+                terminal_root = root_memorial
+                persist_terminal = True
+                execution.status = "failed"
+                execution.completed_at = root_memorial.completed_at
+                self._storage.update_dag_execution_status(
+                    execution.id,
+                    execution.status,
+                    completed_at=execution.completed_at,
+                )
             except Exception as exc:
                 logger.exception("DAG execution failed for edict %s", edict.id)
                 root_memorial.status = TaskStatus.FAILED
@@ -503,7 +526,24 @@ class Executor:
                         except Exception:
                             logger.exception("Failed to update root memorial %s", terminal_root.id)
 
-        terminal_memorial = self._storage.get_memorial(root_memorial.id) or terminal_root
+        if _defer_terminal and terminal_root is not None:
+            # The scheduler reads the root back from storage and returns a distinct
+            # model instance.  Managed execution deliberately does not persist that
+            # terminal before fenced completion, so copy its projection onto the
+            # caller-owned root instead of reloading the still-RUNNING database row.
+            root_memorial.status = terminal_root.status
+            root_memorial.started_at = terminal_root.started_at
+            root_memorial.completed_at = terminal_root.completed_at
+            root_memorial.summary = terminal_root.summary
+            root_memorial.result = terminal_root.result
+            root_memorial.final_output = terminal_root.final_output
+            root_memorial.usage = terminal_root.usage
+            root_memorial.error = terminal_root.error
+            root_memorial.reasoning_content = terminal_root.reasoning_content
+            root_memorial.failure_reason = terminal_root.failure_reason
+            terminal_memorial = root_memorial
+        else:
+            terminal_memorial = self._storage.get_memorial(root_memorial.id) or terminal_root
         event_type = {
             TaskStatus.COMPLETED: "execution.completed",
             TaskStatus.CANCELLED: "execution.cancelled",
@@ -558,6 +598,7 @@ class Executor:
         *,
         execution_mode: ExecutionMode,
     ) -> PreparedExecutor:
+        attempt_id, expected_generation_ids = self._generation_binding(memorial)
         requested = edict.governance_contract or LegacyEdictGovernanceMapper.from_edict(
             edict,
             default_workspace_id="legacy-default",
@@ -581,16 +622,37 @@ class Executor:
                 run_id=memorial.id,
                 instruction=memorial.instruction or requested.objective.goal,
                 execution_mode=execution_mode,
+                attempt_id=attempt_id,
             )
             memorial.effective_governance_contract = existing
-            return prepared
+            return self._verify_generation_binding(prepared, expected_generation_ids)
 
-        return self._adapter_registry.prepare(
+        prepared = self._adapter_registry.prepare(
             requested,
             run_id=memorial.id,
             instruction=memorial.instruction or requested.objective.goal,
             execution_mode=execution_mode,
+            attempt_id=attempt_id,
         )
+        return self._verify_generation_binding(prepared, expected_generation_ids)
+
+    @staticmethod
+    def _generation_binding(memorial: Memorial) -> tuple[str | None, tuple[str, ...]]:
+        binding = current_run_binding()
+        if binding is None or not binding.generation_ids:
+            return None, ()
+        if binding.memorial_id != memorial.id:
+            raise RuntimeError("runtime generation binding does not match memorial")
+        return binding.attempt_id, binding.generation_ids
+
+    @staticmethod
+    def _verify_generation_binding(
+        prepared: PreparedExecutor,
+        expected_generation_ids: tuple[str, ...],
+    ) -> PreparedExecutor:
+        if prepared.generation_ids != expected_generation_ids:
+            raise RuntimeError("prepared executor generation does not match run binding")
+        return prepared
 
     def _persist_effective_contract(
         self,
@@ -616,6 +678,7 @@ class Executor:
         *,
         execution_mode: ExecutionMode,
     ) -> tuple[PreparedExecutor, BoundWorkspace | None]:
+        attempt_id, expected_generation_ids = self._generation_binding(memorial)
         prepared = self._resolve_governed_executor(
             edict,
             memorial,
@@ -629,7 +692,9 @@ class Executor:
                     run_id=memorial.id,
                     instruction=prepared.prepared.instruction,
                     execution_mode=execution_mode,
+                    attempt_id=attempt_id,
                 )
+                self._verify_generation_binding(prepared, expected_generation_ids)
             self._persist_effective_contract(edict, memorial, prepared)
             return prepared, workspace.bound
         except BaseException as exc:
@@ -917,6 +982,10 @@ class Executor:
                 memorial.error = "Task was cancelled"
             except ManagedRunSuspended as exc:
                 suspended_error = exc
+            except ExecutorGenerationUnavailable:
+                memorial.status = TaskStatus.FAILED
+                memorial.error = "pinned runtime generation is unavailable"
+                memorial.failure_reason = "generation_retired"
             except Exception as exc:
                 logger.exception("orchestrator failed for edict %s", edict.id)
                 memorial.status = TaskStatus.FAILED
@@ -1228,6 +1297,11 @@ class Executor:
             event_type = "execution.failed"
         except ManagedRunSuspended as exc:
             suspended_error = exc
+        except ExecutorGenerationUnavailable:
+            memorial.status = TaskStatus.FAILED
+            memorial.error = "pinned runtime generation is unavailable"
+            memorial.failure_reason = "generation_retired"
+            event_type = "execution.failed"
         except Exception as exc:
             logger.exception("Unexpected error executing edict %s", edict.id)
             memorial.status = TaskStatus.FAILED
