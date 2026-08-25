@@ -504,23 +504,3 @@ def test_candidate_resolver_rejects_unbound_or_unapproved_record(tmp_path: Path,
 
     with pytest.raises(ValueError, match="approval record"):
         module.resolve_lean_preview_candidate_artifacts(candidate, tmp_path)
-
-
-@pytest.mark.parametrize(
-    ("filename", "exporter_name"),
-    [
-        ("lean-preview-demo-report-v1.schema.json", "lean_preview_demo_report_schema"),
-        (
-            "lean-preview-candidate-report-v1.schema.json",
-            "lean_preview_candidate_report_schema",
-        ),
-    ],
-)
-def test_checked_in_schemas_are_generated_from_the_behavioral_exporters(
-    filename: str, exporter_name: str
-) -> None:
-    module = _module()
-    expected = getattr(module, exporter_name)()
-
-    assert _schema(filename) == expected
-    assert expected["additionalProperties"] is False

@@ -1841,5 +1841,6 @@
   "title": "ClosedEvidenceBundleV1",
   "type": "object",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://tianshu.dev/schemas/evidence-bundle-v1.schema.json"
+  "$id": "https://tianshu.dev/schemas/evidence-bundle-v1.schema.json",
+  "x-pydantic-version": "2.13.0"
 }

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/plugin-v1]
   pull_request:
 
 permissions:
@@ -10,13 +10,19 @@ permissions:
 
 jobs:
   dependency-review:
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Dependency review is pull-request only
+        if: github.event_name != 'pull_request'
+        run: echo "Dependency review is not required for ${GITHUB_EVENT_NAME}."
+      - name: Check out pull request
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
-      - uses: actions/dependency-review-action@56339e523c0409420f6c2c9a2f4292bbb3c07dd3 # v4.8.0
+      - name: Review dependency changes
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@56339e523c0409420f6c2c9a2f4292bbb3c07dd3 # v4.8.0
         with:
           fail-on-severity: high
           # Mirrors the exact-version, expiring RSC-only exception documented
@@ -47,6 +53,8 @@ jobs:
       # 会突破那个上界产生假失败，摘出来串行——它们串行只要 16 秒。
       - run: uv run pytest -m "not slow and not timing_sensitive" -q -n auto
       - run: uv run pytest -m "not slow and timing_sensitive" -q
+      - name: Check clean worktree
+        uses: ./.github/actions/check-clean-worktree
 
   frontend:
     runs-on: ubuntu-latest
@@ -68,6 +76,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test -- --run
       - run: npm run build
+      - name: Check clean worktree
+        uses: ./.github/actions/check-clean-worktree
 
   web-e2e:
     runs-on: ubuntu-latest
@@ -135,3 +145,24 @@ jobs:
           # required 检查，live 档位下必然 fail 并让 doctor 退出 1。demo 是代码里
           # 为无凭证运行设计的档位，其余 required 检查（资源包、迁移、overlay）照跑。
           TIANSHU_STARTUP_PROFILE=demo /tmp/sdist-smoke/bin/tianshu doctor --format json > /dev/null
+
+  required:
+    name: Required CI
+    if: ${{ always() }}
+    needs:
+      - dependency-review
+      - backend
+      - frontend
+      - web-e2e
+      - release-wheel
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Require every CI job to succeed
+        env:
+          REQUIRED_JOB_RESULTS: ${{ toJSON(needs) }}
+        run: python3 .github/scripts/check_ci_results.py
