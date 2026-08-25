@@ -585,7 +585,7 @@ class Agent:
         except Exception as e:
             if _is_context_overflow(e):
                 # 恢复次数硬上限：压缩后仍反复 overflow 说明已无可压空间，
-                # 继续重试只是烧 API 直到超时（且把溢出误报成 provider_timeout）。
+                # 继续重试只是烧 API 直到超时（且把溢出误报成 agent timeout）。
                 recovered = None
                 if recovery_attempts.get("context_overflow", 0) < 2:
                     recovered = await reactive_compact(state, llm=llm, context_limit=context_limit)

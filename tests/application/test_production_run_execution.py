@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
@@ -19,6 +20,7 @@ from tianshu.application.run_execution import (
 from tianshu.bootstrap.wiring_scheduler import _require_restart_safe_legacy_plan
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.adapters import ExecutorGenerationUnavailable
+from tianshu.executor.agent import AgentResult
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.executor import Executor
 from tianshu.gateway.core.edict_bridge import EdictBridge
@@ -29,6 +31,7 @@ from tianshu.models import Edict, Memorial, Plan, PlanTask, TaskStatus, UsageSum
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 from tianshu.models.canonical import RedactedError
 from tianshu.models.events import EventEnvelope
+from tianshu.models.failure import FailureReason
 from tianshu.scheduler.scheduler import Scheduler
 
 _NOW = datetime(2026, 7, 16, 10, tzinfo=UTC)
@@ -78,6 +81,19 @@ class _UnavailableExecutor:
         raise ExecutorGenerationUnavailable("managed package drifted")
 
 
+class _RaisingExecutor:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    async def execute_attempt(
+        self,
+        authority: AttemptAuthority,
+        plan: Plan,
+    ) -> ManagedExecutionProjection:
+        del authority, plan
+        raise self.error
+
+
 async def test_runner_directly_awaits_planner_then_executor() -> None:
     planner = _Planner(ManagedPlanningResult(plan=_PLAN))
     executor = _Executor(
@@ -123,9 +139,52 @@ async def test_runner_classifies_execution_time_generation_loss_as_retired() -> 
     assert result.disposition is AttemptDisposition.FAILED
     assert result.failure is not None
     assert result.failure.code == "generation_retired"
+    assert not result.failure.retryable
     projection = runner.take_projection(_AUTHORITY)
     assert projection is not None
     assert projection.error == result.failure
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (TimeoutError("slow"), FailureReason.AGENT_TIMEOUT),
+        (ConnectionError("offline"), FailureReason.PROVIDER_NETWORK),
+        (OSError("process unavailable"), FailureReason.PROCESS_FAILURE),
+    ],
+)
+async def test_runner_classifies_transient_exceptions_with_canonical_failure_reason(
+    error: Exception,
+    reason: FailureReason,
+) -> None:
+    runner = ProductionRunRunner(
+        _Planner(ManagedPlanningResult(plan=_PLAN)),
+        _RaisingExecutor(error),
+        clock=lambda: _NOW,
+    )
+
+    result = await runner(_AUTHORITY)
+
+    assert result.disposition is AttemptDisposition.RETRY
+    assert result.failure is not None
+    assert result.failure.code == reason.value
+    assert result.failure.retryable is reason.is_retryable
+    assert result.retry_at == _NOW + timedelta(seconds=1)
+
+
+async def test_runner_fails_closed_for_unknown_custom_exception() -> None:
+    runner = ProductionRunRunner(
+        _Planner(ManagedPlanningResult(plan=_PLAN)),
+        _RaisingExecutor(RuntimeError("timeout")),
+        clock=lambda: _NOW,
+    )
+
+    result = await runner(_AUTHORITY)
+
+    assert result.disposition is AttemptDisposition.FAILED
+    assert result.failure is not None
+    assert result.failure.code == FailureReason.UNKNOWN.value
+    assert not result.failure.retryable
 
 
 async def test_retryable_projection_is_classified_for_managed_retry() -> None:
@@ -146,6 +205,41 @@ async def test_retryable_projection_is_classified_for_managed_retry() -> None:
     assert result.disposition is AttemptDisposition.RETRY
     assert result.failure == failure
     assert result.retry_at == _NOW + timedelta(seconds=1)
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        ("RateLimitError: 429 Too Many Requests", FailureReason.PROVIDER_CAPACITY_OR_RATE_LIMIT),
+        ("upstream returned 503", FailureReason.PROVIDER_SERVER_ERROR),
+    ],
+)
+async def test_real_managed_executor_text_failure_uses_canonical_retry_reason(
+    storage,
+    config_manager,
+    error: str,
+    reason: FailureReason,
+) -> None:
+    edict = Edict(id="edict-1", goal="work")
+    root = Memorial(id="root-1", edict_id=edict.id, instruction=edict.goal)
+    storage.save_edict(edict)
+    storage.save_memorial(root)
+    executor = Executor(EventBus(), storage, config_manager, HookRegistry())
+    agent = AsyncMock()
+    agent.execute.return_value = AgentResult(status=TaskStatus.FAILED, error=error)
+    executor.set_agent(agent)
+    runner = ProductionRunRunner(
+        _Planner(ManagedPlanningResult(plan=_PLAN)),
+        executor,
+        clock=lambda: _NOW,
+    )
+
+    result = await runner(_AUTHORITY)
+
+    assert result.disposition is AttemptDisposition.RETRY
+    assert result.failure is not None
+    assert result.failure.code == reason.value
+    assert result.failure.retryable is reason.is_retryable
 
 
 async def test_real_managed_executor_timeout_retries_then_dead_letters(
@@ -194,6 +288,9 @@ async def test_real_managed_executor_timeout_retries_then_dead_letters(
     )
     first = await runner(first_authority)
     assert first.disposition is AttemptDisposition.RETRY
+    assert first.failure is not None
+    assert first.failure.code == FailureReason.AGENT_TIMEOUT.value
+    assert first.failure.retryable is FailureReason.AGENT_TIMEOUT.is_retryable
     assert completer(
         first_authority,
         AttemptOutcomeV1(
@@ -203,6 +300,11 @@ async def test_real_managed_executor_timeout_retries_then_dead_letters(
             retry_at=first.retry_at,
         ),
     )
+    first_failure_json = storage._conn.execute(  # noqa: SLF001
+        "SELECT failure_json FROM execution_attempts WHERE attempt_id=?",
+        (first_authority.attempt_id,),
+    ).fetchone()[0]
+    assert json.loads(first_failure_json) == first.failure.model_dump(mode="json")
     assert storage.get_memorial(root.id).status not in {
         TaskStatus.COMPLETED,
         TaskStatus.FAILED,
@@ -230,6 +332,8 @@ async def test_real_managed_executor_timeout_retries_then_dead_letters(
     )
     second = await runner(second_authority)
     assert second.disposition is AttemptDisposition.RETRY
+    assert second.failure is not None
+    assert second.failure.code == FailureReason.AGENT_TIMEOUT.value
     assert completer(
         second_authority,
         AttemptOutcomeV1(
@@ -239,6 +343,11 @@ async def test_real_managed_executor_timeout_retries_then_dead_letters(
             retry_at=second.retry_at,
         ),
     )
+    second_failure_json = storage._conn.execute(  # noqa: SLF001
+        "SELECT failure_json FROM execution_attempts WHERE attempt_id=?",
+        (second_authority.attempt_id,),
+    ).fetchone()[0]
+    assert json.loads(second_failure_json) == second.failure.model_dump(mode="json")
     assert storage.get_memorial(root.id).status is TaskStatus.FAILED
     assert (
         storage._conn.execute(  # noqa: SLF001

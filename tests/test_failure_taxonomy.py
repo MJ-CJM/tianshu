@@ -7,7 +7,12 @@ from __future__ import annotations
 
 import pytest
 
-from tianshu.models.failure import FailureReason, classify_failure, resolve_failure_reason
+from tianshu.models.failure import (
+    FailureReason,
+    classify_exception_failure,
+    classify_failure,
+    resolve_failure_reason,
+)
 
 
 class TestPlatformSideRules:
@@ -117,3 +122,42 @@ class TestTaxonomyStability:
         platform_side = [r for r in FailureReason if not r.is_agent_error]
         assert len(agent_side) == 14  # multica 14 类照搬
         assert len(platform_side) == 3  # 天枢平台侧:预算/迭代闸/孤儿回收
+
+    def test_retryable_truth_table_is_explicit_and_closed(self):
+        retryable = {
+            FailureReason.PROVIDER_CAPACITY_OR_RATE_LIMIT,
+            FailureReason.PROVIDER_SERVER_ERROR,
+            FailureReason.PROVIDER_NETWORK,
+            FailureReason.PROCESS_FAILURE,
+            FailureReason.AGENT_TIMEOUT,
+        }
+
+        assert {reason for reason in FailureReason if reason.is_retryable} == retryable
+        assert all(not reason.is_retryable for reason in set(FailureReason) - retryable)
+
+
+class TestExceptionFailureClassification:
+    @pytest.mark.parametrize(
+        ("error", "expected"),
+        [
+            (TimeoutError("slow"), FailureReason.AGENT_TIMEOUT),
+            (ConnectionError("offline"), FailureReason.PROVIDER_NETWORK),
+            (OSError("process unavailable"), FailureReason.PROCESS_FAILURE),
+        ],
+    )
+    def test_transient_builtin_exception_mapping(self, error, expected):
+        assert classify_exception_failure(error) is expected
+        assert classify_exception_failure(error).is_retryable
+
+    def test_subclass_order_precedes_generic_os_error(self):
+        assert classify_exception_failure(TimeoutError()) is FailureReason.AGENT_TIMEOUT
+        assert classify_exception_failure(ConnectionError()) is FailureReason.PROVIDER_NETWORK
+
+    @pytest.mark.parametrize(
+        "error",
+        [RuntimeError("timeout"), ValueError("connection refused"), Exception("novel")],
+    )
+    def test_unknown_custom_exception_fails_closed(self, error):
+        reason = classify_exception_failure(error)
+        assert reason is FailureReason.UNKNOWN
+        assert not reason.is_retryable

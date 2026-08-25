@@ -51,7 +51,11 @@ from tianshu.models.common import TaskStatus
 from tianshu.models.dag import DAGExecution
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
-from tianshu.models.failure import resolve_failure_reason
+from tianshu.models.failure import (
+    FailureReason,
+    classify_exception_failure,
+    resolve_failure_reason,
+)
 from tianshu.models.governance_contract import LegacyEdictGovernanceMapper
 from tianshu.models.memorial import Memorial
 from tianshu.models.plan import Plan
@@ -232,6 +236,11 @@ class Executor:
                 _defer_terminal=True,
             )
         error = None
+        resolved_failure_reason = resolve_failure_reason(
+            memorial.status.value,
+            memorial.error,
+            memorial.failure_reason,
+        )
         if memorial.status is not TaskStatus.COMPLETED:
             # 服务端留真实失败原因(前端只收脱敏摘要);memorial.error 现由执行器透传具体原因。
             logger.warning(
@@ -240,19 +249,26 @@ class Executor:
                 memorial.failure_reason,
                 memorial.error,
             )
-            retryable = memorial.failure_reason in {
-                "provider_timeout",
-                "provider_connection_error",
-                "transient_execution_error",
-            }
-            error = RedactedError(
-                code=memorial.failure_reason or "execution_failed",
-                message="Managed execution failed",
-                retryable=retryable,
-                details_hash=(
-                    hashlib.sha256((memorial.error or "execution_failed").encode()).hexdigest()
-                ),
-            )
+            if resolved_failure_reason == "generation_retired":
+                error = RedactedError(
+                    code="generation_retired",
+                    message="Pinned runtime generation is unavailable",
+                    retryable=False,
+                    details_hash=None,
+                )
+            else:
+                try:
+                    reason = FailureReason(resolved_failure_reason)
+                except (TypeError, ValueError):
+                    reason = FailureReason.UNKNOWN
+                error = RedactedError(
+                    code=reason.value,
+                    message="Managed execution failed",
+                    retryable=reason.is_retryable,
+                    details_hash=(
+                        hashlib.sha256((memorial.error or "execution_failed").encode()).hexdigest()
+                    ),
+                )
         return ManagedExecutionProjection(
             status=memorial.status,
             summary=memorial.summary,
@@ -260,11 +276,7 @@ class Executor:
             final_output=memorial.final_output,
             usage=memorial.usage,
             reasoning_content=memorial.reasoning_content,
-            failure_reason=resolve_failure_reason(
-                memorial.status.value,
-                memorial.error,
-                memorial.failure_reason,
-            ),
+            failure_reason=resolved_failure_reason,
             error=error,
         )
 
@@ -1290,10 +1302,10 @@ class Executor:
             memorial.status = TaskStatus.CANCELLED
             memorial.error = "Task was cancelled"
             event_type = "execution.cancelled"
-        except TimeoutError:
+        except TimeoutError as exc:
             memorial.status = TaskStatus.FAILED
             memorial.error = f"Execution timed out after {edict.runtime.timeout_seconds}s"
-            memorial.failure_reason = "provider_timeout"
+            memorial.failure_reason = classify_exception_failure(exc).value
             event_type = "execution.failed"
         except ManagedRunSuspended as exc:
             suspended_error = exc
@@ -1306,7 +1318,7 @@ class Executor:
             logger.exception("Unexpected error executing edict %s", edict.id)
             memorial.status = TaskStatus.FAILED
             memorial.error = str(exc)
-            memorial.failure_reason = _retryable_failure_reason(exc)
+            memorial.failure_reason = classify_exception_failure(exc).value
             event_type = "execution.failed"
         finally:
             if suspended_error is None:
@@ -1579,13 +1591,3 @@ class Executor:
         for task in list(self._running_tasks):
             task.cancel()
         await asyncio.gather(*self._running_tasks, return_exceptions=True)
-
-
-def _retryable_failure_reason(exc: Exception) -> str | None:
-    if isinstance(exc, TimeoutError):
-        return "provider_timeout"
-    if isinstance(exc, ConnectionError):
-        return "provider_connection_error"
-    if isinstance(exc, OSError):
-        return "transient_execution_error"
-    return None

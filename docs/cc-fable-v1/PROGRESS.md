@@ -243,7 +243,8 @@ Rationale: release material, generation state, transition journal, and
 active/last-good pointers jointly form one continuity authority. Partial
 adoption or permissive shape matching could select an unverified binary,
 violate the one-active-per-scope invariant, or discard the rollback root.
-Status: callback frozen after the decision above. V32 checksum is
+Status: callback frozen after the decision above; implementation merged into
+`feat/plugin-v1` via PR #99. V32 checksum is
 `e8926305465f9372891379fb73298fbbb7b0e490032543abdbbafd29a1258142`;
 callback fingerprint is
 `67c47b31f787a514d567fd2cdb8754599073648fba412e2e66f5f8ea32a8470c`.
@@ -263,3 +264,24 @@ tests, lint (0 errors / 31 pre-existing warnings), and production build passed.
 Mypy, Ruff check/format, all four import-linter contracts, schema export check,
 SVG validation, and `git diff --check` passed. Both checked-in Runtime
 Release/Generation schemas regenerate deterministically.
+
+=== Agent OS X2 / FailureReason retry convergence (2026-08-26) ===
+Decision: keep the durable 17-value FailureReason taxonomy unchanged and make
+`FailureReason.is_retryable` the single execution retry truth source. Exactly
+five canonical reasons are retryable: provider capacity/rate limit, provider
+server error, provider network, process failure, and agent timeout. Built-in
+TimeoutError, ConnectionError, and OSError map to those canonical reasons in
+specific-to-general order; unknown or custom exception types fail closed as
+`agent_error.unknown`. P3's `generation_retired` remains an explicit,
+non-retryable continuity failure outside the 17-value memorial taxonomy.
+Boundary: this convergence changes neither attempt budgets/backoff/fencing nor
+legacy outbox and transport-delivery retry behavior, and requires no migration.
+Status: implementation complete on Issue #100; merge pending. Focused execution,
+attempt-ledger, fenced-completion, dispatcher, outbox, generation-continuity,
+capability, and workspace lifecycle regression: 240 passed. Full backend:
+5107 passed / 2 skipped with one unrelated macOS process-cleanup timing test
+exceeding its outer one-second bound under suite load; that exact test passed
+immediately in isolated rerun. Ruff check/format,
+mypy (141 source files), and all four import-linter contracts passed. Durable
+attempt assertions prove canonical RedactedError JSON is persisted unchanged in
+`execution_attempts.failure_json` across retry and budget exhaustion.
