@@ -1,6 +1,8 @@
 # 扩展开发指南
 
-二次开发的五类扩展点：Tool / 自定义 MCP Server / Provider / Plugin / Channel。每节给最小端到端示例 + 落点路径。设计意图见各 [`../design/`](../design/)，实现细节见各 [`../impl/`](../impl/)。
+本指南按五类用户场景组织二次开发：Tool / 自定义 MCP Server / Provider / Plugin / Channel；
+受信任源码门面内部覆盖 Tool / Hook / Channel / Provider / Skill / Command 六类 contribution。
+每节给最小端到端示例 + 落点路径。设计意图见各 [`../design/`](../design/)，实现细节见各 [`../impl/`](../impl/)。
 
 > 本篇是「怎么写」；偏内核职责分工的入口清单见 [developer-guide.md](developer-guide.md)。
 
@@ -45,6 +47,10 @@ handler 必须是 `async`、返回 `ToolResult`；`execute` 会先按 `parameter
 
 - 落点：YAML 种子 `~/.tianshu/mcp_servers.yaml`（顶级键 `mcp_servers`，name 在 dict key 上）；DB 覆盖表 `mcp_server_overrides`（运行时增改）。
 - 装配：`app.py` lifespan 构造 `MCPManager(tools, storage=storage)` 并后台 `start()` 并行拉起所有 enabled server。
+
+MCP 工具以 `mcp:<server>` owner 登记。每次重新发现会替换上一工具集合；断连、重连和
+shutdown 会自动撤回当前集合。owner + handler identity 校验保证旧 session 不会删除后来
+注册的同名工具；一批工具中途校验失败也会回滚本批已登记项，不留下不可追踪工具。
 
 最小端到端 — 加一个 stdio server：
 
@@ -126,7 +132,13 @@ provider_manager.register(ProviderInfo(
 
 `entry_point`、`permissions` 和 `sha256` 目前只是声明，不会被执行或验证。若要开发受信任
 的内建扩展，请在源码装配中显式调用 `PluginApi.register_*`，并为该能力单独补齐治理与
-测试；不要把 manifest 发现当作加载证明。详见
+测试；不要把 manifest 发现当作加载证明。
+
+`PluginApi.register_*` 返回 `ContributionHandle`。生产装配应显式传稳定 owner，并在关闭或
+替换时调用 `handle.dispose()`，或用 `dispose_owner(owner)` 逆序释放该 owner 的全部贡献。
+默认 owner `plugin:anonymous` 只用于兼容；Tool 插件路径同名冲突会显式抛
+`ToolRegistryConflict`。底层释放异常会保留 owner 账本，允许修复后重试。这仍不是 manifest
+自动加载。完整语义与当前边界见
 [当前插件扩展实现与支持边界](../design/self-evolving-agent-os/current-plugin-state.md)。
 
 ## 5. 扩展通知渠道（Channel）

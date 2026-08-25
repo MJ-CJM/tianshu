@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -163,3 +164,54 @@ async def test_shutdown_aborts_reconnect_loop(
     await session.shutdown()
     assert attempts["count"] >= 1
     assert session.status in ("stopped", "error")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_session_republishes_discovered_tools_and_withdraws_between_connections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = {"count": 0}
+    published: list[list[str]] = []
+    unavailable: list[str] = []
+
+    class FakeSession:
+        def __init__(self, names: list[str]) -> None:
+            self._names = names
+
+        async def list_tools(self):
+            return SimpleNamespace(
+                tools=[
+                    SimpleNamespace(name=name, description=name, inputSchema={"type": "object"})
+                    for name in self._names
+                ]
+            )
+
+    @asynccontextmanager
+    async def fake_open_session(_cfg, **_kwargs) -> AsyncIterator[FakeSession]:
+        attempts["count"] += 1
+        names = ["a", "b"] if attempts["count"] == 1 else ["b", "c"]
+        yield FakeSession(names)
+
+    monkeypatch.setattr(client_module, "open_session", fake_open_session)
+    session = MCPServerSession(
+        config=_make_cfg(),
+        execution_gateway=ExecutionGateway(),
+        workspace_root=Path.cwd(),
+        security_mode="trusted-local",
+        on_tools_changed=lambda current: published.append([tool.name for tool in current.tools]),
+        on_tools_unavailable=lambda current: unavailable.append(current.config.name),
+    )
+
+    assert await session.start() is True
+    session.request_reconnect()
+    for _ in range(100):
+        if len(published) == 2:
+            break
+        await client_module.asyncio.sleep(0.01)
+    try:
+        assert published == [["a", "b"], ["b", "c"]]
+        assert unavailable == ["t"]
+    finally:
+        await session.shutdown()
+    assert unavailable == ["t", "t"]

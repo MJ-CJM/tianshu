@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Awaitable, Callable
+from typing import Literal
 
 import jsonschema
 from pydantic import BaseModel
@@ -25,9 +26,19 @@ class ToolDefinition(BaseModel):
     managed_effect_semantics: SideEffectSemantics | None = None
 
 
+class ToolRegistryConflict(RuntimeError):
+    """Structured same-name registration conflict."""
+
+    def __init__(self, name: str, existing_owner: str) -> None:
+        self.name = name
+        self.existing_owner = existing_owner
+        super().__init__(f"tool '{name}' is already registered by owner '{existing_owner}'")
+
+
 class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, tuple[ToolDefinition, Callable[..., Awaitable[ToolResult]]]] = {}
+        self._owners: dict[str, str] = {}
         self._hooks: list[ToolHook] = []
         self._disabled: set[str] = set()
         # 锦衣卫·分级急停(迭代 3):非 None 时每次 execute 入口先过 check()
@@ -60,8 +71,43 @@ class ToolRegistry:
         name: str,
         func: Callable[..., Awaitable[ToolResult]],
         definition: ToolDefinition,
+        *,
+        owner: str = "kernel",
+        on_conflict: Literal["error", "replace"] = "replace",
     ) -> None:
+        if on_conflict == "error" and name in self._tools:
+            raise ToolRegistryConflict(name, self._owners.get(name, "kernel"))
         self._tools[name] = (definition, func)
+        self._owners[name] = owner
+
+    def is_registered(
+        self,
+        name: str,
+        *,
+        owner: str | None = None,
+        target: object | None = None,
+    ) -> bool:
+        entry = self._tools.get(name)
+        if entry is None:
+            return False
+        if owner is not None and self._owners.get(name) != owner:
+            return False
+        return target is None or entry[1] is target
+
+    def unregister(
+        self,
+        name: str,
+        *,
+        owner: str | None = None,
+        target: object | None = None,
+    ) -> bool:
+        if not self.is_registered(name, owner=owner, target=target):
+            return False
+        self._tools.pop(name, None)
+        self._managed_receipt_lookups.pop(name, None)
+        self._disabled.discard(name)
+        self._owners.pop(name, None)
+        return True
 
     def add_hook(self, hook: ToolHook) -> None:
         self._hooks.append(hook)

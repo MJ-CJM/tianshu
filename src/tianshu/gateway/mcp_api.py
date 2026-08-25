@@ -394,18 +394,12 @@ def delete_mcp_server_override(name: str, request: Request):
     )
 
 
-async def _restart_mcp_sessions(manager, registry) -> None:
-    """后台执行：摘工具 → shutdown 旧 session → start 新 session。
+async def _restart_mcp_sessions(manager, _registry=None) -> None:
+    """后台执行：由 manager 摘工具并 shutdown 旧 session，再 start 新 session。
 
     与 ``manager.load_config()`` 解耦：config 在 HTTP 端点里同步加载（毫秒级），
     session restart 单独走后台（npx 拉包 / 远端握手可能 30s+，不能让 HTTP 等）。
     """
-    from tianshu.tools.mcp.naming import is_mcp_tool
-
-    if hasattr(registry, "_tools"):
-        for name in list(registry._tools.keys()):
-            if is_mcp_tool(name):
-                del registry._tools[name]
     try:
         await manager.shutdown()
         await manager.start()

@@ -2,17 +2,17 @@
 
 > **文档性质**：可直接开工的重构落地方案（最终合成版）。由三份独立视角方案（风险优先 / 最小改动 / 目标纯度）经总架构师合成，合成准则按优先级为：①与当前源码相符；②每步不破坏 fail-closed 不变量、可独立合入与回退；③最少过渡债（对象边界与目标架构一致）；④篇幅完整（分歧处的取舍理由写在各阶段"决策与取舍"小节）。
 > **修订记录**：本方案经三路校验（符号核对/可行性/完备性）修订并落盘，日期 2026-08-25。
-> **基线**：集成分支 `feat/plugin-v1`（近端提交 `dc0fc7ca`，含 X1 PR #89 与 P0 PR #91）；目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
-> **迁移编号基线**：`0025_persona_allowed_paths` 已占用 V25（[../../src/tianshu/storage/migrations.py](../../src/tianshu/storage/migrations.py):4005），live tail 是 V30 `0030_consultation_rounds`（migrations.py:4160）。**本方案全部新迁移从 V31 起编号（0031–0035）**；P0 已把设计与评审正文同步到这一口径。
-> **流程约定（用户既有偏好）**：每阶段走 issue → `feat/`|`fix/` 分支 → PR（`Closes #n`）；PR 由用户合入、tag 由用户操作；跑 Python 一律 `.venv/bin/python`；宣称 CI 绿前 `gh pr checks` 亲验；前端改动后单跑 `cd web && npm run typecheck`（vitest/eslint 不查类型）。
+> **基线**：集成分支 `feat/plugin-v1`（近端提交 `62565272`，含 X1 PR #89、P0 PR #91 与 P1 PR #93）；目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
+> **迁移编号基线**：P1 已占用 V31 `0031_system_snapshots`，当前 live tail 为 V31；P2 无迁移，后续计划迁移从 V32 起。历史 V25 `0025_persona_allowed_paths` 与 V30 `0030_consultation_rounds` 编号保持不变。
+> **流程约定（2026-08-25 用户授权）**：每阶段走 issue → `feat/`|`fix/` 分支 → PR（`Closes #n`），PR 目标统一为集成分支 `feat/plugin-v1`；亲验 `gh pr checks` 全绿后由执行方直接合入，不逐个等待用户确认；全部阶段完成后由用户在 `feat/plugin-v1` 做总体验证，tag 仍由用户操作。跑 Python 一律 `.venv/bin/python`；前端改动后单跑 `cd web && npm run typecheck`（vitest/eslint 不查类型）。
 
 ## 实施状态
 
 | 任务 | 状态 | 日期 | 验证 |
 |---|---|---|---|
 | P0 术语冻结与 Ring 0 守卫 | ✅ 已合入（PR #91） | 2026-08-25 | 4/4 import 契约；46 项架构测试；全量 4746 passed、2 skipped；Web typecheck/test/lint/build 全绿 |
-| P1 SystemSnapshotV1 影子双写 | ✅ 实现完成，待 PR 合入（Issue #92） | 2026-08-25 | V31 `0031_system_snapshots`；202 项 P1 聚焦测试；全量 4806 passed、2 skipped；Web typecheck/338 tests/lint/build 全绿；真实 Demo 开启态三面摘要对账、关闭态零 binding/artifact |
-| P2 ContributionHandle | ⬜ 未开始 | — | — |
+| P1 SystemSnapshotV1 影子双写 | ✅ 已合入（PR #93） | 2026-08-25 | V31 `0031_system_snapshots`；202 项 P1 聚焦测试；全量 4806 passed、2 skipped；Web typecheck/338 tests/lint/build 全绿；真实 Demo 开启态三面摘要对账、关闭态零 binding/artifact |
+| P2 ContributionHandle | ✅ 实现完成，待 PR 合入（Issue #94） | 2026-08-25 | 82 项 P2 聚焦测试；全量 4830 passed、2 skipped；六类 owned handle、逆序释放、stale 身份保护及 MCP 重新发现/断连/shutdown 回收；原生 live/demo 冒烟与插件面 fail-closed 均绿 |
 | P3 Pi 执行器代际与 continuity 固定 | ⬜ 未开始 | — | — |
 | P4a EvolutionPolicy 与 per-subject canary | ⬜ 未开始 | — | — |
 | P4b per-subject 运行分配与 UI | ⬜ 未开始 | — | — |
@@ -83,7 +83,7 @@
 | `SystemSnapshotV1` | **新增**（P1） | frozen strict pydantic（`src/tianshu/models/system_snapshot.py` 新建，config 仿 evidence/models.py:70 的 frozen+extra=forbid+strict）：`schema_version: Literal[1]` + `components: dict[str, str]`（组件 id → 64hex 内容摘要，key 白名单）+ `digest = canonical_sha256(components)` 自校验。吸收目标文档的 SystemSnapshot / PluginSetSnapshot / PluginRelease（评审 §3.1） |
 | `SystemSnapshotResolver` | **新增**（P1） | `src/tianshu/evolution/system_snapshot.py`：装配期收集组件 digest；`resolve_base()` / `resolve_for_run(...)` 追加 `evolution_overlay` |
 | `RuntimeGenerationV1` | **新增**（P3） | frozen pydantic（`src/tianshu/models/runtime_generation.py`）：`generation_id`（`rg-`+uuid4，**运行实例身份，非内容摘要**）/ `scope` / `release_digest`（才是内容摘要）/ `state` 七态 / `version`（CAS）；模块级冻结转移图 + `validate_generation_transition()`（仿 evolution_candidate.py:59-91 范式）。**refcount 不入模型/表**（见 P3 决策） |
-| `ContributionHandle` | **新增**（P2） | `src/tianshu/plugins/contribution.py`：`@dataclass(frozen=True)`，`owner / kind / name / dispose: Callable[[], None]`；kind Literal 与 `PluginManifest.type` 六值同形（plugins/manifest.py:16） |
+| `ContributionHandle` | **新增**（P2） | `src/tianshu/plugins/contribution.py`：`@dataclass(frozen=True, slots=True)`，`owner / kind / name / target / dispose: Callable[[], ContributionDisposeStatus]`；dispose 三态为 `disposed / skipped_stale / noop`，kind Literal 与 `PluginManifest.type` 六值同形（plugins/manifest.py:16） |
 | `EvolutionPolicyV1` | **新增**（P4a） | `src/tianshu/models/evolution_policy.py`：`subject_key / kind / mode ∈ {frozen,manual,canary} / max_canary_basis_points(0..1000) / version(CAS) / updated_at`；`auto` 不进枚举，类型级不可表达 |
 | `SubjectRunAssignmentV1` / `RunAssignmentSetV1` | **新增**（P4b） | `src/tianshu/models/run_assignment.py` 内追加；per-subject 分流归因；单条旧行是退化形式 |
 | `FrozenSkillsView` / `FrozenContentViews` | **新增**（P7） | `src/tianshu/skills/loader.py` / `evolution/runtime_context.py`；每 run 冻结的技能只读视图 |
@@ -205,16 +205,16 @@
 | grant 双墙：铸造（grants.py:566-584）+ spawn 前（gateway.py:548-557）共用模块级 `is_canonical_adapter_argv`（keqing/adapter.py:288） |
 | 取消是 task 级联，adapter.cancel 客卿恒 False——drain 以 memorial 终态为准 | src/tianshu/executor/adapters/protocol.py:167-174 |
 
-### 2.5 注册表与插件门面
+### 2.5 注册表与插件门面（P2 当前事实）
 
 | 事实 | 位置 |
 |---|---|
-| `ToolRegistry.register` 同名静默覆盖、无 owner 无 unregister；两处内核依赖覆盖语义：wiring_persona.py:84（submit_edict 覆盖式重注册）、tools/mcp/manager.py:383（MCP 重连）；execute 执行序不变量 estop→disabled→persona ACL→workspace→tier→winding_down→schema | src/tianshu/tools/registry.py:58-64、122-219 |
+| `ToolRegistry.register` 以 keyword-only `owner="kernel"` 归属，默认 `on_conflict="replace"` 保持覆盖兼容；插件路径显式 `error` 并抛结构化 `ToolRegistryConflict`；`unregister` 同时清工具、owner、disabled 与 receipt lookup。execute 执行序不变量 estop→disabled→persona ACL→workspace→tier→winding_down→schema 不变 | src/tianshu/tools/registry.py |
 | `HookRegistry` 六类中唯一自带 unregister（identity 过滤）；BEFORE_TOOL_CALL fail-secure 不可弱化；per-type timeout 已有 | src/tianshu/kernel/hooks.py:41、78-80、86-125、121-138 |
-| `ChannelRegistry.register` 同名覆盖并清零限流窗口、无 unregister；`ProviderManager.unregister` 已存在（demo_mode 拒绝返回 False） | src/tianshu/notifier/channel_registry.py:25-33；providers/manager.py:282-286 |
-| `SkillsLoader.register_skill` 写 `_injected_skills`（hasattr 惰性属性）；`for_workspace_overlay` 是"每-call 隔离视图"先例；runtime overlay 消费唯一入口 `_runtime_skill_overlay`（单 subject、kind=='skill'）；`get_skill` L1 LRU 不校验 mtime | src/tianshu/skills/loader.py:276-281、147-164、32-46、541-544 |
+| `ChannelRegistry.unregister` 同时清 channel、限流配置与发送窗口；`ProviderManager.unregister` 已存在（demo_mode 拒绝返回 False） | src/tianshu/notifier/channel_registry.py；providers/manager.py:282-286 |
+| `SkillsLoader._injected_skills` 是正式初始化字段；注册与注销均完整 `invalidate_cache()`，清 L1、L2 metadata/stat 与 content digest；`for_workspace_overlay` 复制注入视图 | src/tianshu/skills/loader.py |
 | `SkillsWatcher` debounce 后 `invalidate_cache()` + `load_all()` 直改 active；与晋升适配器对同一目录并发无锁 | skills/loader.py:815-885（:879-885）；promotion.py:530-544 |
-| `PluginApi` 全部 register_* 返回 None、无 owner；`register_command` 用 hasattr 挂属性；插件面 fail-closed：投影恒 manifest_only、install/activate 恒 501——**保持** | src/tianshu/plugins/api.py:35-122（:117-121）；gateway/providers_api.py:154-197 |
+| `PluginApi.register_*` 六类均返回 owned `ContributionHandle`；默认 owner 为 `plugin:anonymous`，`dispose_owner` 逆序释放并返回 `(disposed, skipped_stale)`；插件面仍 fail-closed：投影恒 manifest_only、install/activate 恒 501 | src/tianshu/plugins/api.py；gateway/providers_api.py:154-197 |
 
 ### 2.6 证据与制品
 
@@ -431,13 +431,17 @@ CREATE TABLE run_system_bindings (
 
 | 动作 | 文件:符号 | 内容 |
 |---|---|---|
-| 新增 | src/tianshu/plugins/contribution.py | `@dataclass(frozen=True) class ContributionHandle: owner: str; kind: Literal["tool","hook","channel","provider","skill","command"]; name: str; dispose: Callable[[], None]`（kind Literal 与 PluginManifest.type 六值同形，plugins/manifest.py:16） |
-| 修改 | src/tianshu/tools/registry.py:58 | `def register(self, name, func, definition) -> None` → `def register(self, name: str, func: ..., definition: ToolDefinition, *, owner: str = "kernel", on_conflict: Literal["error", "replace"] = "replace") -> None`；**默认 replace 保持现状语义**（内核两处覆盖式重注册零改动：wiring_persona.py:84、mcp/manager.py:383）；`on_conflict="error"` 且同名已存在 → `ToolRegistryConflict(name, existing_owner)` 结构化诊断；内部 `_owners: dict[str, str]` 记账。新增 `def unregister(self, name: str) -> bool`：pop `_tools` + `_managed_receipt_lookups.pop(name, None)` + `_disabled.discard(name)` + `_owners.pop` |
+| 新增 | src/tianshu/plugins/contribution.py | `@dataclass(frozen=True, slots=True) class ContributionHandle`：`owner / kind / name / target / dispose`；`dispose()` 返回 `ContributionDisposeStatus.DISPOSED / SKIPPED_STALE / NOOP`，可观测且幂等（kind Literal 与 PluginManifest.type 六值同形，plugins/manifest.py:16） |
+| 修改 | src/tianshu/tools/registry.py | `register(...)` 新增 keyword-only `owner: str = "kernel"` 与 `on_conflict: Literal["error", "replace"] = "replace"`；**默认 replace 保持现状语义**，插件路径显式 `error`；同名冲突抛 `ToolRegistryConflict(name, existing_owner)`。新增 `unregister(name, *, owner=None, target=None) -> bool`，身份条件不匹配时不删除；成功时同时清 `_tools`、receipt lookup、disabled 与 owner |
 | 修改 | src/tianshu/notifier/channel_registry.py:25 | 新增 `def unregister(self, name: str) -> bool`：pop `_channels` / `_rate_limits` / `_send_log` |
-| 修改 | src/tianshu/skills/loader.py:276 | `_injected_skills` 转正为 `__init__` 字段（`for_workspace_overlay` :162-163 的 hasattr 复制路径同步简化）；新增 `def unregister_skill(self, name: str) -> bool`：pop + `_l1_cache.pop` + L2 失效 |
-| 修改 | src/tianshu/plugins/api.py:52-122 | 每个 `register_*` 加 keyword-only `owner: str` 并返回 `ContributionHandle`（依赖为 None 时返回 no-op handle + warning，保持"依赖可为 None 静默 no-op"契约）；`register_tool` 显式传 `on_conflict="error"`（插件路径冲突结构化诊断）；`register_skill` 去掉 hasattr guard（方法实际存在 loader.py:276）；`_commands` 转正为 `__init__` 字段（:117-121）；dispose 闭包：tool→`ToolRegistry.unregister`、hook→`HookRegistry.unregister`（hooks.py:78 已有）、channel→新 unregister、provider→`ProviderManager.unregister`（manager.py:282 已有，demo_mode 返回 False 照实透传）、skill→新 `unregister_skill`、command→pop；新增 `self._contributions: dict[str, list[ContributionHandle]]` 与 `def dispose_owner(self, owner: str) -> int`（逆序 dispose + 清账） |
+| 修改 | src/tianshu/skills/loader.py:276 | `_injected_skills` 转正为 `__init__` 字段（`for_workspace_overlay` 的 hasattr 复制路径同步简化）；`register_skill` 与新增 `unregister_skill` 都调用完整 `invalidate_cache()`，同时清 L1、L2 metadata/stat 与 content digest 缓存 |
+| 修改 | src/tianshu/plugins/api.py | 每个 `register_*` 加 keyword-only `owner: str = "plugin:anonymous"` 并返回 `ContributionHandle`；依赖为 None 时返回**不跟踪**的 no-op handle + warning；`register_tool` 显式传 `on_conflict="error"`；`_commands` 转正为 `__init__` 字段；六类 dispose 闭包统一做身份校验与幂等清账；`dispose_owner(owner) -> tuple[int, int]` 按注册逆序释放并返回 `(disposed, skipped_stale)` |
 | 不动 | src/tianshu/executor/adapters/__init__.py:103 `replace` | 只加 docstring 弃用注释（"P3 起由代际 API 接管，仅供装配/测试"），不改行为——3 处 E2E seam（test_executor_workspace_lifecycle.py:166/354/1242）与 `Executor.set_agent`（executor.py:148）依赖它 |
-| 新增不变量（Codex A2） | src/tianshu/plugins/contribution.py + 各 dispose 闭包 | `ContributionHandle` 记录注册瞬间的被注册对象引用（`target: object`）；dispose 摘除前做**身份校验**——in-memory 注册表（tool / channel / skill / command）要求 `registry[name] is handle.target` 且 owner 一致才删，否则 no-op 并写 SystemAudit `contribution_dispose_stale`；hook 类直接复用 hooks.py:78-80 已有的 `e.handler is not handler` 语义；provider 类落 SQLite 无内存槽位，只做 owner 记账比对（规格明写此豁免）。`dispose_owner` 逐条走同一校验，返回 `(disposed, skipped_stale)`，skipped_stale 不计失败、不阻断。**动机**：上表 `on_conflict` 缺省 `"replace"` 之后，MCP 断连重连或 wiring_persona 覆盖式重注册会让旧 handle 的 dispose 静默摘掉新对象且无审计痕迹——codex 唯一的 unregister（ext/goal/src/api.rs:336）正是用 `ptr_eq` 堵这个洞 |
+| 新增不变量（Codex A2） | src/tianshu/plugins/contribution.py + 各 dispose 闭包 | `ContributionHandle` 记录注册瞬间的被注册对象引用（`target: object`）；dispose 摘除前做**身份校验**——in-memory 注册表（tool / channel / skill / command）要求当前对象与 owner 均匹配；hook 由 PluginApi 为每次 contribution 建唯一 wrapper，再复用 HookRegistry 的 handler identity 注销，避免同一原 handler 被两个 owner 注册时相互误删；provider 落 SQLite、无内存槽位，只做 owner/current-handle 记账比对。旧身份不匹配时跳过摘除，返回 `SKIPPED_STALE` 并尽力写 SystemAudit `contribution_dispose_stale`。`dispose_owner` 返回 `(disposed, skipped_stale)`；dispose 底层异常时保留失败及未处理 handles，允许后续重试。**动机**：默认覆盖式注册后，旧 handle 不能静默摘掉新对象或丢失仍在运行的贡献账本 |
+| 修改 | src/tianshu/tools/mcp/client.py | 每次工具重新发现发布 `on_tools_changed`；连接离开 connected 生命周期时发布 `on_tools_unavailable`，让断连与重连先撤回旧工具集合 |
+| 修改 | src/tianshu/tools/mcp/manager.py | 按 session 保存 `owner="mcp:<server>"` 的 tool handles；重新发现、断连、重连与 shutdown 逆序回收旧集合；首次启动保留 manager 兜底登记；stale handle 身份不匹配时保留后来同名替换；一批工具中途校验失败时逆序回滚本批已注册 handles，禁止不可追踪残留 |
+| 修改 | src/tianshu/gateway/mcp_api.py | restart helper 只调用 manager 的 shutdown/start 生命周期，不再直接删除 `ToolRegistry._tools` 私有状态 |
+| 修改 | src/tianshu/models/system_audit.py | 登记 `contribution_dispose_stale` 允许事件；身份不匹配时尽力留痕，审计写失败不阻断清理 |
 
 **数据迁移**：无。
 
@@ -450,18 +454,19 @@ CREATE TABLE run_system_bindings (
 | tests/test_plugin_api.py（扩展，评审点名文件） | 注册六类各一 → `dispose_owner` → 各注册表恢复原状（ToolRegistry 定义为 None、hook 链空、channel 还原、injected 无残留、_commands 无残留）；on_conflict="error" 重名给结构化诊断（异常含 name + existing_owner）；部分注册表缺席（None 依赖）时 dispose 不炸 |
 | tests/test_plugin_api.py（循环压测） | 100 次「register 六类→dispose_owner」循环后，六个注册表内部结构（_tools/_owners/_channels/_injected_skills/_commands/hook 链）与初始状态逐项相等（contribution 泄漏断言——评审 Phase 2 退出条件『连续 100 次…无 contribution 泄漏』的循环化） |
 | tests/test_plugin_api.py（Codex A2） | 注册 tool `x`（owner=A）→ 同名 replace 注册（owner=B）→ dispose_owner(A)：`x` 仍是 B 的对象、返回 skipped_stale=1、SystemAudit 含 `contribution_dispose_stale`；provider 类只比对 owner |
-| tests/tools/test_registry_and_builtins.py（不改断言，补用例） | 既有三参调用通过；unregister 后 execute 报 unknown tool、disabled 集合清理 |
+| tests/tools/test_registry_and_builtins.py（不改断言，补用例） | 既有三参调用通过；默认 replace 兼容、结构化冲突；unregister 后 execute 报 unknown tool，owner/disabled/receipt lookup 全清 |
 | tests/notifier/test_channel_registry_unregister.py（新） | unregister 后 send_all 不再触达；限流窗口清理 |
-| 回归 | wire_persona submit_edict 覆盖注册与 MCP 重连路径全量跑不红；tests/tools/test_persona_acl_enforcement.py、tests/gateway/test_plugin_manifest_api.py 原样绿 |
+| tests/tools/mcp/test_manager.py + test_reconnect.py | 实际 fixture 子进程启动/关闭、每次重新发现、断连/重连均撤回旧工具；shutdown 不摘后来同名替换；API restart 不再手删私有字典 |
+| 回归 | wire_persona submit_edict 覆盖注册与 MCP 重连路径全量跑不红；tests/tools/test_persona_acl_enforcement.py、tests/security/test_mcp_lean_admission.py、tests/gateway/test_plugin_manifest_api.py 原样绿 |
 
 #### 验收 checklist
 
-- [ ] dispose_owner 逆序卸载且注册表状态与注册前逐项相等
-- [ ] create_app 双 profile（live/demo）启动冒烟绿；插件面 fail-closed 测试不红
-- [ ] MCP server 断连/重连场景手工验证 stale 工具可被 dispose
-- [ ] （Codex A2）覆盖式重注册后旧 handle dispose 不摘新对象，且留审计
+- [x] dispose_owner 逆序卸载且注册表状态与注册前逐项相等；连续 100 次六类注册/释放零 contribution 泄漏
+- [x] create_app 双 profile（live/demo）原生启动冒烟绿；插件面 fail-closed 测试不红
+- [x] MCP 实际 fixture 子进程启动、重新发现、断连/重连与 shutdown 均自动验证旧工具撤回
+- [x] （Codex A2）覆盖式重注册后旧 handle dispose 不摘新对象，且留 `contribution_dispose_stale` 审计
 
-**回退方式**：revert PR；无持久化、无外部依赖，纯代码回退安全。**工作量**：≈1.5–2.5 天（含 Codex A2）。
+**回退方式**：revert PR；无 schema migration、无新增持久模型，可能追加的既有 SystemAudit 历史记录无需删除，也不会形成新 schema 依赖。**工作量**：≈1.5–2.5 天（含 Codex A2）。
 
 **决策与取舍**：①`on_conflict` 缺省值——目标纯度案取 "error"（收紧，但要求全仓 register 调用点清点且有未知覆盖点炸启动的风险）；风险优先/最小改动案取 "replace"（现状零改动）。**采纳 "replace" 缺省 + 插件路径显式 "error"**——优先级②（每步不破坏）压过③（纯度）；全局收紧为 error 列入延期项（附全仓清点清单后再做）。②`ExecutorAdapterRegistry.replace` 三案一致不在本阶段动（评审原建议"改组合或删除"被否决——它是 E2E seam）。③HookRegistry 核心签名不改（owner 记账留在 PluginApi 层），三案一致。
 
@@ -917,8 +922,8 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 
 ### 4.5 发布与 tag
 
-- 每阶段：issue → feat 分支 → PR（`Closes #n`）→ `gh pr checks` 亲验 → 汇报；**合并与 tag 由用户操作**（既有约定）；迁移号在 issue 预登记占位，并行分支不撞号。
-- 版本节奏建议：P1+P2 合入后发 0.5.x patch（影子能力，零行为变化）；P3+P4 合入后打 **0.6.0**（代际 + per-subject 灰度成型，主叙事）；P5–P7 进 0.6.x。
+- 每阶段：issue → feat/fix 分支 → PR（`Closes #n`，base=`feat/plugin-v1`）→ `gh pr checks` 亲验 → **执行方直接合入** → 同步集成分支后进入下一阶段；全部阶段完成后用户统一验证，tag 仍由用户操作。迁移号在 issue 预登记占位，并行分支不撞号。
+- 版本节奏建议：P1+P2 合入后发 0.5.x patch（P1 为影子归因；P2 为受控生命周期修复，无 UI/API 激活面变化，但会清理失效 MCP 工具）；P3+P4 合入后打 **0.6.0**（代际 + per-subject 灰度成型，主叙事）；P5–P7 进 0.6.x。
 - 发版隐形连带：evidence/service.py:656/660 硬编码 '0.5.2'（P1 已把 dependency_lock_hash 与版本字面量集中共享——发版改版本号会改变 snapshot digest，**预期行为**，ADR-0014 明写）；PyPI 发行名 `tianshu-agent-os`，`v*` tag 触发 Trusted Publishing。
 
 ---
@@ -991,7 +996,7 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 
 | 条目 | 并入 | 增量 | 为什么现在 |
 |---|---|---|---|
-| **A2** dispose 身份校验 | **P2** 改动清单新增不变量行 | +0.5 天 | 补 P2 自己拍板的 `on_conflict="replace"` 留下的洞；代码还没写，此刻定死最便宜 |
+| **A2** dispose 身份校验 | **P2** 已落地 | +0.5 天 | 补 P2 自己拍板的 `on_conflict="replace"` 留下的洞；旧 handle 不会摘掉后来同名替换，并留 stale audit |
 | **A3-a** canary partial unique index | **P4a** 的 `0033` 迁移同块 | +1 天（锁定测试登记 + 409 映射 + 体检） | 索引键一次按 (kind, subject_key) 建好，P4b 免二次迁移 |
 | **A3-b** policy 执法收口 `save_candidate` | **P4a** | +1 天 | 三个入口检查靠人记得；唯一 UPDATE 路径一处兜住全部现有及未来写点 |
 | **B8** 二进制绝对路径 + 版本入 receipt | **P3**（`versions.py` 下移与 pi binary_path 固化本就在 P3） | +1 天 | 与 P3 同 PR 最省；P5 EXECUTOR canary 对比的可归因前提 |

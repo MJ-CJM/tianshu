@@ -101,6 +101,8 @@ class ExecutorAdapterRegistry:
         self._adapters[adapter.adapter_id] = adapter
 
     def replace(self, adapter: ExecutorAdapter) -> None:
+        """Replace an adapter for composition/tests; P3 generation APIs will own activation."""
+
         if adapter.adapter_id != adapter.manifest.adapter_id:
             raise ValueError("adapter id must match its capability manifest")
         if adapter.supported_execution_modes != adapter.manifest.execution_modes:

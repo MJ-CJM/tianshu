@@ -12,6 +12,11 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from tianshu.executor.execution_gateway import ExecutionGateway, ExecutionReceipt
 from tianshu.models.system_audit import AppendSystemAuditRequest
+from tianshu.plugins.contribution import (
+    ContributionDisposeStatus,
+    ContributionHandle,
+    record_stale_contribution_dispose,
+)
 from tianshu.tools.mcp.client import MCPServerSession
 from tianshu.tools.mcp.config import (
     MCPConfig,
@@ -70,6 +75,7 @@ class MCPManager:
         self._terminal_receipts: dict[str, ExecutionReceipt] = {}
         self._starting_sessions: dict[str, MCPServerSession] = {}
         self._start_tasks: dict[str, asyncio.Task[tuple[str, MCPServerSession | None]]] = {}
+        self._tool_contributions: dict[int, list[ContributionHandle]] = {}
         self._stopping = False
         self._shutdown_waiters = 0
         self._shutdown_lock = asyncio.Lock()
@@ -289,6 +295,8 @@ class MCPManager:
                 execution_gateway=self._execution_gateway,
                 workspace_root=self._workspace_root,
                 security_mode=self._security_mode,
+                on_tools_changed=self._handle_session_tools_changed,
+                on_tools_unavailable=self._dispose_session_tools,
             )
             self._starting_sessions[name] = session
             self._start_tasks[name] = asyncio.create_task(
@@ -314,8 +322,15 @@ class MCPManager:
                     self._terminal_receipts[name] = started_session.terminal_receipt
                 continue
             self._sessions[name] = started_session
-            count = self._register_session_tools(started_session)
-            logger.info("[mcp] registered %d tool(s) from server %s", count, name)
+            if (
+                id(started_session) not in self._tool_contributions
+                and getattr(started_session, "on_tools_changed", None) is None
+            ):
+                # Backward-compatible fallback for lightweight session fakes.
+                # Real sessions publish discoveries through on_tools_changed;
+                # republishing here can resurrect tools already withdrawn while
+                # another server was still starting.
+                self._register_session_tools(started_session)
 
     async def shutdown(self) -> None:
         self._shutdown_waiters += 1
@@ -323,6 +338,7 @@ class MCPManager:
         try:
             async with self._shutdown_lock:
                 self._sync_stdio_commands({})
+                self._dispose_all_session_tools()
                 starting_sessions = tuple(self._starting_sessions.values())
                 if starting_sessions:
                     await asyncio.gather(
@@ -354,34 +370,116 @@ class MCPManager:
 
     # -- 工具注册 -----------------------------------------------------------
 
+    def _handle_session_tools_changed(self, session: MCPServerSession) -> None:
+        self._register_session_tools(session)
+
+    def _dispose_handles(self, handles: list[ContributionHandle]) -> None:
+        for handle in reversed(handles):
+            status = handle.dispose()
+            if status is ContributionDisposeStatus.SKIPPED_STALE:
+                logger.warning(
+                    "[mcp] stale tool contribution preserved: owner=%s name=%s",
+                    handle.owner,
+                    handle.name,
+                )
+
+    def _dispose_session_tools(self, session: MCPServerSession) -> None:
+        handles = self._tool_contributions.pop(id(session), [])
+        self._dispose_handles(handles)
+
+    def _dispose_all_session_tools(self) -> None:
+        contributions = tuple(self._tool_contributions.values())
+        self._tool_contributions.clear()
+        for handles in contributions:
+            self._dispose_handles(handles)
+
+    def _tool_handle(
+        self,
+        *,
+        owner: str,
+        name: str,
+        handler: object,
+    ) -> ContributionHandle:
+        finished = False
+
+        def dispose() -> ContributionDisposeStatus:
+            nonlocal finished
+            if finished:
+                return ContributionDisposeStatus.NOOP
+            finished = True
+            if self._tools.unregister(name, owner=owner, target=handler):
+                return ContributionDisposeStatus.DISPOSED
+            if self._tools.get_definition(name) is not None:
+                record_stale_contribution_dispose(
+                    self._storage,
+                    owner=owner,
+                    kind="tool",
+                    name=name,
+                )
+                return ContributionDisposeStatus.SKIPPED_STALE
+            return ContributionDisposeStatus.NOOP
+
+        return ContributionHandle(
+            owner=owner,
+            kind="tool",
+            name=name,
+            target=handler,
+            dispose=dispose,
+        )
+
     def _register_session_tools(self, session: MCPServerSession) -> int:
         from tianshu.tools.registry import ToolDefinition  # 局部 import 避免循环
 
+        if self._stopping:
+            return 0
+        name = session.config.name
+        if (
+            self._starting_sessions.get(name) is not session
+            and self._sessions.get(name) is not session
+        ):
+            return 0
+        self._dispose_session_tools(session)
         count = 0
         cfg = session.config
+        owner = f"mcp:{cfg.name}"
+        handles: list[ContributionHandle] = []
         decision = self._admission_for(cfg)
         if not decision.allowed:
             self._audit_admission_denial(cfg, decision)
             return 0
-        for tool in session.tools:
-            if not _passes_filter(tool.name, cfg):
-                continue
-            full_name = encode_tool_name(cfg.name, tool.name)
-            tier = cfg.tool_overrides.get(tool.name, cfg.default_tier)
-            description = tool.description or "(no description)"
-            description = f"[via MCP/{cfg.name}] {description}"
-            defn = ToolDefinition(
-                name=full_name,
-                description=description,
-                parameters=tool.input_schema or {"type": "object", "properties": {}},
-                tier=tier,
-                # MCP 工具大多有副作用；保守置 True 让 winding_down 阶段拦截。
-                # 例外：default_tier == 0 视为只读。
-                side_effect=tier > 0,
-            )
-            handler = _make_handler(session, tool.name)
-            self._tools.register(full_name, handler, defn)
-            count += 1
+        try:
+            for tool in session.tools:
+                if not _passes_filter(tool.name, cfg):
+                    continue
+                full_name = encode_tool_name(cfg.name, tool.name)
+                tier = cfg.tool_overrides.get(tool.name, cfg.default_tier)
+                description = tool.description or "(no description)"
+                description = f"[via MCP/{cfg.name}] {description}"
+                defn = ToolDefinition(
+                    name=full_name,
+                    description=description,
+                    parameters=tool.input_schema or {"type": "object", "properties": {}},
+                    tier=tier,
+                    # MCP 工具大多有副作用；保守置 True 让 winding_down 阶段拦截。
+                    # 例外：default_tier == 0 视为只读。
+                    side_effect=tier > 0,
+                )
+                handler = _make_handler(session, tool.name)
+                self._tools.register(full_name, handler, defn, owner=owner)
+                handles.append(
+                    self._tool_handle(
+                        owner=owner,
+                        name=full_name,
+                        handler=handler,
+                    )
+                )
+                count += 1
+        except Exception:
+            self._dispose_handles(handles)
+            raise
+        if handles:
+            self._tool_contributions[id(session)] = handles
+        logger.info("[mcp] registered %d tool(s) from server %s", count, cfg.name)
         return count
 
 

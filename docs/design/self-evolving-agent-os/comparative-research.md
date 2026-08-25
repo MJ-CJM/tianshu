@@ -24,10 +24,14 @@ Executor 域已经有一条可复用的 Capability seam：`ExecutorAdapterRegist
 [`PluginApi`](../../../src/tianshu/plugins/api.py)、
 [`providers_api.py`](../../../src/tianshu/gateway/providers_api.py#L154-L198)。
 
-当前插件体系因此缺少：
+> **2026-08-25 P2 更新**：受信任源码的六类 contribution 已补 owner、handle、逆序 disposer
+> 与 stale identity guard；MCP session 工具也已接入该生命周期。以下缺口相应收敛为动态
+> 第三方插件、generation、隔离与完整 PluginSet 归因，而不是“完全没有 owner/disposer”。
+
+当前插件体系仍缺少：
 
 - Package 验证和依赖解析；
-- Tool/Hook/Channel/Provider 等域的统一 Capability seam，以及跨注册表 contribution owner；
+- 可由 manifest 驱动的第三方 Capability seam 与依赖闭包；
 - Executor seam 的 generation、引用计数、统一 disposer 和 last-good 边界；
 - side-by-side、warming、health、drain、last-good；
 - 插件级状态 schema、迁移和回滚；

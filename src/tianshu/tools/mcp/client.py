@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -58,6 +59,14 @@ class MCPServerSession:
     tools: list[DiscoveredTool] = field(default_factory=list)
     last_error: str | None = None
     terminal_receipt: ExecutionReceipt | None = None
+    on_tools_changed: Callable[[MCPServerSession], None] | None = field(
+        default=None,
+        repr=False,
+    )
+    on_tools_unavailable: Callable[[MCPServerSession], None] | None = field(
+        default=None,
+        repr=False,
+    )
 
     _session: ClientSession | None = None
     _ready_event: asyncio.Event = field(default_factory=asyncio.Event)
@@ -102,7 +111,10 @@ class MCPServerSession:
                             self.config.name,
                             len(self.tools),
                         )
-                        await self._wait_lifecycle()
+                        try:
+                            await self._wait_lifecycle()
+                        finally:
+                            self._notify_tools_unavailable()
                         if self._shutdown_event.is_set():
                             return
                         # 否则是 _reconnect_event 触发：清状态，外层循环重连
@@ -178,6 +190,12 @@ class MCPServerSession:
                     input_schema=schema,
                 )
             )
+        if self.on_tools_changed is not None:
+            self.on_tools_changed(self)
+
+    def _notify_tools_unavailable(self) -> None:
+        if self.on_tools_unavailable is not None:
+            self.on_tools_unavailable(self)
 
     def _record_receipt(self, receipt: ExecutionReceipt) -> None:
         self.terminal_receipt = receipt
