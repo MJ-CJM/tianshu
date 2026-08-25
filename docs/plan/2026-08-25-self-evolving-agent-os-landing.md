@@ -3,7 +3,7 @@
 > **文档性质**：可直接开工的重构落地方案（最终合成版）。由三份独立视角方案（风险优先 / 最小改动 / 目标纯度）经总架构师合成，合成准则按优先级为：①与当前源码相符；②每步不破坏 fail-closed 不变量、可独立合入与回退；③最少过渡债（对象边界与目标架构一致）；④篇幅完整（分歧处的取舍理由写在各阶段"决策与取舍"小节）。
 > **修订记录**：本方案经三路校验（符号核对/可行性/完备性）修订并落盘，日期 2026-08-25。
 > **基线**：集成分支 `feat/plugin-v1`（近端提交 `1ba46912`，含 X1 PR #89、P0 PR #91、P1 PR #93、P2 PR #95 与 X4 PR #97）；目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
-> **迁移编号基线**：P1 已占用 V31 `0031_system_snapshots`，当前 live tail 为 V31；P2 无迁移，后续计划迁移从 V32 起。历史 V25 `0025_persona_allowed_paths` 与 V30 `0030_consultation_rounds` 编号保持不变。
+> **迁移编号基线**：P1 已占用 V31 `0031_system_snapshots`；P3 工作树已追加并冻结 V32 `0032_runtime_generations`，当前 live tail 为 V32。P2 无迁移，后续计划迁移从 V33 起。历史 V25 `0025_persona_allowed_paths` 与 V30 `0030_consultation_rounds` 编号保持不变。
 > **流程约定（2026-08-25 用户授权）**：每阶段走 issue → `feat/`|`fix/` 分支 → PR（`Closes #n`），PR 目标统一为集成分支 `feat/plugin-v1`；亲验 `gh pr checks` 全绿后由执行方直接合入，不逐个等待用户确认；全部阶段完成后由用户在 `feat/plugin-v1` 做总体验证，tag 仍由用户操作。跑 Python 一律 `.venv/bin/python`；前端改动后单跑 `cd web && npm run typecheck`（vitest/eslint 不查类型）。
 
 ## 实施状态
@@ -13,7 +13,7 @@
 | P0 术语冻结与 Ring 0 守卫 | ✅ 已合入（PR #91） | 2026-08-25 | 4/4 import 契约；46 项架构测试；全量 4746 passed、2 skipped；Web typecheck/test/lint/build 全绿 |
 | P1 SystemSnapshotV1 影子双写 | ✅ 已合入（PR #93） | 2026-08-25 | V31 `0031_system_snapshots`；202 项 P1 聚焦测试；全量 4806 passed、2 skipped；Web typecheck/338 tests/lint/build 全绿；真实 Demo 开启态三面摘要对账、关闭态零 binding/artifact |
 | P2 ContributionHandle | ✅ 已合入（PR #95） | 2026-08-25 | 82 项 P2 聚焦测试；全量 4830 passed、2 skipped；六类 owned handle、逆序释放、stale 身份保护及 MCP 重新发现/断连/shutdown 回收；原生 live/demo 冒烟、插件面 fail-closed 与 CI 5/5 均绿 |
-| P3 Pi 执行器代际与 continuity 固定 | 🟡 进行中（Issue #98） | 2026-08-26 | 规格冲突已裁决；工作分支 `sea/p3-runtime-generations`；按 docs/V32/materializer/registry-binding/reconciler/observability 切片验证 |
+| P3 Pi 执行器代际与 continuity 固定 | 🟢 实现完成，待合入（Issue #98） | 2026-08-26 | V32、materializer、registry binding、continuity、reconciler、readiness、可观测性与 Web 投影已完成；全量门禁见 `PROGRESS.md` |
 | P4a EvolutionPolicy 与 per-subject canary | ⬜ 未开始 | — | — |
 | P4b per-subject 运行分配与 UI | ⬜ 未开始 | — | — |
 | P5 CandidateKind.EXECUTOR 全链路 | ⬜ 未开始 | — | — |
@@ -108,11 +108,12 @@
 | 表 | 迁移 | 关键约束 | 可变性 |
 |---|---|---|---|
 | `system_snapshots` | V31 | `snapshot_digest` PK（严格 64hex 小写 CHECK）、`schema_version` CHECK=1、`components_json` CHECK(json object) | no_replace + no_update + no_delete 触发器（内容寻址，永不改） |
-| `run_system_bindings` | V31 | `PRIMARY KEY(memorial_id, attempt_id)`、`snapshot_digest` FK→system_snapshots RESTRICT、`generation_ids_json` CHECK(json array) DEFAULT `'[]'`（**建表即带此列**，P3 起填值） | no_replace + no_update 触发器；允许普通 DELETE、不 FK memorials（与敕令删除清理对齐；不可变权威副本在 Evidence artifact——见 §7 决策 5） |
+| `run_system_bindings` | V31 | `PRIMARY KEY(memorial_id, attempt_id)`、`snapshot_digest` FK→system_snapshots RESTRICT、`generation_ids_json` CHECK(json array) DEFAULT `'[]'`（**建表即带此列**） | snapshot 启用时的可选 shadow；P3 只把它作为 V31 fallback，若与 exact generation marker 同在则必须一致；no_replace + no_update；允许普通 DELETE、不 FK memorials（与敕令删除清理对齐；不可变典制副本在 Evidence artifact——见 §7 决策 5） |
 | `runtime_generation_releases` | V32 | `release_digest` PK、`scope`、canonical `release_json`、schema/materializer 版本与时间戳；`UNIQUE(release_digest, scope)` 供 generation 复合 FK | insert-once；no-replace/no-update/no-delete |
 | `runtime_generations` | V32 | `generation_id` PK、`scope`、`release_digest` 复合 FK、`state` CHECK 七态、`version>0`（CAS）、部分唯一索引 `(scope) WHERE state='active'` | identity/material 不可变；仅 state/version/timestamps 可 CAS |
 | `runtime_generation_journal` | V32 | 严格 64hex `journal_id` / `entry_hash`、from/to 枚举、自校验 canonical entry、FK RESTRICT、`UNIQUE(generation_id, generation_version)` | no-replace + no-update + no-delete |
 | `generation_pointers` | V32 | `scope` PK、非空 active/last-good、version CAS；两条 `(generation_id, scope)` 复合 FK 禁 dangling/cross-scope | scope 不可变；no-replace/no-delete；其余仅 CAS |
+| `run_generation_bindings` | V32 | `PRIMARY KEY(memorial_id, attempt_id)`、`state IN ('bound','unresolved')`；`bound` 必须保存 canonical generation id array（含显式 `[]`），`unresolved` 必须为 NULL | P3 独立 exact-attempt 代际权威；no_replace + no_update；允许随 Edict 物理删除清理 |
 | `evolution_policies` | V33 | `subject_key` PK、`kind` CHECK（**含 'executor'** 超集）、`mode` CHECK IN('frozen','manual','canary')（无 'auto'）、`max_canary_basis_points` 0..1000（mode='canary' 时须 1..1000）、`version>0`（CAS） | 可变（无触发器，仿 evolution_routing_allocations） |
 | `run_subject_assignments` | V34 | `assignment_id` PK、`UNIQUE(memorial_id, kind, subject_key)`、`kind` CHECK（含 'executor'）、`candidate_id` 可空 FK RESTRICT、`bucket` 0..9999、assignment_json+hash 双列 | no_update 无条件；no_delete 仅 `WHEN candidate_id IS NOT NULL`（V22 语义，migrations.py:3917-3947） |
 | `evolution_candidates`（重建） | V35 | V20 临时表模式扩 kind CHECK 含 `'executor'`；temp 名登记 `_RESERVED_TEMP_TABLES`（migrations.py:728） | 与现状一致 |
@@ -200,8 +201,8 @@
 | `_bind_verified_effective` 拒 manifest（id/version/content_hash）与 probe semantic 漂移——换代必须整代保留旧 manifest/adapter 实例直到旧 run drain 完 | adapters/__init__.py:158-176 |
 | `ExecutorCapabilityManifestV1` 已有 `manifest_id/manifest_version/adapter_id/level/capabilities` 与 canonical `content_hash`——executor 组件摘要现成 | src/tianshu/executor/capabilities.py:52-98（content_hash 继承自 models/governance_contract.py:69 CanonicalContractModel） |
 | 「pi」一名双执行器：单发 `PiAdapter`（grant argv 校验用）与会话 `PiSessionAdapter`/`KeqingSessionExecutor` 并列——换代必须同代切换 | src/tianshu/executor/executor.py:106-146（:118-122）；keqing/session_executor.py:56 |
-| pi 基线钉死代码常量：`PINNED_PI_VERSION="0.83.0"`、`VERIFIED_SESSION_VERSION=3`；settle 判定双语义（0.83.0 `agent_settled` / 0.79.3 `agent_end(will_retry=False)`） | src/tianshu/executor/keqing/pi_wire.py:18、38；pi_adapter.py:285-291 |
-| spawn 用裸名 argv[0] 按 clean-env PATH 解析；follow_up 每轮全新 spawn 会静默拿新二进制——现状与"运行中固定旧代"最大偏差点；`_is_canonical_pi_session` 的 `Path(values[0]).name=='pi'` 校验已兼容绝对路径 | src/tianshu/executor/execution_gateway/process_backend.py:294；src/tianshu/security/clean_env.py:20；session_executor.py:157-226；pi_adapter.py:161 |
+| Pi 兼容基线仍含 `PINNED_PI_VERSION="0.83.0"`、RPC `VERIFIED_SESSION_VERSION=3`；P3 warm 的接受条件是合法 session header 加 `get_session_stats` 成功 response，不依赖一次任务执行后的 `agent_settled` / `agent_end` 事件 | src/tianshu/executor/keqing/pi_wire.py；src/tianshu/executor/keqing/pi_probe.py |
+| 全部 Keqing 执行在准备阶段解析并记录绝对 executable 与版本来源；Pi generation 另把完整受管 package、binary/package digest 和绝对 binary path 固定进 release，每次 pinned 执行前复验，不再让 follow-up 因 PATH 漂移静默换二进制 | src/tianshu/executor/keqing/versions.py；src/tianshu/executor/keqing/generation.py；src/tianshu/executor/execution_gateway/process_backend.py |
 | run 结束点五处：单发 executor.py:1275-1284 / outer_loop :931-946 / DAG 根 :476-499 / DAG 节点 worker.py:166-168 / managed `_exit_cleanup` run_dispatcher.py:275-283——release 插入位，须幂等（双 finally 可能重复触发）；per-run 资源释放范式 `_revoke_run_token` | session_executor.py:245-261 |
 | 版本探测 `_detect_installed_version` 只读 package.json 不 spawn（进程启动守卫 + GET 幂等）；warm 探针必须走 ExecutionGateway + grant | src/tianshu/gateway/keqing_api.py:44-63；tests/architecture/test_no_direct_process_launch.py |
 | grant 双墙：铸造（grants.py:566-584）+ spawn 前（gateway.py:548-557）共用模块级 `is_canonical_adapter_argv`（keqing/adapter.py:288） |
@@ -290,7 +291,7 @@
 
 | 动作 | 文件 | 内容 |
 |---|---|---|
-| 新增 | docs/adr/0013-generation-based-rollout.md | ADR-0013：热更新采用代际并存 + drain，不做进程内模块 reload；治理微内核不由普通 Evolution 自动修改；`auto` 模式不实现；三分边界：`SystemSnapshot`＝内容身份（content-addressed digest）、`RuntimeGeneration`＝运行实例身份（`rg-`+uuid）、`run_system_bindings`＝关联事实（per (memorial, attempt) insert-once），三者不复用主键、不塞进 `RunAssignmentV1`。编号从 0013 起（0002/0006 被内部占用，索引已用到 0012） |
+| 新增 | docs/adr/0013-generation-based-rollout.md | ADR-0013：热更新采用代际并存 + drain，不做进程内模块 reload；治理微内核不由普通 Evolution 自动修改；`auto` 模式不实现；三分边界：`SystemSnapshot`＝内容身份（content-addressed digest）、`RuntimeGeneration`＝运行实例身份（`rg-`+uuid）、attempt generation marker＝关联事实（P3 落为 `run_generation_bindings`），三者不复用主键、不塞进 `RunAssignmentV1`。V31 `run_system_bindings` 保留 snapshot shadow/V31 fallback。编号从 0013 起（0002/0006 被内部占用，索引已用到 0012） |
 | 新增 | docs/adr/0014-memorial-system-snapshot-binding.md | ADR-0014：每个 Memorial 在第一个受管副作用前绑定 SystemSnapshot 与（有代时）generation ids；continuity 固定规则四条（conversation/深度 Edict 固定、scheduled root 每次选择、DAG 子节点与基础设施重试继承 root、**canary 选择随 continuity 固定——follow-up root Memorial 继承 parent root 的 assignment 选择（selected_ref/candidate_id/bucket），不重新分桶**）；AgentSession 不引入；影子期豁免（binding 写失败只记审计）的范围与 P6 翻转条件明写；发版改 tianshu_version 会改变 snapshot digest 属预期行为；组件清单注明 `prompts` key 预留（§6 延期表） |
 | 修改 | docs/adr/README.md | 索引表登记 0013/0014 |
 | 修改 | CONTEXT.md | 按既有格式（**中文 (English)**: 定义 + _Avoid_，仿客卿条目）新增三词条并直接采用已拍板 canonical 词：`SystemSnapshot`=「典制」、`RuntimeGeneration`=「朝」、`EvolutionPolicy`=「进化策略」；显式注明典制不是位面快照、影子快照或 Restore Point |
@@ -476,9 +477,9 @@ CREATE TABLE run_system_bindings (
 
 ### 阶段 P3（PR-3a）：Pi 执行器代际与 continuity 固定（V32，≈1.5–2 周 + 2 天）
 
-**目标**：`keqing:pi` 换代 = stage → warm → activate 原子切换：新 root 取 active 代、运行中 attempt 固定其 reserve 的代、follow-up 继承 root 的代（代已 failed/disposed 或 material 不可用 → fail-closed `generation_retired`）、cron 每次 fire 取当时 active、DAG 子节点与基础设施重试继承 root、warm 失败指针不动、exact-attempt 与 OPEN-continuity 引用均释放且不是 last-good 后才 dispose。`GenerationReconciler` 与 `EvolutionRollbackReconciler` 独立实现并由同一个 control-plane tick 组合驱动。本阶段**不接 Promotion，也不提供生产 stage/activate API 或 CLI**；治理写入口在 P5。
+**目标**：`keqing:pi` 换代 = stage → warm → activate 原子切换：新 root 取 active 代、运行中 attempt 固定其 reserve 的代、follow-up 继承 root 的代（代已 failed/disposed 或 material 不可用 → fail-closed `generation_retired`）、cron 每次 fire 取当时 active、DAG 子节点与基础设施重试继承 root、warm 失败指针不动、exact-attempt 与 OPEN-continuity 引用均释放且不是 last-good 后才 dispose。每个新 attempt 都用独立 `run_generation_bindings` insert-once 固定代际选择；snapshot 关闭时也写显式 `bound []`，不依赖 P1 shadow 是否存在。`GenerationReconciler` 与 `EvolutionRollbackReconciler` 独立实现并由同一个 control-plane tick 组合驱动。本阶段**不接 Promotion，也不提供生产 stage/activate API 或 CLI**；治理写入口在 P5。
 
-**前置依赖**：P1（binding 表已含 generation_ids_json 通道；EvolutionRuntimeContext 已扩展）。P2 非硬依赖。
+**前置依赖**：P1（SystemSnapshot 与可选 `run_system_bindings` shadow；EvolutionRuntimeContext 已扩展）。P3 自己在 V32 新增独立 exact-attempt generation authority，不把 P1 shadow 升格为代际权威。P2 非硬依赖。
 
 #### 改动清单
 
@@ -489,34 +490,34 @@ CREATE TABLE run_system_bindings (
 | src/tianshu/models/runtime_generation.py | `RuntimeReleaseV1` 保存可重建的完整 canonical material：scope、完整 manifest/hash、CLI version/source、解析后的绝对 binary path、binary/package digest、single/session argv shape、Pi wire version、materializer id/version；`release_digest` 为其内容摘要。`RuntimeGenerationV1` 保存 `rg-` 运行实例身份、scope、release_digest、七态、CAS version 与时间戳。常规图含 `staged→{warming,failed}`、`warming→{ready,failed}`、`ready→{active,failed}`、`active→draining→disposed`；`draining→active` 仅由 repository 的 last-good rollback 专用验证器表达。**refcount 不在模型/表中** |
 | src/tianshu/storage/generation_repo.py | 无状态、caller-owned transaction 的唯一 SQL 写权威：`insert_release` / `insert_staged` / scope-aware `get_generation` / `list_by_scope` / `get_pointer` / pre-activation transition；`activate(scope,target,expected_pointer_version)` 在一笔事务内 old active→draining、new ready→active、最后 pointer CAS；`rollback_to_last_good` 是唯一允许 draining→active 的入口；`dispose_if_unreferenced` 在同一写事务重查 active/last-good、durable attempt 和 OPEN conversation retention；读取 release/journal 时逐字节复核 canonical JSON/hash/链 |
 | src/tianshu/executor/keqing/generation.py | `PiGenerationBundle` 同时拥有固定到同一绝对 binary/release 的 `PiAdapter`、`PiSessionAdapter`、单发与 session delegate；`PiReleaseMaterializer` 只按持久 material 构造/复核 bundle，重启不得重新 `which()` 静默替换 |
-| src/tianshu/executor/keqing/pi_probe.py | `async def verify_pi_rpc_contract(execution_gateway: ExecutionGateway, *, workspace_root: Path, binary_path: str | None = None, timeout_seconds: float = 30.0) -> tuple[bool, str | None]`：经 `issue_keqing_command_grant`（grants.py:566）+ `gateway.start`（gateway.py:108）spawn `pi --mode rpc --no-session`（**不得绕网关直 spawn**——test_no_direct_process_launch 管制，allowlist 不扩）；发 `encode_command("get_session_stats", expect_response)`（pi_adapter.py:216）验 response 帧；校验首行 session header `version == VERIFIED_SESSION_VERSION`（pi_wire.py:38）；settle 判定兼容双语义 `agent_settled` / `agent_end(will_retry=False)`（pi_adapter.py:285-291，否则 0.79.3 warm 假失败）；处理 response 拒绝/失败帧（fire-and-forget 无 pending future 的坑，session_executor.py:279-287 同款），不只等事件流。返回 (ok, reason) |
+| src/tianshu/executor/keqing/pi_probe.py | `async def verify_pi_rpc_contract(execution_gateway: ExecutionGateway, *, workspace_root: Path, binary_path: str | None = None, timeout_seconds: float = 30.0) -> tuple[bool, str | None]`：经 `issue_keqing_command_grant` + `gateway.start` spawn `pi --mode rpc --no-session`（**不得绕网关直 spawn**——test_no_direct_process_launch 管制，allowlist 不扩）；校验首行 session header `version == VERIFIED_SESSION_VERSION`，发送副作用为零的 `get_session_stats` 并要求同 command id 的成功 response + object data；拒绝/失败帧显式失败，不等待 `agent_settled` / `agent_end` 这类任务执行事件。返回 `(ok, reason)`，所有路径清理 stdin/handle |
 | src/tianshu/executor/keqing/versions.py | `def detect_installed_version(binary: str) -> str | None`：`_detect_installed_version` 从 gateway/keqing_api.py:44 下移至此（离线读 package.json 不 spawn），keqing_api 改 import 薄委托——executor 侧与状态页共用同一版本探测来源，供 release_digest 计算复用 |
 
 **修改文件**
 
 | 文件:符号 | 前 → 后 |
 |---|---|
-| src/tianshu/storage/migrations.py | 追加 V32 `0032_runtime_generations`（V18 严格模板，DDL 见下）；四件套照通用约定 |
+| src/tianshu/storage/migrations.py | 追加 V32 `0032_runtime_generations`（V18 严格模板，DDL 见下）：四张 release/generation/journal/pointer 表 + 一张 `run_generation_bindings`，共五表；迁移按 system-copy / native-empty / ambiguous-Pi-unresolved 三分回填；四件套照通用约定 |
 | src/tianshu/executor/adapters/__init__.py | Registry 只管理 generation-owned materialized bundles 与锁内 selection，不写数据库状态机。`reserve_binding(attempt_id, pinned_ids)` 在同一锁快照返回按 scope 排序的 IDs、bundles 与 manifest digest override；内部 lease 为 `attempt_id → {scope:generation_id}`，等值重入幂等、异值重入拒绝；`release(attempt_id)` 幂等。`generation_ids=()` 时现有 adapter dict/replace seam 逐字节兼容 |
 | src/tianshu/executor/generation_controller.py | 唯一编排层：组合 repository、materializer、warm probe 与 registry，实现内部 `stage/warm/activate/rollback/recover`；外部副作用不在 SQLite 事务内，commit 后才发布 registry 视图。P3 不把这些方法暴露为 HTTP/CLI |
 | src/tianshu/executor/executor.py | `_prepare_runtime_executor` 只从 `current_run_binding()` 按 `scope='executor:keqing:pi'` 取 pinned bundle；DAG/outer/single 都消费同一个 `PreparedExecutor`。Executor 内不 acquire/release generation，避免多 finally 双重所有权 |
 | src/tianshu/application/run_dispatcher.py | attempt 外层 `finally` 是唯一权威 `release(authority.attempt_id)` 点；generation binding/material 错误映射稳定 fail-closed code，且仍走既有 attempt terminalization/projection cleanup |
-| src/tianshu/application/managed_run_ingress.py | 精确 replay 顺序与命令指纹不改；不做第二套 generation 预检。follow-up 的 parent 选择仍由现有 ingress 决定，Router 随后按 parent 最新 root binding 继承并验证 |
-| src/tianshu/universe/router.py bind_runtime | 在自己的 UoW/attempt 边界调用 controller：同 Memorial retry 优先上一 attempt binding；新 follow-up 继承 parent 最新 root；新 scheduled/root 只选本次所需 scope 的 active。selection、bundle、manifest override 来自同一锁快照；非空 tuple 用严格 insert，任何失败在 yield/副作用前拒绝；空 tuple 保留 P1 shadow |
-| src/tianshu/evolution/reconciler.py + bootstrap | 新建独立 `GenerationReconciler`，不继承/改写 rollback reconciler。既有 `reconcile_control_planes()` 每 tick 顺序调用二者，各自持锁。启动按 release material 重建 active/draining/last-good；遗留 staged/warming/ready 置 failed；回收前在同一写事务重查 exact-attempt refs、OPEN non-recurring Edict 最新 root retention 与 active/last-good roots |
+| src/tianshu/application/managed_run_ingress.py | 精确 replay 顺序与命令指纹不改；只为同一事务刚创建的 attempt 预绑定 exact generation marker，终态/claimed/suspended 历史 replay 不反向补写。follow-up 的 parent 选择仍由现有 ingress 决定，Router 随后按 parent 最新 root marker 继承并验证 |
+| src/tianshu/universe/router.py bind_runtime | 在自己的 UoW/attempt 边界调用 controller：同 Memorial retry 优先复制上一 attempt marker；新 follow-up 继承 parent 最新 root；新 scheduled/root 只选本次所需 scope 的 active。selection、bundle、manifest override 来自同一锁快照；`run_generation_bindings` 对非空与空 tuple 都严格 insert-once，任何失败在 yield/副作用前拒绝。snapshot 启用时另写可选 `run_system_bindings` shadow；两者同在必须一致 |
+| src/tianshu/evolution/reconciler.py + bootstrap | 新建独立 `GenerationReconciler`，不继承/改写 rollback reconciler。既有 `reconcile_control_planes()` 每 tick 顺序调用二者，各自持锁。启动按 release material 重建 active/draining/last-good；P3 中无授权的 staged/warming/ready 一律置 failed；回收前在同一写事务重查 exact-attempt refs、每个 OPEN Edict 最新 root continuity retention 与 active/last-good roots。readiness 在一把锁内返回原子 `(ready,error_codes)`；活动/保留代材料故障让 `/health/ready` 返回 503，仅待清理旧代保持 200/degraded |
 | src/tianshu/executor/keqing/pi_adapter.py:201 | `build_session_argv(self, *, session_dir=None, model=None, resume=False)` → 增 keyword-only `binary_path: str | None = None`（代 materialize 时 `shutil.which("pi")` 固化绝对路径进 argv[0] 与 release_digest——防同一代先后 spawn 到不同二进制；`_is_canonical_pi_session` :161 已兼容绝对路径）。**单发 PiAdapter 与会话 PiSessionAdapter/KeqingSessionExecutor 必须同代切换**：stage 的单元 = (单发实例, 会话实例, binary_path) 三元组整体登记（"pi 一名双执行器"，executor.py:118-122）；首版定死"代际不改 argv 形状，只固化 binary_path"，`is_canonical_adapter_argv` 无需代际化 |
 | src/tianshu/gateway/keqing_api.py:90-124 | status 行加 `"generation": {"id", "state", "active_runs", "last_good_id"} | None`（非代际 scope 为 None；active_runs 取内存账本）；web/src/api/types.ts:440 KeqingBackendStatus 加同名字段；KeqingManagementPage.tsx:107-158 加「代际」列；i18n 三份 locale 补 key |
 | src/tianshu/config.py | P3 不新增未被生产消费者使用的 stage 开关，避免形成隐藏写入口；`executor_generation_enabled` 随 P5 Promotion Authority 一并引入。无 pointer 行就是 P3 的 legacy 隐式单代开关 |
 | 新增 | tests/architecture/test_generation_authority.py | AST 扫描（仿 test_promotion_authority.py:8）：`'active'/'draining'/'disposed'` 等 generation 状态与 generation_pointers 写点仅限 generation_repo / ExecutorAdapterRegistry / GenerationReconciler / 启动序列 |
 | 修改（Codex B8） | src/tianshu/executor/execution_gateway/policy_models.py:318 `ExecutionReceipt` + src/tianshu/executor/keqing/executor.py:97 | receipt 新增两个带默认值的可选字段 `executable_version: str \| None = None`、`executable_version_source: Literal["package_json","pinned","unverified"] = "unverified"`（schema_version 保持 "1"，纯追加）；准备阶段对**全部** keqing backend（不只 pi）用 `shutil.which` + `Path.resolve(strict=True)` 把 argv[0] 换成绝对路径再交网关，gateway.py:294 现有的 `executable=request.command_argv[0]` 自然记绝对路径；版本来源复用上表 versions.py；为 claude-code/codex/opencode 补 `PINNED_*_VERSION` 常量（对齐 PINNED_PI_VERSION），**drift 只上报不拦截**、读不到就是 unverified。不动 EvidenceSnapshotV1、不动 parse_stream。「按版本区间 ExecutionDenied」延期到跑满一个 canary 周期有漂移数据后再议（§6） |
 | 原子切代注记 | `GenerationRepository.activate` | 新 bundle 先在事务外 materialize/warm；同一 `BEGIN IMMEDIATE` 内必须**先撤旧 active→draining，再立新 ready→active，最后 CAS pointer**。事务外只见完整旧态或新态；“先立新 active”会违反部分唯一索引，“先切 pointer”会制造不一致 |
-| 新增（Codex B9，本阶段首个 commit） | tests/support/waiting.py | `async def await_event(bus, predicate, *, timeout)`：在 EventBus（bus/event_bus.py:53）挂临时订阅 + 缓冲已到达事件（谓词不匹配的进 deque，下次先查缓冲），配 `drain()` / `seen_types()` 断言「没有多余事件」。**硬规则：所有等待必须带谓词，timeout 只作失败上界不作同步原语**。本阶段故障注入矩阵与 P4b 并行灰度测试全部用它，不再 sleep |
+| 新增（Codex B9，本阶段首个 commit） | tests/support/waiting.py | `EventProbe` / `await_event` 在 EventBus 挂临时订阅并缓冲不匹配事件，配 `drain()` / `seen_types()` 断言「没有多余事件」。**硬规则：EventBus 等待必须带事件类型和谓词，timeout 只作失败上界不作同步原语**；非 EventBus 并发测试使用 `asyncio.Event` / thread barrier。本阶段新增测试均不以 `sleep` 充当同步原语 |
 
 #### 数据迁移（V32 `0032_runtime_generations`，V18 严格模板）
 
 ```sql
 CREATE TABLE runtime_generation_releases (
-  release_digest TEXT PRIMARY KEY CHECK(
+  release_digest TEXT NOT NULL PRIMARY KEY CHECK(
     length(release_digest)=64 AND release_digest NOT GLOB '*[^0-9a-f]*'),
   schema_version INTEGER NOT NULL CHECK(schema_version=1),
   scope TEXT NOT NULL CHECK(length(trim(scope)) BETWEEN 1 AND 256),
@@ -525,7 +526,7 @@ CREATE TABLE runtime_generation_releases (
   UNIQUE(release_digest, scope)
 );
 CREATE TABLE runtime_generations (
-  generation_id  TEXT PRIMARY KEY CHECK(
+  generation_id  TEXT NOT NULL PRIMARY KEY CHECK(
     length(generation_id)=35 AND substr(generation_id,1,3)='rg-'
     AND substr(generation_id,4) NOT GLOB '*[^0-9a-f]*'),
   schema_version INTEGER NOT NULL CHECK(schema_version=1),
@@ -542,7 +543,7 @@ CREATE TABLE runtime_generations (
 );
 CREATE UNIQUE INDEX idx_runtime_generations_active ON runtime_generations(scope) WHERE state = 'active';
 CREATE TABLE runtime_generation_journal (
-  journal_id         TEXT PRIMARY KEY CHECK(
+  journal_id         TEXT NOT NULL PRIMARY KEY CHECK(
     length(journal_id)=64 AND journal_id NOT GLOB '*[^0-9a-f]*'),
   generation_id      TEXT NOT NULL REFERENCES runtime_generations(generation_id) ON DELETE RESTRICT,
   generation_version INTEGER NOT NULL CHECK(generation_version > 0),
@@ -557,7 +558,7 @@ CREATE TABLE runtime_generation_journal (
      OR (generation_version>1 AND from_state IS NOT NULL))
 );
 CREATE TABLE generation_pointers (
-  scope                   TEXT PRIMARY KEY,
+  scope                   TEXT NOT NULL PRIMARY KEY,
   active_generation_id    TEXT NOT NULL,
   last_good_generation_id TEXT NOT NULL,
   version                 INTEGER NOT NULL CHECK(version > 0),
@@ -567,18 +568,36 @@ CREATE TABLE generation_pointers (
   FOREIGN KEY(scope, last_good_generation_id)
     REFERENCES runtime_generations(scope, generation_id) ON DELETE RESTRICT
 );
+CREATE TABLE run_generation_bindings (
+  memorial_id        TEXT NOT NULL CHECK(length(trim(memorial_id)) BETWEEN 1 AND 256),
+  attempt_id         TEXT NOT NULL CHECK(length(trim(attempt_id)) BETWEEN 1 AND 256),
+  state              TEXT NOT NULL CHECK(state IN ('bound','unresolved')),
+  generation_ids_json TEXT CHECK(
+    (state='bound' AND json_valid(generation_ids_json)
+                   AND json_type(generation_ids_json)='array')
+    OR (state='unresolved' AND generation_ids_json IS NULL)
+  ),
+  created_at         TEXT NOT NULL CHECK(length(trim(created_at)) > 0),
+  PRIMARY KEY(memorial_id, attempt_id)
+);
 -- release: no_replace/no_update/no_delete
 -- generation: no_replace + identity/material immutable
 -- journal: no_replace/no_update/no_delete
 -- pointers: no_replace/no_delete + scope immutable；其余仅 CAS
+-- run_generation_bindings: no_replace/no_update；允许随 Edict 物理删除清理
 ```
+
+迁移回填覆盖 V32 升级时已有的全部 attempt，并只写可证明的历史事实：有
+`run_system_bindings` 时逐 attempt 复制 generation ids；可由 requested contract 与 runtime override
+证明为非 Pi 时写 `bound []`；历史 Pi 或契约/override 不能可靠解码时写 `unresolved`。`unresolved`
+不会猜测 active，也不会静默退回 static；continuity 与 retention 读取会失败关闭。
 
 #### 兼容策略与开关
 
 - 未显式 stage 任何代 → registry 隐式单代模式，prepare 不带 generation_id、`replace`/`set_agent`/测试 seam 全部不变——现有 test_executor_capabilities / test_executor_workspace_lifecycle 全绿即证明。
-- follow-up 继承只在 parent binding 携带非空 generation_ids 时生效（P1 存量 `[]` → 不继承、取 active，平滑升级）。
+- follow-up/retry 优先继承 parent/source attempt 的 exact marker；只有 V31 历史数据尚无 marker 时才读 `run_system_bindings.generation_ids_json` fallback。显式 `bound []` 是确定选择，不会因后来出现 active Pi 而改选。
 - generation tuple 只含本次实际需要的 scope，按 `(scope,generation_id)` canonical 排序；拒绝重复 ID、重复 scope、未知 ID、跨 scope、failed/disposed 或不可 materialize 项。
-- `generation_ids=()` 保留 P1 shadow；任何非空 tuple 的 selection、binding、snapshot override 或 materialization 失败都在首个受管副作用前 fail closed。
+- 每个新 attempt 都必须得到 durable `run_generation_bindings`，空 tuple 也以 `bound []` 落盘。默认 `system_snapshot_enabled=true` 时，scheduled/run-now fresh fire 还必须在推进 cursor 的同一事务内得到 P1 snapshot shadow，resolver 暂坏或 shadow write 失败则整 fire 回滚；显式关闭 snapshot 时仅 `run_system_bindings`/`system_snapshots` 保持零写入，exact generation marker 仍写。任何非空 tuple 的 selection、marker、snapshot override 或 materialization 失败都在首个受管副作用前 fail closed。
 - manifest/probe 钉死回放不破：整代保留旧 manifest/adapter 实例直到 drain 完（`_bind_verified_effective` 漂移拒绝不会命中旧 run）。
 - ContextVar 不跨子进程：代/快照信息进子进程只能走 env/argv——本阶段不注入（列延期项），binary_path 固化已保证子进程二进制正确。
 
@@ -586,26 +605,29 @@ CREATE TABLE generation_pointers (
 
 | 测试文件 | 断言 |
 |---|---|
-| tests/storage/test_durable_schema_v32.py（新）+ freeze 登记 | 四表 exact shape；release/journal/pointer no-replace；复合 scope FK；部分唯一 active；V31→V32、exact precreate replay、partial/drift fail-closed 与前序 checksum/fingerprint 冻结 |
+| tests/storage/test_durable_schema_v32.py（新）+ freeze 登记 | 五表 exact shape；release/journal/pointer no-replace；attempt marker no-replace/no-update；复合 scope FK；部分唯一 active；V31→V32 三分回填、exact precreate replay、partial/drift fail-closed 与前序 checksum/fingerprint 冻结 |
 | tests/models/test_runtime_generation.py（新） | release canonical/hash/material 完整性；常规转移逐边；普通 API 拒绝 draining→active；last-good 专用边；version/时间约束 |
 | tests/storage/test_generation_repo.py（新） | activate/rollback 每个 SQL 故障点完整回滚；两连接只见旧/新完整态；pointer CAS、坏新代不成为 last-good；release/journal 解码复核；多 scope 校验 |
 | tests/executor/test_generation_registry.py（新） | 同锁 selection/bundle/manifest；attempt reservation 等值幂等、异值拒绝、ABA 与双 release；Pi single/session 同代；restart materialize 不重新 `which()`；无 generation 与现行为一致 |
-| tests/executor/test_generation_fault_matrix.py（新，故障注入） | warm 坏帧/超时不动指针；长任务切代不混代；100 次 stage/warm/activate/rollback/drain 内部 controller 循环；binary/package/manifest 漂移重启 fail closed |
-| tests/executor/keqing/test_pi_probe.py（新，复用 FakePiHandle 契约帧脚本 test_session_executor.py:18） | 0.83.0 settled 通过；0.79.3 agent_end 兜底通过（emit_settled=False 分支）；header version 漂移 → (False, reason)；response 拒绝帧 → 显式失败非挂起；超时收口；必须经 gateway+grant（直 spawn 被架构测试拒） |
-| tests/application/test_generation_continuity.py（新） | follow-up 继承；exact retry 新 attempt 同代且无 ABA；OPEN completed parent 阻止 dispose，Edict 结案后释放；cron/interval 不 pin；DAG 子节点复用 root；非空多 scope 任一坏项整体失败 |
-| tests/evolution/test_generation_reconciler.py（新） | active/last-good/OPEN continuity 永不普通 dispose；无引用 draining 收敛；staged/warming/ready 重启置 failed；active material 缺失 readiness 降级；与 rollback reconciler 顺序组合且锁独立 |
+| tests/executor/test_generation_fault_matrix.py（新，故障注入） | warm 坏帧/超时不动指针；warm 前完整包复验且在线程池执行；100 次 stage/warm/activate/rollback/drain 循环中，旧 exact-attempt 每轮真实执行固定的 fake delegate；binary/package/manifest 漂移重启 fail closed |
+| tests/executor/keqing/test_pi_probe.py（新） | header + `get_session_stats` 成功 response 通过；header version 漂移、response 拒绝、坏 JSON、超时与 cleanup 失败均收口；必须经 gateway+grant（直 spawn 被架构测试拒） |
+| tests/application/test_generation_continuity.py（新） | follow-up 继承；exact retry 新 attempt 同代且无 ABA；每个 OPEN Edict 最新 root 阻止 continuity gap，Edict 结案后释放；cron/interval 每个 fresh fire 在触发事务内预绑定当时 active 且不继承上次 fire；空代也必须持久化，resolver/影子写失败不推进 cursor；终态 replay 不补写历史，只有未启动 CLAIMABLE replay 可补缺失 binding；DAG 子节点复用 root；非空多 scope 任一坏项时零 binding、零部分 lease |
+| tests/evolution/test_generation_reconciler.py（新） | active/last-good/OPEN continuity 永不普通 dispose；无引用 draining 收敛；staged/warming/ready 重启置 failed；活动或保留代材料缺失让 required readiness 503，纯 cleanup pending 只 degraded；readiness tuple 原子采样；与 rollback reconciler 顺序组合且锁独立 |
 | tests/architecture/test_generation_authority.py（新） | AST 扫描入 CI |
 | tests/executor/keqing/test_executable_resolution.py（新，Codex B8） | 四个 backend argv[0] 均为绝对路径；PATH 上不存在 → 明确错误而非裸名透传；receipt 含 version 与 source；读不到版本 = unverified 且不拒绝 |
 | 存量影响 | test_executor_workspace_lifecycle.py（replace seam）不 stage 时不红；test_evolution_composition.py 若断言 reconciler 类型需同步（保留 alias 可免改）；tests/compat/test_executor_capabilities.py 不改；tests/gateway/test_keqing_status.py 只加字段断言（gateway_enabled 恒 False 等既有锁不动） |
 
 #### 验收 checklist
 
-- [ ] 故障注入矩阵全绿；"连续 100 次 Pi 换代无 run 混代"脚本化验证
-- [ ] warm 失败 active/last-good 不变；旧任务完成后旧代 disposed；follow-up/长任务全程单代；cron 每 fire 取 active
-- [ ] 内部 controller/repository 的 stage→warm→activate→rollback→drain 集成矩阵全绿；P3 不伪造生产写入口
-- [ ] live/demo 真实启动在无 generation 行时行为与当前一致；status generation 为 null；无新增 stage/activate HTTP 或 CLI
-- [ ] 不 stage 时全量测试与主干等价；test_promotion_authority + test_generation_authority AST 绿
-- [ ] （Codex B8/B9）ExecutionReceipt 记绝对路径 + 版本；本阶段新增测试零 `sleep` 同步
+- [x] 故障注入矩阵全绿；"连续 100 次 Pi 换代无 run 混代"脚本化验证
+- [x] warm 失败 active/last-good 不变；旧任务完成后旧代 disposed；follow-up/长任务全程单代；cron 每 fire 取 active
+- [x] 内部 controller/repository 的 stage→warm→activate→rollback→drain 集成矩阵全绿；P3 不伪造生产写入口
+- [x] live/demo 真实启动在无 generation 行时行为与当前一致；status generation 为 null；无新增 stage/activate HTTP 或 CLI
+- [x] `system_snapshot_enabled=false` 完整 lifespan 下 scheduled/run-now 继续成功，`system_snapshots` / `run_system_bindings` 零写，但每个新 attempt 的 `run_generation_bindings=bound []` 可证明
+- [x] 不 stage 时全量测试与主干等价；test_promotion_authority + test_generation_authority AST 绿
+- [x] （Codex B8/B9）ExecutionReceipt 记绝对路径 + 版本；本阶段新增测试零基于时间的 `sleep` 同步
+
+> P5 仍须独立证明：snapshot 显式关闭时，executor stage/activate 在配置期 fail closed；该约束不由 P3 预先伪造生产写入口。
 
 **回退方式**：不 stage 新代（隐式单代模式即现状），GenerationReconciler 的 generation 分支由空表天然短路；极端 revert 代码，V32 表闲置无害。
 
@@ -613,12 +635,12 @@ CREATE TABLE generation_pointers (
 
 **决策与取舍**：
 1. **开关与生产入口**：P3 不引入未被 Promotion Authority 消费的 stage flag/API/CLI；无 pointer 行就是隐式单代模式。P5 才增加 deny-by-default 的晋升写入口与开关。
-2. **refcount 与 continuity**：不持久化整数 refcount，也不新增 continuity 表。进程内 lease 只按 exact `attempt_id`；durable roots 从非终态 `execution_attempts + run_system_bindings`、OPEN non-recurring Edict 最新 root binding 与 pointer active/last-good 推导，避免双重真相与 retry ABA。
+2. **refcount 与 continuity**：不持久化整数 refcount；V32 的 `run_generation_bindings` 不是第二个 session/refcount 账本，而是每个 attempt 必需的 insert-once 代际权威。进程内 lease 只按 exact `attempt_id`；durable roots 从非终态 `execution_attempts + run_generation_bindings`、每个 OPEN Edict 最新 root marker 与 pointer active/last-good 推导；`run_system_bindings` 仅作 snapshot shadow/V31 fallback，两者同在必须一致。cron/interval 的新 fire 是独立 fresh root，在 scheduler 事务推进 cursor 前预绑定当时 active，不从上次 fire 继承；保留 OPEN Edict 的最新 root 只用于封住其潜在 follow-up 创建窗口。
 3. **journal 表**：最小改动案省略；另两案含。**采纳含 journal**（不可变触发器）——generation 切换是治理相关事实，与项目"证据文化"一致，且 reconciler crash 后重放需要它。
 4. **"绑定即固定"接线**（bind 时写 active 代 → prepare 按 pinned 取）：三案殊途同归，采纳最小改动案的 `pinned_generation_id` 参数化表述（最明确）；bind 与 prepare 间切代由 pinned 化解，不需要 mismatch 审计兜底（风险优先案的 `generation_binding_mismatch` 降级为可选观测项）。
 5. **双执行器同代**：三案一致（单发 + 会话三元组整体 stage）；首版 argv 形状不变、只固化 binary_path（grant 双墙 `is_canonical_adapter_argv` 无需代际化），形状要变时再按代分发（延期项）。
 6. **版本探测下移** versions.py：两案一致，采纳（GET /keqing/status 保持零副作用与只读守卫）。
-7. **release 独立成表**：采纳四表而非把 `release_json` 嵌入 generation；前者只多一次 join，却保持“不可变发布内容 / 可变运行实例”边界，支持跨重启精确物化与 P5 候选按 digest 复用。本表仅是宿主执行器 release，不冒充完整生态 `PluginRelease`。
+7. **release 独立成表**：代际状态机仍采用四张 release/generation/journal/pointer 表，而非把 `release_json` 嵌入 generation；再加独立 attempt marker 后，V32 合计五表。前者只多一次 join，却保持“不可变发布内容 / 可变运行实例”边界，支持跨重启精确物化与 P5 候选按 digest 复用。本表仅是宿主执行器 release，不冒充完整生态 `PluginRelease`。
 
 ---
 
@@ -750,7 +772,7 @@ CREATE TABLE run_subject_assignments (
 
 ### 阶段 P5（PR-3b，后移）：CandidateKind.EXECUTOR 全链路（V35，≈1.5–2 周）
 
-**目标**：Pi 版本漂移不再只显示"待兼容验证"，而是产生 `kind=EXECUTOR`、`subject_key=executor:keqing:pi` 的治理候选，走现有八门 Gate → per-subject canary → **高危 Decision** → `ExecutorPromotionAdapter`（activate = stage→warm→activate）换代 / 回滚 last-good 的完整闭环。落地即为 per-subject 世界（P4 已就位）。
+**目标**：Pi 版本漂移不再只显示"待兼容验证"，而是产生 `kind=EXECUTOR`、`subject_key=executor:keqing:pi` 的治理候选，走现有八门 Gate → per-subject canary → **高危 Decision** → `ExecutorPromotionAdapter`（canary 前 stage+warm 并建立 durable authority，promote 只 activate 已授权 READY 代）换代 / 回滚 last-good 的完整闭环。落地即为 per-subject 世界（P4 已就位）。
 
 **前置依赖**：P3（代际机械）、P4（per-subject 路由 + policy；EXECUTOR 缺省 manual 生而严格）。
 
@@ -762,10 +784,11 @@ CREATE TABLE run_subject_assignments (
 | 修改 | src/tianshu/storage/evolution_repo.py:48、183-211、531-598 | `_require_high_risk_code_promotion_decision` 泛化：判据 `candidate.kind is CandidateKind.CODE` → `candidate.kind in HIGH_RISK_PROMOTION_KINDS`（函数与 Decision 四元组绑定校验逻辑不动）；`_CodePromotionDecisionBindingV1` 改名 `PromotionDecisionBindingV1`（保留旧名 alias）；save_candidate 内判据同步；**公开方法 `require_code_promotion_decision`（evolution_repo.py:245-256）的 kind 守卫同步改为 `candidate.kind not in HIGH_RISK_PROMOTION_KINDS`**（现为 `if candidate.kind is not CandidateKind.CODE: raise ValueError`，promotion.py:936 经此公开方法调用——只改私有函数与 save_candidate 判据的话，EXECUTOR 晋升会在 :255 被 ValueError 拒掉；方法可顺势更名 `require_high_risk_promotion_decision`，保留旧名别名），promotion.py:936 调用点判据同改 |
 | 修改 | src/tianshu/evolution/promotion.py:935-943、1054-1062 | 两处调用侧判据同步泛化 |
 | 修改 | src/tianshu/storage/migrations.py | V35 `0035_executor_candidate_kind`：kind CHECK 冻结在 V18 DDL（migrations.py:3434），SQLite 无 ALTER CHECK——V20 临时表模式重建 `evolution_candidates`：`CREATE TABLE _evolution_candidates_v35`（新 DDL 仅 kind CHECK 扩为 `IN ('memory','skill','policy','persona','code','executor')`，lifecycle CHECK/UNIQUE(kind,subject_key,candidate_id)/索引逐字节保持 V18 原文）→ INSERT SELECT 逐列拷贝（迁移内断言行数一致）→ DROP → RENAME → 重建索引；temp 名登记 `_RESERVED_TEMP_TABLES`（migrations.py:728）；结尾靠引擎 `foreign_key_check` 兜底。**FK 前提（已核实，非 spike 待定项）**：本仓迁移连接 FK 恒 ON——storage/_base.py:87 在 init_db 对迁移所用连接执行 `PRAGMA foreign_keys=ON`，随后 :103 在同一连接上 `run_migrations(conn)`（PRAGMA 在 BEGIN IMMEDIATE 之前生效）；adopt 基线重放（migrations.py:4334）、per-version 测试模板（tests/storage/test_durable_schema_v24.py:16）、tests/evolution/test_s4_s5_handoff.py:49 全部显式 ON。migrations.py:3478/3496/3524/3540/3557 共五处子表 FK `REFERENCES evolution_candidates(candidate_id) ON DELETE RESTRICT`；SQLite 语义：FK ON 时 DROP TABLE 先做隐式 DELETE，被 RESTRICT 子行引用即失败——**V20 式裸 DROP+RENAME 在有真实候选数据的库上必然失败，分支 A（连带重建子表）是既定事实而非预案**。V35 按 §7 决策 4 采用分支 A：按依赖序连带重建六张子表，全部临时名登记 `_RESERVED_TEMP_TABLES`，结尾 `foreign_key_check` 兜底；工作量 +2–3 天计入 P5 基线（P5 合计 ≈1.5–2 周） |
+| 新增 | src/tianshu/storage/migrations.py、storage/executor_generation_authority_repo.py | V35 同批增加 candidate-generation authority 当前表与不可变 journal：每次 canary epoch 精确绑定 `candidate_id + candidate_version + release_digest + generation_id + scope + promotion_journal_id`，同一 candidate 同时至多一个有效授权、同一 generation 只属一个授权，授权/撤销用 CAS 并留 journal。有效 authority（CANARY/PROMOTED/ROLLBACK_PENDING，或可盲重放的 pending start_canary 效果）是 READY generation 的 retention root；候选回 READY、REJECTED、ROLLED_BACK、ARCHIVED 或 command 终止即撤销，允许下一 canary epoch 建新代。无映射、摘要不符、歧义或已撤销的 READY 重启一律 FAILED，不放宽 P3 的默认恢复规则 |
 | 新增 | src/tianshu/evolution/adapters/executor.py | `class ExecutorCandidateAdapter(BaseCandidateAdapter)`（staging 侧）：`kind = CandidateKind.EXECUTOR`；`def _normalize_domain(self, payload) -> dict[str, JsonValue]` 校验发行包内包 schema `{adapter_id: Literal 白名单('keqing:pi' 等), release_version: str, binary_path: str, package_digest: 64hex, manifest: {...}}`（仿 `_SkillPackageV1` adapters/skill.py:32）；`def require_subject_binding(...)` 强制 `subject_key == f"executor:{adapter_id}"`（仿 skill.py:96-104） |
-| 新增 | src/tianshu/evolution/adapters/executor_promotion.py | `class ExecutorPromotionAdapter`（晋升侧，实现 promotion.py:234 `_Adapter` 协议）：<br>`def __init__(self, *, registry: ExecutorAdapterRegistry, generation_repo: GenerationRepository, unit_of_work_factory, adapter_factory: Callable[[dict], tuple[ExecutorAdapter, ExecutorAdapter]], loop_runner: Callable[[Coroutine], object]) -> None`——adapter_factory 一次产出配套两实例（单发 PiAdapter + 会话 PiSessionAdapter，同代切换；`shutil.which` 固化 binary_path）<br>`def activate(self, candidate) -> ActivationReceiptV1` = registry.stage(新代, release_digest) → 经 loop_runner 桥接 `await warm`（PromotionService 在 UoW 外的效果段同步调用，promotion.py:989）→ activate；warm 失败抛 `AdapterError`（**指针/last-good 不动**，候选走既有 BLOCKED/rollback 路径）；收据 `{candidate_id, artifact_digest=release_digest}` 与候选精确匹配（promotion.py:989-1000 校验），journal entry 带 generation_id（receipt dict 可扩展）<br>`def rollback(self, candidate) -> AdapterRollbackReceiptV1` = `registry.activate(pointer.last_good)`；收据 digest = base.artifact_digest（promotion.py:1276-1280 要求）<br>`def verify_rollback(self, candidate) -> AdapterRollbackReceiptV1 | None` = pointer.active == last_good 且新代 state ∈ {disposed, failed} 时返收据（对齐 SkillPromotionAdapter:319 收敛接口）<br>`rollback_is_idempotent = True`（reconciler 盲重放安全判据，promotion.py:1469-1471）。**不复制** SkillPromotionAdapter 直调 staging 私有方法的耦合（promotion.py:526-528 反例） |
+| 新增 | src/tianshu/evolution/adapters/executor_promotion.py | `class ExecutorPromotionAdapter`（晋升侧，实现 promotion.py:234 `_Adapter` 协议）只调用 `GenerationController` 与 authority repository，Registry 仍只保管 bundle/lease：start-canary 效果以 promotion pending journal 为命令权威，`controller.stage(release) → await controller.warm(generation_id) → CAS authorize(candidate,generation)`，不改 active pointer；重复命令必须返回同一授权，warm 失败候选仍 READY、指针/last-good 不动且无有效授权。`activate(candidate)` 读取并复核精确授权与 READY material 后只执行 `controller.activate(mapped_generation_id)`，禁止二次 stage/warm；收据与 journal 同时带 generation_id/release_digest。`rollback` 走 `controller.rollback(scope)` 后撤销 challenger authority；`verify_rollback` 校验 pointer 已回 last-good、candidate 代 failed/disposed 且 authority 已撤销。`rollback_is_idempotent = True`，不复制 SkillPromotionAdapter 直调 staging 私有方法的耦合 |
 | 修改 | src/tianshu/evolution/candidate_service.py:59-84 | `CandidateLiveAuthorities` 加 `executor_root: Path` 并入 `for_kind`；`_ADAPTER_TYPES` 注册 ExecutorCandidateAdapter；media_type `application/vnd.tianshu.evolution.executor+json` 随 `{kind.value}` f-string（:129）自动成立 |
-| 修改 | src/tianshu/bootstrap/wiring_skills.py:108-121 | `executor_generation_enabled` 开 → `promotion_adapters[CandidateKind.EXECUTOR] = ExecutorPromotionAdapter(...)`；关 → 保持 `UnavailablePromotionAdapter`（409 fail-closed 缺省不变）；`CandidateLiveAuthorities` 装配补 executor_root |
+| 修改 | src/tianshu/bootstrap/wiring_skills.py:108-121、src/tianshu/config.py | `executor_generation_enabled` 开 → `promotion_adapters[CandidateKind.EXECUTOR] = ExecutorPromotionAdapter(...)`；关 → 保持 `UnavailablePromotionAdapter`（409 fail-closed 缺省不变）；`CandidateLiveAuthorities` 装配补 executor_root。配置模型拒绝 `executor_generation_enabled=true && system_snapshot_enabled=false`，因此 P1 零写入兼容态不存在可达的生产 stage/activate 路径 |
 | 新增 | src/tianshu/evolution/executor_drift.py | `class ExecutorDriftScanner:` `def __init__(self, *, candidate_service, versions: Callable[[str], str | None], pinned: Mapping[str, str], interval_seconds: int = 3600)`；`def scan_once(self) -> int`：`detect_installed_version`（P3 versions.py）vs `PINNED_PI_VERSION`（pi_wire.py:18）；漂移 → `candidate_service.propose(kind=EXECUTOR, subject_key="executor:keqing:pi", source_channel=SYSTEM, ...)`，**幂等键含 installed_version**（candidate_id 命令确定性哈希天然去重，candidate_service.py:155-176、236-241）；内置限流（每小时至多一次实际检查）。挂 `reconcile_control_planes`（wiring_scheduler.py:220）低频驱动——**不放 GET /keqing/status**（进程启动守卫 + GET 零副作用）；frozen policy 下 propose 被 P4a 执法点拒绝——用户冻结插件即冻结漂移提案，语义自洽 |
 | 修改 | src/tianshu/config.py | 加 `executor_drift_scan_enabled: bool = False`（env，deny-by-default） |
 | 修改 | 投影四处 | src/tianshu/models/evolution_view.py:42 Literal 加 "executor"；web/src/api/evolution.ts:15 union 加 "executor"（**最易漏的前端手写白名单**）；gateway/keqing_api.py drift 行加 candidate 链接字段 + KeqingManagementPage.tsx:129 drift Tag 链到候选详情；i18n 三份 locale（zh-classic「彩蛋」不动） |
@@ -775,10 +798,10 @@ CREATE TABLE run_subject_assignments (
 
 CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版本 Pi，否则 executor canary 空转：challenger 与 champion 同跑旧代，灰度期收集不到新版本任何证据（P3 的 bind_runtime generation_ids 三分来源——继承/同 memorial 上一 binding/active 指针——没有 canary 分支，不会指向候选对应的新代；migration-roadmap Phase 3 明确『Pi 新旧版本 side-by-side；只有新的 root assignment 或命中 Canary 的新 continuity scope 使用新版本，已有 continuity 不换代』）：
 
-1. `start_canary`（EXECUTOR kind）效果段先 `registry.stage(新代) + warm`（**不 activate，指针不动**）；warm 失败 → start_canary 失败，候选留 READY；
-2. `bind_runtime` 对 kind='executor' 且 selected_ref=candidate 的 subject assignment，把该候选 release_digest 对应的 ready 代写入 `binding.generation_ids` 并作为 pinned；champion run 仍取 active 指针；
-3. rollback 断流后（allocation 置零）新 run 全部回 active 代，ready 新代经 GenerationReconciler 转 failed/disposed；
-4. promote 时该 ready 代直接 activate（免二次 warm）。
+1. `start_canary`（EXECUTOR kind）效果段先 `GenerationController.stage + warm`，再以 pending promotion journal 建立精确 durable authority（**不 activate，指针不动**）；warm/authorize 失败 → start_canary 失败，候选留 READY且无半授权；
+2. `bind_runtime` 对 kind='executor' 且 selected_ref=candidate 的 subject assignment，只能按 exact authority 找到 READY generation 并写入 `binding.generation_ids`；映射缺失/摘要不符/歧义全部 fail closed，champion run 仍取 active pointer；
+3. authority 是 restart 与 retention 的必要条件：P5 recovery 只重建仍获授权的 READY，P3 的 abandoned READY 仍失败化；rollback/退回 READY/拒绝/归档先断流并撤销 authority，新 run 全部回 active，旧 exact-attempt 排空后候选代再 failed/disposed；
+4. promote 只复核并 activate 映射的 READY generation（免二次 stage/warm），因此收据、SystemSnapshot、Candidate 与实际二进制共享同一个 generation_id/release_digest 真相。
 
 测试补：tests/evolution/test_executor_promotion.py 增『executor canary 期间 challenger run 用新代、champion run 用旧代（binding generation_ids 断言）；rollback 后新 run 零新代』。
 
@@ -794,7 +817,7 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 | tests/evolution/test_evolution_migration_schema.py（大改） | 实况注入 + 锁表更新 + partial/drift 拒绝语义保持 |
 | tests/evolution/test_candidate_adapters.py（改） | `_sources()`/`ADAPTERS` 加 EXECUTOR 条目 → 六处 parametrize 自动展开（propose/stage 幂等、错 adapter fail-closed、artifact 零孤儿全矩阵免费覆盖） |
 | tests/evolution/test_candidate_schema.py（改） | lifecycle 参数化自动覆盖新 kind；CODE Decision 绑定矩阵（:319-464）经 PromotionDecisionBindingV1 改名路径 + EXECUTOR 参数化复制 |
-| tests/evolution/test_executor_promotion.py（新，仿 test_promotion_fail_closed 的 fixture :69-120） | 无 Decision 永不晋升（六种坏 Decision 参数化，仿 :703-736；正路 :783）；activate=stage→warm→activate 收据精确 + journal 带 generation_id；warm 失败 → promotion_activation_failed 且指针/last-good 不动、候选可回滚；rollback 回 last_good、verify_rollback 收敛、reconciler 从 pending 盲重放安全 |
+| tests/evolution/test_executor_promotion.py（新，仿 test_promotion_fail_closed 的 fixture :69-120） | 无 Decision 永不晋升；start-canary 建唯一 exact authority，重复/崩溃重放不产第二代；promote 只 activate 已映射 READY 且收据/journal 带同一 generation_id；warm/authorize 失败零半状态且指针/last-good 不动；rollback 回 last-good并撤权，verify/reconciler 从 pending 盲重放安全；无/错/歧义映射与 `system_snapshot_enabled=false` 全部 fail closed |
 | tests/evolution/test_executor_drift_scanner.py（新） | 漂移 → 恰一 PROPOSED（幂等键）；同 installed_version 重扫零新候选；开关关零副作用；GET /keqing/status 前后无副作用；frozen policy 拒绝且零 artifact 副作用 |
 | 修改 | tests/gateway/test_keqing_status.py（加字段不动既有锁）；web evolution.test.ts kind union / KeqingManagementPage.test.tsx；`npm run test && npm run typecheck` |
 
@@ -910,7 +933,7 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 | tests/architecture/test_evolution_composition.py:13-56 | wire 顺序与单 ChallengerRouter 断言保持；P1 resolver 晚绑定设计使其零改动；GenerationReconciler 换类用 alias 免改 | P1/P3 |
 | tests/architecture/test_no_direct_process_launch.py | `verify_pi_rpc_contract` 必须经 ExecutionGateway + grant；allowlist 不扩 | P3 |
 | import-linter（pyproject.toml:161-176） | P0 补层 `tianshu.application : tianshu.evolution : tianshu.evidence : tianshu.plugins`（过不了退逐条 forbidden 契约 + ADR 例外清单，P7 前清零）；不为改层而重排既有 import | P0 |
-| DB 级不变量 | system_snapshots 的 no_replace/no_update/no_delete 与 run_system_bindings 的 no_replace/no_update；runtime_generation_journal 不可变触发器；`(scope) WHERE state='active'` 部分唯一索引；evolution_policies mode CHECK 无 'auto'；run_subject_assignments V22 同款条件 no_delete | P1/P3/P4 |
+| DB 级不变量 | system_snapshots 的 no_replace/no_update/no_delete；run_system_bindings 与 run_generation_bindings 的 no_replace/no_update；runtime_generation_journal 不可变触发器；`(scope) WHERE state='active'` 部分唯一索引；evolution_policies mode CHECK 无 'auto'；run_subject_assignments V22 同款条件 no_delete | P1/P3/P4 |
 | 类型级不变量 | `automatic_promotion_allowed: Literal[False]` 不动；`HIGH_RISK_PROMOTION_KINDS` frozenset 地板；EvolutionPolicyV1.mode Literal 三值 | P4/P5 |
 | 迁移纪律 | 每条 V31–V35：checksum + callback 指纹 + PROGRESS.md 裁决 + per-version 切片测试 + 空库回放可通 +（V35）`_RESERVED_TEMP_TABLES`；版本连续性由 test_durable_schema_v14.py:64 自动锁 | 各阶段 |
 | tests/architecture/test_route_scope_coverage.py（Codex B1，并行轨） | 每条路由模板恰好被 `_public_route` 与 `route_policy` 之一认领、无 0 命中僵尸规则；**P4a/P5 新增端点前合入**，新路由不登记即红 | 并行轨 → P4a 前 |
@@ -1016,7 +1039,7 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 2. **EvolutionPolicy 缺省祖父化**：skill 无策略行时维持 `canary`，其余 kind 无策略行时为 `manual`。后续可显式写行收紧，不在 P4a 偷渡存量行为变更。
 3. **legacy 单 assignment 双写期限**：P4b 后继续保留旧表 0/1 canary 语义与新表影子双写；多 subject 稳定运行一个 minor 版本后再评估退役，退役另走独立迁移与 ADR。
 4. **V35 重建形态**：采用分支 A，按依赖序连带重建六张子表；所有临时表名登记 `_RESERVED_TEMP_TABLES`，结尾执行 `foreign_key_check`。不使用 `PRAGMA writable_schema`，不引入仅 propose/stage 的过渡语义。
-5. **`run_system_bindings` 删除语义**：使用 no-update 触发器，允许 DELETE，不对 memorials 建 FK；与敕令删除清理路径对齐，不可变权威副本由已关闭 Evidence artifact 保存。
+5. **attempt binding 删除语义**：`run_system_bindings` 与 `run_generation_bindings` 都使用 no-replace/no-update，允许 DELETE 且不对 memorials 建 FK，与敕令物理删除清理路径对齐；前者的不可变典制副本由已关闭 Evidence artifact 保存，后者是存活 attempt/continuity 的运行权威，不冒充永久 WORM 证据。
 6. **Candidate 类型**：引入 `CandidateKind.EXECUTOR`，不复用 `CODE` 加 subject 前缀特判。
 7. **策略 UI 与随阶段交付**：P4b 同批交付天工院每插件一行三开关（enabled / pinned / evolution mode）；`tianshu keqing status` CLI 和 edict 详情的 `system_snapshot_digest` 投影分别随对应阶段交付。
 

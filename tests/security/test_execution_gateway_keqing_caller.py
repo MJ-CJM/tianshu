@@ -95,8 +95,11 @@ class _RecordingGateway:
 
 @pytest.mark.asyncio
 async def test_keqing_streams_through_gateway_and_emits_receipt(tmp_path, monkeypatch):
+    executable = tmp_path / "claude"
+    executable.write_text("#!/bin/sh\nexit 0\n")
+    executable.chmod(0o700)
     argv = (
-        "claude",
+        str(executable),
         "-p",
         "do the task",
         "--output-format",
@@ -165,8 +168,11 @@ async def test_keqing_streams_through_gateway_and_emits_receipt(tmp_path, monkey
 
 @pytest.mark.asyncio
 async def test_keqing_uses_bound_staging_workspace_and_grant(tmp_path, monkeypatch):
+    executable = tmp_path / "claude"
+    executable.write_text("#!/bin/sh\nexit 0\n")
+    executable.chmod(0o700)
     argv = (
-        "claude",
+        str(executable),
         "-p",
         "do the task",
         "--output-format",

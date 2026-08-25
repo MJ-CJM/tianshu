@@ -119,3 +119,25 @@ def test_resolver_adds_only_verified_governed_overlay() -> None:
             governed,
             overlay.model_copy(update={"assignment_id": "assignment-other"}),
         )
+
+
+def test_run_snapshot_uses_the_generation_pinned_executor_manifest_snapshot() -> None:
+    source = {
+        "kernel": "v1",
+        "skills": "1" * 64,
+        "personas": "2" * 64,
+        "policy_rules": "3" * 64,
+        "provider_profiles": "4" * 64,
+    }
+    resolver = _resolver(source)
+    _governed, legacy, _overlay = _assignments()
+
+    snapshot = resolver.resolve_for_run(
+        legacy,
+        None,
+        executor_digests={"a": "7" * 64, "pi": "8" * 64},
+    )
+
+    assert snapshot.components["executor:a"] == "7" * 64
+    assert snapshot.components["executor:pi"] == "8" * 64
+    assert "executor:z" not in snapshot.components

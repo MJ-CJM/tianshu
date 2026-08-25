@@ -40,10 +40,10 @@
 | 成本与用量 | 可用 | 记录多模型/多 Provider token、缓存读取和取消任务成本 | 结果取决于 Provider 返回的用量与价格配置，不等于账单系统 |
 | Skills | 读取可用、变更受治理 | 在统一目录查看 live Skill、读取详情、为 Agent Skill Pin；API 可创建候选 | Web 不直接新建/编辑/delete/archive live；Persona 外部导入只预览 Skill、不安装；自动 reviewer/curator 默认关闭并在 LLM 前 fail fast |
 | 插件清单 / 受信任源码贡献 | 清单实验只读；内部生命周期可用 | 查看本地 manifest 元数据；内建装配可让 Tool/Hook/Channel/Provider/Skill/Command 按 owner 登记、逆序释放；MCP session 工具随重新发现、断连与 shutdown 清理 | 用户仍不能安装、加载、激活或执行第三方插件代码，相关 API 仍返回 501；ContributionHandle 只覆盖受信任进程内对象，不是动态 PluginHost |
-| 自进化（Evolution） | 实验、影子归因 | 从天工院的演化司查看候选、Gate、分流、回滚和当前启用状态；新受管 attempt 成功影子绑定后，可从 assignment、Edict 详情及 Evidence artifact 核对 `SystemSnapshotV1` 内容摘要 | V31 只做典制内容身份与 per-attempt 双写；dependency lock 仍为零值、policy 仅投影 id/priority、prompts 未填，且影子期失败不阻断 run；P2 ContributionHandle 是未来按插件演化的可逆基础，但仍无 RuntimeGeneration、动态插件加载或自动晋升 |
+| 自进化（Evolution） | 实验；典制影子归因 + Pi 内部代际机械 | 从演化司查看既有候选/Gate/分流/回滚，从 assignment、Edict 详情和 Evidence artifact 对账 `SystemSnapshotV1`；Pi 已有 active/last-good 代、attempt 固定与 continuity 保留 | V31 典制写入仍是影子；V32 只实现 `keqing:pi` 的内部 stage/warm/activate/drain/recover，不提供生产 HTTP/CLI、不接 Candidate/Canary/Promotion；dependency lock、完整 policy/prompts、动态插件加载和自动晋升仍未完成 |
 | 平行位面（Universes / Code variant） | 实验、可发现 | 从天工院的诸界台创建快照/分支、diff、评估、归档和恢复 | switch、rollback、promote-code 固定 fail closed；代码候选只到 evaluated/recommended |
 | 评测（Evals） | Beta、导航标记“试行”、可发现 | 从天工院的考功司查看真实评测集、运行、分数、失败分布和历史差异 | 数据为空时展示真实启动方式，不生成示例成绩 |
-| Keqing 外部执行器 | 实验、可发现且默认关闭 | 从天工院的客卿馆查看本机 adapter 状态；进入页面、每 15 秒及窗口重新聚焦时同步已安装 CLI 版本；当前本地 Pi `0.83.0` 已完成契约与离线 RPC 验证 | 不自动升级外部 CLI；新版本先标记“待兼容验证”，通过契约后才更新已验证基线；不属于黄金路径，且无 Provider 侧硬成本上限或自动晋升保证 |
+| Keqing 外部执行器 | 实验、可发现且默认关闭 | 从客卿馆查看安装/验证版本及 Pi 的 generation id、状态、活跃 run 数和 last-good；进入页面、每 15 秒及窗口重新聚焦时同步 | 不自动升级外部 CLI；页面没有 stage/activate 控件；Pi 代际材料固定与失败关闭不等于 Candidate 晋升已开放；Claude Code/Codex/OpenCode 尚未进入 RuntimeGeneration，且无 Provider 侧硬成本上限 |
 | remote/open stdio MCP | 延期、默认关闭 | 当前不作为正式开放能力 | 需要独立完成远程安全与 executable/argv/env/workdir 精确绑定后才可开放 |
 | Docker | 可本地试用 | 构建三阶段、非 root 的本地镜像并检查健康路由 | 不是官方发布制品；体积与运行时依赖锁定仍可优化 |
 | PyPI 发布 | 链路就绪、待首发 | `release.yml` 在 tag 触发时经 Trusted Publishing（OIDC，无长期 token）发布 `tianshu-agent-os` | 首个版本以 PyPI 上实际存在的发行版为准；需先在 PyPI 侧配置 pending publisher |
@@ -66,9 +66,18 @@
 
 ## 数据、权限与迁移
 
-- 当前迁移序列为 V1–V31；V31 `0031_system_snapshots` 追加不可变典制与 per-attempt
-  `run_system_bindings`，不回填存量 Memorial。两表采用严格 schema replay；bindings 允许随
+- 当前迁移序列为 V1–V32；V31 `0031_system_snapshots` 追加不可变典制与 per-attempt
+  `run_system_bindings`，P1 当时不回填存量 Memorial。两表采用严格 schema replay；bindings 允许随
   Edict 物理删除清理，内容寻址 snapshot 不允许 replace、update 或 delete。
+- V32 `0032_runtime_generations` 追加五张表：内容寻址 executor release、七态 generation、不可变
+  journal、active/last-good pointer，以及独立 insert-once 的 `run_generation_bindings`。后者是 P3
+  的 exact-attempt 代际权威；`run_system_bindings` 只在 snapshot 启用时作为可选 shadow，并作为
+  V31 历史兼容读取源；两者同在时 generation ids 必须一致。
+- V32 会为既有 attempt 做可证明回填：有 `run_system_bindings` 就复制其 generation ids；可证明
+  为非 Pi 的 attempt 写 `bound []`；无法证明历史 Pi 选择的写 `unresolved` 并在 continuity/retention
+  读取时失败关闭。snapshot 显式关闭时，新 attempt 仍写 `run_generation_bindings=bound []`，但
+  `run_system_bindings` 保持零写入；无 runtime generation/pointer 行时继续使用 static adapter，
+  不伪造默认代。
 - 普通远程身份仅能读取和操作自己拥有的任务；管理员拥有全局视图。
 - 旧数据中 `submitter` 为空的任务默认 fail closed，只允许管理员或可信本地模式访问。
 - 全局审计统计、网络事件、Worker 列表与状态、会话规则属于管理员能力。

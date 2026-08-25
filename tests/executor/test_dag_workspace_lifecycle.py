@@ -14,6 +14,7 @@ from tianshu.bus.event_bus import EventBus
 from tianshu.executor.adapters import (
     DelegatingExecutorAdapter,
     ExecutorAdapterRegistry,
+    ExecutorGenerationUnavailable,
     PreparedExecutor,
 )
 from tianshu.executor.agent import AgentResult
@@ -546,6 +547,43 @@ async def test_worker_fails_closed_before_running_without_root_lease(
     assert TaskStatus.RUNNING not in observed_statuses
     assert storage.get_memorial(node.memorial_id).parent_memorial_id == root.id
     agent.execute.assert_not_awaited()
+
+
+async def test_dag_preserves_generation_retired_from_node_to_root(storage, tmp_path) -> None:
+    edict = Edict(goal="pinned generation drift", submitter="test-service")
+    root = Memorial(edict_id=edict.id, instruction=edict.goal, status=TaskStatus.RUNNING)
+    delegate = AsyncMock()
+    delegate.execute.side_effect = ExecutorGenerationUnavailable("managed package drifted")
+    prepared = _ephemeral_prepared(edict, root.id, delegate)
+    storage.save_edict(edict)
+    storage.save_memorial(root)
+    execution = DAGExecution(
+        edict_id=edict.id,
+        root_memorial_id=root.id,
+        max_concurrency=1,
+        nodes=[DAGNode(node_id="child", description="child work")],
+    )
+    storage.save_dag_execution(execution)
+    bound = _bound_scratch(tmp_path, root.id, prepared)
+    pool = WorkerPool(max_concurrency=1)
+    scheduler = _scheduler(storage, delegate, pool)
+
+    try:
+        with bind_workspace(bound):
+            terminal = await scheduler.run(
+                storage.get_edict(edict.id),
+                execution,
+                prepared_executor=prepared,
+            )
+    finally:
+        await pool.shutdown()
+
+    assert terminal is not None
+    assert terminal.status is TaskStatus.FAILED
+    assert terminal.failure_reason == "generation_retired"
+    assert terminal.error == "pinned runtime generation is unavailable"
+    child = storage.get_memorial(execution.nodes[0].memorial_id)
+    assert child.failure_reason == "generation_retired"
 
 
 def _retry_claim_fixture(storage: Storage) -> tuple[DAGExecution, Memorial, Memorial]:

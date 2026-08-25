@@ -13,6 +13,7 @@ from croniter import croniter
 from pydantic import BaseModel, ConfigDict
 
 from tianshu.models import EdictRuntime, EdictSchedule, Memorial, TaskStatus
+from tianshu.models.attempt import AttemptStatus
 from tianshu.models.canonical import canonical_sha256
 from tianshu.storage.attempt_ledger import AttemptLeaseRepository
 from tianshu.storage.memorial_repo import insert_memorial
@@ -22,7 +23,7 @@ from tianshu.storage.scheduler_repo import (
     load_scheduler_job,
 )
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
-from tianshu.universe.router import ChallengerRouter
+from tianshu.universe.router import ChallengerRouter, GenerationBindingUnavailable
 
 
 class ScheduledFireConflict(RuntimeError):
@@ -63,11 +64,15 @@ class ScheduledRunPreparer:
         challenger_router: ChallengerRouter,
         *,
         boundary_hook: Callable[[str], None] | None = None,
+        require_runtime_binding: bool = False,
     ) -> None:
+        if type(require_runtime_binding) is not bool:
+            raise TypeError("require_runtime_binding must be a bool")
         self._unit_of_work_factory = unit_of_work_factory
         self._attempt_repository = attempt_repository
         self._challenger_router = challenger_router
         self._boundary_hook = boundary_hook
+        self._require_runtime_binding = require_runtime_binding
 
     def prepare(
         self,
@@ -147,11 +152,25 @@ class ScheduledRunPreparer:
                         expected_fingerprint=replay_fingerprint,
                         expected_max_attempts=max_attempts,
                     )
-                    if result.memorial_id is not None:
+                    if (
+                        result.memorial_id is not None
+                        and result.attempt_id is not None
+                        and self._claimable_replay_needs_binding(
+                            connection,
+                            memorial_id=result.memorial_id,
+                            attempt_id=result.attempt_id,
+                        )
+                    ):
                         self._challenger_router.assign_current(
                             unit_of_work,
                             memorial_id=result.memorial_id,
                             created_at=scheduled_at,
+                        )
+                        self._prebind_runtime_required(
+                            unit_of_work,
+                            memorial_id=result.memorial_id,
+                            attempt_id=result.attempt_id,
+                            runtime=runtime,
                         )
                     unit_of_work.commit()
                     return result
@@ -233,6 +252,12 @@ class ScheduledRunPreparer:
                         attempt_id=attempt_id,
                     )
                     prepared_attempt_id = attempt.attempt_id
+                    self._prebind_runtime_required(
+                        unit_of_work,
+                        memorial_id=memorial_id,
+                        attempt_id=prepared_attempt_id,
+                        runtime=runtime,
+                    )
                     self._observe_boundary("after_attempt")
 
                 insert_schedule_run(
@@ -362,11 +387,22 @@ class ScheduledRunPreparer:
                         or attempt["max_attempts"] != max_attempts
                     ):
                         raise ScheduledFireConflict("stored manual fire conflicts with envelope")
-                    self._challenger_router.assign_current(
-                        unit_of_work,
+                    if self._claimable_replay_needs_binding(
+                        connection,
                         memorial_id=memorial_id,
-                        created_at=first_scheduled_at,
-                    )
+                        attempt_id=attempt_id,
+                    ):
+                        self._challenger_router.assign_current(
+                            unit_of_work,
+                            memorial_id=memorial_id,
+                            created_at=first_scheduled_at,
+                        )
+                        self._prebind_runtime_required(
+                            unit_of_work,
+                            memorial_id=memorial_id,
+                            attempt_id=attempt_id,
+                            runtime=runtime,
+                        )
                     unit_of_work.commit()
                     return PreparedFire(
                         fire_id=fire_id,
@@ -402,6 +438,12 @@ class ScheduledRunPreparer:
                     max_attempts=max_attempts,
                     attempt_id=attempt_id,
                 )
+                self._prebind_runtime_required(
+                    unit_of_work,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt_id,
+                    runtime=runtime,
+                )
                 insert_schedule_run(
                     connection,
                     run_id=schedule_run_id,
@@ -435,6 +477,57 @@ class ScheduledRunPreparer:
                 )
         except sqlite3.IntegrityError as exc:
             raise ScheduledFireConflict("manual fire identity conflict") from exc
+
+    @staticmethod
+    def _claimable_replay_needs_binding(
+        connection: sqlite3.Connection,
+        *,
+        memorial_id: str,
+        attempt_id: str,
+    ) -> bool:
+        """Only complete missing truth for an attempt that has never started."""
+        attempt = connection.execute(
+            "SELECT status FROM execution_attempts WHERE attempt_id=? AND memorial_id=?",
+            (attempt_id, memorial_id),
+        ).fetchone()
+        if attempt is None or attempt["status"] != AttemptStatus.CLAIMABLE.value:
+            return False
+        if (
+            connection.execute(
+                "SELECT 1 FROM run_system_bindings WHERE memorial_id=? AND attempt_id=? LIMIT 1",
+                (memorial_id, attempt_id),
+            ).fetchone()
+            is not None
+        ):
+            return False
+        generation_binding = connection.execute(
+            "SELECT state FROM run_generation_bindings WHERE memorial_id=? AND attempt_id=?",
+            (memorial_id, attempt_id),
+        ).fetchone()
+        if generation_binding is None:
+            return False
+        if generation_binding["state"] != "bound":
+            raise GenerationBindingUnavailable("generation_binding_unavailable")
+        return True
+
+    def _prebind_runtime_required(
+        self,
+        unit_of_work: SqliteUnitOfWork,
+        *,
+        memorial_id: str,
+        attempt_id: str,
+        runtime: EdictRuntime,
+    ) -> None:
+        requires_generation_selection = runtime.executor == "keqing:pi"
+        binding = self._challenger_router.prebind_runtime_current(
+            unit_of_work,
+            memorial_id=memorial_id,
+            attempt_id=attempt_id,
+        )
+        if binding is None and requires_generation_selection:
+            raise GenerationBindingUnavailable("generation_binding_unavailable")
+        if self._require_runtime_binding and (binding is None or binding.system_snapshot is None):
+            raise GenerationBindingUnavailable("generation_binding_unavailable")
 
     def _next_cursor(
         self,

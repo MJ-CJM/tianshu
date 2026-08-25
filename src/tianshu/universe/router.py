@@ -6,7 +6,7 @@ import hashlib
 import hmac
 import logging
 import sqlite3
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Protocol
@@ -30,7 +30,12 @@ from tianshu.storage.evolution_repo import (
     EvolutionRepository,
     EvolutionRepositoryDecodeError,
 )
-from tianshu.storage.system_snapshot_repo import SystemSnapshotRepository
+from tianshu.storage.system_snapshot_repo import (
+    SystemBinding,
+    SystemBindingWriteResult,
+    SystemSnapshotRepository,
+    SystemSnapshotRepositoryDecodeError,
+)
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
 logger = logging.getLogger(__name__)
@@ -38,6 +43,27 @@ logger = logging.getLogger(__name__)
 
 class _Storage(Protocol):
     def unit_of_work(self) -> SqliteUnitOfWork: ...
+
+
+class _GenerationSelection(Protocol):
+    generation_ids: tuple[str, ...]
+    by_scope: Mapping[str, str]
+    executor_manifest_digests: Mapping[str, str]
+
+
+class _GenerationController(Protocol):
+    def resolve_for_binding_current(
+        self,
+        connection: sqlite3.Connection,
+        memorial_id: str,
+        attempt_id: str,
+        *,
+        pinned_ids: tuple[str, ...] = (),
+        inherit_pinned: bool = False,
+        allow_ready: bool = False,
+    ) -> _GenerationSelection: ...
+
+    def release_binding(self, attempt_id: str) -> bool: ...
 
 
 BucketCalculator = Callable[[str, str, bytes], int]
@@ -55,6 +81,14 @@ class EvolutionRuntimeUnavailable(ValueError):
 
 class RunAssignmentUnavailable(EvolutionRuntimeUnavailable):
     """A durable assignment deterministically failed integrity decoding."""
+
+
+class GenerationBindingUnavailable(EvolutionRuntimeUnavailable):
+    """A new runtime-generation binding could not be established safely."""
+
+
+class GenerationRetired(EvolutionRuntimeUnavailable):
+    """A continuity-pinned runtime generation is no longer usable."""
 
 
 def allocation_bucket(memorial_id: str, allocation_seed_id: str, secret: bytes) -> int:
@@ -94,6 +128,7 @@ class ChallengerRouter:
         bucket_calculator: BucketCalculator = allocation_bucket,
         payload_resolver: PayloadResolver | None = None,
         snapshot_resolver: Callable[[], SystemSnapshotResolver | None] | None = None,
+        generation_controller: Callable[[], _GenerationController | None] | None = None,
         before_insert: BeforeInsert | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -102,6 +137,7 @@ class ChallengerRouter:
         self._bucket_calculator = bucket_calculator
         self._payload_resolver = payload_resolver
         self._snapshot_resolver = snapshot_resolver
+        self._generation_controller = generation_controller
         self._before_insert = before_insert
         self._clock = clock or (lambda: datetime.now(UTC))
         self._repository = EvolutionRepository()
@@ -122,6 +158,7 @@ class ChallengerRouter:
         *,
         memorial_id: str,
         created_at: datetime | None = None,
+        inherit_from_memorial_id: str | None = None,
     ) -> Assignment:
         if not memorial_id.strip():
             raise ValueError("memorial_id must be non-blank")
@@ -129,6 +166,13 @@ class ChallengerRouter:
         existing = self._repository.get_assignment(connection, memorial_id)
         if existing is not None:
             return existing[0]
+        if inherit_from_memorial_id is not None:
+            return self._inherit_assignment(
+                connection,
+                memorial_id=memorial_id,
+                inherit_from_memorial_id=inherit_from_memorial_id,
+                created_at=created_at,
+            )
         candidate = self._repository.get_routable_candidate(connection)
         if candidate is None:
             assigned_at = (created_at or self._clock()).astimezone(UTC)
@@ -172,6 +216,61 @@ class ChallengerRouter:
             self._before_insert(assignment)
         return self._repository.insert_assignment(connection, assignment, overlay)
 
+    def _inherit_assignment(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        memorial_id: str,
+        inherit_from_memorial_id: str,
+        created_at: datetime | None,
+    ) -> Assignment:
+        if not inherit_from_memorial_id.strip():
+            raise ValueError("inherit_from_memorial_id must be non-blank")
+        inherited = self._repository.get_assignment(connection, inherit_from_memorial_id)
+        if inherited is None:
+            parent_exists = connection.execute(
+                "SELECT 1 FROM memorials WHERE id = ?",
+                (inherit_from_memorial_id,),
+            ).fetchone()
+            if parent_exists is None:
+                raise LookupError("parent run assignment not found")
+            assigned_at = (created_at or self._clock()).astimezone(UTC)
+            legacy_assignment = LegacyRunAssignmentV1(
+                assignment_id=self._assignment_id(memorial_id),
+                memorial_id=memorial_id,
+                created_at=assigned_at,
+            )
+            if self._before_insert is not None:
+                self._before_insert(legacy_assignment)
+            return self._repository.insert_legacy_assignment(connection, legacy_assignment)
+        parent, parent_overlay = inherited
+        assignment_id = self._assignment_id(memorial_id)
+        assigned_at = (created_at or self._clock()).astimezone(UTC)
+        if isinstance(parent, LegacyRunAssignmentV1):
+            legacy_assignment = parent.model_copy(
+                update={
+                    "assignment_id": assignment_id,
+                    "memorial_id": memorial_id,
+                    "created_at": assigned_at,
+                }
+            )
+            if self._before_insert is not None:
+                self._before_insert(legacy_assignment)
+            return self._repository.insert_legacy_assignment(connection, legacy_assignment)
+        assert parent_overlay is not None
+        governed_assignment = parent.model_copy(
+            update={
+                "assignment_id": assignment_id,
+                "memorial_id": memorial_id,
+                "created_at": assigned_at,
+            }
+        )
+        overlay = parent_overlay.model_copy(update={"assignment_id": assignment_id})
+        self._resolve_payload(connection, governed_assignment.selected_ref, overlay)
+        if self._before_insert is not None:
+            self._before_insert(governed_assignment)
+        return self._repository.insert_assignment(connection, governed_assignment, overlay)
+
     def get(self, memorial_id: str) -> Assignment | None:
         loaded = self._load(memorial_id)
         return loaded[0] if loaded is not None else None
@@ -179,6 +278,81 @@ class ChallengerRouter:
     def overlay_for(self, memorial_id: str) -> EffectiveEvolutionOverlayV1 | None:
         loaded = self._load(memorial_id)
         return loaded[1] if loaded is not None else None
+
+    def prebind_runtime_current(
+        self,
+        unit_of_work: SqliteUnitOfWork,
+        *,
+        memorial_id: str,
+        attempt_id: str,
+    ) -> RunBindingContextV1 | None:
+        """Persist a trigger-time attempt binding in the caller-owned transaction.
+
+        The temporary process-local generation lease is released while the SQLite
+        write transaction is still held.  Once the caller commits, durable
+        retention protects the exact binding until dispatch reserves it again.
+        """
+
+        if not memorial_id.strip() or not attempt_id.strip():
+            raise ValueError("runtime binding identities must be non-blank")
+        connection = unit_of_work.connection
+        try:
+            existing = self._snapshot_repository.get_binding(
+                connection,
+                memorial_id=memorial_id,
+                attempt_id=attempt_id,
+            )
+            existing_generation_binding = self._snapshot_repository.get_generation_binding(
+                connection,
+                memorial_id=memorial_id,
+                attempt_id=attempt_id,
+            )
+        except SystemSnapshotRepositoryDecodeError as exc:
+            raise GenerationBindingUnavailable("generation_binding_unavailable") from exc
+        if existing is not None:
+            if existing_generation_binding is None:
+                try:
+                    self._snapshot_repository.insert_generation_binding(
+                        connection,
+                        memorial_id=memorial_id,
+                        attempt_id=attempt_id,
+                        generation_ids=existing.generation_ids,
+                    )
+                except Exception as exc:
+                    raise GenerationBindingUnavailable("generation_binding_unavailable") from exc
+            elif (
+                not existing_generation_binding.resolved
+                or existing_generation_binding.generation_ids != existing.generation_ids
+            ):
+                raise GenerationBindingUnavailable("generation_binding_unavailable")
+            return self._binding_context(existing)
+
+        try:
+            loaded = self._repository.get_assignment(connection, memorial_id)
+        except EvolutionRepositoryDecodeError as exc:
+            raise RunAssignmentUnavailable("run_assignment_unavailable") from exc
+        if loaded is None:
+            raise LookupError("run assignment not found")
+        assignment, overlay = loaded
+        if isinstance(assignment, RunAssignmentV1):
+            assert overlay is not None
+            self._resolve_payload(connection, assignment.selected_ref, overlay)
+        else:
+            overlay = None
+
+        controller = self._get_generation_controller()
+        try:
+            return self._bind_system_snapshot(
+                connection,
+                memorial_id=memorial_id,
+                attempt_id=attempt_id,
+                assignment=assignment,
+                overlay=overlay,
+                persist_generation_selection=True,
+            )
+        finally:
+            if controller is not None:
+                controller.release_binding(attempt_id)
 
     def evidence_for(self, memorial_id: str) -> EvolutionRunEvidenceV1:
         loaded = self._load(memorial_id)
@@ -269,21 +443,134 @@ class ChallengerRouter:
         attempt_id: str | None,
         assignment: Assignment,
         overlay: EffectiveEvolutionOverlayV1 | None,
+        persist_generation_selection: bool = False,
     ) -> RunBindingContextV1 | None:
-        if attempt_id is None or self._snapshot_resolver is None:
+        if attempt_id is None:
             return None
         try:
-            resolver = self._snapshot_resolver()
-            if resolver is None:
-                return None
-            snapshot = resolver.resolve_for_run(assignment, overlay)
-            result = self._snapshot_repository.try_insert_binding(
+            existing = self._snapshot_repository.get_binding(
                 connection,
                 memorial_id=memorial_id,
                 attempt_id=attempt_id,
-                snapshot=snapshot,
-                generation_ids=(),
             )
+            exact_generation_binding = self._snapshot_repository.get_generation_binding(
+                connection,
+                memorial_id=memorial_id,
+                attempt_id=attempt_id,
+            )
+        except SystemSnapshotRepositoryDecodeError as exc:
+            raise GenerationBindingUnavailable("generation_binding_unavailable") from exc
+        if exact_generation_binding is not None and not exact_generation_binding.resolved:
+            raise GenerationRetired("generation_retired")
+        if existing is not None:
+            if (
+                exact_generation_binding is not None
+                and exact_generation_binding.generation_ids != existing.generation_ids
+            ):
+                raise GenerationRetired("generation_retired")
+            if existing.generation_ids:
+                controller = self._get_generation_controller()
+                if controller is None:
+                    raise GenerationRetired("generation_retired")
+                exact_selection = self._resolve_generation_selection(
+                    controller,
+                    connection,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt_id,
+                    pinned_ids=existing.generation_ids,
+                    inherited=True,
+                    inherit_pinned=False,
+                )
+                self._validate_pinned_executor_snapshot(existing, exact_selection)
+            return self._binding_context(existing)
+
+        exact_generation_ids = (
+            exact_generation_binding.generation_ids
+            if exact_generation_binding is not None
+            else None
+        )
+        pinned_ids = (
+            exact_generation_ids
+            if exact_generation_ids is not None
+            else self._continuity_generation_ids(connection, memorial_id)
+        )
+        selection: _GenerationSelection | None = None
+        controller = self._get_generation_controller()
+        if exact_generation_ids == ():
+            selection = None
+        elif controller is not None:
+            selection = self._resolve_generation_selection(
+                controller,
+                connection,
+                memorial_id=memorial_id,
+                attempt_id=attempt_id,
+                pinned_ids=pinned_ids,
+                inherited=bool(pinned_ids),
+                inherit_pinned=(exact_generation_ids is None and bool(pinned_ids)),
+            )
+        elif pinned_ids:
+            raise GenerationRetired("generation_retired")
+
+        if persist_generation_selection and exact_generation_binding is None:
+            generation_ids = selection.generation_ids if selection is not None else ()
+            try:
+                exact_generation_binding = self._snapshot_repository.insert_generation_binding(
+                    connection,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt_id,
+                    generation_ids=generation_ids,
+                )
+            except Exception as exc:
+                raise GenerationBindingUnavailable("generation_binding_unavailable") from exc
+
+        generation_context = (
+            RunBindingContextV1(
+                memorial_id=memorial_id,
+                attempt_id=attempt_id,
+                system_snapshot=None,
+                generation_ids=exact_generation_binding.generation_ids or (),
+            )
+            if exact_generation_binding is not None
+            else None
+        )
+
+        if self._snapshot_resolver is None:
+            if selection is not None and selection.generation_ids:
+                raise GenerationBindingUnavailable("generation_binding_unavailable")
+            return generation_context
+        try:
+            resolver = self._snapshot_resolver()
+            if resolver is None:
+                if selection is not None and selection.generation_ids:
+                    raise GenerationBindingUnavailable("generation_binding_unavailable")
+                return generation_context
+            snapshot = resolver.resolve_for_run(
+                assignment,
+                overlay,
+                executor_digests=(
+                    selection.executor_manifest_digests if selection is not None else None
+                ),
+            )
+            generation_ids = selection.generation_ids if selection is not None else ()
+            result: SystemBindingWriteResult | None
+            if generation_ids:
+                result = self._snapshot_repository.insert_binding(
+                    connection,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt_id,
+                    snapshot=snapshot,
+                    generation_ids=generation_ids,
+                )
+            else:
+                result = self._snapshot_repository.try_insert_binding(
+                    connection,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt_id,
+                    snapshot=snapshot,
+                    generation_ids=(),
+                )
+        except GenerationBindingUnavailable:
+            raise
         except Exception:
             recorded = self._snapshot_repository.record_event(
                 connection,
@@ -295,15 +582,89 @@ class ChallengerRouter:
                 logger.warning(
                     "system snapshot resolver failure could not be audited",
                 )
-            return None
+            if selection is not None and selection.generation_ids:
+                raise GenerationBindingUnavailable("generation_binding_unavailable") from None
+            return generation_context
         if result is None:
             logger.warning("system snapshot binding was not persisted")
+            return generation_context
+        return self._binding_context(result.binding)
+
+    def _get_generation_controller(self) -> _GenerationController | None:
+        if self._generation_controller is None:
             return None
+        return self._generation_controller()
+
+    @staticmethod
+    def _resolve_generation_selection(
+        controller: _GenerationController,
+        connection: sqlite3.Connection,
+        *,
+        memorial_id: str,
+        attempt_id: str,
+        pinned_ids: tuple[str, ...],
+        inherited: bool,
+        inherit_pinned: bool,
+    ) -> _GenerationSelection:
+        try:
+            selection = controller.resolve_for_binding_current(
+                connection,
+                memorial_id,
+                attempt_id,
+                pinned_ids=pinned_ids,
+                inherit_pinned=inherit_pinned,
+            )
+        except Exception as exc:
+            if inherited:
+                raise GenerationRetired("generation_retired") from exc
+            raise GenerationBindingUnavailable("generation_binding_unavailable") from exc
+        if pinned_ids and not inherit_pinned and selection.generation_ids != pinned_ids:
+            raise GenerationRetired("generation_retired")
+        return selection
+
+    def _continuity_generation_ids(
+        self,
+        connection: sqlite3.Connection,
+        memorial_id: str,
+    ) -> tuple[str, ...]:
+        try:
+            generation_ids = self._snapshot_repository.get_continuity_generation_ids(
+                connection,
+                memorial_id,
+            )
+        except SystemSnapshotRepositoryDecodeError as exc:
+            raise GenerationBindingUnavailable("generation_binding_unavailable") from exc
+        return generation_ids or ()
+
+    @staticmethod
+    def _validate_pinned_executor_snapshot(
+        binding: SystemBinding,
+        selection: _GenerationSelection,
+    ) -> None:
+        persisted = {
+            component.removeprefix("executor:"): digest
+            for component, digest in binding.snapshot.components.items()
+            if component.startswith("executor:")
+        }
+        expected: dict[str, str] = {}
+        for scope in selection.by_scope:
+            if not scope.startswith("executor:"):
+                continue
+            adapter_id = scope.removeprefix("executor:")
+            digest = selection.executor_manifest_digests.get(adapter_id)
+            if digest is None:
+                raise GenerationRetired("generation_retired")
+            expected[adapter_id] = digest
+        if any(persisted.get(adapter_id) != digest for adapter_id, digest in expected.items()):
+            raise GenerationRetired("generation_retired")
+
+    @staticmethod
+    def _binding_context(binding: SystemBinding) -> RunBindingContextV1:
         return RunBindingContextV1(
-            memorial_id=memorial_id,
-            attempt_id=attempt_id,
-            system_snapshot=result.binding.snapshot,
-            generation_ids=result.binding.generation_ids,
+            memorial_id=binding.memorial_id,
+            attempt_id=binding.attempt_id,
+            system_snapshot=binding.snapshot,
+            generation_ids=binding.generation_ids,
         )
 
     def _load(
@@ -342,6 +703,8 @@ class ChallengerRouter:
 __all__ = [
     "ChallengerRouter",
     "EvolutionRuntimeUnavailable",
+    "GenerationBindingUnavailable",
+    "GenerationRetired",
     "RunAssignmentUnavailable",
     "allocation_bucket",
     "selects_challenger",

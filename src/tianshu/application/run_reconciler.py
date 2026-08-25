@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from collections.abc import Callable
 from contextlib import suppress
@@ -11,6 +12,8 @@ from enum import StrEnum
 from typing import Protocol
 
 from tianshu.application.run_dispatcher import RunDispatcher, RunShutdownTimeout
+
+logger = logging.getLogger(__name__)
 
 
 class _DispatchScan(Protocol):
@@ -28,6 +31,10 @@ class RunReconcilerState(StrEnum):
     FATAL = "fatal"
     STOPPING = "stopping"
     STOPPED = "stopped"
+
+
+class ControlPlaneUnavailable(RuntimeError):
+    """A control-plane prerequisite may recover without restarting the process."""
 
 
 class RunReconciler:
@@ -61,6 +68,7 @@ class RunReconciler:
         self._state = RunReconcilerState.STOPPED
         self._failure_code: str | None = None
         self._task: asyncio.Task[None] | None = None
+        self._before_scan_tasks: set[asyncio.Task[int]] = set()
         self._stop_event = asyncio.Event()
         self._first_probe = asyncio.Event()
         self._stop_requested = False
@@ -137,8 +145,8 @@ class RunReconciler:
     async def reconcile_once(self) -> int:
         if self._stop_requested:
             return 0
-        if self._before_scan is not None:
-            await asyncio.to_thread(self._before_scan)
+        if not await self.admit_durable_prepare():
+            return 0
         memorial_ids = self._repository.list_dispatchable_memorial_ids(
             now=self._clock(),
             limit=self._scan_limit,
@@ -147,6 +155,31 @@ class RunReconciler:
         for memorial_id in memorial_ids:
             claimed += int(await self._dispatcher.dispatch(memorial_id))
         return claimed
+
+    async def admit_durable_prepare(self) -> bool:
+        """Fail closed for one scan while a prerequisite control plane is unavailable."""
+        if self._stop_requested:
+            return False
+        if self._before_scan is None:
+            return True
+        control_plane_task = asyncio.create_task(asyncio.to_thread(self._before_scan))
+        self._before_scan_tasks.add(control_plane_task)
+        control_plane_task.add_done_callback(self._observe_before_scan_exit)
+        try:
+            await asyncio.shield(control_plane_task)
+        except ControlPlaneUnavailable:
+            if not self._first_probe.is_set():
+                raise
+            if self._failure_code != "control_plane_unavailable":
+                logger.warning(
+                    "Run reconciliation deferred because its control plane is unavailable",
+                    exc_info=True,
+                )
+            self._failure_code = "control_plane_unavailable"
+            return False
+        if self._failure_code == "control_plane_unavailable":
+            self._failure_code = None
+        return True
 
     async def stop(self) -> None:
         task = self._task
@@ -158,6 +191,9 @@ class RunReconciler:
                 self._state = RunReconcilerState.STOPPING
             with suppress(asyncio.CancelledError, Exception):
                 await task
+        in_flight_control_planes = tuple(self._before_scan_tasks)
+        if in_flight_control_planes:
+            await asyncio.gather(*in_flight_control_planes, return_exceptions=True)
         try:
             await self._dispatcher.stop()
         except RunShutdownTimeout:
@@ -182,5 +218,10 @@ class RunReconciler:
             self._failure_code = "unexpected_exit"
         self._state = RunReconcilerState.FATAL
 
+    def _observe_before_scan_exit(self, task: asyncio.Task[int]) -> None:
+        self._before_scan_tasks.discard(task)
+        if not task.cancelled():
+            task.exception()
 
-__all__ = ["RunReconciler", "RunReconcilerState"]
+
+__all__ = ["ControlPlaneUnavailable", "RunReconciler", "RunReconcilerState"]

@@ -399,6 +399,33 @@ async def test_advisory_abstention_is_recorded_as_structured_gap(request_data):
 
 
 @pytest.mark.asyncio
+async def test_receipt_adds_optional_executable_provenance_without_schema_bump(request_data):
+    gateway = _gateway_module()
+    original = request_data["argv_command"]
+    request_data["argv_command"] = gateway.ArgvCommand(
+        argv=original.argv,
+        executable_version="3.12.0",
+        executable_version_source="package_json",
+    )
+    request = gateway.ExecutionRequest(**request_data)
+
+    result = await gateway.ExecutionGateway().run(request)
+
+    assert result.receipt.schema_version == "1"
+    assert Path(result.receipt.executable).is_absolute()
+    assert result.receipt.executable_version == "3.12.0"
+    assert result.receipt.executable_version_source == "package_json"
+
+    legacy_payload = result.receipt.model_dump(mode="json")
+    legacy_payload.pop("executable_version")
+    legacy_payload.pop("executable_version_source")
+    legacy = gateway.ExecutionReceipt.model_validate(legacy_payload)
+    assert legacy.schema_version == "1"
+    assert legacy.executable_version is None
+    assert legacy.executable_version_source == "unverified"
+
+
+@pytest.mark.asyncio
 async def test_secure_remote_required_sandbox_never_falls_back_to_host(request_data):
     gateway = _gateway_module()
     request_data["sandbox"] = gateway.SandboxRequirement(

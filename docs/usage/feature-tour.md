@@ -249,10 +249,12 @@
 
 - **入口**：天工院〔实验〕 → 客卿馆〔实验〕 → `/keqing`。
 - **用户能做**：查看 Claude Code、Codex、Pi 和 OpenCode 的本机安装版本、已验证基线、
-  能力与治理状态，并配置默认模型和单次预算。
+  能力与治理状态，并配置默认模型和单次预算；Pi 已进入内部代际管理时，还可查看当前代、
+  状态、活跃 run 数和 last-good 代。
 - **成熟度**：实验。
-- **明确边界**：不会自动升级外部 CLI，不代管 CLI 凭证，也不在此页直接执行客卿；可靠
-  事前动作拦截和 Provider 侧硬成本上限尚未具备，安装版本与兼容基线必须分开显示。
+- **明确边界**：不会自动升级外部 CLI，不代管 CLI 凭证，也不在此页直接执行、stage 或
+  activate 客卿；Pi 代际当前只有内部机械，尚未接 Candidate/Canary/Promotion。可靠事前动作
+  拦截和 Provider 侧硬成本上限尚未具备，安装版本与兼容基线必须分开显示。
 - **相关文档**：[客卿管理页边界](../design/keqing/management-page.md)、
   [当前状态](../CURRENT-STATE.md)、[能力事实矩阵](../launch/capability-matrix.md)。
 

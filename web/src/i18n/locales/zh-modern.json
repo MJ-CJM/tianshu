@@ -2681,7 +2681,22 @@
       "backend": "客卿",
       "installed": "安装 / 版本",
       "capabilities": "能力声明",
+      "generation": "运行代际",
       "credential": "凭证来源"
+    },
+    "generation": {
+      "none": "未启用代际",
+      "activeRuns": "运行中 {count}",
+      "lastGood": "上个良好版本 {id}",
+      "state": {
+        "staged": "已暂存",
+        "warming": "预热中",
+        "ready": "就绪",
+        "active": "生效中",
+        "draining": "排空中",
+        "failed": "失败",
+        "disposed": "已释放"
+      }
     },
     "cap": {
       "resume": "会话续用",

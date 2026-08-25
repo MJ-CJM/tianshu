@@ -154,6 +154,9 @@ class ManagedRunIngress:
                     unit_of_work,
                     memorial_id=memorial_id,
                     created_at=now,
+                    inherit_from_memorial_id=(
+                        parent_memorial_id if command.event_type == "followup.submitted" else None
+                    ),
                 )
                 available_at = now
                 payload = {**dict(command.event_payload), "managed_request_hash": fingerprint}
@@ -194,6 +197,10 @@ class ManagedRunIngress:
                     raise RuntimeError(
                         "managed run idempotency key conflicts with durable envelope"
                     )
+            attempt_preexisted = connection.execute(
+                "SELECT 1 FROM execution_attempts WHERE attempt_id=?",
+                (attempt_id,),
+            ).fetchone()
             attempt = self._storage.attempt_repo.enqueue_initial(
                 connection,
                 memorial_id=memorial_id,
@@ -201,6 +208,12 @@ class ManagedRunIngress:
                 max_attempts=runtime.retry_limit + 1,
                 attempt_id=attempt_id,
             )
+            if attempt_preexisted is None:
+                self._challenger_router.prebind_runtime_current(
+                    unit_of_work,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt.attempt_id,
+                )
             unit_of_work.commit()
         durable = self._storage.get_memorial(memorial_id)
         if durable is None:  # pragma: no cover - committed insert/replay established it
@@ -261,6 +274,12 @@ class ManagedRunIngress:
                 max_attempts=runtime.retry_limit + 1,
                 attempt_id=requested_attempt_id,
             )
+            if existing is None:
+                self._challenger_router.prebind_runtime_current(
+                    unit_of_work,
+                    memorial_id=event.memorial_id,
+                    attempt_id=attempt.attempt_id,
+                )
             unit_of_work.commit()
         durable = self._storage.get_memorial(event.memorial_id)
         if durable is None:  # pragma: no cover
@@ -414,6 +433,7 @@ class ManagedRunIngress:
                     unit_of_work,
                     memorial_id=memorial_id,
                     created_at=now,
+                    inherit_from_memorial_id=str(previous_root_id),
                 )
                 self._observe_boundary("after_root")
                 claimed = connection.execute(
@@ -465,6 +485,12 @@ class ManagedRunIngress:
                     ),
                 )
                 self._observe_boundary("after_outbox")
+            if existing_root is None:
+                self._challenger_router.prebind_runtime_current(
+                    unit_of_work,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt_id,
+                )
             unit_of_work.commit()
         durable = self._storage.get_memorial(memorial_id)
         if durable is None:  # pragma: no cover
@@ -537,6 +563,12 @@ class ManagedRunIngress:
                 if existing is None
                 else str(existing["attempt_id"]),
             )
+            if existing is None:
+                self._challenger_router.prebind_runtime_current(
+                    unit_of_work,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt.attempt_id,
+                )
             unit_of_work.commit()
         durable = self._storage.get_memorial(memorial_id)
         if durable is None:  # pragma: no cover

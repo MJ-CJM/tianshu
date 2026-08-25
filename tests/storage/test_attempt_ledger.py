@@ -25,6 +25,7 @@ from tianshu.storage.attempt_ledger import (
     AttemptDecodeError,
     AttemptFenceLost,
 )
+from tianshu.storage.system_snapshot_repo import SystemSnapshotRepository
 
 _NOW = datetime(2026, 7, 15, 8, tzinfo=UTC)
 
@@ -484,6 +485,60 @@ def test_retry_creates_due_attempt_atomically_and_fencing_is_monotonic(tmp_path:
         )
         second = _claim(storage, now=retry_at, owner="worker-2")
         assert (second.attempt_no, second.fencing_token) == (2, 2)
+    finally:
+        storage.close()
+
+
+@pytest.mark.parametrize(
+    "generation_ids",
+    [(), ("rg-" + "1" * 32,)],
+)
+def test_retry_inherits_exact_generation_marker_without_rebucketing(
+    tmp_path: Path,
+    generation_ids: tuple[str, ...],
+) -> None:
+    storage = _open(tmp_path / f"retry-generation-{len(generation_ids)}.db")
+    _seed(storage)
+    with storage.unit_of_work() as uow:
+        first = storage.attempt_repo.enqueue_initial(
+            uow.connection,
+            memorial_id="memorial-1",
+            available_at=_NOW,
+        )
+        SystemSnapshotRepository().insert_generation_binding(
+            uow.connection,
+            memorial_id="memorial-1",
+            attempt_id=first.attempt_id,
+            generation_ids=generation_ids,
+        )
+        uow.commit()
+    try:
+        claimed = _claim(storage)
+        assert storage.attempt_repo.complete(
+            attempt_id=claimed.attempt_id,
+            owner_id="worker-1",
+            fencing_token=claimed.fencing_token,
+            outcome=_outcome(
+                AttemptDisposition.RETRY,
+                failure=_error(),
+                retry_at=_NOW + timedelta(seconds=20),
+            ),
+        )
+        row = storage._conn.execute(  # noqa: SLF001
+            """
+            SELECT binding.state, binding.generation_ids_json
+            FROM execution_attempts AS attempt
+            JOIN run_generation_bindings AS binding
+              ON binding.memorial_id=attempt.memorial_id
+             AND binding.attempt_id=attempt.attempt_id
+            WHERE attempt.attempt_no=2
+            """
+        ).fetchone()
+        assert row is not None
+        assert tuple(row) == (
+            "bound",
+            json.dumps(list(generation_ids), separators=(",", ":")),
+        )
     finally:
         storage.close()
 

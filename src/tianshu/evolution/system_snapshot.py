@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from tianshu.models.canonical import canonical_sha256
 from tianshu.models.run_assignment import (
@@ -33,7 +33,11 @@ class SystemSnapshotResolver:
         self._policy_rules_digest = policy_rules_digest
         self._provider_profiles_digest = provider_profiles_digest
 
-    def resolve_base(self) -> dict[str, str]:
+    def resolve_base(
+        self,
+        *,
+        executor_digests: Mapping[str, str] | None = None,
+    ) -> dict[str, str]:
         components = {
             "kernel": canonical_sha256(dict(self._kernel_facts())),
             "skills": self._skills_digest(),
@@ -41,7 +45,10 @@ class SystemSnapshotResolver:
             "policy_rules": self._policy_rules_digest(),
             "provider_profiles": self._provider_profiles_digest(),
         }
-        for adapter_id, digest in sorted(self._executor_digests().items()):
+        effective_executor_digests = (
+            self._executor_digests() if executor_digests is None else executor_digests
+        )
+        for adapter_id, digest in sorted(effective_executor_digests.items()):
             components[f"executor:{adapter_id}"] = digest
         return components
 
@@ -52,8 +59,10 @@ class SystemSnapshotResolver:
         self,
         assignment: RunAssignmentV1 | LegacyRunAssignmentV1,
         overlay: EffectiveEvolutionOverlayV1 | None,
+        *,
+        executor_digests: Mapping[str, str] | None = None,
     ) -> SystemSnapshotV1:
-        components = self.resolve_base()
+        components = self.resolve_base(executor_digests=executor_digests)
         if isinstance(assignment, LegacyRunAssignmentV1):
             if overlay is not None:
                 raise ValueError("legacy run assignment cannot have an evolution overlay")

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event
 
 import pytest
 
@@ -15,12 +17,25 @@ from tianshu.application.run_dispatcher import (
     RunDispatcher,
     RunShutdownTimeout,
 )
-from tianshu.application.run_reconciler import RunReconciler
+from tianshu.application.run_reconciler import (
+    ControlPlaneUnavailable,
+    RunReconciler,
+    RunReconcilerState,
+)
+from tianshu.executor.adapters import ExecutorGenerationUnavailable
 from tianshu.models import Edict, Memorial
 from tianshu.models.attempt import AttemptDisposition
+from tianshu.models.canonical import RedactedError, canonical_sha256
+from tianshu.models.system_snapshot import SystemSnapshotV1
 from tianshu.storage import Storage
 from tianshu.storage.attempt_ledger import AttemptFenceLost
-from tianshu.universe.router import ChallengerRouter, EvolutionRuntimeUnavailable
+from tianshu.storage.system_snapshot_repo import SystemSnapshotRepository
+from tianshu.universe.router import (
+    ChallengerRouter,
+    EvolutionRuntimeUnavailable,
+    GenerationBindingUnavailable,
+    GenerationRetired,
+)
 
 _NOW = datetime(2026, 7, 15, 8, tzinfo=UTC)
 
@@ -82,6 +97,15 @@ async def test_missing_router_rejects_before_claim_or_runner() -> None:
             "candidate_overlay_unavailable",
         ),
         (LookupError("run assignment not found"), "run_assignment_unavailable"),
+        (
+            GenerationBindingUnavailable("generation_binding_unavailable"),
+            "generation_binding_unavailable",
+        ),
+        (GenerationRetired("generation_retired"), "generation_retired"),
+        (
+            ExecutorGenerationUnavailable("generation bundle disappeared"),
+            "generation_binding_unavailable",
+        ),
     ],
 )
 async def test_runtime_bind_failure_completes_claimed_attempt_and_cleans_projection(
@@ -103,12 +127,16 @@ async def test_runtime_bind_failure_completes_claimed_attempt_and_cleans_project
     )
     outcomes = []
     cleaned = []
+    released = []
+    audited = []
     dispatcher = RunDispatcher(
         _ProbeRepository(),
         _unused_runner,
         owner_id="worker",
         challenger_router=FailingRouter(),
         completer=lambda actual, outcome: outcomes.append((actual, outcome)) or True,
+        generation_release=lambda attempt_id: released.append(attempt_id) or True,
+        failure_audit=lambda actual, code: audited.append((actual, code)),
         exit_cleanup=cleaned.append,
         clock=lambda: _NOW,
     )
@@ -119,7 +147,150 @@ async def test_runtime_bind_failure_completes_claimed_attempt_and_cleans_project
     assert outcomes[0][0] == authority
     assert outcomes[0][1].disposition is AttemptDisposition.FAILED
     assert outcomes[0][1].failure.code == failure_code
+    assert released == [authority.attempt_id]
     assert cleaned == [authority]
+    assert audited == [(authority, failure_code)]
+
+
+@pytest.mark.asyncio
+async def test_retired_binding_lost_fence_does_not_record_stale_failure_audit() -> None:
+    class RetiredRouter:
+        @contextmanager
+        def bind_runtime(self, memorial_id: str, *, attempt_id: str | None = None):
+            del memorial_id, attempt_id
+            raise GenerationRetired("generation_retired")
+            yield  # pragma: no cover
+
+    authority = AttemptAuthority(
+        attempt_id="attempt-stale-retired",
+        memorial_id="memorial-stale-retired",
+        owner_id="worker",
+        fencing_token=7,
+    )
+    audited: list[tuple[AttemptAuthority, str]] = []
+    dispatcher = RunDispatcher(
+        _ProbeRepository(),
+        _unused_runner,
+        owner_id="worker",
+        challenger_router=RetiredRouter(),
+        completer=lambda _actual, _outcome: False,
+        failure_audit=lambda actual, code: audited.append((actual, code)),
+        clock=lambda: _NOW,
+    )
+
+    with pytest.raises(AttemptFenceLost, match="completion"):
+        await dispatcher._execute(authority)  # noqa: SLF001
+
+    assert audited == []
+
+
+@pytest.mark.asyncio
+async def test_generation_loss_after_binding_is_retired_and_releases_lease() -> None:
+    authority = AttemptAuthority(
+        attempt_id="attempt-runtime-retired",
+        memorial_id="memorial-runtime-retired",
+        owner_id="worker",
+        fencing_token=7,
+    )
+    outcomes = []
+    released = []
+    audited = []
+
+    async def runner(_actual: AttemptAuthority) -> AttemptRunResult:
+        raise ExecutorGenerationUnavailable("managed package drifted")
+
+    dispatcher = RunDispatcher(
+        _ProbeRepository(),
+        runner,
+        owner_id="worker",
+        challenger_router=_ROUTER,
+        completer=lambda actual, outcome: outcomes.append((actual, outcome)) or True,
+        generation_release=lambda attempt_id: released.append(attempt_id) or True,
+        failure_audit=lambda actual, code: audited.append((actual, code)),
+        clock=lambda: _NOW,
+    )
+
+    await dispatcher._execute(authority)  # noqa: SLF001
+
+    assert outcomes[0][1].failure.code == "generation_retired"
+    assert audited == [(authority, "generation_retired")]
+    assert released == [authority.attempt_id]
+
+
+@pytest.mark.asyncio
+async def test_retired_failure_outcome_is_audited_only_after_fenced_completion() -> None:
+    authority = AttemptAuthority(
+        attempt_id="attempt-projected-retired",
+        memorial_id="memorial-projected-retired",
+        owner_id="worker",
+        fencing_token=7,
+    )
+    audited = []
+    released = []
+
+    async def runner(_actual: AttemptAuthority) -> AttemptRunResult:
+        return AttemptRunResult(
+            disposition=AttemptDisposition.FAILED,
+            failure=RedactedError(
+                code="generation_retired",
+                message="Pinned runtime generation is unavailable",
+                retryable=False,
+                details_hash=None,
+            ),
+        )
+
+    dispatcher = RunDispatcher(
+        _ProbeRepository(),
+        runner,
+        owner_id="worker",
+        challenger_router=_ROUTER,
+        completer=lambda _actual, _outcome: True,
+        generation_release=lambda attempt_id: released.append(attempt_id) or True,
+        failure_audit=lambda actual, code: audited.append((actual, code)),
+        clock=lambda: _NOW,
+    )
+
+    await dispatcher._execute(authority)  # noqa: SLF001
+
+    assert audited == [(authority, "generation_retired")]
+    assert released == [authority.attempt_id]
+
+
+@pytest.mark.asyncio
+async def test_retired_failure_outcome_with_lost_fence_is_not_audited() -> None:
+    authority = AttemptAuthority(
+        attempt_id="attempt-projected-stale",
+        memorial_id="memorial-projected-stale",
+        owner_id="worker",
+        fencing_token=7,
+    )
+    audited = []
+
+    async def runner(_actual: AttemptAuthority) -> AttemptRunResult:
+        return AttemptRunResult(
+            disposition=AttemptDisposition.FAILED,
+            failure=RedactedError(
+                code="generation_retired",
+                message="Pinned runtime generation is unavailable",
+                retryable=False,
+                details_hash=None,
+            ),
+        )
+
+    dispatcher = RunDispatcher(
+        _ProbeRepository(),
+        runner,
+        owner_id="worker",
+        challenger_router=_ROUTER,
+        completer=lambda _actual, _outcome: False,
+        failure_audit=lambda actual, code: audited.append((actual, code)),
+        clock=lambda: _NOW,
+    )
+
+    with pytest.raises(AttemptFenceLost, match="completion"):
+        await dispatcher._execute(authority)  # noqa: SLF001
+
+    assert audited == []
 
 
 @pytest.mark.asyncio
@@ -219,6 +390,7 @@ async def test_every_dispatch_exit_clears_authority_projection_buffer() -> None:
         return AttemptRunResult(disposition=AttemptDisposition.SUCCEEDED)
 
     cleaned: list[AttemptAuthority] = []
+    released: list[str] = []
     authority = AttemptAuthority(
         attempt_id="attempt-1",
         memorial_id="memorial-1",
@@ -230,12 +402,46 @@ async def test_every_dispatch_exit_clears_authority_projection_buffer() -> None:
         runner,
         owner_id="worker",
         completer=lambda _authority, _outcome: False,
+        generation_release=lambda attempt_id: released.append(attempt_id) or True,
         exit_cleanup=cleaned.append,
         challenger_router=_ROUTER,
     )
 
     with pytest.raises(AttemptFenceLost):
         await dispatcher._execute(authority)  # noqa: SLF001
+    assert released == [authority.attempt_id]
+    assert cleaned == [authority]
+
+
+@pytest.mark.asyncio
+async def test_runner_error_still_releases_generation_and_cleans_projection() -> None:
+    repository = _ProbeRepository()
+
+    async def runner(authority: AttemptAuthority) -> AttemptRunResult:
+        del authority
+        raise RuntimeError("runner failed")
+
+    cleaned: list[AttemptAuthority] = []
+    released: list[str] = []
+    authority = AttemptAuthority(
+        attempt_id="attempt-runner-failure",
+        memorial_id="memorial-runner-failure",
+        owner_id="worker",
+        fencing_token=1,
+    )
+    dispatcher = RunDispatcher(
+        repository,
+        runner,
+        owner_id="worker",
+        generation_release=lambda attempt_id: released.append(attempt_id) or True,
+        exit_cleanup=cleaned.append,
+        challenger_router=_ROUTER,
+    )
+
+    with pytest.raises(RuntimeError, match="runner failed"):
+        await dispatcher._execute(authority)  # noqa: SLF001
+
+    assert released == [authority.attempt_id]
     assert cleaned == [authority]
 
 
@@ -312,6 +518,132 @@ async def test_readiness_requires_successful_probe_and_live_supervised_loop() ->
 
 
 @pytest.mark.asyncio
+async def test_control_plane_unavailable_defers_scan_and_recovers_without_fatal() -> None:
+    repository = _ProbeRepository()
+    dispatcher = RunDispatcher(repository, _unused_runner, owner_id="worker")
+    control_plane_available = True
+
+    def require_control_plane() -> int:
+        if not control_plane_available:
+            raise ControlPlaneUnavailable("generation readiness unavailable")
+        return 0
+
+    reconciler = RunReconciler(
+        repository,
+        dispatcher,
+        before_scan=require_control_plane,
+        poll_interval_seconds=60,
+    )
+    await reconciler.start()
+    try:
+        assert reconciler.state is RunReconcilerState.RUNNING
+        assert reconciler.task is not None and not reconciler.task.done()
+
+        calls_before_defer = repository.calls
+        control_plane_available = False
+        assert await reconciler.reconcile_once() == 0
+        assert reconciler.failure_code == "control_plane_unavailable"
+        assert repository.calls == calls_before_defer
+
+        control_plane_available = True
+        assert await reconciler.reconcile_once() == 0
+        assert repository.calls == calls_before_defer + 1
+        assert reconciler.failure_code is None
+        assert reconciler.state is RunReconcilerState.RUNNING
+    finally:
+        await reconciler.stop()
+
+
+@pytest.mark.asyncio
+async def test_stop_waits_for_cancelled_inflight_control_plane_thread() -> None:
+    repository = _ProbeRepository()
+    dispatcher = RunDispatcher(repository, _unused_runner, owner_id="worker")
+    loop = asyncio.get_running_loop()
+    blocked = asyncio.Event()
+    release = Event()
+    calls = 0
+
+    def blocking_control_plane() -> int:
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            loop.call_soon_threadsafe(blocked.set)
+            release.wait()
+        return 0
+
+    reconciler = RunReconciler(
+        repository,
+        dispatcher,
+        before_scan=blocking_control_plane,
+        poll_interval_seconds=0.001,
+    )
+    await reconciler.start()
+    stop_task: asyncio.Task[None] | None = None
+    try:
+        await asyncio.wait_for(blocked.wait(), timeout=1)
+        assert reconciler.task is not None
+        reconciler.task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await reconciler.task
+
+        stop_task = asyncio.create_task(reconciler.stop())
+        done, _ = await asyncio.wait({stop_task}, timeout=0)
+        assert not done
+
+        release.set()
+        await asyncio.wait_for(stop_task, timeout=1)
+    finally:
+        release.set()
+        if stop_task is not None:
+            await asyncio.gather(stop_task, return_exceptions=True)
+        await reconciler.stop()
+
+
+@pytest.mark.asyncio
+async def test_startup_control_plane_unavailable_fails_initial_probe() -> None:
+    repository = _ProbeRepository()
+    dispatcher = RunDispatcher(repository, _unused_runner, owner_id="worker")
+
+    def unavailable() -> int:
+        raise ControlPlaneUnavailable("generation readiness unavailable")
+
+    reconciler = RunReconciler(repository, dispatcher, before_scan=unavailable)
+    with pytest.raises(ControlPlaneUnavailable, match="generation readiness unavailable"):
+        await reconciler.start()
+    assert reconciler.state is RunReconcilerState.FATAL
+    assert reconciler.failure_code == "startup_probe_failed"
+    assert repository.calls == 0
+    await reconciler.stop()
+
+
+@pytest.mark.asyncio
+async def test_unclassified_before_scan_failure_remains_fatal_after_startup() -> None:
+    repository = _ProbeRepository()
+    dispatcher = RunDispatcher(repository, _unused_runner, owner_id="worker")
+    fail = False
+
+    def programming_sensitive_scan() -> int:
+        if fail:
+            raise RuntimeError("unexpected evolution failure")
+        return 0
+
+    reconciler = RunReconciler(
+        repository,
+        dispatcher,
+        before_scan=programming_sensitive_scan,
+        poll_interval_seconds=0.01,
+    )
+    await reconciler.start()
+    fail = True
+    with pytest.raises(RuntimeError, match="unexpected evolution failure"):
+        assert reconciler.task is not None
+        await reconciler.task
+    assert reconciler.failure_code == "scan_failed"
+    assert reconciler.state is RunReconcilerState.FATAL
+    await reconciler.stop()
+
+
+@pytest.mark.asyncio
 async def test_fatal_scan_exit_clears_readiness_and_records_stable_code() -> None:
     repository = _ProbeRepository(fail_after=2)
     dispatcher = RunDispatcher(repository, _unused_runner, owner_id="worker")
@@ -343,6 +675,76 @@ def _open_seeded(path: Path) -> Storage:
         )
         uow.commit()
     return storage
+
+
+@pytest.mark.asyncio
+async def test_corrupt_exact_generation_binding_terminalizes_once_without_runner(
+    tmp_path: Path,
+) -> None:
+    storage = _open_seeded(tmp_path / "corrupt-generation-binding.db")
+    router = ChallengerRouter(storage)
+    router.assign("memorial-1")
+    attempt_id = storage._conn.execute(  # noqa: SLF001
+        "SELECT attempt_id FROM execution_attempts WHERE memorial_id='memorial-1'"
+    ).fetchone()[0]
+    components = {"kernel": "a" * 64}
+    snapshot = SystemSnapshotV1(
+        components=components,
+        digest=canonical_sha256(components),
+    )
+    with storage.unit_of_work() as unit_of_work:
+        SystemSnapshotRepository().insert_binding(
+            unit_of_work.connection,
+            memorial_id="memorial-1",
+            attempt_id=attempt_id,
+            snapshot=snapshot,
+            generation_ids=("rg-" + "1" * 32,),
+        )
+        unit_of_work.commit()
+    with storage._conn:  # noqa: SLF001
+        storage._conn.execute("DROP TRIGGER run_system_bindings_no_update")  # noqa: SLF001
+        storage._conn.execute(  # noqa: SLF001
+            "UPDATE run_system_bindings SET generation_ids_json='[1]' "
+            "WHERE memorial_id='memorial-1' AND attempt_id=?",
+            (attempt_id,),
+        )
+
+    runner_calls = []
+    released = []
+    cleaned = []
+    audited = []
+
+    async def runner(authority: AttemptAuthority) -> AttemptRunResult:
+        runner_calls.append(authority)
+        return AttemptRunResult(AttemptDisposition.SUCCEEDED)
+
+    dispatcher = RunDispatcher(
+        storage.attempt_repo,
+        runner,
+        owner_id="worker",
+        clock=lambda: _NOW,
+        challenger_router=router,
+        generation_release=lambda actual: released.append(actual) or True,
+        exit_cleanup=cleaned.append,
+        failure_audit=lambda authority, code: audited.append((authority, code)),
+    )
+    try:
+        assert await dispatcher.dispatch("memorial-1")
+        await dispatcher.wait_until_idle()
+
+        row = storage._conn.execute(  # noqa: SLF001
+            "SELECT status, failure_json FROM execution_attempts WHERE attempt_id=?",
+            (attempt_id,),
+        ).fetchone()
+        assert row["status"] == "failed"
+        assert json.loads(row["failure_json"])["code"] == "generation_binding_unavailable"
+        assert runner_calls == []
+        assert released == [attempt_id]
+        assert len(cleaned) == 1
+        assert audited == [(cleaned[0], "generation_binding_unavailable")]
+    finally:
+        await dispatcher.stop()
+        storage.close()
 
 
 @pytest.mark.asyncio

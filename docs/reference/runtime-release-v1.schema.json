@@ -1,0 +1,157 @@
+{
+  "$defs": {
+    "CliVersionSource": {
+      "enum": [
+        "package_json",
+        "pinned",
+        "unverified"
+      ],
+      "type": "string"
+    },
+    "JsonScalar": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/JsonScalar"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "description": "Content-addressed material sufficient to rebuild one executor release.",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "scope": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Scope",
+      "type": "string"
+    },
+    "manifest": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "minProperties": 1,
+      "title": "Manifest",
+      "type": "object"
+    },
+    "manifest_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Hash",
+      "type": "string"
+    },
+    "cli_version": {
+      "title": "Cli Version",
+      "type": "string"
+    },
+    "cli_version_source": {
+      "$ref": "#/$defs/CliVersionSource"
+    },
+    "binary_path": {
+      "title": "Binary Path",
+      "type": "string"
+    },
+    "binary_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Binary Digest",
+      "type": "string"
+    },
+    "package_name": {
+      "title": "Package Name",
+      "type": "string"
+    },
+    "package_entrypoint": {
+      "title": "Package Entrypoint",
+      "type": "string"
+    },
+    "package_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Package Digest",
+      "type": "string"
+    },
+    "single_argv_shape": {
+      "title": "Single Argv Shape",
+      "type": "string"
+    },
+    "session_argv_shape": {
+      "title": "Session Argv Shape",
+      "type": "string"
+    },
+    "pi_wire_version": {
+      "minimum": 1,
+      "title": "Pi Wire Version",
+      "type": "integer"
+    },
+    "materializer_id": {
+      "title": "Materializer Id",
+      "type": "string"
+    },
+    "materializer_version": {
+      "title": "Materializer Version",
+      "type": "string"
+    },
+    "release_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Release Digest",
+      "type": "string"
+    }
+  },
+  "required": [
+    "scope",
+    "manifest",
+    "manifest_hash",
+    "cli_version",
+    "cli_version_source",
+    "binary_path",
+    "binary_digest",
+    "package_name",
+    "package_entrypoint",
+    "package_digest",
+    "single_argv_shape",
+    "session_argv_shape",
+    "pi_wire_version",
+    "materializer_id",
+    "materializer_version",
+    "release_digest"
+  ],
+  "title": "RuntimeReleaseV1",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tianshu.dev/schemas/runtime-release-v1.schema.json",
+  "x-pydantic-version": "2.13.0"
+}

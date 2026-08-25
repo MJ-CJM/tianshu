@@ -10,11 +10,17 @@ key 清单来自对拆分前 app.py 的全量 grep：`app.state\\.[a-zA-Z_]* =`�
 
 from __future__ import annotations
 
+import sqlite3
+from datetime import UTC, datetime
+
 import pytest
 
+from tianshu import bootstrap as bootstrap_module
 from tianshu.app import create_app, lifespan
 from tianshu.bootstrap.wiring_tools import _runtime_secret_resolver
 from tianshu.config import TianshuSettings
+from tianshu.evolution.runtime_context import current_run_binding
+from tianshu.models import Edict, EdictRuntime, EdictSchedule, Memorial
 
 # 全部在 lifespan() 中被赋值、且默认测试环境下保证非 None 的 app.state 键。
 NON_NULLABLE_STATE_KEYS = [
@@ -44,6 +50,9 @@ NON_NULLABLE_STATE_KEYS = [
     "notifier",
     "session_rule_store",
     "executor",
+    "generation_controller",
+    "generation_reconciler",
+    "generation_recovery_report",
     "dag_scheduler",
     "approval_manager",
     "cost_manager",
@@ -130,19 +139,257 @@ class TestBootstrapSmoke:
             booted_app.state.challenger_router._snapshot_resolver()
             is booted_app.state.system_snapshot_resolver
         )
+        assert booted_app.state.scheduled_run_preparer._require_runtime_binding is True
 
-    async def test_system_snapshot_can_be_disabled_for_the_full_lifespan(self):
+    async def test_system_snapshot_can_be_disabled_for_the_full_lifespan(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        runtime_paths = {
+            name: tmp_path / name
+            for name in (
+                "artifacts",
+                "memory",
+                "personas",
+                "logs",
+                "plugins",
+                "universes",
+                "workspaces",
+            )
+        }
+        for path in runtime_paths.values():
+            path.mkdir()
+        monkeypatch.setenv("TIANSHU_RUNTIME_SKILLS_DIR", str(tmp_path / "runtime-skills"))
+        monkeypatch.setattr(
+            "tianshu.app.bootstrap.wire_skills_watcher",
+            lambda _app, _settings: None,
+        )
         app = create_app(
             TianshuSettings(
                 _env_file=None,
                 system_snapshot_enabled=False,
                 system_snapshot_strict=False,
+                db_path=str(tmp_path / "snapshot-disabled.db"),
+                artifact_dir=str(runtime_paths["artifacts"]),
+                memory_dir=str(runtime_paths["memory"]),
+                runtime_personas_dir=str(runtime_paths["personas"]),
+                log_dir=str(runtime_paths["logs"]),
+                plugins_dir=str(runtime_paths["plugins"]),
+                universe_root=str(runtime_paths["universes"]),
+                workspace_staging_root=str(runtime_paths["workspaces"]),
             )
         )
 
         async with lifespan(app):
             assert app.state.system_snapshot_resolver is None
             assert app.state.challenger_router._snapshot_resolver() is None
+            assert app.state.scheduled_run_preparer._require_runtime_binding is False
+
+            scheduled_at = datetime(2035, 1, 1, tzinfo=UTC)
+            schedule = EdictSchedule(
+                type="interval",
+                interval_seconds=60,
+                concurrency_policy="allow",
+            )
+            edict = Edict(
+                id="snapshot-disabled-scheduled-edict",
+                goal="static scheduled execution",
+                schedule=schedule,
+                runtime=EdictRuntime(executor="keqing:pi"),
+            )
+            app.state.storage.save_edict(edict)
+            app.state.storage.save_scheduler_job(
+                "snapshot-disabled-job",
+                edict.id,
+                schedule.type,
+                interval_seconds=60,
+                next_run=scheduled_at,
+            )
+
+            scheduled = app.state.scheduled_run_preparer.prepare(
+                job_id="snapshot-disabled-job",
+                scheduled_at=scheduled_at,
+            )
+            manual = app.state.scheduled_run_preparer.prepare_manual(
+                job_id="snapshot-disabled-job",
+                idempotency_key="snapshot-disabled-run-now",
+                scheduled_at=scheduled_at,
+            )
+
+            assert scheduled.attempt_id is not None
+            assert manual.attempt_id is not None
+            assert (
+                app.state.storage._conn.execute(  # noqa: SLF001
+                    "SELECT COUNT(*) FROM run_system_bindings"
+                ).fetchone()[0]
+                == 0
+            )
+            assert (
+                app.state.storage._conn.execute(  # noqa: SLF001
+                    "SELECT COUNT(*) FROM run_generation_bindings "
+                    "WHERE state='bound' AND generation_ids_json='[]'"
+                ).fetchone()[0]
+                == 2
+            )
+
+    async def test_blocking_generation_readiness_stops_before_attempt_claim(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        runtime_paths = {
+            name: tmp_path / name
+            for name in (
+                "artifacts",
+                "memory",
+                "personas",
+                "logs",
+                "plugins",
+                "universes",
+                "workspaces",
+            )
+        }
+        for path in runtime_paths.values():
+            path.mkdir()
+        db_path = tmp_path / "generation-readiness-blocked.db"
+        monkeypatch.setenv("TIANSHU_RUNTIME_SKILLS_DIR", str(tmp_path / "runtime-skills"))
+        monkeypatch.setattr(
+            "tianshu.app.bootstrap.wire_skills_watcher",
+            lambda _app, _settings: None,
+        )
+        original_wire_scheduling = bootstrap_module.wire_scheduling
+
+        def wire_scheduling_and_seed_attempt(app, settings):
+            original_wire_scheduling(app, settings)
+            edict = Edict(id="readiness-edict", goal="must remain claimable")
+            memorial = Memorial(id="readiness-memorial", edict_id=edict.id)
+            app.state.storage.save_edict(edict)
+            app.state.storage.save_memorial(memorial)
+            with app.state.storage.unit_of_work() as unit_of_work:
+                app.state.storage.attempt_repo.enqueue_initial(
+                    unit_of_work.connection,
+                    memorial_id=memorial.id,
+                    available_at=datetime.now(UTC),
+                    max_attempts=1,
+                    attempt_id="readiness-attempt",
+                )
+                unit_of_work.commit()
+
+        monkeypatch.setattr(
+            "tianshu.app.bootstrap.wire_scheduling",
+            wire_scheduling_and_seed_attempt,
+        )
+        monkeypatch.setattr(
+            "tianshu.evolution.reconciler.GenerationReconciler.readiness_snapshot",
+            lambda _self: (False, ("generation_binding_resolver_unavailable",)),
+        )
+        app = create_app(
+            TianshuSettings(
+                _env_file=None,
+                db_path=str(db_path),
+                artifact_dir=str(runtime_paths["artifacts"]),
+                memory_dir=str(runtime_paths["memory"]),
+                runtime_personas_dir=str(runtime_paths["personas"]),
+                log_dir=str(runtime_paths["logs"]),
+                plugins_dir=str(runtime_paths["plugins"]),
+                universe_root=str(runtime_paths["universes"]),
+                workspace_staging_root=str(runtime_paths["workspaces"]),
+            )
+        )
+
+        with pytest.raises(RuntimeError, match="generation control plane is unavailable"):
+            async with lifespan(app):
+                raise AssertionError("lifespan must not start")
+
+        connection = sqlite3.connect(db_path)
+        try:
+            status = connection.execute(
+                "SELECT status FROM execution_attempts WHERE attempt_id='readiness-attempt'"
+            ).fetchone()[0]
+        finally:
+            connection.close()
+        assert status == "claimable"
+
+    @pytest.mark.parametrize("startup_profile", ("live", "demo"))
+    async def test_empty_generation_full_lifespan_preserves_static_executor(
+        self,
+        tmp_path,
+        monkeypatch,
+        startup_profile,
+    ):
+        runtime_paths = {
+            name: tmp_path / name
+            for name in (
+                "artifacts",
+                "memory",
+                "personas",
+                "logs",
+                "plugins",
+                "universes",
+                "workspaces",
+            )
+        }
+        for path in runtime_paths.values():
+            path.mkdir()
+        monkeypatch.setenv("TIANSHU_RUNTIME_SKILLS_DIR", str(tmp_path / "runtime-skills"))
+        monkeypatch.setattr(
+            "tianshu.app.bootstrap.wire_skills_watcher",
+            lambda _app, _settings: None,
+        )
+        app = create_app(
+            TianshuSettings(
+                _env_file=None,
+                startup_profile=startup_profile,
+                db_path=str(tmp_path / "empty-generation.db"),
+                artifact_dir=str(runtime_paths["artifacts"]),
+                memory_dir=str(runtime_paths["memory"]),
+                runtime_personas_dir=str(runtime_paths["personas"]),
+                log_dir=str(runtime_paths["logs"]),
+                plugins_dir=str(runtime_paths["plugins"]),
+                universe_root=str(runtime_paths["universes"]),
+                workspace_staging_root=str(runtime_paths["workspaces"]),
+            )
+        )
+        edict = Edict(
+            id="edict-empty-generation",
+            goal="preserve the static Pi executor",
+            runtime={"executor": "keqing:pi"},
+        )
+        memorial = Memorial(
+            id="memorial-empty-generation",
+            edict_id=edict.id,
+        )
+        async with lifespan(app):
+            app.state.storage.save_edict(edict)
+            app.state.storage.save_memorial(memorial)
+            app.state.challenger_router.assign(memorial.id)
+            controller = app.state.generation_controller
+            registry = app.state.executor.adapter_registry
+            static_adapter = registry.get("keqing:pi")
+
+            assert controller.status_for_scope("executor:keqing:pi") is None
+            try:
+                with app.state.challenger_router.bind_runtime(
+                    memorial.id,
+                    attempt_id="attempt-empty-generation",
+                ):
+                    binding = current_run_binding()
+                    assert binding is not None
+                    assert binding.generation_ids == ()
+                    prepared = app.state.executor._resolve_governed_executor(  # noqa: SLF001
+                        edict,
+                        memorial,
+                        execution_mode="single",
+                    )
+                    assert prepared.adapter is static_adapter
+                    assert prepared.generation_ids == ()
+                    assert prepared.generation_bundle is None
+            finally:
+                controller.release_binding("attempt-empty-generation")
+
+            assert controller.status_for_scope("executor:keqing:pi") is None
+            assert registry.get("keqing:pi") is static_adapter
 
     async def test_lifespan_closes_drawer_store(self):
         # 不复用 booted_app fixture：需要在 lifespan 退出*之后*断言 close 是否

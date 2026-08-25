@@ -108,13 +108,19 @@
 
 工作：
 
+- V32 增加独立 `run_generation_bindings` 作为 exact-attempt 代际权威；每个新 attempt 都写
+  `bound`（包括显式 `[]`），snapshot 开关只控制 V31 system shadow，不控制该 marker；
+- 升级存量 attempt 时只写可证明事实：有 system binding 就复制 generation ids，可证明非 Pi
+  写 `bound []`，历史 Pi/契约歧义写 `unresolved` 并在 continuity/retention 读取时失败关闭；
 - conversation/长任务 Edict 固定 RuntimeGeneration，follow-up 继承；
 - cron/interval 每次触发的新 root Memorial 选择当时 active generation；
-- DAG 子节点和基础设施重试继承 root Assignment；
+- DAG 子节点和基础设施重试继承 root/source attempt 的 exact marker；只有 V31 历史缺 marker 时
+  才读取 `run_system_bindings` fallback，两者同在必须一致；
 - Pi 新旧版本 side-by-side；只有新的 root assignment 或命中 Canary 的新 continuity scope
   使用新版本，已有 continuity 不换代；
 - 版本漂移先产生 Candidate，不自动改 active；
-- Evidence 绑定实际 executor release、probe 和 generation。
+- Evidence 绑定实际 executor release、probe 和 generation；snapshot 启用时 system shadow 与
+  exact marker 对账，关闭时 system binding 为零行但 generation marker 仍可独立证明选择。
 
 退出条件：
 

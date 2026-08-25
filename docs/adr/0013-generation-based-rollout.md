@@ -24,8 +24,10 @@
 - **进化策略 (`EvolutionPolicy`)**：针对单个插件或进化对象约束可变化范围、模式、预算、
   裁决和回滚要求的治理规则；它与插件启用状态和版本锁定相互独立。
 
-`run_system_bindings` 表达每个 `(memorial_id, attempt_id)` 与典制、朝的 insert-once
-关联事实。典制、朝和 binding 不复用主键，也不向冻结的 `RunAssignmentV1` 增加字段。
+运行关联事实分成两个正交记录：V31 `run_system_bindings` 是 snapshot 启用时的典制 shadow；
+V32 `run_generation_bindings` 是每个 `(memorial_id, attempt_id)` 的 insert-once 朝选择权威。
+前者只作为 V31 历史 generation fallback；两者同在时 generation ids 必须一致。典制、朝和
+binding 不复用主键，也不向冻结的 `RunAssignmentV1` 增加字段。
 
 ### 2. 热更新只采用代际切换
 
@@ -60,12 +62,14 @@ pointer，也不得先产生第二个 active。
 
 运行期 lease 以精确 `attempt_id` 为身份，避免同一 Memorial 的基础设施重试产生 ABA；
 Dispatcher attempt 外层退出是唯一权威 release 点，DAG 子节点复用 root attempt lease。
-不持久化整数 refcount，durable 引用由 `execution_attempts` 与 insert-once binding 推导。
+不持久化整数 refcount，durable 引用由 `execution_attempts` 与 insert-once
+`run_generation_bindings` 推导；V31 历史记录尚无 marker 时才回退读取 `run_system_bindings`。
 
 root 运行完成后，OPEN conversation Edict 仍可能在未来接收 follow-up，因此该 Edict 最新
-root binding 的朝继续形成 retention，直至 Edict 关闭或取消。cron/interval 每次 fire 是
-新 continuity，只在触发时选择 active；保留旧朝不等于把未来定时触发固定到旧朝。首期不
-新增第二张 continuity 真相表，跨 Edict session 成为真实需求时再另立 ADR。
+root marker 的朝继续形成 retention，直至 Edict 关闭或取消。cron/interval 每次 fire 是
+新 continuity，只在触发时选择 active；保留旧朝不等于把未来定时触发固定到旧朝。
+`run_generation_bindings` 是 attempt 选择事实，不是 session、谱系或整数 refcount 账本；首期
+不另建这三类 continuity 真相。跨 Edict session 成为真实需求时再另立 ADR。
 
 ### 3. Ring 0 不进入普通进化
 
@@ -92,6 +96,7 @@ canary；既有 `automatic_promotion_allowed: Literal[False]` 保持不变。
 ## 影响
 
 - release 是不可变内容单位，`(scope, RuntimeGeneration)` 是 rollout/rollback 单位，
-  `SystemSnapshot + generation set` 是一次运行的完整归因单位。
+  `SystemSnapshot + exact attempt generation marker` 是一次运行的完整归因单位；snapshot 关闭时
+  marker 仍可独立证明该 attempt 选择了具体 generation set（包括显式空集合）。
 - 插件可以保持启用并锁定版本，同时由进化策略单独冻结其进化。
 - 动态加载第三方代码、进程内 reload 和普通 Evolution 修改治理微内核均不由本 ADR 开放。

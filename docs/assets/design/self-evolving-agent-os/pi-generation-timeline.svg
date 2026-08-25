@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 300" role="img" aria-label="Pi 执行器换代时序：代 A 在役并承载 run1、run2；代 B stage、warm 后 activate，指针切到 B，新 run3 进 B；run1、run2 在 A 上跑完，A 引用归零后 dispose；warm 失败时指针不动">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 300" role="img" aria-label="Pi 执行器换代时序：代 A 在役并承载 run1、run2；代 B stage、warm 后 activate，指针切到 B，新 run3 进 B；run1、run2 在 A 上跑完后 attempt lease 归零，但 A 仍作为 last-good 保留；warm 失败时指针不动">
 <style>
   svg{font-family:"Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",sans-serif;color:#1E2530}
   .nd rect{fill:#FFFFFF;stroke:#1E2530;stroke-width:1;rx:3}
@@ -46,15 +46,15 @@
         <line class="band" x1="460" y1="30" x2="460" y2="262"/><text x="460" y="280" text-anchor="middle">t3 activate B</text>
         <line class="band" x1="580" y1="30" x2="580" y2="262"/><text x="580" y="280" text-anchor="middle">t4 新 run</text>
         <line class="band" x1="700" y1="30" x2="700" y2="262"/><text x="700" y="280" text-anchor="middle">t5 run1 完</text>
-        <line class="band" x1="820" y1="30" x2="820" y2="262"/><text x="820" y="280" text-anchor="middle">t6 run2 完 · ref=0</text>
+        <line class="band" x1="820" y1="30" x2="820" y2="262"/><text x="820" y="280" text-anchor="middle">t6 run2 完 · lease=0</text>
       </g>
       <!-- pointer lane -->
       <g class="nd"><rect x="100" y="26" width="360" height="20"/><text x="280" y="40" text-anchor="middle">active = A</text></g>
       <g class="nd new"><rect x="460" y="26" width="440" height="20"/><text x="680" y="40" text-anchor="middle">active = B · last-good = A</text></g>
       <!-- gen A -->
-      <g class="nd"><rect x="100" y="72" width="360" height="22"/><text x="280" y="87" text-anchor="middle">active · ref=2</text></g>
-      <g class="nd dim"><rect x="460" y="72" width="360" height="22"/><text x="640" y="87" text-anchor="middle">draining · ref 2 → 1 → 0，不再接新 run</text></g>
-      <text class="elbl" x="828" y="87">dispose</text>
+      <g class="nd"><rect x="100" y="72" width="360" height="22"/><text x="280" y="87" text-anchor="middle">active · attempt leases=2</text></g>
+      <g class="nd dim"><rect x="460" y="72" width="360" height="22"/><text x="640" y="87" text-anchor="middle">draining · leases 2 → 1 → 0；仍是 last-good</text></g>
+      <text class="elbl" x="828" y="87">保留</text>
       <!-- gen B -->
       <g class="nd dim"><rect x="220" y="118" width="120" height="22"/><text x="280" y="133" text-anchor="middle">staged</text></g>
       <g class="nd"><rect x="340" y="118" width="120" height="22"/><text x="400" y="133" text-anchor="middle">warming · 契约验证</text></g>

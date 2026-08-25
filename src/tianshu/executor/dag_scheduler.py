@@ -284,6 +284,14 @@ class DAGScheduler:
                     "completed": TaskStatus.COMPLETED,
                     "cancelled": TaskStatus.CANCELLED,
                 }.get(execution.status, TaskStatus.FAILED)
+                if any(
+                    child is not None and child.failure_reason == "generation_retired"
+                    for node in execution.nodes
+                    if node.memorial_id is not None
+                    for child in (self._storage.get_memorial(node.memorial_id),)
+                ):
+                    root.error = "pinned runtime generation is unavailable"
+                    root.failure_reason = "generation_retired"
                 root.completed_at = datetime.now(UTC)
                 if persist_root_terminal:
                     self._storage.update_memorial(root)

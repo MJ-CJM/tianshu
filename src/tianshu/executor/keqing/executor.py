@@ -33,7 +33,11 @@ from tianshu.executor.execution_gateway import (
     issue_keqing_command_grant,
     request_for_current_execution,
 )
-from tianshu.executor.keqing.adapter import KeqingRunResult, get_adapter
+from tianshu.executor.keqing.adapter import KeqingAdapter, KeqingRunResult, get_adapter
+from tianshu.executor.keqing.versions import (
+    ExecutableInspectionError,
+    resolve_execution_executable,
+)
 from tianshu.executor.workspace_context import resolve_workspace_root
 from tianshu.kernel.exit_reason import ExitReason
 from tianshu.models import TaskStatus, UsageSummary
@@ -61,11 +65,14 @@ class KeqingExecutor:
         root: Path | None = None,
         execution_gateway: ExecutionGateway | None = None,
         default_model_provider: Callable[[str], str | None] | None = None,
+        adapter: KeqingAdapter | None = None,
     ) -> None:
         self._root = root or _KEQING_ROOT
         self._execution_gateway = execution_gateway or ExecutionGateway()
         # 按客卿 backend 返回治理默认模型;敕令未指定 executor_model 时回退到它。
         self._default_model_provider = default_model_provider
+        # 代际路径注入固定 adapter；legacy 仍按 backend 从全局 registry 查找。
+        self._adapter = adapter
 
     def work_dir(self, edict_id: str) -> Path:
         return self._root / edict_id
@@ -79,7 +86,11 @@ class KeqingExecutor:
         **_ignored,
     ) -> AgentResult:
         backend = parse_keqing_backend(getattr(edict.runtime, "executor", None))
-        adapter = get_adapter(backend) if backend else None
+        adapter = (
+            self._adapter if self._adapter is not None and backend == self._adapter.name else None
+        )
+        if adapter is None and self._adapter is None and backend:
+            adapter = get_adapter(backend)
         if adapter is None:
             return AgentResult(
                 status=TaskStatus.FAILED,
@@ -95,6 +106,15 @@ class KeqingExecutor:
         if not model and self._default_model_provider is not None:
             model = self._default_model_provider(backend)
         argv = adapter.build_argv(edict.goal, model=model)
+        try:
+            executable = resolve_execution_executable(argv[0], backend=backend)
+        except ExecutableInspectionError as exc:
+            return AgentResult(
+                status=TaskStatus.FAILED,
+                error=str(exc),
+                exit_reason=ExitReason.LLM_ERROR,
+            )
+        argv[0] = executable.binary_path
         timeout = edict.runtime.timeout_seconds
         budget_cny = getattr(edict.runtime, "cost_budget_cny", None)
 
@@ -125,7 +145,11 @@ class KeqingExecutor:
                 purpose="keqing",
                 workspace_root=work,
                 cwd=".",
-                argv_command=ArgvCommand(argv=tuple(argv)),
+                argv_command=ArgvCommand(
+                    argv=tuple(argv),
+                    executable_version=executable.version,
+                    executable_version_source=executable.version_source,
+                ),
                 environment=environment,
                 timeout_seconds=timeout,
                 stdout_limit_bytes=4 * 1024 * 1024,

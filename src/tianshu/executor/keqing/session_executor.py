@@ -20,6 +20,7 @@ import json
 import logging
 from collections.abc import Callable
 from contextlib import suppress
+from pathlib import Path
 from uuid import uuid4
 
 from tianshu.executor.agent import AgentResult
@@ -44,6 +45,10 @@ from tianshu.executor.keqing.session import (
     KIND_TOOL_END,
     KIND_TOOL_START,
     KeqingSessionAdapter,
+)
+from tianshu.executor.keqing.versions import (
+    ExecutableInspectionError,
+    resolve_execution_executable,
 )
 from tianshu.executor.orchestrator.checks import ChecksResult, run_checks
 from tianshu.executor.workspace_context import resolve_workspace_root
@@ -93,13 +98,16 @@ class KeqingSessionExecutor:
         self,
         *,
         execution_gateway: ExecutionGateway | None = None,
+        root: Path | None = None,
         llm=None,
         follow_up_rounds: int = 3,
         gateway_base_url: str | None = None,
         token_ttl_seconds: float = 3600.0,
         default_model_provider: Callable[[str], str | None] | None = None,
+        adapter: KeqingSessionAdapter | None = None,
     ) -> None:
         self._execution_gateway = execution_gateway or ExecutionGateway()
+        self._root = root or _KEQING_ROOT
         self._llm = llm  # 仅 acceptance 含 kind=rubric 时才需要
         self._follow_up_rounds = follow_up_rounds
         # 按客卿 backend 返回治理默认模型;敕令未指定 executor_model 时回退到它。
@@ -109,6 +117,9 @@ class KeqingSessionExecutor:
         # 把 baseUrl 重定向到本 base_url + 用该 token。未设则直连档(auth_env_vars 放行 provider key)。
         self._gateway_base_url = gateway_base_url
         self._token_ttl = token_ttl_seconds
+        # Materialized generations inject one immutable adapter.  The legacy
+        # path deliberately keeps the historical per-execution factory.
+        self._adapter = adapter
 
     def _build_environment(self, adapter, granted, edict, run_id: str):
         """构造客卿 env 策略 + 可选的 scoped token(网关模式)。
@@ -152,7 +163,7 @@ class KeqingSessionExecutor:
         return env, None, None
 
     def work_dir(self, edict_id: str):
-        return _KEQING_ROOT / edict_id
+        return self._root / edict_id
 
     async def execute(
         self,
@@ -163,7 +174,11 @@ class KeqingSessionExecutor:
         **_ignored,
     ) -> AgentResult:
         backend = parse_keqing_backend(getattr(edict.runtime, "executor", None))
-        adapter = get_session_adapter(backend) if backend else None
+        adapter = (
+            self._adapter if self._adapter is not None and backend == self._adapter.name else None
+        )
+        if adapter is None and self._adapter is None and backend:
+            adapter = get_session_adapter(backend)
         if adapter is None:
             return AgentResult(
                 status=TaskStatus.FAILED,
@@ -183,6 +198,15 @@ class KeqingSessionExecutor:
         if not model and self._default_model_provider is not None:
             model = self._default_model_provider(backend)
         argv = adapter.build_session_argv(session_dir=session_dir, model=model, resume=resume)
+        try:
+            executable = resolve_execution_executable(argv[0], backend=backend)
+        except ExecutableInspectionError as exc:
+            return AgentResult(
+                status=TaskStatus.FAILED,
+                error=str(exc),
+                exit_reason=ExitReason.LLM_ERROR,
+            )
+        argv[0] = executable.binary_path
 
         base_timeout = edict.runtime.timeout_seconds
         # 整场会话覆盖:基础时长 ×(1 + follow_up 轮数);受 budget.wall_clock_seconds 夹逼(request 内 min)
@@ -207,7 +231,11 @@ class KeqingSessionExecutor:
                     purpose="keqing",
                     workspace_root=work,
                     cwd=".",
-                    argv_command=ArgvCommand(argv=tuple(argv)),
+                    argv_command=ArgvCommand(
+                        argv=tuple(argv),
+                        executable_version=executable.version,
+                        executable_version_source=executable.version_source,
+                    ),
                     environment=environment,
                     timeout_seconds=session_timeout,
                     stdout_limit_bytes=8 * 1024 * 1024,

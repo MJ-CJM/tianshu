@@ -65,7 +65,7 @@ Phase 1 比报告写的便宜得多（§3.5）。
 |---|---|---|
 | `SystemSnapshotV1` | `SystemSnapshot`、`PluginSetSnapshot`、`PluginRelease`（作为 components 中的条目） | 一个 frozen pydantic：`components: dict[str, str]`（组件 id → 内容 digest）+ `digest`；内容寻址，落 `system_snapshots` 表 |
 | `RuntimeReleaseV1` + `RuntimeGenerationV1` | executor runtime release、`RuntimeGeneration`、`PluginInstance`、active/last-good 指针 | release 行保存不可变 canonical material；generation 行保存 `generation_id / release_digest / scope / state / version / activated_at`；不持久化 refcount |
-| `ExecutionAssignmentV1` | `ExecutionAssignment` | 现有 `RunAssignmentV1` **不动**，另起一张 `run_system_bindings(memorial_id, attempt_id, snapshot_digest, generation_ids_json)`；后续若合并再合并 |
+| `ExecutionAssignmentV1` | `ExecutionAssignment` | 现有 `RunAssignmentV1` **不动**；V31 `run_system_bindings` 保存可选 snapshot shadow，V32 `run_generation_bindings` 独立保存 exact-attempt generation marker；后续若形成完整聚合再合并 |
 
 其余名词的去向：
 
@@ -177,7 +177,7 @@ snapshot、在 Memorial/RunState/Evidence 三处双写"。实际：
 | `src/tianshu/models/system_snapshot.py`（新） | `SystemSnapshotV1(_StrictModel)`：`schema_version: Literal[1]`、`components: dict[str, str]`（key 形如 `kernel`、`executor:keqing:pi`、`skills`、`personas`、`policy_rules`、`provider_profiles`、`evolution_overlay`；value 为 64 位 hex）、`digest` = `canonical_sha256(components)`；`model_validator` 校验 digest 一致 |
 | `src/tianshu/skills/loader.py`、`persona/loader.py`、`tools/policy_rules.py`、`providers/registry.py` | 各加一个 `content_digest() -> str`：对已加载文件按相对路径排序后 canonical hash（persona/skills）；对规则/profile 列表做 `canonical_sha256`。只读，不改现有行为 |
 | `src/tianshu/evolution/system_snapshot.py`（新） | `SystemSnapshotResolver`：装配期从 `app.state` 收集组件（kernel = `tianshu_version + dependency_lock_hash`，复用 `evidence/service.py:664` 的 lock hash 计算；executor = 每个 adapter 的 `canonical_sha256(manifest)` + `probe()` 中的版本字段）；`resolve_for_run(assignment)` 追加 `evolution_overlay = overlay_digest`（legacy assignment 时省略该 key） |
-| `src/tianshu/storage/migrations.py` | V31 `0031_system_snapshots`：`system_snapshots(snapshot_digest PK, schema_version, components_json, first_seen_at)`；`run_system_bindings(memorial_id, attempt_id, snapshot_digest, generation_ids_json DEFAULT '[]', created_at, PRIMARY KEY(memorial_id, attempt_id))`。沿用 `_*_STATEMENTS + _*_CHECKSUM` 模式并登记 callback 指纹；后续阶段直接填 `generation_ids_json`，不再 ALTER 冻结表 |
+| `src/tianshu/storage/migrations.py` | V31 `0031_system_snapshots`：`system_snapshots(snapshot_digest PK, schema_version, components_json, first_seen_at)`；`run_system_bindings(memorial_id, attempt_id, snapshot_digest, generation_ids_json DEFAULT '[]', created_at, PRIMARY KEY(memorial_id, attempt_id))`。沿用 `_*_STATEMENTS + _*_CHECKSUM` 模式并登记 callback 指纹；V31 形状冻结不 ALTER，P3 另建 generation authority |
 | `src/tianshu/storage/evolution_repo.py` | `insert_system_binding(connection, memorial_id, attempt_id, snapshot)`：先 `INSERT OR IGNORE system_snapshots`，再插 binding；同 attempt 重复写入必须等值，否则 `EvolutionAssignmentConflict` |
 | `src/tianshu/universe/router.py` `bind_runtime` | 在现有 UoW 内解析并写入 binding；`EvolutionRuntimeContext` 增加 `system_snapshot: SystemSnapshotV1`（`runtime_context.py`） |
 | `src/tianshu/evidence/service.py` ~L911 | 关闭 Evidence 时读取该 Memorial 最后一个 attempt 的 binding，以 artifact `application/vnd.tianshu.system-snapshot.v1+json` 挂入 `required_artifact_digests`（与 assignment artifact 同一段代码模式） |
@@ -209,9 +209,9 @@ snapshot、在 Memorial/RunState/Evidence 三处双写"。实际：
 | 文件 | 内容 |
 |---|---|
 | `src/tianshu/models/runtime_generation.py`（新） | `RuntimeReleaseV1` 保存完整可重建 executor material；`RuntimeGenerationV1` 保存 `generation_id`（`rg-` + uuid4，非内容摘要）、`scope`、`release_digest`、七态、CAS version 与时间戳；不存 refcount |
-| `migrations.py` V32 `0032_runtime_generations` | 不可变 `runtime_generation_releases`、`runtime_generations`、不可变 `runtime_generation_journal` 与复合 scope FK 的 `generation_pointers` |
+| `migrations.py` V32 `0032_runtime_generations` | 不可变 `runtime_generation_releases`、`runtime_generations`、不可变 `runtime_generation_journal`、复合 scope FK 的 `generation_pointers`，以及独立 insert-once `run_generation_bindings`，合计五表；升级按 system-copy / native-empty / ambiguous-Pi-unresolved 三分回填 |
 | `generation_controller.py` + `executor/adapters/__init__.py` | Controller 独占 stage/warm/activate/rollback/recovery；Registry 保管同代 single/session bundle、按 exact `attempt_id` lease、同锁 selection/manifest；Dispatcher 唯一 release |
-| `run_system_bindings` | V31 已包含 `generation_ids_json DEFAULT '[]'`；本阶段开始填值，不修改 V31 表形状 |
+| `run_generation_bindings` + `run_system_bindings` | 前者是 P3 exact-attempt generation 权威，空选择也写 `bound []`；后者保持 P1 snapshot shadow，只作 V31 fallback；两者同在必须一致，不修改 V31 表形状 |
 | `application/managed_run_ingress.py`、`edicts.py`、`scheduled_runs.py` | continuity 规则：conversation/深度 Edict 的 follow-up 读 root Memorial 的 binding 复用其 `generation_id`；若该代已 `disposed` → fail closed `generation_retired`（等待 Decision 显式换代）；cron/interval 每次 fire 取当时 active；DAG 子节点与基础设施重试继承 root |
 | `evolution/reconciler.py` + control-plane wiring | 新 `GenerationReconciler` 与既有 rollback reconciler 顺序组合、各自持锁；draining 仅在无 exact-attempt/OPEN-continuity 引用且非 active/last-good 时 disposed；重启按 release material 重建 |
 
@@ -238,11 +238,15 @@ snapshot、在 Memorial/RunState/Evidence 三处双写"。实际：
 | 文件 | 内容 |
 |---|---|
 | `models/evolution_candidate.py` | `CandidateKind.EXECUTOR = "executor"`；V35 `0035_executor_candidate_kind` 扩展数据库 kind CHECK，并登记 callback 指纹 |
-| `evolution/promotion.py` → 拆出 `evolution/adapters/executor.py` | `ExecutorPromotionAdapter.activate` = `stage → warm → activate`，返回 `ActivationReceiptV1`；`rollback` = `activate(last_good)`；`verify_rollback` = 指针等于 last_good 且新代 `disposed/failed` |
+| `storage/executor_generation_authority_repo.py` + V35 | 持久化每次 canary epoch 的精确 `candidate_id + candidate_version + release_digest → generation_id` 授权及不可变 journal；有效授权是 READY 的 recovery/retention root，撤销后允许下一 epoch 建新代；无/错/歧义授权一律 fail closed |
+| `evolution/promotion.py` → 拆出 `evolution/adapters/executor.py` | `start_canary` 经 `GenerationController.stage → warm` 后建立 durable authority；`activate` 只激活已授权 READY 代，不二次 stage；`rollback` 走 controller last-good 并撤权；`verify_rollback` 同时验证 pointer、候选代终态和授权撤销 |
 | 客卿馆状态接口 | 检测到 Pi 版本漂移时，不再只显示“待兼容验证”，而是创建 `subject_key=executor:keqing:pi` 的 `PROPOSED` Candidate（`source_channel=SYSTEM`），走 Gate → per-subject canary → Decision 路径 |
 | Evidence | `executor_manifest` 已在；补 `generation_id` 进 system-snapshot artifact |
 
 本段后移保证 EXECUTOR Candidate 从产生起就在 per-subject 世界中，不占用旧的全局唯一 canary 槽。
+`executor_generation_enabled=true` 与 `system_snapshot_enabled=false` 在配置期互斥，保持 P1 关闭
+snapshot 时 system snapshot/binding 零写入的兼容语义（P3 exact marker 仍写 `bound []`），同时
+阻断之后才激活新代的生产路径。
 
 ### PR-5 进程级 snapshot 重启与 last-good（≈3 天）
 
@@ -265,7 +269,7 @@ Skill/Persona/Memory → 声明式 UI。每迁一种补 owner、冲突规则、h
 1. `migration-roadmap.md`：Phase 2 与 Phase 3 已对调；§2.2 重构表增加"单一全局 canary 权威 →
    按 subject 路由"；§3 每阶段退出条件对齐本文 §4；
 2. `domain-and-governance.md §1`：在目标术语表后增加"第 1–3 阶段最小代码词汇"，只列
-   `SystemSnapshotV1 / RuntimeGenerationV1 / run_system_bindings`，其余标 deferred；
+   `SystemSnapshotV1 / RuntimeReleaseV1 / RuntimeGenerationV1 / run_system_bindings / run_generation_bindings`，其余标 deferred；
 3. `target-architecture.md §3`：六项 Reconciler 职责是逻辑职责，实现为一个 `GenerationReconciler`；
    §4.1 热更新语义按本文 §3.2 拆为三类；
 4. `comparative-research.md §1.1`：注明 `ExecutorAdapterRegistry` 已是 Executor Capability seam；

@@ -53,6 +53,7 @@ logger = logging.getLogger(__name__)
 def _assess_app_readiness(state):
     """Build the same authoritative readiness report for health and Control Center."""
     from tianshu.diagnostics import ReadinessInputs, assess_readiness, provider_config_check
+    from tianshu.evolution.reconciler import GENERATION_CLEANUP_ONLY_ERRORS
     from tianshu.storage.migration_ledger import pending_migrations
     from tianshu.storage.migrations import MIGRATIONS
 
@@ -115,6 +116,27 @@ def _assess_app_readiness(state):
             == "pass"
         )
 
+    generation_snapshot: tuple[bool, frozenset[str]] | None = None
+
+    def sample_generation_readiness() -> tuple[bool, frozenset[str]]:
+        nonlocal generation_snapshot
+        if generation_snapshot is None:
+            ready, error_codes = state.generation_reconciler.readiness_snapshot()
+            generation_snapshot = (ready, frozenset(error_codes))
+        return generation_snapshot
+
+    def generation_runtime_ready() -> bool:
+        ready, error_codes = sample_generation_readiness()
+        if ready:
+            return True
+        if not error_codes:
+            return False
+        return error_codes <= GENERATION_CLEANUP_ONLY_ERRORS
+
+    def evolution_control_planes_ready() -> bool:
+        generation_ready, _error_codes = sample_generation_readiness()
+        return state.evolution_reconciler.readiness_probe() and generation_ready
+
     return assess_readiness(
         ReadinessInputs(
             database_ok=lambda: database_ok,
@@ -122,7 +144,9 @@ def _assess_app_readiness(state):
             scheduler_ready=lambda: state.scheduler.is_ready,
             worker_ready=lambda: state.worker_pool.is_ready,
             outbox_ready=lambda: durable_tables["outbox"] and state.outbox_lifecycle.is_ready,
-            dispatcher_ready=lambda: state.outbox_lifecycle.is_ready,
+            dispatcher_ready=lambda: (
+                state.outbox_lifecycle.is_ready and state.run_reconciler.is_ready
+            ),
             decision_ready=lambda: durable_tables["decision"],
             attempt_ready=lambda: durable_tables["attempt"],
             artifact_ready=lambda: durable_tables["artifact"] and state.artifact_store.is_ready,
@@ -133,7 +157,8 @@ def _assess_app_readiness(state):
             provider_ready=provider_ready,
             provider_profile=lambda: state.settings.startup_profile,
             workspace_ready=lambda: state.workspace_service.is_ready,
-            evolution_rollback_ready=state.evolution_reconciler.readiness_probe,
+            generation_runtime_ready=generation_runtime_ready,
+            evolution_rollback_ready=evolution_control_planes_ready,
             optional_integrations=optional_integrations,
         )
     )

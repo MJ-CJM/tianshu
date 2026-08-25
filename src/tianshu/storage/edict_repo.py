@@ -356,6 +356,11 @@ class EdictMixin:
                 "(SELECT id FROM memorials WHERE edict_id = ?)",
                 (edict_id,),
             )
+            self._conn.execute(
+                "DELETE FROM run_generation_bindings WHERE memorial_id IN "
+                "(SELECT id FROM memorials WHERE edict_id = ?)",
+                (edict_id,),
+            )
             self._conn.execute("DELETE FROM memorials WHERE edict_id = ?", (edict_id,))
             self._conn.execute("DELETE FROM edicts WHERE id = ?", (edict_id,))
 

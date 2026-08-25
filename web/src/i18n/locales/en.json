@@ -2681,7 +2681,22 @@
       "backend": "Agent",
       "installed": "Install / Version",
       "capabilities": "Capabilities",
+      "generation": "Runtime generation",
       "credential": "Credential"
+    },
+    "generation": {
+      "none": "No generation",
+      "activeRuns": "Active runs: {count}",
+      "lastGood": "Last good: {id}",
+      "state": {
+        "staged": "staged",
+        "warming": "warming",
+        "ready": "ready",
+        "active": "active",
+        "draining": "draining",
+        "failed": "failed",
+        "disposed": "disposed"
+      }
     },
     "cap": {
       "resume": "session resume",

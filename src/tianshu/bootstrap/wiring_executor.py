@@ -21,13 +21,19 @@ app.state，直接 service-locator 取用，不需要额外传参。
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
 
 from tianshu.application.continuation_recovery import ContinuationRecoveryService
 from tianshu.config import TianshuSettings
+from tianshu.evolution.reconciler import GenerationReconciler
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.dag_scheduler import DAGScheduler
 from tianshu.executor.executor import Executor
+from tianshu.executor.generation_controller import GenerationController
+from tianshu.executor.keqing.generation import PiGenerationBundle, PiReleaseMaterializer
+from tianshu.executor.keqing.pi_probe import verify_pi_rpc_contract
 from tianshu.executor.lanes import LaneManager
 from tianshu.executor.policy_hook import PolicyHook
 from tianshu.executor.worker_pool import WorkerPool
@@ -35,8 +41,20 @@ from tianshu.executor.workspace_runtime import WORKSPACE_MAIN_SOURCE_ID
 from tianshu.kernel.hooks import HookType
 from tianshu.skills.reviewer import SkillReviewHandler
 from tianshu.skills.validator import SkillValidator
+from tianshu.storage.generation_repo import GenerationRepository
 from tianshu.tools.policy import PolicyEngine
 from tianshu.tools.policy_rules import build_default_rules
+
+
+def _snapshot_binding_available(app: FastAPI) -> bool:
+    resolver = getattr(app.state, "system_snapshot_resolver", None)
+    if resolver is None:
+        return False
+    try:
+        resolver.resolve()
+    except Exception:  # noqa: BLE001 - readiness exposes only a stable failure code
+        return False
+    return True
 
 
 def wire_worker_lane(app: FastAPI, settings: TianshuSettings) -> None:
@@ -83,6 +101,48 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
 
     executor.set_official_selector(OfficialSelector(persona_loader))
     app.state.executor = executor
+
+    def generation_default_model(backend: str) -> str | None:
+        return config_manager.agent_config.keqing_default_models.get(backend) or None
+
+    artifact_root = Path(settings.artifact_dir).expanduser().resolve(strict=True)
+    if artifact_root.parent == artifact_root.parent.parent:
+        raise RuntimeError("artifact_dir must not be directly below the filesystem root")
+    managed_release_root = artifact_root.parent / "runtime-releases"
+    keqing_root = Path("~/.tianshu/keqing").expanduser()
+    materializer = PiReleaseMaterializer(
+        app.state.execution_gateway,
+        release_root=managed_release_root,
+        root=keqing_root,
+        default_model_provider=generation_default_model,
+    )
+
+    async def warm_generation(bundle: object) -> tuple[bool, str | None]:
+        if not isinstance(bundle, PiGenerationBundle):
+            return False, "unsupported_generation_bundle"
+        keqing_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        return await verify_pi_rpc_contract(
+            app.state.execution_gateway,
+            workspace_root=keqing_root,
+            binary_path=bundle.binary_path,
+        )
+
+    generation_repository = GenerationRepository()
+    generation_controller = GenerationController(
+        generation_repository,
+        storage.unit_of_work,
+        materializer,
+        executor.adapter_registry,
+        warm_probe=warm_generation,
+    )
+    app.state.generation_recovery_report = generation_controller.recover()
+    app.state.generation_controller = generation_controller
+    app.state.generation_reconciler = GenerationReconciler(
+        generation_repository,
+        storage.unit_of_work,
+        executor.adapter_registry,
+        snapshot_binding_available=lambda: _snapshot_binding_available(app),
+    )
 
     # --- DAGScheduler ---
     dag_scheduler = DAGScheduler(

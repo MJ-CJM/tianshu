@@ -18,6 +18,7 @@ from tianshu.models.attempt import (
 )
 from tianshu.models.canonical import RedactedError, canonical_json_bytes
 from tianshu.storage.correlation import correlation_for_memorial
+from tianshu.storage.system_snapshot_repo import SystemSnapshotRepository
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
 
@@ -134,6 +135,12 @@ def _insert_retry_attempt(
     created = _select_attempt(connection, attempt_id)
     if created is None:  # pragma: no cover - the insert established the identity
         raise AttemptConflict("attempt retry row disappeared")
+    SystemSnapshotRepository().inherit_generation_binding(
+        connection,
+        memorial_id=previous.memorial_id,
+        source_attempt_id=previous.attempt_id,
+        target_attempt_id=created.attempt_id,
+    )
     return created
 
 

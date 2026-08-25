@@ -51,7 +51,7 @@ class PiAdapter:
     name = "pi"
     # 直连档:放行常见 provider 自身鉴权变量(实际透传仍受 contract.secret_refs 门控);
     # P3 网关就位后切为 PI_GATEWAY_TOKEN + 网关 baseUrl,raw provider key 一律不列。
-    auth_env_vars = (
+    auth_env_vars: tuple[str, ...] = (
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_BASE_URL",
         "OPENAI_API_KEY",
@@ -62,8 +62,17 @@ class PiAdapter:
         "GROQ_API_KEY",
     )
 
+    def __init__(self, *, binary_path: str | Path | None = None) -> None:
+        # Legacy construction deliberately keeps the historical bare argv0.
+        # A materialized runtime generation injects its persisted absolute path.
+        self._binary_path = str(binary_path) if binary_path is not None else "pi"
+
+    @property
+    def binary_path(self) -> str:
+        return self._binary_path
+
     def build_argv(self, prompt: str, *, model: str | None = None) -> list[str]:
-        argv = ["pi", "--mode", "json", "--no-session", prompt]
+        argv = [self._binary_path, "--mode", "json", "--no-session", prompt]
         if model:
             argv += ["--model", model]
         return argv
@@ -188,7 +197,7 @@ class PiSessionAdapter:
 
     name = "pi"
     dialect = "pi"
-    auth_env_vars = PiAdapter.auth_env_vars
+    auth_env_vars: tuple[str, ...] = PiAdapter.auth_env_vars
     capabilities = AgentCapabilities(
         permission_shaping="none",  # P4 tianshu-guard 就位后升为 "full"
         hooks="none",  # P4 后升为 "in_process"
@@ -198,10 +207,22 @@ class PiSessionAdapter:
         usage_reporting="full",  # get_session_stats
     )
 
+    def __init__(self, *, binary_path: str | Path | None = None) -> None:
+        self._binary_path = str(binary_path) if binary_path is not None else "pi"
+
+    @property
+    def binary_path(self) -> str:
+        return self._binary_path
+
     def build_session_argv(
-        self, *, session_dir: str | None = None, model: str | None = None, resume: bool = False
+        self,
+        *,
+        session_dir: str | None = None,
+        model: str | None = None,
+        resume: bool = False,
+        binary_path: str | None = None,
     ) -> list[str]:
-        argv = ["pi", "--mode", "rpc"]
+        argv = [binary_path or self._binary_path, "--mode", "rpc"]
         if session_dir:
             argv += ["--session-dir", session_dir]
             # follow_up 续同一会话:--continue 让 pi 加载上次对话上下文(连续对话有记忆)。

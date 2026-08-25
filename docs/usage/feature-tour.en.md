@@ -289,10 +289,14 @@ approval.
 - **Entry**: **Frontier Lab [Experimental] → Guest Agents [Experimental]** → `/keqing`.
 - **What users can do**: inspect the installed and verified versions, capabilities, and governance
   state of Claude Code, Codex, Pi, and OpenCode, and configure default model and per-run budget.
+  When Pi is governed by the internal generation runtime, the page also shows its current
+  generation, state, active-run count, and last-good generation.
 - **Maturity**: experimental.
 - **Explicit boundary**: Tianshu does not auto-upgrade external CLIs, manage their credentials, or
-  execute them from this page. Reliable pre-action interception and provider-side hard cost limits
-  are unavailable. Installed version and verified compatibility baseline remain separate facts.
+  execute, stage, or activate them from this page. Pi generations currently expose internal
+  mechanics only; Candidate/Canary/Promotion authority is not connected. Reliable pre-action
+  interception and provider-side hard cost limits are unavailable. Installed version and verified
+  compatibility baseline remain separate facts.
 - **Related docs**: [Guest-agent Management Boundary](../design/keqing/management-page.md),
   [Current State](../CURRENT-STATE.md), [Capability Matrix](../launch/capability-matrix.md).
 

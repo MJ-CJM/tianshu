@@ -6,7 +6,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
-from tianshu.executor.adapters import PreparedExecutor
+from tianshu.executor.adapters import ExecutorGenerationUnavailable, PreparedExecutor
 from tianshu.executor.agent import Agent, AgentResult
 from tianshu.executor.workspace_context import (
     get_bound_workspace,
@@ -103,6 +103,13 @@ class Worker:
                         effective_contract_hash=node_executor.effective.content_hash,
                     )
                     bound.authorize_run(memorial.id)
+        except ExecutorGenerationUnavailable:
+            memorial.status = TaskStatus.FAILED
+            memorial.error = "pinned runtime generation is unavailable"
+            memorial.failure_reason = "generation_retired"
+            memorial.completed_at = datetime.now(UTC)
+            self._storage.update_memorial(memorial)
+            return AgentResult(status=TaskStatus.FAILED, error=memorial.error)
         except Exception as exc:
             memorial.status = TaskStatus.FAILED
             memorial.error = str(exc)
@@ -156,6 +163,14 @@ class Worker:
                 error="Node execution cancelled",
             )
             raise
+        except ExecutorGenerationUnavailable:
+            memorial.status = TaskStatus.FAILED
+            memorial.error = "pinned runtime generation is unavailable"
+            memorial.failure_reason = "generation_retired"
+            result = AgentResult(
+                status=TaskStatus.FAILED,
+                error=memorial.error,
+            )
         except Exception as e:
             memorial.status = TaskStatus.FAILED
             memorial.error = str(e)
