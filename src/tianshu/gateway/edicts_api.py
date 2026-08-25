@@ -59,6 +59,7 @@ from tianshu.models.governance_contract import (
     acceptance_policy_to_legacy,
 )
 from tianshu.storage import EdictArchiveConflict, Storage
+from tianshu.storage.edict_repo import InvalidAllowedPathGlob
 
 logger = logging.getLogger(__name__)
 
@@ -471,6 +472,15 @@ async def create_edict(body: EdictCreateRequest, request: Request, response: Res
             producer=f"gateway:{submitter}",
             correlation_id=auth.correlation_id,
         )
+    except InvalidAllowedPathGlob as invalid:
+        raise HTTPException(
+            422,
+            {
+                "code": "invalid_allowed_path_glob",
+                "path_glob": invalid.path_glob,
+                "message": invalid.reason,
+            },
+        ) from invalid
     except IdempotencyConflict as conflict:
         raise HTTPException(
             409,

@@ -276,7 +276,7 @@ specific-to-general order; unknown or custom exception types fail closed as
 non-retryable continuity failure outside the 17-value memorial taxonomy.
 Boundary: this convergence changes neither attempt budgets/backoff/fencing nor
 legacy outbox and transport-delivery retry behavior, and requires no migration.
-Status: implementation complete on Issue #100; merge pending. Focused execution,
+Status: merged into `feat/plugin-v1` via PR #101. Focused execution,
 attempt-ledger, fenced-completion, dispatcher, outbox, generation-continuity,
 capability, and workspace lifecycle regression: 240 passed. Full backend:
 5107 passed / 2 skipped with one unrelated macOS process-cleanup timing test
@@ -285,3 +285,26 @@ immediately in isolated rerun. Ruff check/format,
 mypy (141 source files), and all four import-linter contracts passed. Durable
 attempt assertions prove canonical RedactedError JSON is persisted unchanged in
 `execution_attempts.failure_json` across retry and budget exhaustion.
+
+=== Agent OS X3 / allowed_paths admission validation (2026-08-26) ===
+Decision: make `storage.edict_repo._insert_edict` the authoritative admission
+boundary and validate every `edict.runtime.policy_profile.allowed_paths` entry
+before the first Edict INSERT. The gate reuses `validate_allowed_path_glob` and
+rejects leading or trailing whitespace without trimming or normalizing the
+submitted value. Relative globs are exempt only when their exact value appears
+in the current `BUILTIN_TEMPLATES`; the exemption is derived from that constant,
+not from a hard-coded `**/*` literal or the client-writable `template_name`.
+Boundary: the change adds no migration, schema field, canonical-hash input, or
+historical-row validation. Exact replay reads the already accepted durable row
+without re-running the new gate, while a reused idempotency key with a changed
+invalid payload still returns the existing 409 conflict before validation. A
+fresh invalid submission raises the typed `InvalidAllowedPathGlob`, and the HTTP
+boundary maps only that exception to a stable 422 detail containing
+`code`, `path_glob`, and `message`; no Edict, requested contract, Memorial,
+outbox event, or idempotency row is written. Direct `Storage.save_edict()` uses
+the same gate and cannot bypass it.
+Status: implementation complete on Issue #102; merge pending. Focused
+application and HTTP admission contracts: 44 passed. Idempotency, governance
+contract persistence, workspace boundary, and path sandbox regression: 57
+passed. Ruff and all four import-linter contracts passed. The live migration
+tail remains V32.

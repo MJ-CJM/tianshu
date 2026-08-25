@@ -149,6 +149,103 @@ def test_http_body_key_remains_a_compatible_stable_source(storage, config_manage
     }
 
 
+def test_http_rejects_invalid_allowed_path_without_partial_submission(
+    storage,
+    config_manager,
+) -> None:
+    app = _app(storage, config_manager)
+
+    with TestClient(app, client=("127.0.0.1", 41000)) as client:
+        response = client.post(
+            "/api/edicts",
+            headers={"Idempotency-Key": "invalid-allowed-path"},
+            json={
+                "goal": "reject dangerous path",
+                "runtime": {"policy_profile": {"allowed_paths": ["/**"]}},
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {
+        "code": "invalid_allowed_path_glob",
+        "path_glob": "/**",
+        "message": "首段不能是通配符，会放行整个文件系统",
+    }
+    assert {
+        table: storage._conn.execute(  # noqa: SLF001 - HTTP atomicity proof
+            f"SELECT COUNT(*) FROM {table}"
+        ).fetchone()[0]
+        for table in (
+            "edicts",
+            "requested_governance_contracts",
+            "memorials",
+            "outbox_events",
+            "submission_idempotency",
+        )
+    } == dict.fromkeys(
+        (
+            "edicts",
+            "requested_governance_contracts",
+            "memorials",
+            "outbox_events",
+            "submission_idempotency",
+        ),
+        0,
+    )
+
+
+def test_http_idempotency_precedes_allowed_path_admission(storage, config_manager) -> None:
+    app = _app(storage, config_manager)
+    headers = {"Idempotency-Key": "allowed-path-idempotency"}
+    valid_payload = {
+        "goal": "stable path request",
+        "runtime": {"policy_profile": {"allowed_paths": ["/tmp/shared/**"]}},
+    }
+    invalid_conflict_payload = {
+        "goal": "changed path request",
+        "runtime": {"policy_profile": {"allowed_paths": ["/**"]}},
+    }
+
+    with TestClient(app, client=("127.0.0.1", 41000)) as client:
+        first = client.post("/api/edicts", headers=headers, json=valid_payload)
+        replay = client.post("/api/edicts", headers=headers, json=valid_payload)
+        conflict = client.post(
+            "/api/edicts",
+            headers=headers,
+            json=invalid_conflict_payload,
+        )
+
+    assert first.status_code == 202
+    assert replay.status_code == 200
+    assert replay.json()["metadata"]["deduplicated"] is True
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == {
+        "code": "idempotency_conflict",
+        "idempotency_key": "allowed-path-idempotency",
+    }
+    assert {
+        table: storage._conn.execute(  # noqa: SLF001 - idempotency durability proof
+            f"SELECT COUNT(*) FROM {table}"
+        ).fetchone()[0]
+        for table in (
+            "edicts",
+            "requested_governance_contracts",
+            "memorials",
+            "outbox_events",
+            "submission_idempotency",
+        )
+    } == dict.fromkeys(
+        (
+            "edicts",
+            "requested_governance_contracts",
+            "memorials",
+            "outbox_events",
+            "submission_idempotency",
+        ),
+        1,
+    )
+
+
 def test_http_constructs_one_command_and_calls_application_service_once(
     storage,
     config_manager,

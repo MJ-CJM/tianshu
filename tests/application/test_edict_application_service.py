@@ -12,7 +12,12 @@ import pytest
 from tianshu.models import Edict
 from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.canonical import JsonValue, canonical_json_bytes
-from tianshu.models.edict import EdictSchedule, LongRunningScheduleError
+from tianshu.models.edict import (
+    EdictRuntime,
+    EdictSchedule,
+    LongRunningScheduleError,
+    PolicyProfilePayload,
+)
 from tianshu.models.governance_contract import ObjectiveV1, RequestedGovernanceContractV1
 from tianshu.models.principal import (
     AuthContext,
@@ -22,6 +27,17 @@ from tianshu.models.principal import (
     PrincipalKind,
 )
 from tianshu.storage import Storage
+from tianshu.storage.edict_repo import InvalidAllowedPathGlob
+from tianshu.tools.policy_profile import BUILTIN_TEMPLATES
+
+_BUILTIN_RELATIVE_ALLOWED_PATH_GLOBS = sorted(
+    {
+        path_glob
+        for template in BUILTIN_TEMPLATES.values()
+        for path_glob in template.allowed_paths
+        if not path_glob.startswith("/")
+    }
+)
 
 
 def _application_types() -> tuple[type[Any], type[Any]]:
@@ -74,6 +90,173 @@ def _command(
 def _service(storage: Storage) -> Any:
     service_type, _ = _application_types()
     return service_type(storage)
+
+
+def _allowed_paths_command(
+    *allowed_paths: str,
+    template_name: str | None = None,
+    idempotency_key: str = "allowed-paths-request",
+) -> Any:
+    _, command_type = _application_types()
+    goal = "validate allowed path admission"
+    return command_type(
+        edict=Edict(
+            goal=goal,
+            runtime=EdictRuntime(
+                policy_profile=PolicyProfilePayload(
+                    allowed_paths=list(allowed_paths),
+                    template_name=template_name,
+                )
+            ),
+        ),
+        idempotency_key=idempotency_key,
+        requested_contract=RequestedGovernanceContractV1(objective=ObjectiveV1(goal=goal)),
+        extra_payload={},
+    )
+
+
+def _submission_table_counts(storage: Storage) -> dict[str, int]:
+    return {
+        table: storage._conn.execute(  # noqa: SLF001 - atomic admission proof
+            f"SELECT COUNT(*) FROM {table}"
+        ).fetchone()[0]
+        for table in (
+            "edicts",
+            "requested_governance_contracts",
+            "memorials",
+            "outbox_events",
+            "submission_idempotency",
+        )
+    }
+
+
+@pytest.mark.parametrize(
+    "bad_path",
+    [
+        "/**",
+        "/*",
+        "/",
+        "docs/**",
+        "~/secrets/**",
+        "/Users/example/.ssh/**",
+        " /tmp/shared/**",
+        "/tmp/shared/** ",
+        " **/*",
+        "**/* ",
+    ],
+)
+def test_allowed_paths_admission_rejects_before_any_submission_write(
+    storage: Storage,
+    bad_path: str,
+) -> None:
+    with pytest.raises(InvalidAllowedPathGlob) as caught:
+        _service(storage).submit(
+            _allowed_paths_command(bad_path),
+            auth=_auth(),
+            producer="test",
+            correlation_id="correlation-invalid-path",
+        )
+
+    assert caught.value.path_glob == bad_path
+    assert caught.value.reason
+    counts = _submission_table_counts(storage)
+    assert counts == dict.fromkeys(counts, 0)
+
+
+@pytest.mark.parametrize("allowed_path", ["/tmp/shared/**", *_BUILTIN_RELATIVE_ALLOWED_PATH_GLOBS])
+def test_allowed_paths_admission_accepts_absolute_and_exact_builtin_globs(
+    storage: Storage,
+    allowed_path: str,
+) -> None:
+    result = _service(storage).submit(
+        _allowed_paths_command(allowed_path),
+        auth=_auth(),
+        producer="test",
+        correlation_id="correlation-valid-path",
+    )
+
+    assert result.deduplicated is False
+    counts = _submission_table_counts(storage)
+    assert counts == dict.fromkeys(counts, 1)
+
+
+def test_builtin_relative_exemption_source_is_not_empty() -> None:
+    assert _BUILTIN_RELATIVE_ALLOWED_PATH_GLOBS
+
+
+def test_builtin_name_does_not_exempt_an_undeclared_relative_glob(storage: Storage) -> None:
+    with pytest.raises(InvalidAllowedPathGlob):
+        _service(storage).submit(
+            _allowed_paths_command("docs/**", template_name="refactor-in-place"),
+            auth=_auth(),
+            producer="test",
+            correlation_id="correlation-forged-template",
+        )
+
+
+def test_storage_save_edict_cannot_bypass_allowed_paths_admission(storage: Storage) -> None:
+    command = _allowed_paths_command("/**")
+
+    with pytest.raises(InvalidAllowedPathGlob):
+        storage.save_edict(command.edict)
+
+    assert storage.list_edicts()[1] == 0
+    assert (
+        storage._conn.execute(  # noqa: SLF001 - direct persistence boundary proof
+            "SELECT COUNT(*) FROM requested_governance_contracts"
+        ).fetchone()[0]
+        == 0
+    )
+
+
+def test_existing_submission_replay_precedes_new_admission_validation(
+    storage: Storage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tianshu.storage import edict_repo
+
+    service = _service(storage)
+    command = _allowed_paths_command("/**")
+    with monkeypatch.context() as historical:
+        historical.setattr(edict_repo, "_validate_allowed_paths_admission", lambda _edict: None)
+        service.submit(
+            command,
+            auth=_auth(),
+            producer="test",
+            correlation_id="correlation-first",
+        )
+
+    replay = service.submit(
+        command,
+        auth=_auth(),
+        producer="test",
+        correlation_id="correlation-replay",
+    )
+
+    assert replay.deduplicated is True
+    assert replay.edict.runtime.policy_profile is not None
+    assert replay.edict.runtime.policy_profile.allowed_paths == ["/**"]
+
+
+def test_idempotency_conflict_precedes_invalid_fresh_payload(storage: Storage) -> None:
+    service = _service(storage)
+    valid = _allowed_paths_command("/tmp/shared/**")
+    service.submit(
+        valid,
+        auth=_auth(),
+        producer="test",
+        correlation_id="correlation-first",
+    )
+
+    from tianshu.application.edicts import IdempotencyConflict
+
+    with pytest.raises(IdempotencyConflict):
+        service.submit(
+            _allowed_paths_command("/**", idempotency_key=valid.idempotency_key),
+            auth=_auth(),
+            producer="test",
+            correlation_id="correlation-conflict",
+        )
 
 
 def test_first_submit_persists_one_complete_canonical_transaction(storage: Storage) -> None:
