@@ -1,5 +1,6 @@
 """Built-in policy rules. Spec Section 3."""
 
+from tianshu.models.canonical import canonical_sha256
 from tianshu.tools.policy_rules.approval_required_list import ApprovalRequiredListRule
 from tianshu.tools.policy_rules.bash_safety import BashSafetyRule
 from tianshu.tools.policy_rules.default_tier import DefaultTierRule
@@ -19,6 +20,7 @@ __all__ = [
     "NetworkSafetyRule",
     "ApprovalRequiredListRule",
     "DefaultTierRule",
+    "ruleset_digest",
 ]
 
 
@@ -35,3 +37,9 @@ def build_default_rules() -> list:
         PersonaTierRule(),  # 15（官员越级奏请，须排在安全 deny 规则之后，#40）
         DefaultTierRule(),  # 10
     ]
+
+
+def ruleset_digest() -> str:
+    """Return the canonical identity of the built-in policy rule ordering."""
+
+    return canonical_sha256({rule.rule_id: rule.priority for rule in build_default_rules()})

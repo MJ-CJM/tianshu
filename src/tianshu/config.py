@@ -6,7 +6,7 @@ import re
 from typing import Literal, Self
 from urllib.parse import urlsplit
 
-from pydantic import field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_ASSISTANT_PERSONA_ID = "qb"
@@ -60,6 +60,15 @@ class TianshuSettings(BaseSettings):
     artifact_max_bytes: int = 100 * 1024 * 1024
     artifact_quota_bytes: int = 5 * 1024 * 1024 * 1024
     evolution_routing_secret: str = ""
+    system_snapshot_enabled: bool = True
+    system_snapshot_strict: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "system_snapshot_strict",
+            "TIANSHU_SNAPSHOT_STRICT",
+            "TIANSHU_SYSTEM_SNAPSHOT_STRICT",
+        ),
+    )
     host: str = "127.0.0.1"
     port: int = 8000
     security_mode: Literal["trusted-local", "secure-remote"] = "trusted-local"
@@ -205,6 +214,12 @@ class TianshuSettings(BaseSettings):
             or self.universe_archived_retention_days < 0
         ):
             raise ValueError("universe_archived_retention_days must be a non-negative integer")
+        return self
+
+    @model_validator(mode="after")
+    def validate_system_snapshot_switches(self) -> Self:
+        if self.system_snapshot_strict and not self.system_snapshot_enabled:
+            raise ValueError("system_snapshot_strict requires system_snapshot_enabled")
         return self
 
     @model_validator(mode="after")

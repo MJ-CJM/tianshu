@@ -64,6 +64,8 @@ def test_s5_appends_one_live_migration_with_all_future_owned_tables() -> None:
         "evolution_promotion_journal",
         "evolution_routing_allocations",
         "run_evolution_assignments",
+        "system_snapshots",
+        "run_system_bindings",
     }.issubset(tables)
     connection.close()
 

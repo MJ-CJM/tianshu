@@ -26,8 +26,8 @@ _NOW = datetime(2026, 7, 15, 8, tzinfo=UTC)
 
 class _PassthroughRouter:
     @contextmanager
-    def bind_runtime(self, memorial_id: str):
-        del memorial_id
+    def bind_runtime(self, memorial_id: str, *, attempt_id: str | None = None):
+        del memorial_id, attempt_id
         yield None
 
 

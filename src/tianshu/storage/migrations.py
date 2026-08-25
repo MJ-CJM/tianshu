@@ -4236,6 +4236,114 @@ def _consultation_rounds_upgrade(conn: MigrationConnection) -> None:
     conn.execute(_CONSULTATION_ROUNDS_BACKFILL)
 
 
+# --- V31: immutable system snapshots + per-attempt bindings ---
+
+_SYSTEM_SNAPSHOTS_VERSION = _CONSULTATION_ROUNDS_VERSION + 1
+_SYSTEM_SNAPSHOTS_NAME = f"{_SYSTEM_SNAPSHOTS_VERSION:04d}_system_snapshots"
+_SYSTEM_SNAPSHOTS_STATEMENTS = (
+    """
+    CREATE TABLE system_snapshots (
+        snapshot_digest TEXT PRIMARY KEY CHECK (
+            length(snapshot_digest) = 64
+            AND snapshot_digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+        components_json TEXT NOT NULL CHECK (
+            json_valid(components_json) AND json_type(components_json) = 'object'
+        ),
+        first_seen_at TEXT NOT NULL CHECK (length(trim(first_seen_at)) > 0)
+    )
+    """,
+    """
+    CREATE TABLE run_system_bindings (
+        memorial_id TEXT NOT NULL CHECK (length(trim(memorial_id)) BETWEEN 1 AND 256),
+        attempt_id TEXT NOT NULL CHECK (length(trim(attempt_id)) BETWEEN 1 AND 256),
+        snapshot_digest TEXT NOT NULL REFERENCES system_snapshots(snapshot_digest)
+            ON DELETE RESTRICT,
+        generation_ids_json TEXT NOT NULL DEFAULT '[]' CHECK (
+            json_valid(generation_ids_json) AND json_type(generation_ids_json) = 'array'
+        ),
+        created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
+        PRIMARY KEY (memorial_id, attempt_id)
+    )
+    """,
+    """
+    CREATE TRIGGER system_snapshots_no_replace
+    BEFORE INSERT ON system_snapshots
+    WHEN EXISTS (
+        SELECT 1 FROM system_snapshots WHERE snapshot_digest = NEW.snapshot_digest
+    ) BEGIN
+        SELECT RAISE(ABORT, 'system snapshot is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER system_snapshots_no_update
+    BEFORE UPDATE ON system_snapshots BEGIN
+        SELECT RAISE(ABORT, 'system snapshot is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER system_snapshots_no_delete
+    BEFORE DELETE ON system_snapshots BEGIN
+        SELECT RAISE(ABORT, 'system snapshot is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER run_system_bindings_no_replace
+    BEFORE INSERT ON run_system_bindings
+    WHEN EXISTS (
+        SELECT 1 FROM run_system_bindings
+        WHERE memorial_id = NEW.memorial_id AND attempt_id = NEW.attempt_id
+    ) BEGIN
+        SELECT RAISE(ABORT, 'run system binding is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER run_system_bindings_no_update
+    BEFORE UPDATE ON run_system_bindings BEGIN
+        SELECT RAISE(ABORT, 'run system binding is immutable');
+    END
+    """,
+)
+_SYSTEM_SNAPSHOTS_CHECKSUM = hashlib.sha256(
+    (
+        _SYSTEM_SNAPSHOTS_NAME
+        + "\n"
+        + "\n".join(" ".join(statement.split()) for statement in _SYSTEM_SNAPSHOTS_STATEMENTS)
+    ).encode("utf-8")
+).hexdigest()
+_SYSTEM_SNAPSHOTS_OBJECT_NAMES = tuple(
+    statement.split()[2]
+    for statement in _SYSTEM_SNAPSHOTS_STATEMENTS
+    if statement.lstrip().startswith(("CREATE TABLE", "CREATE TRIGGER"))
+)
+
+
+def _system_snapshots_upgrade(conn: MigrationConnection) -> None:
+    placeholders = ",".join("?" for _ in _SYSTEM_SNAPSHOTS_OBJECT_NAMES)
+    rows = conn.execute(
+        f"SELECT name, sql FROM sqlite_master WHERE name IN ({placeholders})",
+        _SYSTEM_SNAPSHOTS_OBJECT_NAMES,
+    ).fetchall()
+    if rows:
+        actual = {str(row[0]): " ".join(str(row[1]).split()) for row in rows}
+        expected = {
+            name: " ".join(statement.split())
+            for name, statement in zip(
+                _SYSTEM_SNAPSHOTS_OBJECT_NAMES,
+                _SYSTEM_SNAPSHOTS_STATEMENTS,
+                strict=True,
+            )
+        }
+        if actual != expected:
+            raise SchemaCompatibilityError(
+                "existing system snapshot schema does not match the live migration"
+            )
+        return
+    for statement in _SYSTEM_SNAPSHOTS_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
     Migration(
         version=_EVOLUTION_CANDIDATE_MIGRATION_VERSION,
@@ -4314,6 +4422,12 @@ MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
         name=_CONSULTATION_ROUNDS_NAME,
         checksum=_CONSULTATION_ROUNDS_CHECKSUM,
         upgrade=_consultation_rounds_upgrade,
+    ),
+    Migration(
+        version=_SYSTEM_SNAPSHOTS_VERSION,
+        name=_SYSTEM_SNAPSHOTS_NAME,
+        checksum=_SYSTEM_SNAPSHOTS_CHECKSUM,
+        upgrade=_system_snapshots_upgrade,
     ),
 )
 

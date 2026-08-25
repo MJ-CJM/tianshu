@@ -1,6 +1,6 @@
 # 当前实现与支持边界
 
-> 更新时间：2026-08-01<br>
+> 更新时间：2026-08-25<br>
 > 适用版本：`0.5.2`<br>
 > 适用范围：可信本地、单机、单节点 SQLite
 
@@ -39,8 +39,8 @@
 | 记忆 | 可用（有限边界） | 写入、召回、同步、删除并使用稳定标识 | 以当前支持的本地 Markdown/SQLite 路径为准；不宣称跨节点一致性 |
 | 成本与用量 | 可用 | 记录多模型/多 Provider token、缓存读取和取消任务成本 | 结果取决于 Provider 返回的用量与价格配置，不等于账单系统 |
 | Skills | 读取可用、变更受治理 | 在统一目录查看 live Skill、读取详情、为 Agent Skill Pin；API 可创建候选 | Web 不直接新建/编辑/delete/archive live；Persona 外部导入只预览 Skill、不安装；自动 reviewer/curator 默认关闭并在 LLM 前 fail fast |
-| 插件清单 | 实验、只读 | 查看本地发现的 manifest 元数据 | 不安装、不加载、不执行插件代码；安装与激活 API 明确返回 501 |
-| 自进化（Evolution） | 实验、可发现 | 从天工院的演化司查看候选、Gate、分流、回滚和当前启用状态 | 状态由后端 `evolution_status` 真实投影；完整 G4 仍为 `external_pending` |
+| 插件清单 | 实验、只读 | 查看本地发现的 manifest 元数据 | 不安装、不加载、不执行插件代码；安装与激活 API 明确返回 501；P1 典制归因没有改变这条边界 |
+| 自进化（Evolution） | 实验、影子归因 | 从天工院的演化司查看候选、Gate、分流、回滚和当前启用状态；新受管 attempt 成功影子绑定后，可从 assignment、Edict 详情及 Evidence artifact 核对 `SystemSnapshotV1` 内容摘要 | V31 只做典制内容身份与 per-attempt 双写；解析/写入/审计失败不阻断当前 run，`system_snapshot_strict` 尚未生效；dependency lock、policy 与 prompt 组件仍是部分投影；无 RuntimeGeneration、动态插件加载或自动晋升 |
 | 平行位面（Universes / Code variant） | 实验、可发现 | 从天工院的诸界台创建快照/分支、diff、评估、归档和恢复 | switch、rollback、promote-code 固定 fail closed；代码候选只到 evaluated/recommended |
 | 评测（Evals） | Beta、导航标记“试行”、可发现 | 从天工院的考功司查看真实评测集、运行、分数、失败分布和历史差异 | 数据为空时展示真实启动方式，不生成示例成绩 |
 | Keqing 外部执行器 | 实验、可发现且默认关闭 | 从天工院的客卿馆查看本机 adapter 状态；进入页面、每 15 秒及窗口重新聚焦时同步已安装 CLI 版本；当前本地 Pi `0.83.0` 已完成契约与离线 RPC 验证 | 不自动升级外部 CLI；新版本先标记“待兼容验证”，通过契约后才更新已验证基线；不属于黄金路径，且无 Provider 侧硬成本上限或自动晋升保证 |
@@ -66,7 +66,9 @@
 
 ## 数据、权限与迁移
 
-- 当前迁移序列为 V1–V24；V24 为通知 outbox 增加逐通道成功进度。
+- 当前迁移序列为 V1–V31；V31 `0031_system_snapshots` 追加不可变典制与 per-attempt
+  `run_system_bindings`，不回填存量 Memorial。两表采用严格 schema replay；bindings 允许随
+  Edict 物理删除清理，内容寻址 snapshot 不允许 replace、update 或 delete。
 - 普通远程身份仅能读取和操作自己拥有的任务；管理员拥有全局视图。
 - 旧数据中 `submitter` 为空的任务默认 fail closed，只允许管理员或可信本地模式访问。
 - 全局审计统计、网络事件、Worker 列表与状态、会话规则属于管理员能力。

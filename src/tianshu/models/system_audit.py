@@ -54,6 +54,8 @@ SYSTEM_AUDIT_METADATA_KEYS: dict[str, frozenset[str]] = {
     "notification.delivery.delivered": frozenset(
         {"attempt_count", "deadline_expired", "max_attempts"}
     ),
+    "system_snapshot_drift": frozenset(),
+    "system_snapshot_binding_failed": frozenset(),
 }
 
 

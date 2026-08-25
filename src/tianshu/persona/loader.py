@@ -14,6 +14,7 @@ path only — the git template is untouched. This mirrors the MEMORY.md pattern.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import shutil
 from datetime import UTC, datetime
@@ -21,6 +22,7 @@ from pathlib import Path
 
 import yaml
 
+from tianshu.models.canonical import canonical_sha256
 from tianshu.persona.model import AgentPersona
 
 logger = logging.getLogger(__name__)
@@ -95,6 +97,50 @@ class PersonaLoader:
 
     def get(self, persona_id: str) -> AgentPersona | None:
         return self._personas.get(persona_id)
+
+    def content_digest(self) -> str:
+        """Return a source-location- and timestamp-free digest of active behavior."""
+
+        if self._storage:
+            rows = self._storage.list_personas()
+        else:
+            rows = [persona.model_dump(mode="python") for persona in self._personas.values()]
+
+        personas = []
+        identity_files: dict[str, str] = {}
+        list_fields = (
+            "allowed_paths",
+            "delegates_to",
+            "skills_allowed",
+            "tools_allowed",
+            "tools_denied",
+        )
+        for row in sorted(rows, key=lambda item: str(item["id"])):
+            persona_id = str(row["id"])
+            projected: dict[str, object] = {
+                "can_delegate": bool(row.get("can_delegate", False)),
+                "department": row["department"],
+                "id": persona_id,
+                "llm_config_name": row.get("llm_config_name"),
+                "memory_global_read": bool(row.get("memory_global_read", False)),
+                "name": row["name"],
+                "title": row.get("title"),
+                "tool_tier_max": int(row.get("tool_tier_max", 4)),
+                "workspace_dir": str(row.get("workspace_dir", "")),
+            }
+            for field in list_fields:
+                projected[field] = sorted(str(value) for value in row.get(field, []))
+            personas.append(projected)
+
+            runtime_dir = self._runtime_dir / persona_id
+            for filename in _IDENTITY_FILES:
+                identity_path = runtime_dir / filename
+                if identity_path.is_file():
+                    identity_files[f"{persona_id}/{filename}"] = hashlib.sha256(
+                        identity_path.read_bytes()
+                    ).hexdigest()
+
+        return canonical_sha256({"identity_files": identity_files, "personas": personas})
 
     def save(self, persona: AgentPersona) -> None:
         """Save or update a persona in SQLite and in-memory cache."""

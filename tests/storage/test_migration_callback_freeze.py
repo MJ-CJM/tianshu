@@ -130,6 +130,8 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0030_consultation_rounds": (
         "2183d8b8fb5ce11e713f471ab44cf2b6bb1a1f841787b392a77b9db9d87e3c95"
     ),
+    # v31 appends immutable system snapshots and per-attempt bindings.
+    "0031_system_snapshots": ("877bc05eba9dfce696739fb8f754cd3e4d3eb7525b8e6263e1cab99cf4e814c2"),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

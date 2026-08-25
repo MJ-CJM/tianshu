@@ -176,6 +176,7 @@ export interface EdictEvidenceDetailV1 {
   created_at: string;
   closed_at: string | null;
   download_available: boolean;
+  system_snapshot_digest?: string | null;
   executor: {
     adapter_id: string;
     display_name: string;

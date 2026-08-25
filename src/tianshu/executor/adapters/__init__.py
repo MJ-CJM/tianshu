@@ -113,6 +113,14 @@ class ExecutorAdapterRegistry:
         except KeyError as exc:
             raise KeyError(f"unknown executor adapter: {adapter_id}") from exc
 
+    def manifest_digests(self) -> dict[str, str]:
+        """Return a sorted copy of the active adapter manifest content hashes."""
+
+        return {
+            adapter_id: self._adapters[adapter_id].manifest.content_hash
+            for adapter_id in sorted(self._adapters)
+        }
+
     def prepare(
         self,
         requested: RequestedGovernanceContractV1,

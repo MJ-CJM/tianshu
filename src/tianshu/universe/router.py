@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -12,8 +13,11 @@ from typing import Protocol
 
 from tianshu.evolution.runtime_context import (
     EvolutionRuntimeContext,
+    RunBindingContextV1,
     bind_evolution_runtime,
+    bind_run_binding,
 )
+from tianshu.evolution.system_snapshot import SystemSnapshotResolver
 from tianshu.models.canonical import JsonValue, canonical_json_bytes
 from tianshu.models.evolution_candidate import CandidateVersionRefV1
 from tianshu.models.run_assignment import (
@@ -26,7 +30,10 @@ from tianshu.storage.evolution_repo import (
     EvolutionRepository,
     EvolutionRepositoryDecodeError,
 )
+from tianshu.storage.system_snapshot_repo import SystemSnapshotRepository
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
+
+logger = logging.getLogger(__name__)
 
 
 class _Storage(Protocol):
@@ -86,6 +93,7 @@ class ChallengerRouter:
         allocation_secret: bytes | None = None,
         bucket_calculator: BucketCalculator = allocation_bucket,
         payload_resolver: PayloadResolver | None = None,
+        snapshot_resolver: Callable[[], SystemSnapshotResolver | None] | None = None,
         before_insert: BeforeInsert | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -93,9 +101,11 @@ class ChallengerRouter:
         self._allocation_secret = allocation_secret
         self._bucket_calculator = bucket_calculator
         self._payload_resolver = payload_resolver
+        self._snapshot_resolver = snapshot_resolver
         self._before_insert = before_insert
         self._clock = clock or (lambda: datetime.now(UTC))
         self._repository = EvolutionRepository()
+        self._snapshot_repository = SystemSnapshotRepository()
 
     def assign(self, memorial_id: str) -> Assignment:
         with self._storage.unit_of_work() as unit_of_work:
@@ -185,8 +195,14 @@ class ChallengerRouter:
         )
 
     @contextmanager
-    def bind_runtime(self, memorial_id: str) -> Iterator[EvolutionRuntimeContext | None]:
+    def bind_runtime(
+        self,
+        memorial_id: str,
+        *,
+        attempt_id: str | None = None,
+    ) -> Iterator[EvolutionRuntimeContext | None]:
         legacy = False
+        run_binding: RunBindingContextV1 | None = None
         with self._storage.unit_of_work() as unit_of_work:
             try:
                 loaded = self._repository.get_assignment(
@@ -200,6 +216,13 @@ class ChallengerRouter:
             assignment, overlay = loaded
             if isinstance(assignment, LegacyRunAssignmentV1):
                 legacy = True
+                run_binding = self._bind_system_snapshot(
+                    unit_of_work.connection,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt_id,
+                    assignment=assignment,
+                    overlay=None,
+                )
                 unit_of_work.commit()
             else:
                 assert overlay is not None
@@ -208,9 +231,20 @@ class ChallengerRouter:
                     assignment.selected_ref,
                     overlay,
                 )
+                run_binding = self._bind_system_snapshot(
+                    unit_of_work.connection,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt_id,
+                    assignment=assignment,
+                    overlay=overlay,
+                )
                 unit_of_work.commit()
         if legacy:
-            yield None
+            if run_binding is None:
+                yield None
+            else:
+                with bind_run_binding(run_binding):
+                    yield None
             return
         assert isinstance(assignment, RunAssignmentV1)
         assert overlay is not None
@@ -218,9 +252,59 @@ class ChallengerRouter:
             assignment=assignment,
             overlay=overlay,
             selected_payload=payload,
+            system_snapshot=(run_binding.system_snapshot if run_binding is not None else None),
         )
-        with bind_evolution_runtime(context):
-            yield context
+        if run_binding is None:
+            with bind_evolution_runtime(context):
+                yield context
+        else:
+            with bind_run_binding(run_binding), bind_evolution_runtime(context):
+                yield context
+
+    def _bind_system_snapshot(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        memorial_id: str,
+        attempt_id: str | None,
+        assignment: Assignment,
+        overlay: EffectiveEvolutionOverlayV1 | None,
+    ) -> RunBindingContextV1 | None:
+        if attempt_id is None or self._snapshot_resolver is None:
+            return None
+        try:
+            resolver = self._snapshot_resolver()
+            if resolver is None:
+                return None
+            snapshot = resolver.resolve_for_run(assignment, overlay)
+            result = self._snapshot_repository.try_insert_binding(
+                connection,
+                memorial_id=memorial_id,
+                attempt_id=attempt_id,
+                snapshot=snapshot,
+                generation_ids=(),
+            )
+        except Exception:
+            recorded = self._snapshot_repository.record_event(
+                connection,
+                action="system_snapshot_binding_failed",
+                memorial_id=memorial_id,
+                attempt_id=attempt_id,
+            )
+            if not recorded:
+                logger.warning(
+                    "system snapshot resolver failure could not be audited",
+                )
+            return None
+        if result is None:
+            logger.warning("system snapshot binding was not persisted")
+            return None
+        return RunBindingContextV1(
+            memorial_id=memorial_id,
+            attempt_id=attempt_id,
+            system_snapshot=result.binding.snapshot,
+            generation_ids=result.binding.generation_ids,
+        )
 
     def _load(
         self, memorial_id: str

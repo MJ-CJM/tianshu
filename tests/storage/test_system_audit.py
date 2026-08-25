@@ -120,6 +120,16 @@ def test_metadata_is_action_specific_fail_closed_and_never_persists_secret(
 
 
 @pytest.mark.parametrize(
+    "action",
+    ["system_snapshot_drift", "system_snapshot_binding_failed"],
+)
+def test_system_snapshot_actions_allow_exactly_empty_metadata(action: str) -> None:
+    assert _request(action=action).metadata == {}
+    with pytest.raises(ValidationError, match="metadata keys are not allowed"):
+        _request(action=action, metadata={"error": "must-not-persist"})
+
+
+@pytest.mark.parametrize(
     "metadata",
     [
         {"scope_count": 2.0},

@@ -205,3 +205,21 @@ Candidate: `docs/cc-fable-v1/evidence/lean-preview-candidate.json`; report:
 `docs/cc-fable-v1/reports/lean-developer-preview-candidate.md`. Visual and
 interaction approval remains `user_approval_pending`; publication remains
 `not_authorized`; the D8 list remains deferred and is not counted as passed.
+
+=== Agent OS P1 / V31 callback freeze decision (2026-08-25) ===
+Decision: accept one append-only live migration, `0031_system_snapshots`, before
+freezing its callback fingerprint. The callback adopts the V18 exact-object
+replay rule: all seven V31-owned objects must either be absent or match the
+authoritative normalized SQL exactly; partial or drifted schemas are rejected
+atomically, and already-authoritative rows are preserved without rewrite.
+Rationale: system snapshots and run bindings are durable identity evidence, so
+silent shape adoption or replacement would weaken replay and continuity proofs.
+Status: implementation and local verification complete; merge pending. V31
+checksum is `847ce32541b7196604dbaae43c0c49fce08d2f5eef2a98a81088cab4be434cb7`;
+callback fingerprint is
+`877bc05eba9dfce696739fb8f754cd3e4d3eb7525b8e6263e1cab99cf4e814c2`.
+Verification: 202 focused P1 tests; full backend 4806 passed / 2 skipped; Web
+typecheck, 338 tests, lint and production build; real demo proved identical
+snapshot digest across assignment, Edict detail and required Evidence artifact,
+while `system_snapshot_enabled=false` preserved execution with no binding or
+snapshot artifact.

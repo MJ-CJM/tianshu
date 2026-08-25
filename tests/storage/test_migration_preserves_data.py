@@ -62,6 +62,7 @@ _COMPLETE_MIGRATION_LEDGER = [
     (28, "0028_consultations"),
     (29, "0029_consultation_synthesizer"),
     (30, "0030_consultation_rounds"),
+    (31, "0031_system_snapshots"),
 ]
 _POST_BASELINE_TABLES = {
     "auth_tokens",
@@ -100,6 +101,9 @@ _POST_BASELINE_TABLES = {
     "consultations",
     # v30 廷议升为多轮朝议（issue #55）
     "consultation_rounds",
+    # v31 运行期系统内容快照及每次 attempt 的不可变绑定
+    "system_snapshots",
+    "run_system_bindings",
 }
 _POST_BASELINE_INDEXES = {
     "idx_auth_tokens_principal",
@@ -144,6 +148,11 @@ _EVOLUTION_IMMUTABLE_TRIGGERS = {
     "evolution_promotion_journal_no_delete",
     "run_evolution_assignments_no_update",
     "run_evolution_assignments_no_delete",
+    "system_snapshots_no_replace",
+    "system_snapshots_no_update",
+    "system_snapshots_no_delete",
+    "run_system_bindings_no_replace",
+    "run_system_bindings_no_update",
 }
 _V042_OWNED_TABLE_MANIFEST = (
     48,
