@@ -39,14 +39,17 @@
 |---|---|---|---|---|---|---|
 | **P0** 术语冻结与 Ring 0 守卫 | 评审 §3.6 | ADR/术语/import-linter 就位，后续每步有锚 | ADR-0013/0014、CONTEXT.md 三词条、import-linter 补层、评审文档 V25→V31 勘误、docs/plan 落盘 | 无 | 2 天（2 天） | 文档与 ADR；无 UI 变化 |
 | **P1**（PR-1）SystemSnapshotV1 影子双写 | PR-1 | 每个 run 能回答"我用了什么"，零行为变化 | `SystemSnapshotV1` + 4 个 `content_digest()` + Resolver + `system_snapshot_repo` + `bind_runtime` 双写 + Evidence 挂 artifact | **V31** | 4–5 天（≈7 天） | Evidence 下载包里多一个 system-snapshot artifact；（可选）edict 详情/assignment API 显示 digest |
-| **P2**（PR-2）ContributionHandle | PR-2 | 六类注册表贡献可归属、可逆序卸载 | `plugins/contribution.py` + Tool/Channel/Skills unregister + PluginApi 返回 handle + `dispose_owner` | 无 | 1–2 天（≈9 天） | 无 UI 变化；MCP 断连残留工具可被干净清理（隐性修复） |
-| **P3**（PR-3a）Pi 执行器代际与 continuity 固定 | PR-3a | stage/warm/activate/drain + 引用计数 + follow-up 固定旧代 | `RuntimeGenerationV1` + `generation_repo` + registry 代际 API + `pi_probe` + `GenerationReconciler` + 继承规则 | **V32** | 1.5–2 周（≈19 天） | keqing status 页多"代际"列（active/last-good/活跃 run 数）；换代期间长任务/会话不换 Pi 版本 |
-| **P4**（PR-4，**提前**；拆 4a/4b 两 PR）按 subject 独立灰度 + EvolutionPolicy | PR-4 | 拆全局单 canary；每插件一行 frozen/manual/canary | `evolution_policies` 表 + propose/start_canary 执法 +（4b）`run_subject_assignments` 双写 + `get_routable_candidates` + overlays dict | **V33、V34** | 1.5–2 周 + conftest fixture 解耦先行小 PR ≈1 天（≈30 天） | Evolution Center routing 按 subject 分行；policy API 可冻结单个插件的进化（enabled 与进化正交）；两插件可并行灰度 |
-| **P5**（PR-3b，**后移**）CandidateKind.EXECUTOR 全链路 | PR-3b | 漂移→候选→Gate→canary→Decision→换代/回滚闭环 | 枚举 + kind CHECK 重建 + Executor 两个 adapter + 漂移巡检 + 前端/CLI 投影 | **V35** | 1.5–2 周（含分支 A 子表连带重建 +2–3 天；≈40 天） | 客卿馆 Pi 版本漂移出现治理候选，可全链走到换代与回滚；"代际"列联动 |
-| **P6**（PR-5）进程级 snapshot 重启与 last-good | PR-5 | serve 启动校验 snapshot；binding 翻转 fail-closed | `serve --system-snapshot` + strict 模式 + `scope='process'` 指针入 GenerationReconciler | 无 | 3–4 天（≈44 天） | `tianshu serve --system-snapshot`；启动漂移审计/strict 拒启提示 last-good |
-| **P7** 声明式内容每 run 冻结视图 | 评审"PR-4 之后" | SkillsWatcher 退出 active 直改；每 run 冻结 skills 视图 | `freeze_view` + watcher 只失效缓存 + `frozen_views` 入 runtime context | 无 | 4 天–1 周（≈49 天） | 运行中 run 不受 SKILL.md 热改/晋升影响（行为保证，UI 无显） |
+| **P2**（PR-2）ContributionHandle | PR-2 | 六类注册表贡献可归属、可逆序卸载 | `plugins/contribution.py` + Tool/Channel/Skills unregister + PluginApi 返回 handle + `dispose_owner` + dispose 身份校验（Codex A2） | 无 | 1.5–2.5 天（≈9.5 天） | 无 UI 变化；MCP 断连残留工具可被干净清理（隐性修复） |
+| **P3**（PR-3a）Pi 执行器代际与 continuity 固定 | PR-3a | stage/warm/activate/drain + 引用计数 + follow-up 固定旧代 | `RuntimeGenerationV1` + `generation_repo` + registry 代际 API + `pi_probe` + `GenerationReconciler` + 继承规则 + receipt 绝对路径/版本与 EventBus 等待夹具（Codex B8/B9） | **V32** | 1.5–2 周 + 2 天（≈21.5 天） | keqing status 页多"代际"列（active/last-good/活跃 run 数）；换代期间长任务/会话不换 Pi 版本 |
+| **P4**（PR-4，**提前**；拆 4a/4b 两 PR）按 subject 独立灰度 + EvolutionPolicy | PR-4 | 拆全局单 canary；每插件一行 frozen/manual/canary | `evolution_policies` 表 + propose/start_canary 执法 + canary partial unique index + `save_candidate` 执法收口（Codex A3）+（4b）`run_subject_assignments` 双写 + `get_routable_candidates` + overlays dict | **V33、V34** | 1.5–2 周 + 2 天 + conftest fixture 解耦先行小 PR ≈1 天（≈34.5 天） | Evolution Center routing 按 subject 分行；policy API 可冻结单个插件的进化（enabled 与进化正交）；两插件可并行灰度 |
+| **P5**（PR-3b，**后移**）CandidateKind.EXECUTOR 全链路 | PR-3b | 漂移→候选→Gate→canary→Decision→换代/回滚闭环 | 枚举 + kind CHECK 重建 + Executor 两个 adapter + 漂移巡检 + 前端/CLI 投影 | **V35** | 1.5–2 周（含分支 A 子表连带重建 +2–3 天；≈44.5 天） | 客卿馆 Pi 版本漂移出现治理候选，可全链走到换代与回滚；"代际"列联动 |
+| **P6**（PR-5）进程级 snapshot 重启与 last-good | PR-5 | serve 启动校验 snapshot；binding 翻转 fail-closed | `serve --system-snapshot` + strict 模式 + `scope='process'` 指针入 GenerationReconciler | 无 | 3–4 天（≈48.5 天） | `tianshu serve --system-snapshot`；启动漂移审计/strict 拒启提示 last-good |
+| **P7** 声明式内容每 run 冻结视图 | 评审"PR-4 之后" | SkillsWatcher 退出 active 直改；每 run 冻结 skills 视图 | `freeze_view` + watcher 只失效缓存 + `frozen_views` 入 runtime context | 无 | 4 天–1 周（≈53.5 天） | 运行中 run 不受 SKILL.md 热改/晋升影响（行为保证，UI 无显） |
+| **并行轨** Codex 借鉴独立项 | §8.2 | 堵现存洞 + 基建门禁，不占关键路径 | X1 WS 所有权过滤（**立即**）· X2 重试判据收敛 · X3 allowed_paths 受理校验 · X4 schema 落盘 + CI 门禁（P3 前）· X5 路由 scope 表（P4a 前） | 无 | 8–10 天（可与 P0–P2 同期由第二会话承担） | secure-remote 下 WS 不再越权可见；新契约/新路由漏登记即 CI 红 |
 
-总计 ≈ 9–11 周。依赖关系：P1→P3→P4→P5→P6；P2 与 P1 可并行；P4a（policy 表）与 P3 可并行开发；P7 依赖 P1（skills digest 已入 snapshot 可做影子比较）与 P4（runtime context 已是多值形态）。
+总计 ≈ 10–12 周（并入 Codex 借鉴项后；并行轨若无第二会话再 +8–10 天）。依赖关系：P1→P3→P4→P5→P6；P2 与 P1 可并行；P4a（policy 表）与 P3 可并行开发；P7 依赖 P1（skills digest 已入 snapshot 可做影子比较）与 P4（runtime context 已是多值形态）。
+
+> **2026-08-25 增补**：[Codex harness 借鉴分析](../reference/openai-codex-harness-analysis.md)的裁决已并入本方案——4 条写进 P2/P3/P4a 规格（关键路径 +4–5 天），5 条走独立并行轨，其余等主线收官后单开迭代。逐条见 [§8](#8-codex-harness-借鉴并入项2026-08-25-裁决)。
 
 **与评审 PR 顺序的唯一结构性调整**：评审顺序是 PR-3b（EXECUTOR）→ PR-4（per-subject）；本方案对调为 P4（per-subject）→ P5（EXECUTOR）。理由：现路由 `get_routable_candidate` 对 >1 canary 直接抛 `multiple canary routing authorities`（[../../src/tianshu/storage/evolution_repo.py](../../src/tianshu/storage/evolution_repo.py):270-278），评审顺序下 EXECUTOR 灰度会挤占全局唯一 canary 槽（Pi 灰度期间任何 skill 不能灰度），且要先为"挤占语义"写一批行为测试、PR-4 再全部重写（test_promotion_fail_closed.py 1433 行 + test_rollback_fault_matrix.py 跨文件 import 其私有 fixture，连坐两次）。对调后 EXECUTOR 候选一出生就在 per-subject 世界，行为测试只重写一次，不留过渡语义。PR-3a（代际机械本身）不依赖 canary，仍在 P3 先行。连带地，迁移顺序为 V33 `0033_evolution_policies`、V34 `0034_run_subject_assignments`（两表 kind CHECK **从建表起即含 `'executor'`**——DB 超集无害，免二次重建）、V35 `0035_executor_candidate_kind`。
 
@@ -394,7 +397,7 @@ CREATE TABLE run_system_bindings (
 
 ---
 
-### 阶段 P2（PR-2）：ContributionHandle（≈1–2 天，可与 P1 并行）
+### 阶段 P2（PR-2）：ContributionHandle（≈1.5–2.5 天，可与 P1 并行）
 
 **目标**：六类注册表贡献可归属（owner）、可逆序卸载（dispose_owner）；修掉 `register_command` hasattr 挂属性与 Tool/Channel/Skills 无卸载原语（MCP 断连工具残留这类现实 bug 的根因）。**不引入 generation 概念，不动执行器**（评审 §3.3：与代际无关，现在就能做）。
 
@@ -410,6 +413,7 @@ CREATE TABLE run_system_bindings (
 | 修改 | src/tianshu/skills/loader.py:276 | `_injected_skills` 转正为 `__init__` 字段（`for_workspace_overlay` :162-163 的 hasattr 复制路径同步简化）；新增 `def unregister_skill(self, name: str) -> bool`：pop + `_l1_cache.pop` + L2 失效 |
 | 修改 | src/tianshu/plugins/api.py:52-122 | 每个 `register_*` 加 keyword-only `owner: str` 并返回 `ContributionHandle`（依赖为 None 时返回 no-op handle + warning，保持"依赖可为 None 静默 no-op"契约）；`register_tool` 显式传 `on_conflict="error"`（插件路径冲突结构化诊断）；`register_skill` 去掉 hasattr guard（方法实际存在 loader.py:276）；`_commands` 转正为 `__init__` 字段（:117-121）；dispose 闭包：tool→`ToolRegistry.unregister`、hook→`HookRegistry.unregister`（hooks.py:78 已有）、channel→新 unregister、provider→`ProviderManager.unregister`（manager.py:282 已有，demo_mode 返回 False 照实透传）、skill→新 `unregister_skill`、command→pop；新增 `self._contributions: dict[str, list[ContributionHandle]]` 与 `def dispose_owner(self, owner: str) -> int`（逆序 dispose + 清账） |
 | 不动 | src/tianshu/executor/adapters/__init__.py:103 `replace` | 只加 docstring 弃用注释（"P3 起由代际 API 接管，仅供装配/测试"），不改行为——3 处 E2E seam（test_executor_workspace_lifecycle.py:166/354/1242）与 `Executor.set_agent`（executor.py:148）依赖它 |
+| 新增不变量（Codex A2） | src/tianshu/plugins/contribution.py + 各 dispose 闭包 | `ContributionHandle` 记录注册瞬间的被注册对象引用（`target: object`）；dispose 摘除前做**身份校验**——in-memory 注册表（tool / channel / skill / command）要求 `registry[name] is handle.target` 且 owner 一致才删，否则 no-op 并写 SystemAudit `contribution_dispose_stale`；hook 类直接复用 hooks.py:78-80 已有的 `e.handler is not handler` 语义；provider 类落 SQLite 无内存槽位，只做 owner 记账比对（规格明写此豁免）。`dispose_owner` 逐条走同一校验，返回 `(disposed, skipped_stale)`，skipped_stale 不计失败、不阻断。**动机**：上表 `on_conflict` 缺省 `"replace"` 之后，MCP 断连重连或 wiring_persona 覆盖式重注册会让旧 handle 的 dispose 静默摘掉新对象且无审计痕迹——codex 唯一的 unregister（ext/goal/src/api.rs:336）正是用 `ptr_eq` 堵这个洞 |
 
 **数据迁移**：无。
 
@@ -421,6 +425,7 @@ CREATE TABLE run_system_bindings (
 |---|---|
 | tests/test_plugin_api.py（扩展，评审点名文件） | 注册六类各一 → `dispose_owner` → 各注册表恢复原状（ToolRegistry 定义为 None、hook 链空、channel 还原、injected 无残留、_commands 无残留）；on_conflict="error" 重名给结构化诊断（异常含 name + existing_owner）；部分注册表缺席（None 依赖）时 dispose 不炸 |
 | tests/test_plugin_api.py（循环压测） | 100 次「register 六类→dispose_owner」循环后，六个注册表内部结构（_tools/_owners/_channels/_injected_skills/_commands/hook 链）与初始状态逐项相等（contribution 泄漏断言——评审 Phase 2 退出条件『连续 100 次…无 contribution 泄漏』的循环化） |
+| tests/test_plugin_api.py（Codex A2） | 注册 tool `x`（owner=A）→ 同名 replace 注册（owner=B）→ dispose_owner(A)：`x` 仍是 B 的对象、返回 skipped_stale=1、SystemAudit 含 `contribution_dispose_stale`；provider 类只比对 owner |
 | tests/tools/test_registry_and_builtins.py（不改断言，补用例） | 既有三参调用通过；unregister 后 execute 报 unknown tool、disabled 集合清理 |
 | tests/notifier/test_channel_registry_unregister.py（新） | unregister 后 send_all 不再触达；限流窗口清理 |
 | 回归 | wire_persona submit_edict 覆盖注册与 MCP 重连路径全量跑不红；tests/tools/test_persona_acl_enforcement.py、tests/gateway/test_plugin_manifest_api.py 原样绿 |
@@ -430,14 +435,15 @@ CREATE TABLE run_system_bindings (
 - [ ] dispose_owner 逆序卸载且注册表状态与注册前逐项相等
 - [ ] create_app 双 profile（live/demo）启动冒烟绿；插件面 fail-closed 测试不红
 - [ ] MCP server 断连/重连场景手工验证 stale 工具可被 dispose
+- [ ] （Codex A2）覆盖式重注册后旧 handle dispose 不摘新对象，且留审计
 
-**回退方式**：revert PR；无持久化、无外部依赖，纯代码回退安全。**工作量**：≈1–2 天。
+**回退方式**：revert PR；无持久化、无外部依赖，纯代码回退安全。**工作量**：≈1.5–2.5 天（含 Codex A2）。
 
 **决策与取舍**：①`on_conflict` 缺省值——目标纯度案取 "error"（收紧，但要求全仓 register 调用点清点且有未知覆盖点炸启动的风险）；风险优先/最小改动案取 "replace"（现状零改动）。**采纳 "replace" 缺省 + 插件路径显式 "error"**——优先级②（每步不破坏）压过③（纯度）；全局收紧为 error 列入延期项（附全仓清点清单后再做）。②`ExecutorAdapterRegistry.replace` 三案一致不在本阶段动（评审原建议"改组合或删除"被否决——它是 E2E seam）。③HookRegistry 核心签名不改（owner 记账留在 PluginApi 层），三案一致。
 
 ---
 
-### 阶段 P3（PR-3a）：Pi 执行器代际与 continuity 固定（V32，≈1.5–2 周）
+### 阶段 P3（PR-3a）：Pi 执行器代际与 continuity 固定（V32，≈1.5–2 周 + 2 天）
 
 **目标**：`keqing:pi` 换代 = stage → warm → activate 指针原子切换：新 run 取 active 代、运行中 run 固定其 acquire 的代、follow-up 继承 root 的代（代已 disposed → fail-closed `generation_retired`）、cron 每次 fire 取当时 active、DAG 子节点与基础设施重试继承 root、warm 失败指针不动、引用归零才 dispose、保留 last-good。`GenerationReconciler` 扩自 `EvolutionRollbackReconciler`。本阶段**不接 Promotion**（无治理入口触发换代），换代治理闭环在 P5。
 
@@ -470,6 +476,9 @@ CREATE TABLE run_system_bindings (
 | src/tianshu/gateway/keqing_api.py:90-124 | status 行加 `"generation": {"id", "state", "active_runs", "last_good_id"} | None`（非代际 scope 为 None；active_runs 取内存账本）；web/src/api/types.ts:440 KeqingBackendStatus 加同名字段；KeqingManagementPage.tsx:107-158 加「代际」列；i18n 三份 locale 补 key |
 | src/tianshu/config.py | 加 `executor_generation_enabled: bool = False`（env `TIANSHU_EXECUTOR_GENERATION_ENABLED`，deny-by-default）——门控的是"谁能 stage"（P5 的晋升适配器与漂移巡检接线），registry 本身走隐式单代模式无需开关 |
 | 新增 | tests/architecture/test_generation_authority.py | AST 扫描（仿 test_promotion_authority.py:8）：`'active'/'draining'/'disposed'` 等 generation 状态与 generation_pointers 写点仅限 generation_repo / ExecutorAdapterRegistry / GenerationReconciler / 启动序列 |
+| 修改（Codex B8） | src/tianshu/executor/execution_gateway/policy_models.py:318 `ExecutionReceipt` + src/tianshu/executor/keqing/executor.py:97 | receipt 新增两个带默认值的可选字段 `executable_version: str \| None = None`、`executable_version_source: Literal["package_json","pinned","unverified"] = "unverified"`（schema_version 保持 "1"，纯追加）；准备阶段对**全部** keqing backend（不只 pi）用 `shutil.which` + `Path.resolve(strict=True)` 把 argv[0] 换成绝对路径再交网关，gateway.py:294 现有的 `executable=request.command_argv[0]` 自然记绝对路径；版本来源复用上表 versions.py；为 claude-code/codex/opencode 补 `PINNED_*_VERSION` 常量（对齐 PINNED_PI_VERSION），**drift 只上报不拦截**、读不到就是 unverified。不动 EvidenceSnapshotV1、不动 parse_stream。「按版本区间 ExecutionDenied」延期到跑满一个 canary 周期有漂移数据后再议（§6） |
+| 规格注记（Codex §4 #2） | `ExecutorAdapterRegistry.activate` | 收敛顺序写死为**先立新、后撤旧**：同一 UoW 内先把 pointer.active 切到新代、`_generations` 已持有新 adapter，再把旧 active 置 draining；反序会出现无 active 代的窗口（codex windows-sandbox deny_read_state.rs:22 同款硬约束） |
+| 新增（Codex B9，本阶段首个 commit） | tests/support/waiting.py | `async def await_event(bus, predicate, *, timeout)`：在 EventBus（bus/event_bus.py:53）挂临时订阅 + 缓冲已到达事件（谓词不匹配的进 deque，下次先查缓冲），配 `drain()` / `seen_types()` 断言「没有多余事件」。**硬规则：所有等待必须带谓词，timeout 只作失败上界不作同步原语**。本阶段故障注入矩阵与 P4b 并行灰度测试全部用它，不再 sleep |
 
 #### 数据迁移（V32 `0032_runtime_generations`，V18 严格模板）
 
@@ -525,6 +534,7 @@ CREATE TABLE generation_pointers (
 | tests/application/test_generation_continuity.py（新） | follow-up 继承 root 代；root 代 disposed → `generation_retired` 结构化错误（409 面）；cron fire 取当时 active；DAG 子节点/基础设施重试继承 root 且不产生新 acquire；bind 后切代不影响本 run（pinned）；继承不改 ManagedRunCommand 幂等指纹（test_managed_run_ingress.py:198 replay-先于-busy 保持） |
 | tests/evolution/test_generation_reconciler.py（新） | draining 归零收敛；启动恢复矩阵；readiness 并入信号；父类段与 generation 段两段串行、无重入（不嵌套加锁）；与 rollback reconcile 互不干扰 |
 | tests/architecture/test_generation_authority.py（新） | AST 扫描入 CI |
+| tests/executor/keqing/test_executable_resolution.py（新，Codex B8） | 四个 backend argv[0] 均为绝对路径；PATH 上不存在 → 明确错误而非裸名透传；receipt 含 version 与 source；读不到版本 = unverified 且不拒绝 |
 | 存量影响 | test_executor_workspace_lifecycle.py（replace seam）不 stage 时不红；test_evolution_composition.py 若断言 reconciler 类型需同步（保留 alias 可免改）；tests/compat/test_executor_capabilities.py 不改；tests/gateway/test_keqing_status.py 只加字段断言（gateway_enabled 恒 False 等既有锁不动） |
 
 #### 验收 checklist
@@ -533,10 +543,11 @@ CREATE TABLE generation_pointers (
 - [ ] warm 失败 active/last-good 不变；旧任务完成后旧代 disposed；follow-up/长任务全程单代；cron 每 fire 取 active
 - [ ] demo 栈手工：stage 新 pi（同版本亦可）→ warm → activate → 起长任务 → 再换代 → follow-up 仍在旧代（binding generation_ids 证明）→ 任务完成后旧代 disposed
 - [ ] 不 stage 时全量测试与主干等价；test_promotion_authority + test_generation_authority AST 绿
+- [ ] （Codex B8/B9）ExecutionReceipt 记绝对路径 + 版本；本阶段新增测试零 `sleep` 同步
 
 **回退方式**：不 stage 新代（隐式单代模式即现状），GenerationReconciler 的 generation 分支由空表天然短路；极端 revert 代码，V32 表闲置无害。
 
-**工作量**：≈1.5–2 周。
+**工作量**：≈1.5–2 周 + 2 天（Codex B8/B9）。
 
 **决策与取舍**：
 1. **开关形态**：风险优先案给 registry 双路径 + 全局 flag；最小改动案纯隐式（未 stage = 旧路径，无 flag）；目标纯度案 flag 默认关。**采纳"隐式单代模式 + flag 只门控 stage 入口（P5 接线）"**——registry 不养双路径（最少过渡债），回退能力等价（没人 stage 就是现状），flag 保留 ops 级收权。
@@ -554,7 +565,7 @@ CREATE TABLE generation_pointers (
 
 **前置依赖**：P1（binding/overlay digest 语义）。与 P3 无硬依赖，可并行开发、先后合入均可。
 
-#### P4a 改动清单（EvolutionPolicy，≈2–3 天）
+#### P4a 改动清单（EvolutionPolicy，≈4–5 天，含 Codex A3）
 
 | 动作 | 文件:符号 | 内容 |
 |---|---|---|
@@ -565,6 +576,8 @@ CREATE TABLE generation_pointers (
 | 修改 | src/tianshu/evolution/promotion.py:784 | `start_canary` 前置追加：① 有效 mode（行值或 default_mode_for）≠ `canary` → `PromotionConflict("policy_forbids_canary")`（manual 的"Decision 后放行"延期，本轮一律拒）；② allocation ≤ `min(contract.max_canary_allocation_basis_points, policy.max_canary_basis_points)`（无 `or` 回退；无策略行时只用 contract 上限——『显式 0=禁止 allocation』与『未配置』不共用一个值）；③ **写侧排他收紧**：`SELECT 1 FROM evolution_candidates WHERE lifecycle='canary' AND kind=? AND subject_key=? AND candidate_id<>?` 命中 → `PromotionConflict("subject_canary_exists")`（读侧全局唯一 evolution_repo.py:270-278 兜底暂不动，4b 收窄；写侧既有 self-routing 检查 :826-827 保留——该收紧在"全局本就只许 1 canary"现状下不可能命中新拒绝，行为面零变化） |
 | 修改 | src/tianshu/evolution/promotion.py:935-943（promote durable 预检链同段） | **第三个执法点**：promote 前置读有效 mode，mode == 'frozen' → `PromotionConflict("subject_frozen")`（与高危 Decision 门并列，都是地板——否则候选进 CANARY 后管理员翻 frozen 仍可一路 PROMOTED：PROMOTED 仅可自 CANARY 进入（evolution_candidate.py:59-85），propose/start_canary 两个既有执法点拦不到在途候选）；rollback 不受 policy 限制（回滚永远放行）。ADR-0013 明写取舍：『frozen 拦 propose/start_canary/promote 三点；已在途候选允许完成评测（stage/evaluate 不拦，避免中途撕裂 staging 状态机——对 domain-and-governance §8 frozen 行「允许评测=否」的偏离为有意取舍），但不得进入流量与晋升』 |
 | 新增 | src/tianshu/gateway/evolution_api.py 端点 | `GET/PUT /api/evolution/policies/{subject_key}`（admin scope；`{data, correlation_id}` 信封 :50-53 风格；PUT body = mode/max_canary_basis_points + expected_version CAS；403/409 映射沿 :156-161；**PUT 成功在同一 UoW 内写 SystemAudit 事件 `evolution_policy_updated`**（payload 含 subject_key/old_mode/new_mode/old_bp/new_bp/actor/correlation_id，走既有 _append_system_audit_unlocked + outbox 通道——治理面配置变更事后可查））。**不复活** plugins install/activate 501 |
+| 修改（Codex A3-a） | src/tianshu/storage/migrations.py V33 同块 | 在 `0033_evolution_policies` 迁移块追加 `CREATE UNIQUE INDEX idx_evolution_candidates_subject_canary ON evolution_candidates(kind, subject_key) WHERE lifecycle='canary'`（定位为 **P4b per-subject 灰度的第三道墙**，全局唯一仍由 evolution_repo.py:270-278 读侧 + 上表③写侧 SELECT 共守）。同 PR 必带：① tests/evolution/test_evolution_migration_schema.py 的 `_declared_v18_objects` / `_unique_column_sets` 登记新索引（否则锁定测试必红）；② `save_candidate` 的 IntegrityError 捕成 `EvolutionRepositoryConflict("subject_canary_exists")`，promotion 层映 409；③ 迁移前存量体检 `SELECT kind, subject_key, count(*) FROM evolution_candidates WHERE lifecycle='canary' GROUP BY 1,2 HAVING count(*)>1` |
+| 修改（Codex A3-b） | src/tianshu/storage/evolution_repo.py:545 `save_candidate` | 策略执法**下沉到唯一 UPDATE 路径**：`target_lifecycle in {CANARY, PROMOTED}` 时读有效 mode（行值或 default_mode_for），frozen → 拒；≠canary 且 target=CANARY → 拒。这一处结构上罩住 gates / promotion×4 / candidate_service 全部现有及未来写点，是**写前校验不是写后改写**（不碰 append-only），也不误伤 stage/evaluate（ADR-0013 取舍原样成立）。上表 propose/start_canary/promote 三个入口检查保留为早拒（好错误码、零 artifact 副作用），不再是唯一防线。同步扩 tests/architecture/test_promotion_authority.py 扫描集，断言 policy 判定只在 evolution_repo 一处实现。**不做** codex 的「写后压平」与 probe 端点——前者与 append-only 冲突，后者由 `GET /policies/{subject_key}` 已覆盖 |
 
 **V33 DDL**（V18 严格模板；可变表无触发器，仿 evolution_routing_allocations）：
 
@@ -579,6 +592,10 @@ CREATE TABLE evolution_policies (
   version                 INTEGER NOT NULL CHECK(version > 0),
   updated_at              TEXT NOT NULL
 );
+
+-- Codex A3-a：P4b per-subject 排他的 DB 墙（同一迁移块）
+CREATE UNIQUE INDEX idx_evolution_candidates_subject_canary
+  ON evolution_candidates(kind, subject_key) WHERE lifecycle='canary';
 ```
 
 > kind CHECK **从 V33 起即含 'executor'**：枚举 P5 才加值，DB 先行超集无害（无人写入该值），免二次重建——最少过渡债。
@@ -636,6 +653,7 @@ CREATE TABLE run_subject_assignments (
 |---|---|
 | tests/storage/test_durable_schema_v33.py / v34.py（新）+ freeze 登记 ×2 | 形状；mode CHECK 拒 'auto'；kind CHECK 收 'executor' 拒未知值；UNIQUE(memorial_id,kind,subject_key)；条件 no_delete 语义；前序冻结 |
 | tests/evolution/test_evolution_policy.py（新） | frozen 拒 propose（零 artifact 副作用）且不影响该 subject 现役 payload 解析；manual/非 canary 拒 start_canary；canary 放行；bp=min(contract,policy)；缺省 skill=canary/其余=manual；upsert CAS 冲突；PUT 端点鉴权与幂等且同 UoW 落 `evolution_policy_updated` 审计；CANARY 中翻 frozen → promote 409（subject_frozen）、rollback 放行 |
+| tests/evolution/test_evolution_policy.py（Codex A3） | 绕过 PromotionService 直调 `save_candidate` 把 frozen subject 推到 CANARY → 拒（执法在 repo 层生效）；同 (kind,subject_key) 第二行 canary 直插 → IntegrityError 映 `subject_canary_exists`/409；迁移形状测试含新索引 |
 | tests/universe/test_multi_subject_routing.py（新） | 两 subject（skill:foo + skill:bar 或 skill+persona）并行 canary：各自分桶独立命中（统计断言仿 tests/evolution/test_routing_distribution.py）、各自 sticky、重启/重试不重分桶；同 subject 双 canary → conflict；**影子等值**：单 canary 时旧表行与主干产物逐字节相同、新表行与旧行内容等值；新表行随事务原子回滚（仿 test_challenger_routing.py:754）；rollback 单 subject 置零不动他 subject |
 | tests/application/test_generation_continuity.py（扩，P3 建） | 同一 conversation 连续 N 次 follow-up 的 selected_ref 恒定（canary 选择随 continuity sticky）；canary 结束（promote/rollback）后 follow-up 收敛 champion |
 | 改写存量（4b） | test_promotion_fail_closed.py：排他用例改 per-subject + 新增"不同 subject 可并存"正例（**test_rollback_fault_matrix.py:13-20 import 其私有 fixture，两文件连坐同步**——建议先行小 PR 把 `_contract/_candidate/_service` 提为共享 conftest helper）；tests/evolution/test_routing_distribution.py 扩多 subject 分布；test_s4_s5_handoff.py 布局断言更新 |
@@ -648,12 +666,13 @@ CREATE TABLE run_subject_assignments (
 - [ ] `skill:foo` 与 `skill:bar`（P5 后加 `executor:keqing:pi`）并行 canary，各自 sticky、各自 rollback、互不干扰
 - [ ] 用户可保持某插件 enabled 同时 frozen（frozen 后 propose 409、现役运行不受影响）——验收标准"单个插件可保持 enabled 同时 frozen"达成
 - [ ] 同 subject 冲突 fail-closed 未弱化；`Literal[False]` 未动；auto 双重不可表达（类型 + CHECK）
+- [ ] （Codex A3）partial unique index 已入 V33 且锁定测试已登记；policy 执法在 `save_candidate` 单点生效（AST 断言）
 - [ ] bind 热路径成本测量：N subject 时候选读次数线性有界（N≤snapshot 组件上界 64）
 - [ ] 关闸（`evolution_routing_enabled=0`）后新 run 零 challenger、开闸后恢复且存量 assignment 不重分桶（全局 kill switch 验收）
 
 **回退方式**：4a 删 policy 行即回缺省；4b revert 代码 → 读写回旧表单 canary 语义（新表留存无害）；无运行时开关必要——0/1 canary 行为与主干等值，>1 canary 只是此前不可能的新能力。
 
-**工作量**：4a ≈2–3 天 + 4b 前置「conftest fixture 解耦」先行小 PR ≈1 天 + 4b 本体 ≈7–8 天。
+**工作量**：4a ≈4–5 天（含 Codex A3）+ 4b 前置「conftest fixture 解耦」先行小 PR ≈1 天 + 4b 本体 ≈7–8 天。
 
 **决策与取舍**：
 1. **P4 提前到 P5（EXECUTOR）之前**：目标纯度案的顺序（理由见 §0.3）；风险优先/最小改动案沿评审顺序。采纳提前——行为测试只重写一次、EXECUTOR 生在 per-subject 世界，是"最少过渡债"最大的一笔。
@@ -831,6 +850,8 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 | DB 级不变量 | system_snapshots / runtime_generation_journal 不可变触发器；`(scope) WHERE state='active'` 部分唯一索引；evolution_policies mode CHECK 无 'auto'；run_subject_assignments V22 同款条件 no_delete | P1/P3/P4 |
 | 类型级不变量 | `automatic_promotion_allowed: Literal[False]` 不动；`HIGH_RISK_PROMOTION_KINDS` frozenset 地板；EvolutionPolicyV1.mode Literal 三值 | P4/P5 |
 | 迁移纪律 | 每条 V31–V35：checksum + callback 指纹 + PROGRESS.md 裁决 + per-version 切片测试 + 空库回放可通 +（V35）`_RESERVED_TEMP_TABLES`；版本连续性由 test_durable_schema_v14.py:64 自动锁 | 各阶段 |
+| tests/architecture/test_route_scope_coverage.py（Codex B1，并行轨） | 每条路由模板恰好被 `_public_route` 与 `route_policy` 之一认领、无 0 命中僵尸规则；**P4a/P5 新增端点前合入**，新路由不登记即红 | 并行轨 → P4a 前 |
+| tests/architecture/test_response_contract.py（Codex B5 第二期，并行轨） | 已迁移 router 模块内新增路由必须带参数化 `response_model=ApiResponse[XxxView]`；P4a/P5 新端点从一开始就带具名 View 模型（实测现状：249 个操作仅 2 个有具名响应模型） | 并行轨 → P4a 前 |
 
 ### 4.2 API / 前端 / CLI 落点汇总
 
@@ -846,6 +867,7 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 | CLI | `tianshu serve --system-snapshot`（env 回灌）；`tianshu keqing status`（HTTP client，可选）；CLI 测试 `env -u FORCE_COLOR` | P6 / P5 |
 | e2e | 新 spec 按具名读契约注入模式（web/e2e/fixtures.ts helper）；复用 /evolution、/keqing 路由，CORE_ROUTES 不加新路由 | P3–P5 |
 | i18n | 三份 locale（en / zh-modern / zh-classic）同步；zh-classic「彩蛋」label 不动 | 各阶段 |
+| 新增端点契约纪律（Codex B5） | 本方案新增的每个端点（policies / assignment system_snapshot / keqing status generation / P5 候选投影）必须 `response_model=ApiResponse[XxxView]` + frozen View 模型；**不再新增裸 `response_model=ApiResponse`**。存量 117 处回填与 TS codegen 单开迭代（§8） | P1/P3/P4a/P5 |
 | 插件面 | install/activate 501 与 manifest_only 投影全程不动（tests/gateway/test_plugin_manifest_api.py）——本方案不打开任何动态加载 | 全程 |
 
 ### 4.3 可观测性
@@ -865,6 +887,7 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 | docs/launch/capability-matrix.md:36/38/40 | P1/P3/P4/P5 | 插件、Lean Core evolution、Keqing 三行按 8 列格式更新 Verified guarantee / non-guarantees / Evidence（链接本方案新增测试路径） |
 | docs/cc-fable-v1/PROGRESS.md | 每条迁移 | callback 指纹登记的裁决记录（freeze 测试 docstring 要求） |
 | docs/plan/2026-08-25-self-evolving-agent-os-landing.md | 每阶段 | 实施状态表逐阶段勾选 |
+| scripts/export_schemas.py `SCHEMA_EXPORTS`（Codex B3，并行轨合入后生效） | P1/P3/P4a | `SystemSnapshotV1` / `RuntimeGenerationV1` / `EvolutionPolicyV1` 各自阶段登记落盘；B3 未合入时在该阶段 PR 描述里注明「待登记」 |
 | docs/usage/feature-tour.md(+.en) | P3/P4b/P5 | 代际列、策略开关、候选链路的 UI 条目 |
 | docs/design/self-evolving-agent-os/* | P0 | 版本号勘误 + 评审 §5 的 7 条最小修订（含恢复 docs/impl/plugins/README.md 3 行转发页） |
 
@@ -915,6 +938,8 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 | prompt/harness 模板内容摘要入 SystemSnapshot 组件 | 延期（components key 白名单预留 `prompts`，加 key 不改 schema_version） | 现由 EvidenceSnapshotV1 的 plan_revision/effective_contract_hash 部分覆盖；模板数字化后补 `prompts` 组件（ADR-0014 组件清单同步注明） |
 | ToolRegistry `on_conflict` 缺省收紧为 "error" | 延期（附全仓 register 调用点清点清单后） | P2 决策：默认 replace 保现状 |
 | 子进程内感知 snapshot/generation（env 注入 TIANSHU_GENERATION_ID 等） | 延期 | 非不变量所需；binary_path 固化已保证正确性 |
+| 客卿二进制按版本区间 `ExecutionDenied`（Codex B8 PR-2） | 延期到 P3 跑满一个 canary 周期、有真实漂移数据后 | 先记录不拦截；`MINIMUM_SUPPORTED_CODEX_VERSION` 在 codex 里也只是 CI 偏斜测试常量而非运行时闸门 |
+| activate 前重读 `cli_version` 与 `release_digest` 比对（Codex A2 被砍的第 (2) 条最小形态） | 延期 | warm 已校验活体 session header version；唯一剩余漂移向量 cli_version 的价值等有数据再定；若做则复用 warm 失败路径、指针不动，不引入新事件类型 |
 | 真实 dependency_lock_hash | 延期另立 decision | 占位 '0'*64 双方（evidence 与 snapshot）同源即无假漂移 |
 | run_evolution_assignments 与 run_subject_assignments 最终合一（退役双写） | 待多 subject 稳定运行一个 minor 版本后评估 | §7 问题 3 |
 | Executor 命令面权限对齐（evaluate 仅 owner vs stage 允许 admin 的不对称） | 延期专项 | EXECUTOR 候选由 SYSTEM 巡检产生，先沿既有 SkillInstallService 样板 |
@@ -931,3 +956,51 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 5. **run_system_bindings 的删除语义**：本方案选"no_update 触发器 + 允许 DELETE + 不 FK memorials"（与敕令删除清理路径对齐，不可变权威副本在 Evidence artifact）。若要求 DB 级禁删（更强证据链），需确认敕令删除清理路径对 binding 表的处理（对照 V22 为 legacy assignment 开删除口的先例）并接受"删 edict 前先删 binding"的清理代码改动。
 6. **是否引入 `CandidateKind.EXECUTOR`（本方案推荐）vs 不动枚举、扩 subject 语义**：备选是复用 `kind=CODE` + `subject_key=executor:*` 前缀约定——省掉 V35 重建，但 adapter 分发/Gate 语义/前端投影都要按 subject 前缀特判，语义混淆且过渡债更重；三份方案与评审一致推荐新枚举值。**建议：EXECUTOR 枚举**，仅当 V35 落入问题 4 的最坏分支且不可接受时再议备选。
 7. **策略管理 UI 范围与两个可选交付**：P4 只落 policy API + Evolution Center 只读展示，还是同批落"天工院每插件一行三开关（enabled/pinned/evolution mode）"完整 UI（+3–4 天）？`tianshu keqing status` CLI 与 edict 详情页 `system_snapshot_digest` 投影（各 ~0.5 天）是否本轮交付？**建议：完整 UI 随 P4b、两个可选项随各自阶段顺带交付**；砍掉任何一项不影响主线。
+
+---
+
+## 8. Codex harness 借鉴并入项（2026-08-25 裁决）
+
+> 来源：[docs/reference/openai-codex-harness-analysis.md](../reference/openai-codex-harness-analysis.md)（13 组测绘 → 3 视角 → 7 组对抗证伪 → 终审）。本节回答「哪些并进 P0–P7、哪些并行、哪些等主线收官」，并已把并入项**逐条写进上文对应阶段的改动清单 / 测试清单 / 验收 checklist**（标 `Codex Xn`），此处只给总表。判据只有一条：**防的是正在写的代码或已存在的洞 → 并入；防的是半年后的漂移 → 并行轨；新接缝/新功能 → 收官后**。
+
+### 8.1 并入现有阶段（改规格，不加阶段；关键路径 +4–5 天）
+
+| 条目 | 并入 | 增量 | 为什么现在 |
+|---|---|---|---|
+| **A2** dispose 身份校验 | **P2** 改动清单新增不变量行 | +0.5 天 | 补 P2 自己拍板的 `on_conflict="replace"` 留下的洞；代码还没写，此刻定死最便宜 |
+| **A3-a** canary partial unique index | **P4a** 的 `0033` 迁移同块 | +1 天（锁定测试登记 + 409 映射 + 体检） | 索引键一次按 (kind, subject_key) 建好，P4b 免二次迁移 |
+| **A3-b** policy 执法收口 `save_candidate` | **P4a** | +1 天 | 三个入口检查靠人记得；唯一 UPDATE 路径一处兜住全部现有及未来写点 |
+| **B8** 二进制绝对路径 + 版本入 receipt | **P3**（`versions.py` 下移与 pi binary_path 固化本就在 P3） | +1 天 | 与 P3 同 PR 最省；P5 EXECUTOR canary 对比的可归因前提 |
+| **B9** EventBus 谓词等待夹具 | **P3** 首个 commit | +1 天 | P3 故障注入矩阵与 P4b 并行灰度都是多步时序，没有它只能 sleep |
+| §4 #2 先立新后撤旧 | **P3** `activate` 规格注记 | 0 | 一句话钉死收敛顺序 |
+| **B5** 新端点必须参数化 `response_model` | **§4.2** 纪律行 | ≈0（每端点 +10 行 View 模型） | 新增面从一开始就有类型，不再欠债；存量回填不在主线 |
+| **B3** 新契约登记 `SCHEMA_EXPORTS` | **§4.4** 文档表行 | 0（B3 并行轨合入后生效） | P1/P3/P4a 各自登记，避免回填 |
+
+### 8.2 独立并行轨（可交给第二个 codex 会话，与 P0–P2 同期；不占关键路径）
+
+| 代号 | 条目（规格见分析文档 §三对应节） | 成本 | 时点约束 |
+|---|---|---|---|
+| X1 | **A1** WS 出站所有权过滤 | S | **立即**——已实测确认的越权可见（secure-remote 下任一 api scope PAT 收到全部主体的 `stream.delta`）；`fix/` 分支单独 PR |
+| X2 | **B2** 重试判据收敛进 `models/failure.py` | S | 随时 |
+| X3 | **B7** 敕令受理期校验 allowed_paths glob | S | 随时 |
+| X4 | **B3** schema 落盘 + CI 汇总门禁 + clean-worktree | M | **P3 合入前**（P3 起有 `RuntimeGenerationV1` 要登记；P1 的 `SystemSnapshotV1` 由 B3 PR 自己补登记） |
+| X5 | **B1** 路由 scope 显式表 + 覆盖测试 | M | **P4a 合入前**（P4a 新增 policies 端点要登记）；三步走，先对拍再切换 |
+
+并行轨总量 ≈ 8–10 天；若无第二会话，则插在 P2 之后、P3 之前串行做，关键路径再 +8–10 天。
+
+### 8.3 主线收官后单开迭代
+
+| 条目 | 成本 | 为什么不并入 |
+|---|---|---|
+| **B4** 客卿凭证网关（钥匙不出治理层） | **XL** | 战略上最重要（叙事与实现裂缝最大），但体量决定它是 0.7.0 主线候选而不是顺手活；七处隐藏连带见分析文档。**不阻塞 P5**：EXECUTOR canary 对比两代 Pi 时模型出口相同，结论仍成立——P5 验收里注明「对比在同一模型出口下成立」 |
+| **B5** 存量 117 处 `response_model` 回填 + OpenAPI 导出 + TS codegen | L | 先做 codegen 会把 `data?: unknown` 固化成生成物；回填是体力活，不占主线 |
+| **B6** 插件坏 manifest 可见 + symlink 校验 | M | 审计可见性缺口，与 P2 无前置关系（原「owner 前置」叙事已被证否） |
+| **D1–D4** 位面 GC 窄判据 / WS 有界队列 / events 落库 redact / 错误信封统一 | S–L | 均为 P3 级；D4 是 L 且 69 处裸 detail 要清 |
+| hook 事件面上移治理链（Hooks UI 老待办的根源） | L | 新接缝：天枢只有 `on_before_tool_call` 一个事件，codex 有 9 个 + 完整引擎 |
+| `ContextFragment` 带 kind + 硬预算收编 | M | `PromptBuilder` 已有预算但是散落魔法数；收编成显式契约 + 总预算断言 |
+| 配置键 `Stage::Removed` 注册表 | S | 配置键永不删、只标 removed、加载时忽略并记 `legacy_usage` |
+| 「破坏性变更外部契约面」review 清单（HTTP API / SSE+WS 事件 / CLI 参数 / 配置加载 / 续跑） | S | 写进 `.claude/rules/`，可随任意 PR 顺带 |
+
+### 8.4 明确不并入（分析文档 §七 的 11 条）
+
+Starlark 策略 DSL、自建 OS 沙箱、code-mode/V8、`ext` 编译期扩展体系、exec-server 多进程边界与 daemon 自更新、marketplace 分发、HTTPS MITM、源码硬编码白名单与旁路开关、Bazel 双轨与运行时元编程、agent-identity/process-hardening、单文件巨兽。**本方案任何阶段不得以「codex 也这么做」为由引入上述任一项。**
