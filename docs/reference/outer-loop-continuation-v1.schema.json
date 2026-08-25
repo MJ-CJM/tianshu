@@ -1,0 +1,746 @@
+{
+  "$defs": {
+    "AgentContinuationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "agent",
+          "default": "agent",
+          "title": "Kind",
+          "type": "string"
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/$defs/PersistedChatMessageV1"
+          },
+          "title": "Messages",
+          "type": "array"
+        },
+        "pending_tool": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolProposalV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "iteration": {
+          "minimum": 0,
+          "title": "Iteration",
+          "type": "integer"
+        },
+        "usage": {
+          "$ref": "#/$defs/PersistedUsageSummaryV1"
+        },
+        "checkpoint_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Checkpoint Ref"
+        },
+        "pending_decision_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pending Decision Id"
+        },
+        "resolved_decision_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resolved Decision Id"
+        },
+        "side_effect_cursor": {
+          "minimum": 0,
+          "title": "Side Effect Cursor",
+          "type": "integer"
+        },
+        "plan_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Ref"
+        },
+        "plan_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Hash"
+        },
+        "plan_revision_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Revision Id"
+        },
+        "plan_revisions": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PlanRevisionV1"
+          },
+          "title": "Plan Revisions",
+          "type": "array"
+        },
+        "plan_snapshot": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Snapshot"
+        },
+        "scheduled_event_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scheduled Event Id"
+        },
+        "scheduled_event_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scheduled Event Hash"
+        }
+      },
+      "required": [
+        "messages",
+        "pending_tool",
+        "iteration",
+        "usage",
+        "checkpoint_ref",
+        "resolved_decision_id",
+        "side_effect_cursor"
+      ],
+      "title": "AgentContinuationV1",
+      "type": "object"
+    },
+    "IterationSummaryV1": {
+      "additionalProperties": false,
+      "properties": {
+        "iteration": {
+          "minimum": 0,
+          "title": "Iteration",
+          "type": "integer"
+        },
+        "level": {
+          "enum": [
+            "L0",
+            "L1",
+            "L2",
+            "L3"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "output_artifact_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Output Artifact Ref"
+        },
+        "critic_verdict": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Critic Verdict"
+        },
+        "critic_issue_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Critic Issue Class"
+        },
+        "feedback": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Feedback"
+        },
+        "usage": {
+          "$ref": "#/$defs/PersistedUsageSummaryV1"
+        },
+        "completed_at": {
+          "format": "date-time",
+          "title": "Completed At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "iteration",
+        "level",
+        "output_artifact_ref",
+        "critic_verdict",
+        "critic_issue_class",
+        "feedback",
+        "usage",
+        "completed_at"
+      ],
+      "title": "IterationSummaryV1",
+      "type": "object"
+    },
+    "JsonScalar": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/JsonScalar"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "PersistedChatMessageV1": {
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "enum": [
+            "system",
+            "user",
+            "assistant",
+            "tool"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "content": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/JsonValue"
+                },
+                "type": "object"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Content"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "tool_call_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Call Id"
+        },
+        "tool_calls": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/JsonValue"
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Calls"
+        },
+        "reasoning_content": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoning Content"
+        }
+      },
+      "required": [
+        "role",
+        "content"
+      ],
+      "title": "PersistedChatMessageV1",
+      "type": "object"
+    },
+    "PersistedUsageSummaryV1": {
+      "additionalProperties": false,
+      "properties": {
+        "prompt_tokens": {
+          "minimum": 0,
+          "title": "Prompt Tokens",
+          "type": "integer"
+        },
+        "completion_tokens": {
+          "minimum": 0,
+          "title": "Completion Tokens",
+          "type": "integer"
+        },
+        "total_tokens": {
+          "minimum": 0,
+          "title": "Total Tokens",
+          "type": "integer"
+        },
+        "cache_read_tokens": {
+          "minimum": 0,
+          "title": "Cache Read Tokens",
+          "type": "integer"
+        },
+        "cost_cny": {
+          "minimum": 0,
+          "title": "Cost Cny",
+          "type": "number"
+        },
+        "actual_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actual Model"
+        },
+        "upstream_provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Upstream Provider"
+        }
+      },
+      "required": [
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "cache_read_tokens",
+        "cost_cny",
+        "actual_model",
+        "upstream_provider"
+      ],
+      "title": "PersistedUsageSummaryV1",
+      "type": "object"
+    },
+    "PlanRevisionV1": {
+      "additionalProperties": false,
+      "description": "One immutable plan hash and its minimal Evidence-facing lineage facts.",
+      "properties": {
+        "revision_id": {
+          "title": "Revision Id",
+          "type": "string"
+        },
+        "parent_revision_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Revision Id"
+        },
+        "plan_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Hash",
+          "type": "string"
+        },
+        "reason_code": {
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "reason_summary": {
+          "maxLength": 4096,
+          "title": "Reason Summary",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision_id",
+        "parent_revision_id",
+        "plan_hash",
+        "reason_code",
+        "reason_summary",
+        "artifact_digest",
+        "created_at"
+      ],
+      "title": "PlanRevisionV1",
+      "type": "object"
+    },
+    "ToolProposalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "tool_call_id": {
+          "title": "Tool Call Id",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "arguments": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Arguments",
+          "type": "object"
+        },
+        "arguments_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Arguments Hash",
+          "type": "string"
+        },
+        "tool_tier": {
+          "title": "Tool Tier",
+          "type": "string"
+        },
+        "policy_rule_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Policy Rule Id"
+        },
+        "proposed_at": {
+          "format": "date-time",
+          "title": "Proposed At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool_call_id",
+        "tool_name",
+        "arguments",
+        "arguments_hash",
+        "tool_tier",
+        "policy_rule_id",
+        "proposed_at"
+      ],
+      "title": "ToolProposalV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "outer_loop",
+      "default": "outer_loop",
+      "title": "Kind",
+      "type": "string"
+    },
+    "level": {
+      "enum": [
+        "L0",
+        "L1",
+        "L2",
+        "L3"
+      ],
+      "title": "Level",
+      "type": "string"
+    },
+    "iteration": {
+      "minimum": 0,
+      "title": "Iteration",
+      "type": "integer"
+    },
+    "best_output": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Best Output"
+    },
+    "feedback": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Feedback"
+    },
+    "steer": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Steer"
+    },
+    "history": {
+      "items": {
+        "$ref": "#/$defs/IterationSummaryV1"
+      },
+      "title": "History",
+      "type": "array"
+    },
+    "same_issue_streak": {
+      "minimum": 0,
+      "title": "Same Issue Streak",
+      "type": "integer"
+    },
+    "last_critic_issue_class": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Last Critic Issue Class"
+    },
+    "l1_rounds_used": {
+      "minimum": 0,
+      "title": "L1 Rounds Used",
+      "type": "integer"
+    },
+    "l2_rounds_used": {
+      "minimum": 0,
+      "title": "L2 Rounds Used",
+      "type": "integer"
+    },
+    "consultation_advice": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Consultation Advice"
+    },
+    "usage": {
+      "$ref": "#/$defs/PersistedUsageSummaryV1"
+    },
+    "total_cost_cny": {
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "title": "Total Cost Cny",
+      "type": "string"
+    },
+    "checkpoint_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Checkpoint Ref"
+    },
+    "pending_decision_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pending Decision Id"
+    },
+    "resolved_decision_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Resolved Decision Id"
+    },
+    "side_effect_cursor": {
+      "minimum": 0,
+      "title": "Side Effect Cursor",
+      "type": "integer"
+    },
+    "plan_continuation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AgentContinuationV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "level",
+    "iteration",
+    "best_output",
+    "feedback",
+    "steer",
+    "history",
+    "same_issue_streak",
+    "last_critic_issue_class",
+    "l1_rounds_used",
+    "l2_rounds_used",
+    "consultation_advice",
+    "usage",
+    "total_cost_cny",
+    "checkpoint_ref",
+    "resolved_decision_id",
+    "side_effect_cursor"
+  ],
+  "title": "OuterLoopContinuationV1",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tianshu.dev/schemas/outer-loop-continuation-v1.schema.json",
+  "x-pydantic-version": "2.13.0"
+}

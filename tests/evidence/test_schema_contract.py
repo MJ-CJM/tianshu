@@ -7,8 +7,6 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
-from tianshu.evidence.models import ClosedEvidenceBundleV1
-
 from ._fixtures import evidence_service, seed_closed_run
 
 
@@ -26,14 +24,6 @@ def _closed_payload(storage, tmp_path) -> dict[str, object]:
     opened = service.build_open(memorial.id)
     closed = service.close(memorial.id, expected_version=opened.version)
     return json.loads(service.export(closed.bundle_id))
-
-
-def test_published_schema_is_generated_from_the_strict_bundle_model() -> None:
-    expected = ClosedEvidenceBundleV1.model_json_schema(mode="serialization")
-    expected["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-    expected["$id"] = "https://tianshu.dev/schemas/evidence-bundle-v1.schema.json"
-
-    assert _schema() == expected
 
 
 @pytest.mark.parametrize(

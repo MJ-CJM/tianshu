@@ -11,6 +11,7 @@ from typing import Annotated, Literal, Self, cast
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from tianshu.models.canonical import canonical_sha256
+from tianshu.models.schema_export import schema_for
 
 _DIGEST_PATTERN = r"^[0-9a-f]{64}$"
 _GIT_COMMIT_PATTERN = r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
@@ -246,17 +247,10 @@ def lean_preview_content_hash(value: BaseModel | Mapping[str, object]) -> str:
     return canonical_sha256(payload)
 
 
-def _schema_for(model: type[BaseModel], filename: str) -> dict[str, object]:
-    schema = model.model_json_schema(mode="serialization")
-    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-    schema["$id"] = f"https://tianshu.dev/schemas/{filename}"
-    return schema
-
-
 def lean_preview_demo_report_schema() -> dict[str, object]:
     """Return the deterministic behavioral JSON Schema for demo reports."""
 
-    schema = _schema_for(
+    schema = schema_for(
         LeanPreviewDemoReportV1,
         "lean-preview-demo-report-v1.schema.json",
     )
@@ -306,7 +300,7 @@ def lean_preview_demo_report_schema() -> dict[str, object]:
 def lean_preview_candidate_report_schema() -> dict[str, object]:
     """Return the deterministic behavioral JSON Schema for candidate reports."""
 
-    schema = _schema_for(
+    schema = schema_for(
         LeanPreviewCandidateReportV1,
         "lean-preview-candidate-report-v1.schema.json",
     )

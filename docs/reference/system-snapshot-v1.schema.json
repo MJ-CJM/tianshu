@@ -1,0 +1,34 @@
+{
+  "additionalProperties": false,
+  "description": "A deeply immutable, content-addressed system component manifest.",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "components": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "maxProperties": 64,
+      "title": "Components",
+      "type": "object"
+    },
+    "digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Digest",
+      "type": "string"
+    }
+  },
+  "required": [
+    "components",
+    "digest"
+  ],
+  "title": "SystemSnapshotV1",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tianshu.dev/schemas/system-snapshot-v1.schema.json",
+  "x-pydantic-version": "2.13.0"
+}

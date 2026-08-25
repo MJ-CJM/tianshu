@@ -1,0 +1,16 @@
+name: Check clean worktree
+description: Fail when CI leaves tracked or unignored files in the checkout
+
+runs:
+  using: composite
+  steps:
+    - name: Assert checkout is clean
+      shell: bash
+      run: |
+        set -euo pipefail
+        status="$(git -C "${GITHUB_WORKSPACE:?}" status --porcelain=v1 --untracked-files=all)"
+        if [[ -n "$status" ]]; then
+          printf '%s\n' "::error title=Dirty worktree::worktree is not clean after CI commands" >&2
+          printf '%s\n' "$status" >&2
+          exit 1
+        fi

@@ -1,0 +1,155 @@
+{
+  "$defs": {
+    "CapabilityDeclarationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "capability": {
+          "$ref": "#/$defs/CapabilityId"
+        },
+        "state": {
+          "$ref": "#/$defs/CapabilityState"
+        },
+        "evidence": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "capability",
+        "state"
+      ],
+      "title": "CapabilityDeclarationV1",
+      "type": "object"
+    },
+    "CapabilityId": {
+      "enum": [
+        "action_interception",
+        "workspace_control",
+        "network_control",
+        "secret_control",
+        "budget_enforcement",
+        "decision_bridge",
+        "pause",
+        "durable_resume",
+        "event_fidelity",
+        "artifact_export",
+        "side_effect_receipts",
+        "pre_run_restore_point",
+        "governed_apply_merge"
+      ],
+      "type": "string"
+    },
+    "CapabilityState": {
+      "enum": [
+        "enforced",
+        "best_effort",
+        "observed",
+        "unsupported"
+      ],
+      "title": "CapabilityState",
+      "type": "string"
+    },
+    "ExecutionMode": {
+      "enum": [
+        "single",
+        "dag",
+        "outer_loop"
+      ],
+      "type": "string"
+    },
+    "ExecutorLevel": {
+      "enum": [
+        "managed",
+        "contained",
+        "observe-only"
+      ],
+      "title": "ExecutorLevel",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "manifest_id": {
+      "minLength": 1,
+      "title": "Manifest Id",
+      "type": "string"
+    },
+    "manifest_version": {
+      "minLength": 1,
+      "title": "Manifest Version",
+      "type": "string"
+    },
+    "adapter_id": {
+      "minLength": 1,
+      "title": "Adapter Id",
+      "type": "string"
+    },
+    "display_name": {
+      "minLength": 1,
+      "title": "Display Name",
+      "type": "string"
+    },
+    "level": {
+      "$ref": "#/$defs/ExecutorLevel"
+    },
+    "experimental": {
+      "title": "Experimental",
+      "type": "boolean"
+    },
+    "execution_modes": {
+      "default": [
+        "single"
+      ],
+      "items": {
+        "$ref": "#/$defs/ExecutionMode"
+      },
+      "title": "Execution Modes",
+      "type": "array"
+    },
+    "capabilities": {
+      "items": {
+        "$ref": "#/$defs/CapabilityDeclarationV1"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "limitations": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    }
+  },
+  "required": [
+    "manifest_id",
+    "manifest_version",
+    "adapter_id",
+    "display_name",
+    "level",
+    "experimental",
+    "capabilities"
+  ],
+  "title": "ExecutorCapabilityManifestV1",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tianshu.dev/schemas/executor-capability-manifest-v1.schema.json",
+  "x-pydantic-version": "2.13.0"
+}

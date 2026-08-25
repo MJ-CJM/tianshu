@@ -1,0 +1,915 @@
+{
+  "$defs": {
+    "AcceptanceCheckV1": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "kind": {
+          "default": "bash",
+          "enum": [
+            "bash",
+            "lint",
+            "rubric"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "rubric": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rubric"
+        },
+        "weight": {
+          "default": 1.0,
+          "exclusiveMinimum": 0,
+          "title": "Weight",
+          "type": "number"
+        },
+        "pass_threshold": {
+          "default": 0.8,
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Pass Threshold",
+          "type": "number"
+        },
+        "timeout_seconds": {
+          "default": 60,
+          "exclusiveMinimum": 0,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "AcceptanceCheckV1",
+      "type": "object"
+    },
+    "AcceptancePolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "checks": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AcceptanceCheckV1"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "critic_persona_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Critic Persona Ids",
+          "type": "array"
+        },
+        "critic_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Critic Model"
+        },
+        "critic_same_issue_threshold": {
+          "default": 2,
+          "exclusiveMinimum": 0,
+          "title": "Critic Same Issue Threshold",
+          "type": "integer"
+        },
+        "critic_strictness": {
+          "default": "lenient",
+          "enum": [
+            "lenient",
+            "balanced",
+            "strict"
+          ],
+          "title": "Critic Strictness",
+          "type": "string"
+        },
+        "escalation_levels": {
+          "default": [
+            "L1",
+            "L2",
+            "L3"
+          ],
+          "items": {
+            "enum": [
+              "L1",
+              "L2",
+              "L3"
+            ],
+            "type": "string"
+          },
+          "title": "Escalation Levels",
+          "type": "array"
+        },
+        "l1_max_rounds": {
+          "default": 2,
+          "minimum": 0,
+          "title": "L1 Max Rounds",
+          "type": "integer"
+        },
+        "l2_max_rounds": {
+          "default": 1,
+          "minimum": 0,
+          "title": "L2 Max Rounds",
+          "type": "integer"
+        },
+        "l1_thinking_budget": {
+          "default": 8000,
+          "exclusiveMinimum": 0,
+          "title": "L1 Thinking Budget",
+          "type": "integer"
+        },
+        "l1_model_upgrade": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "L1 Model Upgrade"
+        },
+        "l2_consultation_personas": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "L2 Consultation Personas",
+          "type": "array"
+        },
+        "min_outer_iterations": {
+          "default": 1,
+          "exclusiveMinimum": 0,
+          "title": "Min Outer Iterations",
+          "type": "integer"
+        },
+        "max_outer_iterations": {
+          "default": 5,
+          "exclusiveMinimum": 0,
+          "title": "Max Outer Iterations",
+          "type": "integer"
+        },
+        "deadline_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deadline Seconds"
+        },
+        "on_exhaustion": {
+          "default": "escalate",
+          "enum": [
+            "escalate",
+            "best_effort",
+            "fail"
+          ],
+          "title": "On Exhaustion",
+          "type": "string"
+        },
+        "on_critic_unavailable": {
+          "default": "skip",
+          "enum": [
+            "escalate",
+            "skip"
+          ],
+          "title": "On Critic Unavailable",
+          "type": "string"
+        },
+        "on_approval_timeout": {
+          "default": "best_effort",
+          "enum": [
+            "fail",
+            "best_effort"
+          ],
+          "title": "On Approval Timeout",
+          "type": "string"
+        }
+      },
+      "title": "AcceptancePolicyV1",
+      "type": "object"
+    },
+    "BudgetPolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "token_limit": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token Limit"
+        },
+        "cost_limit_cny": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost Limit Cny"
+        },
+        "wall_clock_seconds": {
+          "default": 300,
+          "exclusiveMinimum": 0,
+          "title": "Wall Clock Seconds",
+          "type": "integer"
+        },
+        "max_iterations": {
+          "default": 20,
+          "exclusiveMinimum": 0,
+          "title": "Max Iterations",
+          "type": "integer"
+        },
+        "max_concurrency": {
+          "default": 1,
+          "exclusiveMinimum": 0,
+          "title": "Max Concurrency",
+          "type": "integer"
+        },
+        "retry_limit": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Retry Limit",
+          "type": "integer"
+        }
+      },
+      "title": "BudgetPolicyV1",
+      "type": "object"
+    },
+    "CapabilityDegradationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "capability": {
+          "$ref": "#/$defs/CapabilityId"
+        },
+        "manifest_state": {
+          "enum": [
+            "enforced",
+            "best_effort",
+            "observed",
+            "unsupported"
+          ],
+          "title": "Manifest State",
+          "type": "string"
+        },
+        "effective_state": {
+          "enum": [
+            "enforced",
+            "best_effort",
+            "observed",
+            "unsupported"
+          ],
+          "title": "Effective State",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "capability",
+        "manifest_state",
+        "effective_state",
+        "reason"
+      ],
+      "title": "CapabilityDegradationV1",
+      "type": "object"
+    },
+    "CapabilityId": {
+      "enum": [
+        "action_interception",
+        "workspace_control",
+        "network_control",
+        "secret_control",
+        "budget_enforcement",
+        "decision_bridge",
+        "pause",
+        "durable_resume",
+        "event_fidelity",
+        "artifact_export",
+        "side_effect_receipts",
+        "pre_run_restore_point",
+        "governed_apply_merge"
+      ],
+      "type": "string"
+    },
+    "CapabilityResolutionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "capability": {
+          "$ref": "#/$defs/CapabilityId"
+        },
+        "requested_mode": {
+          "enum": [
+            "mandatory",
+            "advisory",
+            "unrequested"
+          ],
+          "title": "Requested Mode",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "enforced",
+            "best_effort",
+            "observed",
+            "unsupported"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "evidence": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "capability",
+        "requested_mode",
+        "state"
+      ],
+      "title": "CapabilityResolutionV1",
+      "type": "object"
+    },
+    "ExecutorOptionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "title": "ExecutorOptionV1",
+      "type": "object"
+    },
+    "ExecutorSelectionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "adapter_id": {
+          "minLength": 1,
+          "title": "Adapter Id",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "config": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ExecutorOptionV1"
+          },
+          "title": "Config",
+          "type": "array"
+        }
+      },
+      "required": [
+        "adapter_id"
+      ],
+      "title": "ExecutorSelectionV1",
+      "type": "object"
+    },
+    "NetworkPolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "mode": {
+          "default": "deny",
+          "enum": [
+            "deny",
+            "allowlist",
+            "unrestricted_requested"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "allowed_hosts": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Hosts",
+          "type": "array"
+        },
+        "write_hosts": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Write Hosts",
+          "type": "array"
+        },
+        "methods": {
+          "default": [
+            "GET",
+            "HEAD"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Methods",
+          "type": "array"
+        }
+      },
+      "title": "NetworkPolicyV1",
+      "type": "object"
+    },
+    "ObjectiveV1": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "goal": {
+          "minLength": 1,
+          "title": "Goal",
+          "type": "string"
+        },
+        "context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context"
+        },
+        "output_format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Format"
+        },
+        "constraints": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Constraints",
+          "type": "array"
+        }
+      },
+      "required": [
+        "goal"
+      ],
+      "title": "ObjectiveV1",
+      "type": "object"
+    },
+    "PermissionPolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "approval_required_tools": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Approval Required Tools",
+          "type": "array"
+        },
+        "allowed_paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Paths",
+          "type": "array"
+        },
+        "allowed_bash_prefixes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Bash Prefixes",
+          "type": "array"
+        },
+        "tier_overrides": {
+          "default": [],
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Tier Overrides",
+          "type": "array"
+        },
+        "auto_approve_max_tier": {
+          "default": 1,
+          "maximum": 3,
+          "minimum": 0,
+          "title": "Auto Approve Max Tier",
+          "type": "integer"
+        },
+        "expires_after_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires After Seconds"
+        },
+        "policy_profile_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Profile Name"
+        },
+        "secret_refs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Secret Refs",
+          "type": "array"
+        },
+        "review_policy": {
+          "default": "never",
+          "enum": [
+            "never",
+            "on_failure",
+            "on_flag",
+            "always"
+          ],
+          "title": "Review Policy",
+          "type": "string"
+        }
+      },
+      "title": "PermissionPolicyV1",
+      "type": "object"
+    },
+    "RecoveryPolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "require_restore_point": {
+          "default": false,
+          "title": "Require Restore Point",
+          "type": "boolean"
+        },
+        "failure_cleanup": {
+          "default": "best_effort",
+          "enum": [
+            "required",
+            "best_effort",
+            "none"
+          ],
+          "title": "Failure Cleanup",
+          "type": "string"
+        },
+        "rollback_on_apply_failure": {
+          "default": true,
+          "title": "Rollback On Apply Failure",
+          "type": "boolean"
+        }
+      },
+      "title": "RecoveryPolicyV1",
+      "type": "object"
+    },
+    "WorkspacePolicyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        },
+        "base_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Revision"
+        },
+        "staging_mode": {
+          "default": "legacy_shared",
+          "enum": [
+            "legacy_shared",
+            "isolated",
+            "ephemeral"
+          ],
+          "title": "Staging Mode",
+          "type": "string"
+        },
+        "apply_mode": {
+          "default": "none",
+          "enum": [
+            "none",
+            "governed"
+          ],
+          "title": "Apply Mode",
+          "type": "string"
+        },
+        "require_clean_source": {
+          "default": false,
+          "title": "Require Clean Source",
+          "type": "boolean"
+        }
+      },
+      "title": "WorkspacePolicyV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "default": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "requested_contract_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Requested Contract Hash",
+      "type": "string"
+    },
+    "objective": {
+      "$ref": "#/$defs/ObjectiveV1"
+    },
+    "acceptance": {
+      "$ref": "#/$defs/AcceptancePolicyV1"
+    },
+    "executor": {
+      "$ref": "#/$defs/ExecutorSelectionV1"
+    },
+    "permissions": {
+      "$ref": "#/$defs/PermissionPolicyV1"
+    },
+    "network": {
+      "$ref": "#/$defs/NetworkPolicyV1"
+    },
+    "workspace": {
+      "$ref": "#/$defs/WorkspacePolicyV1"
+    },
+    "budget": {
+      "$ref": "#/$defs/BudgetPolicyV1"
+    },
+    "recovery": {
+      "$ref": "#/$defs/RecoveryPolicyV1"
+    },
+    "executor_manifest_id": {
+      "minLength": 1,
+      "title": "Executor Manifest Id",
+      "type": "string"
+    },
+    "executor_manifest_version": {
+      "minLength": 1,
+      "title": "Executor Manifest Version",
+      "type": "string"
+    },
+    "executor_manifest_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Executor Manifest Hash",
+      "type": "string"
+    },
+    "runtime_probe_id": {
+      "minLength": 1,
+      "title": "Runtime Probe Id",
+      "type": "string"
+    },
+    "effective_controls": {
+      "items": {
+        "$ref": "#/$defs/CapabilityResolutionV1"
+      },
+      "title": "Effective Controls",
+      "type": "array"
+    },
+    "unsupported_advisory": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/CapabilityId"
+      },
+      "title": "Unsupported Advisory",
+      "type": "array"
+    },
+    "degradations": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/CapabilityDegradationV1"
+      },
+      "title": "Degradations",
+      "type": "array"
+    },
+    "resolved_source_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resolved Source Id"
+    },
+    "resolved_base_revision": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resolved Base Revision"
+    }
+  },
+  "required": [
+    "requested_contract_hash",
+    "objective",
+    "acceptance",
+    "executor",
+    "permissions",
+    "network",
+    "workspace",
+    "budget",
+    "recovery",
+    "executor_manifest_id",
+    "executor_manifest_version",
+    "executor_manifest_hash",
+    "runtime_probe_id",
+    "effective_controls"
+  ],
+  "title": "EffectiveGovernanceContractV1",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tianshu.dev/schemas/effective-governance-contract-v1.schema.json",
+  "x-pydantic-version": "2.13.0"
+}

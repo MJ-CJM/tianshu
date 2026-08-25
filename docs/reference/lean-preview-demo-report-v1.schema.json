@@ -300,6 +300,7 @@
   "type": "object",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tianshu.dev/schemas/lean-preview-demo-report-v1.schema.json",
+  "x-pydantic-version": "2.13.0",
   "allOf": [
     {
       "if": {
