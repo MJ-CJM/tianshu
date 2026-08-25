@@ -15,6 +15,11 @@
 - install/activate 返回 501；
 - manifest 中的 dependencies、sha256、permissions、auto_install 仍是声明字段，不是已执行证明。
 
+Executor 域已经有一条可复用的 Capability seam：`ExecutorAdapterRegistry` 提供
+`register / replace / get / prepare / bind_effective`，每个 run 经 `prepare()` 得到
+`PreparedExecutor`；`ExecutorCapabilityManifestV1` 与执行模式在注册、绑定时校验。Pi 垂直
+切片因此不需要先新建通用 PluginHost，缺的是 generation、引用计数、last-good 与可逆卸载。
+
 事实入口：[当前插件扩展实现与支持边界](current-plugin-state.md)、
 [`PluginApi`](../../../src/tianshu/plugins/api.py)、
 [`providers_api.py`](../../../src/tianshu/gateway/providers_api.py#L154-L198)。
@@ -22,7 +27,8 @@
 当前插件体系因此缺少：
 
 - Package 验证和依赖解析；
-- 贡献所有权、统一 disposer 和 generation 边界；
+- Tool/Hook/Channel/Provider 等域的统一 Capability seam，以及跨注册表 contribution owner；
+- Executor seam 的 generation、引用计数、统一 disposer 和 last-good 边界；
 - side-by-side、warming、health、drain、last-good；
 - 插件级状态 schema、迁移和回滚；
 - 第三方代码隔离与 Secret Broker；

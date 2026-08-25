@@ -79,8 +79,11 @@ Web 只展示“仅清单”和发现时间，不把数据库中的历史 `activ
 - Policy、Decision 和凭据边界；
 - 失败、关闭和测试责任。
 
-当前进程级注册表没有统一 contribution owner、generation、disposer、依赖闭包和安全的
-单插件卸载语义，因此不能把这些 `register_*` 方法描述成目标态 PluginHost。
+现有注册表并非全部没有卸载原语：`HookRegistry.unregister` 与
+`ProviderManager.unregister` 已存在。真实缺口是 `ToolRegistry`、`ChannelRegistry` 和
+`ExecutorAdapterRegistry` 没有对应的安全 `unregister`，同时 `PluginApi` 没有跨注册表的
+contribution owner、统一 disposer、generation、依赖闭包与单插件逆序卸载语义。因此仍不能
+把这些 `register_*` 方法描述成目标态 PluginHost。
 
 ## 5. 为什么当前不开自动加载
 

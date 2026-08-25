@@ -33,9 +33,10 @@
 | `PluginLoader` / `PluginApi` | Manifest Catalog 与 PluginHost 分离 |
 | 进程级 Tool/Hook/Provider/Channel registry | generation-scoped、owner-aware Contribution Registry |
 | `RunAssignmentV1` 单 Candidate overlay | 完整 `ExecutionAssignment` + `SystemSnapshot` |
+| 单一全局 canary 权威 | 按 `(kind, subject_key)` 路由；同 subject 仍只允许一个 canary 并 fail closed，不同 subject 可并行灰度 |
 | 五种固定 `CandidateKind` | 保留兼容层，新增 `target_plugin_id + patch_surface` |
 | SkillsWatcher 直接刷新 active loader | 文件变化只产生 Candidate/新 generation，不影响活跃 continuity |
-| channel anchor、follow-up、各种 Session 概念 | 按 conversation/长任务 Edict、scheduled root、DAG/retry 分别确定 continuity binding；是否引入 AgentSession 另行 ADR |
+| channel anchor、follow-up、各种 Session 概念 | 按 conversation/长任务 Edict、scheduled root、DAG/retry 分别确定 continuity binding；首期不引入 AgentSession，未来出现跨 Edict 需求再另行 ADR |
 | `UniverseManager` | 保留 branch/diff/eval，保持无生产 active 所有权且不得恢复 live writer |
 | `PromotionService` 大类 | 逻辑拆分授权、Gate、分流、激活和回滚，但暂不拆服务 |
 | `Storage` 全局 facade | 插件只获得 namespaced repository/state handle |
@@ -59,8 +60,8 @@
 
 工作：
 
-- 为 Artifact、PluginRelease、PluginSetSpec、PluginSetSnapshot、RuntimeGeneration、
-  SystemSnapshot、ExecutionAssignment 编写 ADR 草案；
+- 只先写 ADR-0013（代际发布、治理微内核边界）和 ADR-0014（Memorial 绑定与 continuity
+  规则）；其余目标术语保留在设计词汇表，不提前各建一个 ADR；
 - 冻结第一阶段 continuity 规则：conversation/长任务 Edict 固定、scheduled root 每次选择、
   DAG/retry 继承 root Assignment；AgentSession 暂不引入；
 - 用 characterization tests 锁定 ingress、fencing、Evidence、Candidate 和 rollback；
@@ -79,7 +80,7 @@
 - 将当前 `wire_*` 装配解析为 `builtin/default` PluginSetSnapshot；
 - 为旧数据建立 `legacy/default` snapshot；
 - 在 Memorial、RunState、Evidence 中双写 SystemSnapshot digest，并写入合成的
-  `legacy/default` runtime identity；该 identity 仅证明当前进程归属，不代表 Phase 2 的
+  `legacy/default` runtime identity；该 identity 仅证明当前进程归属，不代表真实的
   side-by-side RuntimeGeneration 已经存在；
 - 引入 `ExecutionAssignment`，但继续使用现有运行路径；
 - 对双写结果做 shadow comparison，不改变 active 行为。
@@ -92,24 +93,7 @@
 - `legacy/default` 不会被 UI/API 误报为已经具备 warming、drain 或动态卸载；
 - 关闭新双写后旧路径仍保持行为兼容。
 
-### Phase 2：Generation-aware built-in PluginHost
-
-工作：
-
-- 建立 owner/effect/disposer；
-- built-in 通过新 Capability seam 注册；
-- 实现依赖解析、side-by-side generation、warming、health、引用计数和 drain；
-- 所有冲突、缺失依赖和卸载错误产生结构化诊断；
-- 暂不加载第三方代码。
-
-退出条件：
-
-- 新 generation 未 Ready 前 active 不变；
-- 启动失败保留 last-good；
-- 旧 generation 引用归零后才逆序 dispose；
-- 连续 100 次启动、切换、回滚无 contribution 泄漏或混代。
-
-### Phase 3：Continuity pinning 与首条垂直切片
+### Phase 2：Continuity pinning 与首条垂直切片
 
 第一条切片建议选择 Keqing/Pi ExecutorAdapter：
 
@@ -135,6 +119,32 @@
 - 新 Pi 启动或契约失败不会影响旧任务；
 - 旧任务完成后旧进程可被确定回收；
 - 回滚在目标 SLO 内恢复 last-good 路由。
+
+### Phase 3：Capability 所有权与三类热更新边界
+
+本阶段不建立“所有 built-in 都在同一 Python 进程内多代并存”的 PluginHost。先补统一的
+owner/disposer，再按能力形态选择最小的换代边界：
+
+```text
+子进程执行器：stage → warm → activate 指针；新 run 取新代，旧 run 排空后 dispose
+声明式内容：晋升写不可变 artifact 并切指针；run 在 bind_runtime 冻结只读视图
+进程内实现：优雅重启进入指定 SystemSnapshot；预热失败回 last-good，不做模块 reload
+```
+
+工作：
+
+- 给 Tool、Hook、Provider、Channel、Skill、Command 等注册贡献补 owner 和统一 disposer；
+- 保留 composition root，冲突、缺失依赖和卸载错误产生结构化诊断；
+- `SkillsWatcher` 只失效缓存，不再把刷新 active loader 等同于换代；
+- Provider/Tool/Hook 等 Python 实现通过进程级 snapshot 与 drain 重启换代；
+- 暂不加载第三方代码。
+
+退出条件：
+
+- 单个 owner 的贡献可逆序释放，重复释放幂等，其他 owner 不受影响；
+- 连续 100 次 Pi 换代不混用 executor generation；
+- 连续 100 次 snapshot 重启无内容漂移，失败时 active/last-good 不变；
+- 文档与测试均不承诺进程内 Python 模块 side-by-side 或 reload。
 
 ### Phase 4：从叶子能力向内迁移
 
@@ -217,12 +227,19 @@ Evidence 和 rollback。Agent Loop 可以作为满足稳定 Memorial/Attempt 执
 
 ## 6. 实现前需要正式拍板的 ADR
 
-以下决策满足“难以逆转、无上下文会令人困惑、存在真实权衡”，应在实现前单独记录：
+首期只记录两个跨阶段、难以逆转的决策：
 
-1. 治理微内核不可由普通 Evolution 自动修改；
-2. 热更新采用代际并存与 drain，不采用进程内模块 reload；
-3. Plugin 是进化策略和 Candidate 目标单元，SystemSnapshot 是原子部署、回滚和运行归因单元；
-4. conversation、scheduled root、DAG/retry 的 continuity 固定规则，以及何时引入 AgentSession；
-5. Plugin state 的兼容、迁移和不可逆变更规则；
-6. 第三方插件的默认隔离 Host 与 Capability grant 模型；
-7. `auto` 模式允许的风险上限、统计门槛和人工收权机制。
+1. **ADR-0013：代际发布与治理微内核边界。** 热更新采用按能力形态的代际切换与 drain，
+   不采用进程内模块 reload；治理微内核不由普通 Evolution 自动修改；Plugin 是 Candidate/
+   策略单元，SystemSnapshot 是部署、回滚和归因单元。
+2. **ADR-0014：Memorial 的 SystemSnapshot 绑定与 continuity 规则。** conversation/长任务固定，
+   scheduled root 每次选择，DAG/retry 继承 root，canary 选择随 continuity 固定；第一阶段不引入
+   AgentSession。
+
+以下决策等到出现真实实现消费者时再单独立 ADR，不在首期预占编号：
+
+- Plugin state 的兼容、迁移和不可逆变更规则；
+- 第三方插件的默认隔离 Host 与 Capability grant 模型；
+- `auto` 模式允许的风险上限、统计门槛和人工收权机制；
+- 第三方 PluginSet spec/依赖解析与多 Host 部署语义；
+- 需要跨 Edict continuity 时 AgentSession 的持久身份与迁移规则。

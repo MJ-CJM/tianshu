@@ -1,7 +1,8 @@
 # 目标领域模型与治理契约
 
 > **Status: Proposed。**
-> 除特别标记为 Current/Partial 的对象外，本页术语尚未进入 `CONTEXT.md` 或正式 ADR。
+> `SystemSnapshot`（典制）、`RuntimeGeneration`（朝）和 `EvolutionPolicy`（进化策略）已进入
+> `CONTEXT.md` 与 ADR；下表其余状态描述代码实现成熟度，不以术语已接受反推能力已实现。
 
 ## 1. 目标术语
 
@@ -12,17 +13,32 @@
 | `PluginRelease` | 某 Plugin 的不可变发布，绑定 package Artifact 与 manifest | Proposed |
 | `Capability` | Host 提供的稳定、类型化扩展契约 | Proposed 的统一模型 |
 | `Contribution` | PluginRelease 对某 Capability 的具体实现或注册项 | Proposed |
-| `EvolutionPolicy` | 每插件允许的变化 surface、模式、预算、审批和回滚要求 | Proposed |
+| `EvolutionPolicy` | 每插件允许的变化 surface、模式、预算、裁决和回滚要求 | Canonical 术语；P4 实现 Proposed |
 | `PluginSetSpec` | 用户期望选择、版本约束、配置、权限及 EvolutionPolicy 引用 | Proposed |
 | `PluginSetSnapshot` | Resolver 产出的完整依赖闭包、Capability binding 与有效 Policy digest | Proposed |
 | `AgentDeployment` | 期望 SystemSnapshot、rollout 策略及 observed/active/last-good 状态 | Proposed |
-| `RuntimeGeneration` | SystemSnapshot 在具体 Host 上 materialize 后的运行实例；ID 非内容摘要 | Proposed |
+| `RuntimeGeneration` | SystemSnapshot 在具体 Host 上 materialize 后的运行实例；ID 非内容摘要 | Canonical 术语；P3 实现 Proposed |
 | `PluginInstance` | RuntimeGeneration 内一个 PluginRelease 的实际实例 | Proposed |
-| `SystemSnapshot` | 完整有效运行配置的不可变身份 | Proposed |
+| `SystemSnapshot` | 完整有效运行配置的不可变身份 | Canonical 术语；P1 实现 Proposed |
 | `ExecutionAssignment` | Memorial 与 SystemSnapshot、generation、实验选择的不可变绑定 | Proposed |
 | `EvolutionCandidate` | 精确基线上的候选变化、来源、Gate、Evidence 和生命周期 | Current/Partial |
 | `EvaluationCampaign` | 版本化数据集、Evaluator、对照组、预算和评测结果的组合 | Proposed |
 | `Universe` | 实验分支、谱系和评估容器，不拥有生产 active pointer | Legacy/Partial |
+
+### 1.1 第 1–3 阶段最小代码词汇
+
+目标术语不等于需要立即建立同名代码对象。前三阶段只新增三个代码级承载：
+
+| 代码承载 | 吸收的目标语义 | 首期形态 |
+|---|---|---|
+| `SystemSnapshotV1` | `SystemSnapshot`、`PluginSetSnapshot`，以及作为 components 条目的 `PluginRelease` 身份 | frozen 内容摘要模型 + `system_snapshots` |
+| `RuntimeGenerationV1` | `RuntimeGeneration`、`PluginInstance`，以及 active/last-good 运行指针 | executor/process scope 的代际记录 |
+| `run_system_bindings` | `ExecutionAssignment` 中 SystemSnapshot 与 generation 的关联事实 | 每 `(memorial_id, attempt_id)` insert-once；现有 `RunAssignmentV1` 不改 |
+
+`Artifact` 继续复用现有 `ArtifactRefV1`/`ArtifactStore`；`Capability`、`Contribution` 先作为注册表
+契约；`EvolutionPolicy` 到 per-subject 阶段才落表。`PluginSetSpec`、独立
+`EvaluationCampaign`、`AgentDeployment`、`PluginInstance` 和 `AgentSession` 等代码对象均
+deferred，出现真实消费者后再引入。
 
 不要混淆：
 
@@ -74,7 +90,7 @@ EvolutionCandidate
   └── gates / evidence / promotion lifecycle
 ```
 
-## 3. Continuity scope：先复用 Edict，Session 待决
+## 3. Continuity scope：首期复用 Edict，不引入 AgentSession
 
 当前代码中的 Session 一词已经用于 auth session、SessionRule、SessionLane、
 ConsultationSession、KeqingSession 和 channel anchor，它们都不是“跨 Memorial、固定

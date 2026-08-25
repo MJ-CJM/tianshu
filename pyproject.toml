@@ -179,3 +179,28 @@ name = "extras 独立性:telegram 不得依赖 feishu"
 type = "forbidden"
 source_modules = ["tianshu.gateway.telegram"]
 forbidden_modules = ["tianshu.gateway.feishu"]
+
+[[tool.importlinter.contracts]]
+name = "Ring 0:治理与插件层不得依赖入口层"
+type = "forbidden"
+source_modules = [
+    "tianshu.application",
+    "tianshu.evolution",
+    "tianshu.evidence",
+    "tianshu.plugins",
+]
+forbidden_modules = [
+    "tianshu.gateway",
+    "tianshu.bootstrap",
+    "tianshu.scheduler",
+]
+
+[[tool.importlinter.contracts]]
+name = "Ring 0:治理核心不得依赖插件门面"
+type = "forbidden"
+source_modules = [
+    "tianshu.application",
+    "tianshu.evolution",
+    "tianshu.evidence",
+]
+forbidden_modules = ["tianshu.plugins"]

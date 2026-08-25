@@ -25,3 +25,5 @@
 | [0010](0010-jinyiwei-runtime-defense-in-depth.md) | 运行时纵深防御 |
 | [0011](0011-keqing-external-executor-shadow-snapshot.md) | Keqing 外部执行器 |
 | [0012](0012-decision-terminology-not-zhupi.md) | 裁决术语 |
+| [0013](0013-generation-based-rollout.md) | 典制、朝与代际发布 |
+| [0014](0014-memorial-system-snapshot-binding.md) | 奏折绑定典制与朝 |

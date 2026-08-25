@@ -28,7 +28,7 @@
 
 ## 3. 关键契约
 
-- **身份卡覆盖**：Layer 2.5 在 SOUL.md 之前注入权威身份（id/name/department/title），覆盖任何下文中可能的旧身份描述——这是双层存储下「运行时 SOUL 演化但身份不漂」的保证。
+- **身份卡覆盖**：Layer 2.5 在 SOUL.md 之前注入权威身份（id/name/department/title），覆盖任何下文中可能的旧身份描述——这保证 SOUL overlay 被编辑或实验性变异时身份不漂；不代表 SOUL 已进入生产 Candidate activation/rollback 闭环。
 - **打包默认只读**：Layer 2 的默认 COURT 来自 `src/tianshu/resources/personas/court/COURT.md` 的打包视图；自定义协议只写 `~/.tianshu/personas/court/COURT.md` overlay。
 - **SOUL 缺省降级**：SOUL.md 不存在时退化为 `You are {name}, serving in the {department} department...` 并打 warning，prompt 不中断。
 - **记忆分层来源**：个人记忆（Layer 5）、部门同侪池（5.6）、朝堂共享（6）三级，从私有到公共逐级注入。
