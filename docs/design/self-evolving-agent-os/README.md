@@ -35,7 +35,8 @@
 - 插件是最小的进化策略和 Candidate 目标单元；
 - 完整 `SystemSnapshot` 是原子部署、回滚和运行归因单元；
 - `RuntimeGeneration` 承担具体 rollout、continuity 固定和 drain；
-- 热更新是新旧 generation 并存后的路由切换，不是活体模块 reload；
+- 热更新按能力形态实现：子进程执行器切 generation，声明式内容按 run 冻结视图，Python
+  进程实现通过优雅重启进入 snapshot；都不是活体模块 reload；
 - Agent 可以提出变化，但不能同时修改评测标准、给自己评分并批准上线；
 - 用户可以继续使用某个插件，同时将其进化模式设为 `frozen`。
 
@@ -65,10 +66,13 @@
 - **论文结果**：特定实验环境中的研究结果，不外推为生产能力；
 - **目标设计**：面向 Tianshu 的架构判断，尚未实现，也尚未成为 ADR。
 
-`PluginSetSpec`、`PluginSetSnapshot`、`RuntimeGeneration`、`SystemSnapshot`、
-`AgentSession` 和 `ExecutionAssignment` 都是本目录提出的**目标态术语**。其中
-`AgentSession` 是否应独立于 Edict 仍待 ADR；在正式 ADR 和
-[`CONTEXT.md`](../../../CONTEXT.md) 接受前，它们都不是当前 canonical 领域对象。
+`SystemSnapshot`（典制）、`RuntimeGeneration`（朝）和 `EvolutionPolicy`（进化策略）已由
+[ADR-0013](../../adr/0013-generation-based-rollout.md)、
+[ADR-0014](../../adr/0014-memorial-system-snapshot-binding.md)与
+[`CONTEXT.md`](../../../CONTEXT.md) 接受为 canonical 术语；这只冻结命名与不变量，不表示目标
+运行能力已经实现。`PluginSetSpec`、`PluginSetSnapshot` 和 `ExecutionAssignment` 仍是目标态
+设计词汇，前三阶段不各建同名代码聚合。`AgentSession` 明确不在首期引入，continuity 先按
+conversation/长任务、scheduled root、DAG/retry 的 Edict/Memorial 规则固定。
 
 ## 与现有文档的关系
 

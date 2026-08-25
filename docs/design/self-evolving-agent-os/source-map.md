@@ -130,17 +130,18 @@ uv 0.9.27、项目 Python 3.12.12、pytest 9.0.3，HEAD `88462b2a`。
 - [Darwin Gödel Machine](https://arxiv.org/abs/2505.22954)
 - [SEAL](https://arxiv.org/abs/2506.10943)
 
-## 7. 已知文档漂移
+## 7. 已收敛的文档漂移（2026-08-25）
 
-本轮发现但没有顺手修改以下既有文档：
+本轮在同一文档校正中收敛了三类已知漂移：
 
-- 根 `CONTEXT.md` 仍引用旧产品版本，当前发布状态以 `CURRENT-STATE.md` 为准；
-- `CONTEXT.md` 的 Universe “人工切换”表述与当前 switch/rollback fail-closed 边界不一致；
-- 现有领域文档中的“运行时 SOUL 演化”容易被读成当前能力，实际 Persona/Code 仍止于实验
-  和推荐，当前只有 Skill Candidate 有真实 activation/rollback adapter。
+- 根 `CONTEXT.md` 的旧产品版本口径已按当前发布事实更新；
+- Universe 不再描述为可“人工切换” live：snapshot/branch/diff/archive/restore/eval 保留，
+  switch/rollback/promote-code 继续 fail closed，Legacy champion 不是生产 active pointer；
+- `domain-model.md` 与 `persona/prompt-builder.md` 不再把“运行时 SOUL 演化”写成当前已接通能力；
+  Persona/SOUL 当前只有编辑或实验性变异/推荐，只有 Skill Candidate 已有真实
+  activation/rollback adapter。
 
-这些属于 canonical 术语和事实源维护，应另开变更确认；本目录通过显式标记 Current、Partial、
-Legacy 和 Proposed 避免继续放大冲突。
+这些修订只校正文档事实，不把目标设计反向声明为当前实现；后续仍按下一节规则复核。
 
 ## 8. 后续复核规则
 

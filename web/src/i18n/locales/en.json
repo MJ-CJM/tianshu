@@ -63,6 +63,11 @@
     "canDo": "What it can do",
     "currentBoundary": "Current boundary"
   },
+  "domainTerms": {
+    "systemSnapshot": "System Snapshot",
+    "runtimeGeneration": "Runtime Generation",
+    "evolutionPolicy": "Evolution Policy"
+  },
   "sidebar": {
     "primaryNavigation": "Primary navigation",
     "darkMode": "Dark Mode",

@@ -85,6 +85,31 @@ describe("governance terminology contract", () => {
     expect(stringEntries(en).map(({ path }) => path).sort()).toEqual(anchorPaths);
   });
 
+  it("locks canonical Agent OS terms across all three locales", () => {
+    expect({
+      en: en.domainTerms,
+      zhClassic: zhClassic.domainTerms,
+      zhModern: zhModern.domainTerms,
+    }).toEqual({
+      en: {
+        systemSnapshot: "System Snapshot",
+        runtimeGeneration: "Runtime Generation",
+        evolutionPolicy: "Evolution Policy",
+      },
+      zhClassic: {
+        systemSnapshot: "典制",
+        runtimeGeneration: "朝",
+        evolutionPolicy: "进化策略",
+      },
+      zhModern: {
+        systemSnapshot: "典制",
+        runtimeGeneration: "朝",
+        evolutionPolicy: "进化策略",
+      },
+    });
+    expect(zhClassic.locale["zh-classic"]).toBe("彩蛋");
+  });
+
   it.each([
     ["zh-classic", zhClassic],
     ["zh-modern", zhModern],

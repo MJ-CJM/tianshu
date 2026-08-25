@@ -1,6 +1,6 @@
 # 天枢 Tianshu
 
-天枢的长期产品定位是：**天枢是一个可治理、可验证、持续成长的自进化 Agent OS**，并以明代宫廷为统一隐喻组织概念。本表只定义**战略与产品层的 canonical 术语**（中英对照，英文 README 与代码命名以此为准）；术语定义不等于 v0.4.2 已实现能力。当前成熟度、支持边界与非保证项只以 [docs/launch/capability-matrix.md](docs/launch/capability-matrix.md) 为事实源。六部隐喻的全量对照见 [docs/reference/glossary.md](docs/reference/glossary.md)。
+天枢的长期产品定位是：**天枢是一个可治理、可验证、持续成长的自进化 Agent OS**，并以明代宫廷为统一隐喻组织概念。本表只定义**战略与产品层的 canonical 术语**（中英对照，英文 README 与代码命名以此为准）；术语定义不等于 v0.5.2 已实现能力。当前成熟度、支持边界与非保证项只以 [docs/launch/capability-matrix.md](docs/launch/capability-matrix.md) 为事实源。六部隐喻的全量对照见 [docs/reference/glossary.md](docs/reference/glossary.md)。
 
 ## Language
 
@@ -20,6 +20,18 @@ _Avoid_: 临时目录、workspace session
 运行开始前冻结的源工作区身份与基线证明，是判断源漂移和治理应用是否合法的权威依据。
 _Avoid_: 影子快照、backup
 
+**典制 (SystemSnapshot)**:
+一次受管运行实际采用的完整、不可变、内容寻址的系统配置身份，由组成项摘要唯一确定。
+_Avoid_: 系统快照、位面快照、影子快照、恢复点
+
+**朝 (RuntimeGeneration)**:
+某一典制在具体运行宿主上物化出的运行实例；同一典制可产生多个朝，朝的身份不等于典制摘要。
+_Avoid_: 运行代、典制版本、进程快照
+
+**进化策略 (EvolutionPolicy)**:
+针对单个插件或进化对象规定可变化范围、模式、预算、裁决与回滚要求的治理规则；与插件启用状态及版本锁定相互独立。
+_Avoid_: 自动更新开关、插件启用状态、版本锁定
+
 **规范变更集 (Canonical Change Set)**:
 由工作区租约中的实际 Git 状态服务端重算并稳定排序、哈希的变更事实，不接受客户端提供的 diff 作为权威输入。
 _Avoid_: patch、client diff
@@ -33,7 +45,7 @@ _Avoid_: 批红、审批(泛称)、confirm
 _Avoid_: 多个 AI、多模型、agents(指官员时)
 
 **客卿 (Keqing / external-agent executor)**:
-作为可插拔执行后端的外部 coding agent（如 Claude Code、Codex）。v0.4.2 仅为 **contained + experimental**：提供独立工作目录、clean-env、外围 timeout 与事后结果归一，不保证 CLI 内部事前工具拦截、内部事件完整性、硬成本上限、运行前恢复点或网络隔离。用 Capability Manifest 分级披露并在强制能力不足时拒绝派发，是 G1 规划目标，不是当前保证。
+作为可插拔执行后端的外部 coding agent（如 Claude Code、Codex）。v0.5.2 仅为 **contained + experimental**：提供独立工作目录、clean-env、外围 timeout 与事后结果归一，不保证 CLI 内部事前工具拦截、内部事件完整性、硬成本上限、运行前恢复点或网络隔离。用 Capability Manifest 分级披露并在强制能力不足时拒绝派发，是 G1 规划目标，不是当前保证。
 _Avoid_: worker、外包 agent
 
 **起居注 (User Chronicle)**:
@@ -41,14 +53,14 @@ _Avoid_: worker、外包 agent
 _Avoid_: 用户画像(泛称)、user analytics
 
 **位面 (Universe)**:
-行为配置或代码的可分支、可评估快照；长期目标是以位面为单位比较并按受治理的 fitness 结果晋升。v0.4.2 支持快照、分支、diff 与人工切换，当前只路由 champion，无真实在线 challenger 流量或可信自动晋升；完整闭环是 G4 规划目标。
+行为配置或代码的可分支、可评估快照；长期目标是以位面为单位比较并按受治理的 fitness 结果晋升。v0.5.2 支持快照、分支、diff、归档、恢复与评估推荐；生产 switch、rollback 与 promote-code 固定 fail closed，不拥有生产 active 指针，完整闭环仍是 G4 规划目标。
 _Avoid_: 分支(git 语境)、版本
 
 **放手四保险 (Four Safeguards)**:
-长期治理目标中的兜底集合：预算熔断、危险动作裁决、影子快照回滚、出厂预算护栏。v0.4.2 只在能力事实矩阵列出的路径和边界内分别提供部分机制，不构成“四道保险同时成立”的当前承诺。
+长期治理目标中的兜底集合：预算熔断、危险动作裁决、影子快照回滚、出厂预算护栏。v0.5.2 只在能力事实矩阵列出的路径和边界内分别提供部分机制，不构成“四道保险同时成立”的当前承诺。
 
 **自动裁决 (Governed Auto-decision)**:
-G4 规划目标：在低风险白名单、留痕可撤、一键收权与准确率考核四道闸约束下，学习用户裁决习惯并自动作出裁决。v0.4.2 仅有边界受限的规则路径，不具备已学习、可证明可信的自动裁决闭环。
+G4 规划目标：在低风险白名单、留痕可撤、一键收权与准确率考核四道闸约束下，学习用户裁决习惯并自动作出裁决。v0.5.2 仅有边界受限的规则路径，不具备已学习、可证明可信的自动裁决闭环。
 _Avoid_: 司礼监代批、自动审批(泛称)、auto-approve(不带闸门语境时)
 
 **组织新陈代谢 (Organizational Metabolism)**:
@@ -56,7 +68,7 @@ _Avoid_: 司礼监代批、自动审批(泛称)、auto-approve(不带闸门语�
 _Avoid_: multi-agent 协作(作为卖点时)、agent teamwork
 
 **技能修撰 (Skill Curation)**:
-G4 规划目标：按运行指标筛选技能候选、由 LLM 修订，并只在效果门证明评估提升后生效；`SKILL.md` diff 保持人类可读。v0.4.2 可记录候选与评审结果，但不保证真实任务效果提升，也不会据此自动形成可信自进化闭环。
+G4 规划目标：按运行指标筛选技能候选、由 LLM 修订，并只在效果门证明评估提升后生效；`SKILL.md` diff 保持人类可读。v0.5.2 可记录候选与评审结果，但不保证真实任务效果提升，也不会据此自动形成可信自进化闭环。
 _Avoid_: 技能自动更新、skill tuning
 
 **廷议 (Court Deliberation)**:

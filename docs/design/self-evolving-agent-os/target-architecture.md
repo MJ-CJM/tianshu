@@ -102,43 +102,44 @@ Reconciler 必须幂等、level-based。即使错过事件或进程崩溃，也�
 同一个 SystemSnapshot 在进程重启、不同 Host 或并行预热时可以产生多个 RuntimeGeneration；
 SystemSnapshot 用 digest 标识内容，RuntimeGeneration 用独立运行身份标识实例。
 
-建议拆成职责单一的逻辑 Controller：
+控制面有六项逻辑职责，但首期不建立六个 Reconciler 类或服务：
 
-- `ArtifactReconciler`：获取、验证和登记 Artifact；
-- `PluginSetReconciler`：解析依赖、Capability、冲突与有效权限；
-- `RuntimeReconciler`：创建实例、预热、健康检查和隔离；
-- `EvaluationReconciler`：组织 Replay、Shadow 和离线 Gate；
-- `RolloutReconciler`：Canary、路由、晋升、排空和回滚；
-- `StateMigrationReconciler`：执行兼容状态迁移和回滚检查。
+- Artifact 获取、验证和登记；
+- PluginSet 依赖、Capability、冲突与有效权限解析；
+- Runtime 实例创建、预热、健康检查和隔离；
+- Replay、Shadow 和离线 Gate 评测；
+- Canary、路由、晋升、排空和回滚；
+- 兼容状态迁移和回滚检查。
 
-它们初期可以是同一应用中的类和持久状态机，不需要成为独立服务。
+首期只有一个 `GenerationReconciler`，扩展现有 `EvolutionRollbackReconciler`：复用同一把锁和
+同一个 `reconcile_once()`，按持久化 generation state/scope 分支，并继续通过既有授权服务执行
+晋升或回滚。其余逻辑职责保留在现有服务中，出现独立持久状态机需求后再拆分。
 
 ## 4. 代际化运行面
 
 ### 4.1 热更新语义
 
+热更新按承载形态分成三类，不把所有 built-in 都塞进同一 Python 进程做多代并存：
+
 ```text
-resolve → verify → stage → warm → probe → ready
-      → route new continuity scope → monitor
-      → drain old generation → reverse dispose
+子进程执行器：resolve → verify → stage → warm/probe → ready → activate pointer
+              → 新 run 取新代 → 旧 run 排空/refcount=0 → dispose
+声明式内容：  candidate 晋升写不可变 artifact + 原子切指针
+              → run 在 bind_runtime 冻结只读视图；watcher 只失效缓存
+进程内实现：  优雅重启进入指定 SystemSnapshot → 启动校验
+              → warm-up 失败回 last-good；不做 importlib/module reload
 ```
 
-更新时必须满足：
+三类更新共同满足：active pointer 只在新目标 Ready 后切换；已开始的 run 不换所绑定内容或
+执行器；失败时保留 last-good；状态不兼容时排空或显式 fork，不能暗中迁移。只有子进程
+执行器需要在宿主进程生命周期内 side-by-side；声明式内容靠每 run 冻结，Python 实现靠进程
+重启形成代际。
 
-1. 新旧 generation 并存；
-2. active pointer 只在新 generation `Ready` 后切换；
-3. 新 continuity assignment 进入新 generation，已开始的连续交互和长任务继续固定旧
-   generation；
-4. 旧 generation 的 Edict/Memorial/Attempt 引用，以及未来可能引入的 AgentSession 引用，
-   归零后才能销毁；
-5. 新版本失败时保留 last-good，不进行 break-before-make；
-6. 状态不兼容时排空或显式 fork，不能暗中迁移。
-
-当前是否引入独立 `AgentSession` 尚未拍板。最小实现按 Edict 类型确定边界：conversation
-和长任务 Edict 固定 RuntimeGeneration；cron/interval 每次触发的新 root Memorial 选择当时
-有效 generation；DAG 子节点和基础设施重试继承 root Assignment。所有 Memorial 都绑定完整
-`ExecutionAssignment`。只有跨 Edict continuity、fork 或显式代际迁移成为真实需求时，
-再引入持久 AgentSession。
+首期明确不引入独立 `AgentSession`，按 Edict 类型确定边界：conversation 和长任务 Edict 固定
+RuntimeGeneration；cron/interval 每次触发的新 root Memorial 选择当时有效 generation；DAG
+子节点和基础设施重试继承 root Assignment。所有 Memorial 都绑定完整
+`ExecutionAssignment`。只有跨 Edict continuity、fork 或显式代际迁移成为真实需求时，才另立
+ADR 讨论持久 AgentSession。
 
 ### 4.2 Generation-scoped Capability Registry
 
@@ -157,14 +158,15 @@ PluginInstance
 - 依赖按拓扑顺序启动、逆序停止；
 - Tool、Hook、Provider、Channel 等冲突使用确定性规则并给出诊断；
 - observe、transform、veto 三类 hook 分开；
-- handler 有 timeout、budget、熔断和 crash-loop quarantine；
+- 当前 `HookRegistry` 已有 per-type timeout 与 fail-secure hook 集合；统一 Capability 层仍需补
+  budget、熔断和 crash-loop quarantine，并把等价约束扩到其他 handler；
 - transform 后重新做 schema validation。
 
 ### 4.3 隔离层级
 
 | 插件类型 | 默认 Host | 信任边界 |
 |---|---|---|
-| 固定、受信 built-in | 同进程 | 仍需 owner/disposer 和 generation |
+| 固定、受信 built-in | 同进程 | 需要 owner/disposer；Python 实现以进程 snapshot + 优雅重启换代，不做进程内多代 reload |
 | 可演化的可执行插件 | 独立 Worker Process | clean env、资源限额、受管 RPC |
 | 第三方受限插件 | Process 或 Wasm | capability grant、文件/网络范围 |
 | 大型外部能力 | 独立 Service/MCP Server | Host 保留上下文、权限和 secret 控制 |

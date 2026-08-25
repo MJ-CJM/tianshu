@@ -63,6 +63,11 @@
     "canDo": "能做什么",
     "currentBoundary": "当前边界"
   },
+  "domainTerms": {
+    "systemSnapshot": "典制",
+    "runtimeGeneration": "朝",
+    "evolutionPolicy": "进化策略"
+  },
   "sidebar": {
     "primaryNavigation": "主导航",
     "darkMode": "深色模式",
