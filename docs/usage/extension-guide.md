@@ -127,8 +127,7 @@ provider_manager.register(ProviderInfo(
 `entry_point`、`permissions` 和 `sha256` 目前只是声明，不会被执行或验证。若要开发受信任
 的内建扩展，请在源码装配中显式调用 `PluginApi.register_*`，并为该能力单独补齐治理与
 测试；不要把 manifest 发现当作加载证明。详见
-[设计边界](../design/plugins/README.md) 与
-[实现现状](../impl/plugins/README.md)。
+[当前插件扩展实现与支持边界](../design/self-evolving-agent-os/current-plugin-state.md)。
 
 ## 5. 扩展通知渠道（Channel）
 

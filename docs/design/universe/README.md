@@ -63,3 +63,7 @@
 | [eval.md](./eval.md) | Eval Harness 与 Fitness：同集配对评估、预算闸、推荐结论与受治理 Candidate 的边界 |
 
 **相关实现**：[../../impl/universe/](../../impl/universe/)
+
+目标态中，Legacy Universe 保留 branch/diff/eval/lineage，mutation 只产生 Candidate；
+生产运行身份由完整 SystemSnapshot 与受管 RuntimeGeneration 绑定。详见
+[自进化 Agent OS 目标架构](../self-evolving-agent-os/)。该方向尚未成为当前运行事实。

@@ -185,9 +185,9 @@ ProfileTrigger 产生画像合成信号；SkillReviewHandler 虽保留 Hook 装�
 | [bus/](bus/) | EventBus 进程内事件总线、emit/fire/priority 解耦协议 |
 | [scheduling/](scheduling/) | Scheduler 三模式、Planner 规划 |
 | [universe/](universe/) | 位面快照、代码变体提案/评估，以及当前禁止 live 切换与部署的边界 |
-| [plugins/](plugins/) | manifest-only 实验目录；不安装、加载或执行第三方插件 |
 | [interfaces/](interfaces/) | HTTP/WS Gateway、飞书/Telegram 渠道、Web、CLI |
 | [growth/](growth/) | 自改进四环统一视图（design-only 元文档，无对应 impl 子系统） |
+| [self-evolving-agent-os/](self-evolving-agent-os/) | 当前插件边界、插件化范围、受治理自进化目标架构与迁移路线；目标部分不是当前能力承诺 |
 
 ## 7. 读代码时的优先入口
 

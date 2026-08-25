@@ -89,6 +89,8 @@
   [launch/checklist.md](launch/checklist.md)
 - **我要做二次开发** → [usage/developer-guide.md](usage/developer-guide.md) → [impl/README.md](impl/README.md) → 对应 `impl/<子系统>/`
 - **我要理解架构** → [design/README.md](design/README.md) → [design/architecture.md](design/architecture.md) → [design/runtime-flow.md](design/runtime-flow.md) → 各 `design/<子系统>/`
+- **我要理解插件化与自进化 Agent OS 的目标架构** →
+  [design/self-evolving-agent-os/](design/self-evolving-agent-os/)
 - **我想知道借鉴了哪些优秀项目** → [reference/reference-projects.md](reference/reference-projects.md)
 - **术语 / 古风隐喻看不懂** → [reference/glossary.md](reference/glossary.md)
 

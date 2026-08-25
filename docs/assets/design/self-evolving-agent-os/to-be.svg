@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 760" role="img" aria-label="目标架构：每个 Memorial 绑定 SystemSnapshot 与代 id，执行器 stage/warm/activate/drain 代际并存，注册表带 owner 与 disposer，每 run 冻结内容视图，按 subject 独立 canary 与 EvolutionPolicy">
+<style>
+  svg{font-family:"Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",sans-serif;color:#1E2530}
+  .nd rect{fill:#FFFFFF;stroke:#1E2530;stroke-width:1;rx:3}
+  .nd text{fill:#1E2530;font-size:11px}
+  .nd .sub{font-size:9.5px;fill:#5C6675}
+  .new rect{stroke:#2F5D8A;stroke-width:1.5;fill:#E2ECF6}
+  .new .sub{fill:#1E2530;opacity:.75}
+  .warn rect{stroke:#A8671F;stroke-dasharray:4 3;fill:#F6EBDD}
+  .dim rect{stroke:#8B95A3}
+  .dim text{fill:#8B95A3}
+  .lbl{fill:#5C6675;font-size:10px;letter-spacing:.12em}
+  .band{stroke:#C7CED6;stroke-dasharray:2 5;stroke-width:1}
+  .edge{stroke:#1E2530;fill:none;stroke-width:1}
+  .edge.acc{stroke:#2F5D8A;stroke-width:1.4}
+  .edge.wn{stroke:#A8671F;stroke-dasharray:4 3}
+  .note{fill:#A8671F;font-size:10px}
+  .note.acc{fill:#2F5D8A}
+  .elbl{font-size:9.5px;fill:#5C6675}
+  .elbl.acc{fill:#2F5D8A}
+  .mono{font-family:"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;font-size:9.5px}
+  marker path{fill:#1E2530}
+  marker path.acc{fill:#2F5D8A}
+  marker path.wn{fill:#A8671F}
+</style>
+<rect width="100%" height="100%" fill="#FFFFFF"/>
+
+        <defs>
+          <marker id="b-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="b-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="acc" d="M0,0 L10,5 L0,10 z"/></marker>
+        </defs>
+
+        <!-- band 1 -->
+        <text class="lbl" x="16" y="16">入口 · 治理微内核 · 证据（Ring 0，不进入进化）</text>
+        <g class="nd"><rect x="16" y="32" width="118" height="40"/><text x="75" y="49" text-anchor="middle">Gateway · Web</text><text class="sub" x="75" y="63" text-anchor="middle">CLI · 飞书/Telegram</text></g>
+        <g class="nd"><rect x="150" y="32" width="58" height="40"/><text x="179" y="56" text-anchor="middle">Edict</text></g>
+        <g class="nd"><rect x="224" y="32" width="150" height="40"/><text x="299" y="49" text-anchor="middle">Memorial · Attempt</text><text class="sub" x="299" y="63" text-anchor="middle">lease / fencing · RunState</text></g>
+        <g class="nd"><rect x="390" y="32" width="76" height="40"/><text x="428" y="56" text-anchor="middle">Decision</text></g>
+        <g class="nd"><rect x="482" y="32" width="102" height="40"/><text x="533" y="49" text-anchor="middle">Evidence Bundle</text><text class="sub" x="533" y="63" text-anchor="middle">+ system-snapshot</text></g>
+        <line class="edge" x1="134" y1="52" x2="150" y2="52" marker-end="url(#b-ink)"/>
+        <line class="edge" x1="208" y1="52" x2="224" y2="52" marker-end="url(#b-ink)"/>
+        <line class="edge" x1="374" y1="52" x2="390" y2="52" marker-end="url(#b-ink)"/>
+        <line class="edge" x1="466" y1="52" x2="482" y2="52" marker-end="url(#b-ink)"/>
+        <line class="band" x1="16" y1="92" x2="584" y2="92"/>
+
+        <!-- band 2 -->
+        <text class="lbl" x="16" y="108">运行绑定（第一个受管副作用前）</text>
+        <g class="nd"><rect x="16" y="124" width="128" height="36"/><text x="80" y="146" text-anchor="middle">ChallengerRouter</text></g>
+        <g class="nd new"><rect x="176" y="116" width="180" height="52"/><text x="266" y="136" text-anchor="middle">RunAssignmentSetV1</text><text class="sub" x="266" y="152" text-anchor="middle">按 subject_key 各自分流、可并存</text></g>
+        <g class="nd new"><rect x="388" y="116" width="196" height="52"/><text x="486" y="136" text-anchor="middle">run_system_bindings</text><text class="sub" x="486" y="152" text-anchor="middle">memorial · attempt · digest · 代 id</text></g>
+        <g class="nd new"><rect x="16" y="180" width="568" height="26"/><text x="300" y="197" text-anchor="middle" style="font-size:10px">SystemSnapshotV1 = kernel · executor:* · skills · personas · policy · providers · overlay → digest</text></g>
+        <line class="edge acc" x1="144" y1="142" x2="176" y2="142" marker-end="url(#b-acc)"/>
+        <line class="edge acc" x1="356" y1="142" x2="388" y2="142" marker-end="url(#b-acc)"/>
+        <line class="edge acc" x1="486" y1="168" x2="486" y2="180" marker-end="url(#b-acc)"/>
+        <line class="band" x1="16" y1="216" x2="584" y2="216"/>
+
+        <!-- band 3 -->
+        <text class="lbl" x="16" y="232">执行面（子进程执行器按代切换）</text>
+        <g class="nd"><rect x="16" y="250" width="90" height="36"/><text x="61" y="272" text-anchor="middle">Executor</text></g>
+        <g class="nd new"><rect x="130" y="250" width="200" height="36"/><text x="230" y="265" text-anchor="middle">ExecutorAdapterRegistry</text><text class="sub" x="230" y="279" text-anchor="middle">stage · warm · activate · drain</text></g>
+        <g class="nd dim"><rect x="366" y="240" width="150" height="28"/><text x="441" y="258" text-anchor="middle">native（进程内，不变）</text></g>
+        <g class="nd"><rect x="366" y="286" width="170" height="28"/><text x="451" y="304" text-anchor="middle">Pi 代 A · draining · ref=2</text></g>
+        <g class="nd new"><rect x="366" y="332" width="170" height="28"/><text x="451" y="350" text-anchor="middle">Pi 代 B · active</text></g>
+        <line class="edge" x1="106" y1="268" x2="130" y2="268" marker-end="url(#b-ink)"/>
+        <polyline class="edge" points="330,268 348,268 348,254 366,254" marker-end="url(#b-ink)"/>
+        <polyline class="edge" points="348,268 348,300 366,300" marker-end="url(#b-ink)"/>
+        <polyline class="edge acc" points="348,300 348,346 366,346" marker-end="url(#b-acc)"/>
+        <text class="elbl" x="546" y="304">运行中的 run</text>
+        <text class="elbl acc" x="546" y="350">新 run</text>
+        <text class="note acc" x="130" y="386">指针 active→B · last-good→A；warm 失败指针不动；ref=0 → dispose</text>
+        <line class="band" x1="16" y1="400" x2="584" y2="400"/>
+
+        <!-- band 4 -->
+        <text class="lbl" x="16" y="416">能力注册表 · 内容（每 run 冻结视图）</text>
+        <g class="nd dim"><rect x="16" y="428" width="260" height="36"/><text x="146" y="443" text-anchor="middle">PluginLoader → manifest 目录（不变）</text><text class="sub" x="146" y="457" text-anchor="middle">第三方 install / activate 仍在 Phase 6</text></g>
+        <g class="nd new"><rect x="16" y="484" width="260" height="36"/><text x="146" y="499" text-anchor="middle">register_* → ContributionHandle</text><text class="sub" x="146" y="513" text-anchor="middle">owner · dispose · dispose_owner() 逆序卸载</text></g>
+        <g class="nd"><rect x="316" y="428" width="268" height="36"/><text x="450" y="443" text-anchor="middle">注册表（同 6 个，带 owner）</text><text class="sub" x="450" y="457" text-anchor="middle">Tool·Hook·Channel·Provider·Skills·Executor</text></g>
+        <g class="nd new"><rect x="316" y="484" width="268" height="28"/><text x="450" y="502" text-anchor="middle">bind_runtime 冻结 skills · persona · policy</text></g>
+        <g class="nd new"><rect x="316" y="526" width="268" height="28"/><text x="450" y="544" text-anchor="middle">SkillsWatcher → 只失效缓存；变化走 Candidate</text></g>
+        <polyline class="edge acc" points="276,502 296,502 296,446 316,446" marker-end="url(#b-acc)"/>
+        <line class="band" x1="16" y1="564" x2="584" y2="564"/>
+
+        <!-- band 5 -->
+        <text class="lbl" x="16" y="580">演化面（提案 ≠ 评测 ≠ 晋升）</text>
+        <g class="nd dim"><rect x="16" y="592" width="200" height="36"/><text x="116" y="607" text-anchor="middle">Universe mutation</text><text class="sub" x="116" y="621" text-anchor="middle">只产 Candidate（不变）</text></g>
+        <g class="nd new"><rect x="248" y="592" width="336" height="36"/><text x="416" y="607" text-anchor="middle">EvolutionPolicy · 每 subject_key 一行</text><text class="sub" x="416" y="621" text-anchor="middle">frozen · manual · canary（auto 不实现）</text></g>
+        <g class="nd new"><rect x="16" y="648" width="200" height="36"/><text x="116" y="663" text-anchor="middle">CandidateService → Gates</text><text class="sub" x="116" y="677" text-anchor="middle">+ CandidateKind.EXECUTOR</text></g>
+        <g class="nd new"><rect x="248" y="648" width="150" height="36"/><text x="323" y="663" text-anchor="middle">Canary 按 subject 独立</text><text class="sub" x="323" y="677" text-anchor="middle">sticky · 可并存</text></g>
+        <g class="nd"><rect x="430" y="648" width="70" height="36"/><text x="465" y="670" text-anchor="middle">Decision</text></g>
+        <g class="nd"><rect x="248" y="704" width="150" height="28"/><text x="323" y="722" text-anchor="middle">Promote → adapters</text></g>
+        <g class="nd"><rect x="430" y="692" width="154" height="24"/><text x="507" y="708" text-anchor="middle">Skill</text></g>
+        <g class="nd new"><rect x="430" y="724" width="154" height="24"/><text x="507" y="740" text-anchor="middle">Executor · Pi 换代</text></g>
+        <polyline class="edge acc" points="300,628 300,638 116,638 116,648" marker-end="url(#b-acc)"/>
+        <line class="edge" x1="216" y1="666" x2="248" y2="666" marker-end="url(#b-ink)"/>
+        <line class="edge" x1="398" y1="666" x2="430" y2="666" marker-end="url(#b-ink)"/>
+        <polyline class="edge" points="465,684 465,690 323,690 323,704" marker-end="url(#b-ink)"/>
+        <polyline class="edge" points="398,718 414,718 414,704 430,704" marker-end="url(#b-ink)"/>
+        <polyline class="edge acc" points="414,718 414,736 430,736" marker-end="url(#b-acc)"/>
+      </svg>

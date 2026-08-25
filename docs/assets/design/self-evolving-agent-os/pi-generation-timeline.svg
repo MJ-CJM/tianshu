@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 300" role="img" aria-label="Pi 执行器换代时序：代 A 在役并承载 run1、run2；代 B stage、warm 后 activate，指针切到 B，新 run3 进 B；run1、run2 在 A 上跑完，A 引用归零后 dispose；warm 失败时指针不动">
+<style>
+  svg{font-family:"Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",sans-serif;color:#1E2530}
+  .nd rect{fill:#FFFFFF;stroke:#1E2530;stroke-width:1;rx:3}
+  .nd text{fill:#1E2530;font-size:11px}
+  .nd .sub{font-size:9.5px;fill:#5C6675}
+  .new rect{stroke:#2F5D8A;stroke-width:1.5;fill:#E2ECF6}
+  .new .sub{fill:#1E2530;opacity:.75}
+  .warn rect{stroke:#A8671F;stroke-dasharray:4 3;fill:#F6EBDD}
+  .dim rect{stroke:#8B95A3}
+  .dim text{fill:#8B95A3}
+  .lbl{fill:#5C6675;font-size:10px;letter-spacing:.12em}
+  .band{stroke:#C7CED6;stroke-dasharray:2 5;stroke-width:1}
+  .edge{stroke:#1E2530;fill:none;stroke-width:1}
+  .edge.acc{stroke:#2F5D8A;stroke-width:1.4}
+  .edge.wn{stroke:#A8671F;stroke-dasharray:4 3}
+  .note{fill:#A8671F;font-size:10px}
+  .note.acc{fill:#2F5D8A}
+  .elbl{font-size:9.5px;fill:#5C6675}
+  .elbl.acc{fill:#2F5D8A}
+  .mono{font-family:"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;font-size:9.5px}
+  marker path{fill:#1E2530}
+  marker path.acc{fill:#2F5D8A}
+  marker path.wn{fill:#A8671F}
+</style>
+<rect width="100%" height="100%" fill="#FFFFFF"/>
+
+      <defs>
+        <marker id="t-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker>
+        <marker id="t-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="acc" d="M0,0 L10,5 L0,10 z"/></marker>
+      </defs>
+      <!-- lane labels -->
+      <text class="lbl" x="16" y="40">active 指针</text>
+      <text class="lbl" x="16" y="86">代 A</text>
+      <text class="lbl" x="16" y="132">代 B</text>
+      <text class="lbl" x="16" y="186">run 1</text>
+      <text class="lbl" x="16" y="212">run 2</text>
+      <text class="lbl" x="16" y="238">run 3</text>
+      <!-- time axis -->
+      <line class="edge" x1="100" y1="262" x2="900" y2="262" marker-end="url(#t-ink)"/>
+      <g class="elbl">
+        <line class="band" x1="100" y1="30" x2="100" y2="262"/><text x="100" y="280" text-anchor="middle">t0 A 在役</text>
+        <line class="band" x1="220" y1="30" x2="220" y2="262"/><text x="220" y="280" text-anchor="middle">t1 stage B</text>
+        <line class="band" x1="340" y1="30" x2="340" y2="262"/><text x="340" y="280" text-anchor="middle">t2 warm B</text>
+        <line class="band" x1="460" y1="30" x2="460" y2="262"/><text x="460" y="280" text-anchor="middle">t3 activate B</text>
+        <line class="band" x1="580" y1="30" x2="580" y2="262"/><text x="580" y="280" text-anchor="middle">t4 新 run</text>
+        <line class="band" x1="700" y1="30" x2="700" y2="262"/><text x="700" y="280" text-anchor="middle">t5 run1 完</text>
+        <line class="band" x1="820" y1="30" x2="820" y2="262"/><text x="820" y="280" text-anchor="middle">t6 run2 完 · ref=0</text>
+      </g>
+      <!-- pointer lane -->
+      <g class="nd"><rect x="100" y="26" width="360" height="20"/><text x="280" y="40" text-anchor="middle">active = A</text></g>
+      <g class="nd new"><rect x="460" y="26" width="440" height="20"/><text x="680" y="40" text-anchor="middle">active = B · last-good = A</text></g>
+      <!-- gen A -->
+      <g class="nd"><rect x="100" y="72" width="360" height="22"/><text x="280" y="87" text-anchor="middle">active · ref=2</text></g>
+      <g class="nd dim"><rect x="460" y="72" width="360" height="22"/><text x="640" y="87" text-anchor="middle">draining · ref 2 → 1 → 0，不再接新 run</text></g>
+      <text class="elbl" x="828" y="87">dispose</text>
+      <!-- gen B -->
+      <g class="nd dim"><rect x="220" y="118" width="120" height="22"/><text x="280" y="133" text-anchor="middle">staged</text></g>
+      <g class="nd"><rect x="340" y="118" width="120" height="22"/><text x="400" y="133" text-anchor="middle">warming · 契约验证</text></g>
+      <g class="nd new"><rect x="460" y="118" width="440" height="22"/><text x="680" y="133" text-anchor="middle">ready → active</text></g>
+      <text class="note" x="340" y="160">warm 失败 → B = failed，指针仍是 A，A 不 draining；候选回 BLOCKED</text>
+      <!-- runs -->
+      <line class="edge" x1="120" y1="182" x2="700" y2="182" stroke-width="3"/><text class="elbl" x="708" y="186">在代 A 上跑完</text>
+      <line class="edge" x1="160" y1="208" x2="820" y2="208" stroke-width="3"/><text class="elbl" x="828" y="212">同上</text>
+      <line class="edge acc" x1="580" y1="234" x2="900" y2="234" stroke-width="3"/><text class="elbl acc" x="470" y="238" text-anchor="end">t4 后的新 run 全进 B →</text>
+    </svg>

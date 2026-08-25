@@ -271,7 +271,8 @@
 - **明确边界**：Skills 目录只读；插件只展示 manifest，不安装、加载或执行；remote/open
   stdio MCP 默认关闭；截图不得显示 API key、header、token 或本机私密路径。
 - **相关文档**：[工具总览](../design/tools/README.md)、
-  [Skills 边界](../design/skills/README.md)、[插件边界](../design/plugins/README.md)、
+  [Skills 边界](../design/skills/README.md)、
+  [插件边界](../design/self-evolving-agent-os/current-plugin-state.md)、
   [凭证托管](../design/secrets/README.md)。
 
 ![藏兵阁系统管理](../assets/features/system.jpg)

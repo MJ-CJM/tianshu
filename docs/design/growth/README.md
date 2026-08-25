@@ -73,4 +73,5 @@ Code variant 均止于评估和推荐。
 - Skill：[../skills/](../skills/)
 - Persona 画像：[../persona/profile.md](../persona/profile.md)
 - Universe：[../universe/](../universe/)
+- 受治理自进化目标架构：[../self-evolving-agent-os/](../self-evolving-agent-os/)
 - 当前能力事实：[../../CURRENT-STATE.md](../../CURRENT-STATE.md)

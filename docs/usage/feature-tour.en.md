@@ -314,7 +314,8 @@ approval.
   installed, loaded, or executed. Remote and open-stdio MCP remain disabled. Screenshots must never
   expose API keys, headers, tokens, or private local paths.
 - **Related docs**: [Tools Overview](../design/tools/README.md),
-  [Skills Boundary](../design/skills/README.md), [Plugin Boundary](../design/plugins/README.md),
+  [Skills Boundary](../design/skills/README.md),
+  [Plugin Boundary](../design/self-evolving-agent-os/current-plugin-state.md),
   [Credential Vault](../design/secrets/README.md).
 
 ![System Management](../assets/features/system.jpg)

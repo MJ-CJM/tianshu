@@ -1,0 +1,228 @@
+# 从当前 Tianshu 到目标架构
+
+> **Status: Proposed migration plan。**
+> 每一阶段都必须保持当前受管主链、Evidence 和 fail-closed 边界，不采用大爆炸重写。
+
+## 1. 总体判断
+
+这不是推倒重来。Tianshu 最稀缺的资产是治理、持久运行和证据，不是插件 API 的数量。
+重构方向应是把这些资产升格为稳定 OS 微内核，再让可替换能力逐步进入代际化 PluginHost。
+
+首个产品里程碑不应是插件市场，而应是：
+
+> **完整运行快照 + continuity generation 固定 + last-good 回滚。**
+
+## 2. 保留、重构与淘汰
+
+### 2.1 保留并强化
+
+- Edict、Memorial、Decision 和 Governance Contract；
+- RunState、Attempt lease/fencing、fenced completion；
+- Workspace Lease、Restore Point、Canonical Change Set；
+- UoW、durable outbox、Effect journal、SystemAudit；
+- ArtifactStore、Evidence close/verify/import/export；
+- Candidate lifecycle、Gate、Canary、Promotion journal、Rollback；
+- ChallengerRouter“先持久化 assignment 再执行”的模式；
+- 静态 DAG 的完整预审、确定取消边界和 follow-up 外环；
+- Keqing“只替换执行面，不替换治理面”的边界。
+
+### 2.2 需要重构
+
+| 当前对象 | 目标方向 |
+|---|---|
+| `PluginLoader` / `PluginApi` | Manifest Catalog 与 PluginHost 分离 |
+| 进程级 Tool/Hook/Provider/Channel registry | generation-scoped、owner-aware Contribution Registry |
+| `RunAssignmentV1` 单 Candidate overlay | 完整 `ExecutionAssignment` + `SystemSnapshot` |
+| 五种固定 `CandidateKind` | 保留兼容层，新增 `target_plugin_id + patch_surface` |
+| SkillsWatcher 直接刷新 active loader | 文件变化只产生 Candidate/新 generation，不影响活跃 continuity |
+| channel anchor、follow-up、各种 Session 概念 | 按 conversation/长任务 Edict、scheduled root、DAG/retry 分别确定 continuity binding；是否引入 AgentSession 另行 ADR |
+| `UniverseManager` | 保留 branch/diff/eval，保持无生产 active 所有权且不得恢复 live writer |
+| `PromotionService` 大类 | 逻辑拆分授权、Gate、分流、激活和回滚，但暂不拆服务 |
+| `Storage` 全局 facade | 插件只获得 namespaced repository/state handle |
+| best-effort EventBus 权威用法 | 正确性走 durable event/outbox；EventBus 留给 UI/缓存通知 |
+| `wire_*` 静态装配 | 保留 composition root，built-in 解析成默认 PluginSetSnapshot |
+
+### 2.3 迁移后淘汰
+
+- 对全局 registry 无 owner 的 `PluginApi.register_*` 直写；
+- “已发现 manifest”与“已安装/激活插件”混用；
+- 活跃 Skill 目录直接 repoint/reload；
+- 把 `universe_id` 或 Legacy champion 当作运行权威的残余兼容投影和读取路径；当前正式
+  Candidate 路径已经不以它们作为生产 active pointer；
+- 生产正确性依赖 best-effort `emit/fire`；
+- 默认 import 任意本地 Python entry point；
+- 迁移完成后的重复 legacy assignment 字段和无效 auto-promote 配置。
+
+## 3. 分阶段路线
+
+### Phase 0：冻结术语和不变量
+
+工作：
+
+- 为 Artifact、PluginRelease、PluginSetSpec、PluginSetSnapshot、RuntimeGeneration、
+  SystemSnapshot、ExecutionAssignment 编写 ADR 草案；
+- 冻结第一阶段 continuity 规则：conversation/长任务 Edict 固定、scheduled root 每次选择、
+  DAG/retry 继承 root Assignment；AgentSession 暂不引入；
+- 用 characterization tests 锁定 ingress、fencing、Evidence、Candidate 和 rollback；
+- 明确微内核永不开放的 API。
+
+退出条件：
+
+- 当前事实和目标术语无混用；
+- 所有关键不变量有可执行测试或明确的 deferred Gate；
+- 设计不承诺多节点、第三方安装或自动晋升。
+
+### Phase 1：Shadow SystemSnapshot
+
+工作：
+
+- 将当前 `wire_*` 装配解析为 `builtin/default` PluginSetSnapshot；
+- 为旧数据建立 `legacy/default` snapshot；
+- 在 Memorial、RunState、Evidence 中双写 SystemSnapshot digest，并写入合成的
+  `legacy/default` runtime identity；该 identity 仅证明当前进程归属，不代表 Phase 2 的
+  side-by-side RuntimeGeneration 已经存在；
+- 引入 `ExecutionAssignment`，但继续使用现有运行路径；
+- 对双写结果做 shadow comparison，不改变 active 行为。
+
+退出条件：
+
+- 每个新 Memorial 都能回答“实际使用了什么”；
+- 同一输入解析出的 snapshot digest 确定一致；
+- Evidence 独立重算后与 Assignment 完全匹配；
+- `legacy/default` 不会被 UI/API 误报为已经具备 warming、drain 或动态卸载；
+- 关闭新双写后旧路径仍保持行为兼容。
+
+### Phase 2：Generation-aware built-in PluginHost
+
+工作：
+
+- 建立 owner/effect/disposer；
+- built-in 通过新 Capability seam 注册；
+- 实现依赖解析、side-by-side generation、warming、health、引用计数和 drain；
+- 所有冲突、缺失依赖和卸载错误产生结构化诊断；
+- 暂不加载第三方代码。
+
+退出条件：
+
+- 新 generation 未 Ready 前 active 不变；
+- 启动失败保留 last-good；
+- 旧 generation 引用归零后才逆序 dispose；
+- 连续 100 次启动、切换、回滚无 contribution 泄漏或混代。
+
+### Phase 3：Continuity pinning 与首条垂直切片
+
+第一条切片建议选择 Keqing/Pi ExecutorAdapter：
+
+- 已有 ExecutorAdapter Protocol、`AgentCapabilities` 声明基础和受限的外部执行边界；完整
+  Capability Manifest 仍是目标设计；
+- “只换执行面、不换治理面”天然适合作为 Plugin Capability；
+- 可以真实验证进程隔离、版本漂移、generation pinning 和 drain；
+- 相比先迁移高耦合 ToolRegistry，风险更容易限制在执行适配边界。
+
+工作：
+
+- conversation/长任务 Edict 固定 RuntimeGeneration，follow-up 继承；
+- cron/interval 每次触发的新 root Memorial 选择当时 active generation；
+- DAG 子节点和基础设施重试继承 root Assignment；
+- Pi 新旧版本 side-by-side；只有新的 root assignment 或命中 Canary 的新 continuity scope
+  使用新版本，已有 continuity 不换代；
+- 版本漂移先产生 Candidate，不自动改 active；
+- Evidence 绑定实际 executor release、probe 和 generation。
+
+退出条件：
+
+- 活跃长任务不会在执行中换 executor；
+- 新 Pi 启动或契约失败不会影响旧任务；
+- 旧任务完成后旧进程可被确定回收；
+- 回滚在目标 SLO 内恢复 last-good 路由。
+
+### Phase 4：从叶子能力向内迁移
+
+推荐顺序：
+
+```text
+Provider / Channel / Notifier
+→ 其他 Executor Adapter
+→ Tool
+→ Skill / Persona / Memory / Context Contributor
+→ 声明式 UI 扩展
+```
+
+每迁移一种 Capability，都必须补齐：owner、权限、冲突规则、health、timeout、状态 schema、
+Evidence 和 rollback。Agent Loop 可以作为满足稳定 Memorial/Attempt 执行契约的实现插件，
+但不能直接获得运行账本和 Promotion Authority。
+
+### Phase 5：Evolution 收敛到 PluginSet patch
+
+工作：
+
+- Candidate 从固定五类扩展为目标 Plugin、surface 和精确 base snapshot；
+- Legacy Universe mutation 只产出 Candidate；
+- PluginSetSnapshot 先进入新的 SystemSnapshot，AgentDeployment 再更新 desired snapshot；
+  RuntimeGeneration 完成 warming/Ready 后才切换 active，回滚使用 last-good SystemSnapshot；
+- 引入 per-plugin `frozen/manual/canary`；
+- Canary 按上文三类 continuity scope sticky，不引用尚未引入的 AgentSession；
+- historical replay、held-out、shadow、state migration 和 rollback rehearsal 成为 Gate。
+
+退出条件：
+
+- 用户可以启用插件但冻结其进化；
+- Candidate 无法更改自己的 Gate、权限和 Evaluator；
+- stale evaluation 无法晋升；
+- 回滚先归零流量，并且 Reconciler 可在崩溃后继续。
+
+### Phase 6：第三方生态与有限自动进化
+
+完成以下基础后，才开放正式 install/activate/unload：
+
+- 内容寻址 package、签名、SBOM、TUF/SLSA provenance；
+- API/ABI 和 Host 版本协商；
+- Process/Wasm/Container host；
+- Secret handle、文件/网络 capability 和资源配额；
+- 状态迁移、health probe、crash-loop quarantine；
+- kill switch、last-good 和自动回滚演练。
+
+`auto` 最初只给明确批准、无状态、低权限、可快速回滚的叶子插件。核心代码继续采用“自动提案、
+自动评测、人工发布”。
+
+## 4. 验收标准
+
+只有同时满足以下条件，才可以对外称为“受治理的自进化 Agent OS”：
+
+- 每个 Memorial 绑定唯一、完整、不可变的 SystemSnapshot；
+- 同一连续交互不混用两个 RuntimeGeneration；
+- 新 generation 失败时 active 和 last-good 不变；
+- Canary 按 continuity sticky，分桶可以独立重算验证；
+- Replay 不重新调用模型或外部 Tool；
+- 单个插件可以保持 enabled，同时设为 frozen；
+- Candidate 无法修改自己的 Evaluator、权限或 Promotion Policy；
+- 第三方插件不能直接取得全局 Storage、宿主 secret 或未授予权限；
+- 状态不可安全回退时，自动晋升 fail closed；
+- Evidence 绑定实际模型、Prompt、PluginSet、策略、Effect、成本和环境；
+- 旧 generation 在引用归零前不会销毁；
+- 回滚满足明确 SLO，并有故障注入测试覆盖。
+
+## 5. 主要风险
+
+| 风险 | 后果 | 控制方式 |
+|---|---|---|
+| 把目标对象一次性铺满代码库 | 长期双轨和抽象债 | Shadow 双写、逐 Capability 迁移 |
+| 插件粒度过细 | 依赖爆炸、难以原子发布 | Plugin 是策略/Candidate 单元，SystemSnapshot 原子发布回滚 |
+| 评测过拟合单一分数 | Goodhart、质量倒退 | 硬 Gate + 多指标 + held-out + live Canary |
+| 状态 schema 不可逆 | 回滚失效 | dual-read/write、排空、备份、人工 Gate |
+| 同进程第三方代码 | secret、宿主和稳定性风险 | Process/Wasm/Container 隔离 |
+| Reconciler 非幂等 | 重启后重复激活或破坏状态 | durable spec/status、CAS、fencing |
+| EventBus 被当作权威账本 | 丢事件后无法恢复 | outbox/Event History 为正确性来源 |
+| 过早开放 auto | 权限和质量事故 | 先 frozen/manual/canary，逐插件白名单 |
+
+## 6. 实现前需要正式拍板的 ADR
+
+以下决策满足“难以逆转、无上下文会令人困惑、存在真实权衡”，应在实现前单独记录：
+
+1. 治理微内核不可由普通 Evolution 自动修改；
+2. 热更新采用代际并存与 drain，不采用进程内模块 reload；
+3. Plugin 是进化策略和 Candidate 目标单元，SystemSnapshot 是原子部署、回滚和运行归因单元；
+4. conversation、scheduled root、DAG/retry 的 continuity 固定规则，以及何时引入 AgentSession；
+5. Plugin state 的兼容、迁移和不可逆变更规则；
+6. 第三方插件的默认隔离 Host 与 Capability grant 模型；
+7. `auto` 模式允许的风险上限、统计门槛和人工收权机制。

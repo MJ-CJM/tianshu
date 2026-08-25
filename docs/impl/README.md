@@ -149,7 +149,7 @@ unavailable，开启请求返回 `409`。
 | [`llm/`](llm/) | LLM 与成本 |
 | [`memory/`](memory/) | Markdown/SQLite/Drawer 记忆 |
 | [`persona/`](persona/) | 官员、提示组装、路由与成长档案 |
-| [`plugins/`](plugins/) | manifest-only 实验插件目录 |
+| [插件当前实现](../design/self-evolving-agent-os/current-plugin-state.md) | manifest-only 实验插件目录；设计与实现边界已集中到统一报告目录 |
 | [`scheduling/`](scheduling/) | Scheduler 与 Planner |
 | [`skills/`](skills/) | Skill 加载、评估与学习边界 |
 | [`storage/`](storage/) | schema、ledger、领域 repositories |

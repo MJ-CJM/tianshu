@@ -41,8 +41,7 @@
 - 当前不会安装、import 或执行 `entry_point`，也不会验证声明的依赖/SHA-256；API 和 Web
   明确标为 `manifest_only`。源码级内建扩展可显式调用 `PluginApi.register_*`。
 - 示例见 [extension-guide.md](extension-guide.md)；边界见
-  [../design/plugins/README.md](../design/plugins/README.md) 和
-  [../impl/plugins/README.md](../impl/plugins/README.md)。
+  [当前插件扩展实现与支持边界](../design/self-evolving-agent-os/current-plugin-state.md)。
 
 ## 加 LLM Provider
 

@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 760" role="img" aria-label="当前架构：运行只绑定单个 candidate overlay，执行器 replace 原地替换，注册表无 owner，SkillsWatcher 直接 reload，只有 Skill 有晋升适配器">
+<style>
+  svg{font-family:"Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",sans-serif;color:#1E2530}
+  .nd rect{fill:#FFFFFF;stroke:#1E2530;stroke-width:1;rx:3}
+  .nd text{fill:#1E2530;font-size:11px}
+  .nd .sub{font-size:9.5px;fill:#5C6675}
+  .new rect{stroke:#2F5D8A;stroke-width:1.5;fill:#E2ECF6}
+  .new .sub{fill:#1E2530;opacity:.75}
+  .warn rect{stroke:#A8671F;stroke-dasharray:4 3;fill:#F6EBDD}
+  .dim rect{stroke:#8B95A3}
+  .dim text{fill:#8B95A3}
+  .lbl{fill:#5C6675;font-size:10px;letter-spacing:.12em}
+  .band{stroke:#C7CED6;stroke-dasharray:2 5;stroke-width:1}
+  .edge{stroke:#1E2530;fill:none;stroke-width:1}
+  .edge.acc{stroke:#2F5D8A;stroke-width:1.4}
+  .edge.wn{stroke:#A8671F;stroke-dasharray:4 3}
+  .note{fill:#A8671F;font-size:10px}
+  .note.acc{fill:#2F5D8A}
+  .elbl{font-size:9.5px;fill:#5C6675}
+  .elbl.acc{fill:#2F5D8A}
+  .mono{font-family:"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;font-size:9.5px}
+  marker path{fill:#1E2530}
+  marker path.acc{fill:#2F5D8A}
+  marker path.wn{fill:#A8671F}
+</style>
+<rect width="100%" height="100%" fill="#FFFFFF"/>
+
+        <defs>
+          <marker id="a-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="a-wn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="wn" d="M0,0 L10,5 L0,10 z"/></marker>
+        </defs>
+
+        <!-- band 1 -->
+        <text class="lbl" x="16" y="16">入口 · 治理面 · 证据（前后不变）</text>
+        <g class="nd"><rect x="16" y="32" width="118" height="40"/><text x="75" y="49" text-anchor="middle">Gateway · Web</text><text class="sub" x="75" y="63" text-anchor="middle">CLI · 飞书/Telegram</text></g>
+        <g class="nd"><rect x="150" y="32" width="58" height="40"/><text x="179" y="56" text-anchor="middle">Edict</text></g>
+        <g class="nd"><rect x="224" y="32" width="150" height="40"/><text x="299" y="49" text-anchor="middle">Memorial · Attempt</text><text class="sub" x="299" y="63" text-anchor="middle">lease / fencing · RunState</text></g>
+        <g class="nd"><rect x="390" y="32" width="76" height="40"/><text x="428" y="56" text-anchor="middle">Decision</text></g>
+        <g class="nd"><rect x="482" y="32" width="102" height="40"/><text x="533" y="49" text-anchor="middle">Evidence Bundle</text><text class="sub" x="533" y="63" text-anchor="middle">Effect journal</text></g>
+        <line class="edge" x1="134" y1="52" x2="150" y2="52" marker-end="url(#a-ink)"/>
+        <line class="edge" x1="208" y1="52" x2="224" y2="52" marker-end="url(#a-ink)"/>
+        <line class="edge" x1="374" y1="52" x2="390" y2="52" marker-end="url(#a-ink)"/>
+        <line class="edge" x1="466" y1="52" x2="482" y2="52" marker-end="url(#a-ink)"/>
+        <line class="band" x1="16" y1="92" x2="584" y2="92"/>
+
+        <!-- band 2 -->
+        <text class="lbl" x="16" y="108">运行绑定</text>
+        <g class="nd"><rect x="16" y="124" width="128" height="36"/><text x="80" y="146" text-anchor="middle">ChallengerRouter</text></g>
+        <g class="nd warn"><rect x="176" y="116" width="180" height="52"/><text x="266" y="136" text-anchor="middle">RunAssignmentV1</text><text class="sub" x="266" y="152" text-anchor="middle">单 candidate · 全局仅 1 个 canary</text></g>
+        <g class="nd"><rect x="388" y="124" width="196" height="36"/><text x="486" y="146" text-anchor="middle">bind_runtime → ContextVar</text></g>
+        <line class="edge" x1="144" y1="142" x2="176" y2="142" marker-end="url(#a-ink)"/>
+        <line class="edge" x1="356" y1="142" x2="388" y2="142" marker-end="url(#a-ink)"/>
+        <text class="note" x="176" y="194">▲ Memorial 不知道自己用的是哪版 skills / persona / policy / provider</text>
+        <line class="band" x1="16" y1="216" x2="584" y2="216"/>
+
+        <!-- band 3 -->
+        <text class="lbl" x="16" y="232">执行面</text>
+        <g class="nd"><rect x="16" y="250" width="90" height="36"/><text x="61" y="272" text-anchor="middle">Executor</text></g>
+        <g class="nd warn"><rect x="130" y="250" width="200" height="36"/><text x="230" y="265" text-anchor="middle">ExecutorAdapterRegistry</text><text class="sub" x="230" y="279" text-anchor="middle">register · replace()</text></g>
+        <g class="nd"><rect x="366" y="240" width="150" height="28"/><text x="441" y="258" text-anchor="middle">native Agent（进程内）</text></g>
+        <g class="nd"><rect x="366" y="286" width="218" height="28"/><text x="475" y="304" text-anchor="middle">keqing:pi 子进程 · 磁盘上只有一版</text></g>
+        <g class="nd"><rect x="366" y="332" width="200" height="28"/><text x="466" y="350" text-anchor="middle">keqing:claude-code · codex</text></g>
+        <line class="edge" x1="106" y1="268" x2="130" y2="268" marker-end="url(#a-ink)"/>
+        <polyline class="edge" points="330,268 348,268 348,254 366,254" marker-end="url(#a-ink)"/>
+        <polyline class="edge" points="348,268 348,300 366,300" marker-end="url(#a-ink)"/>
+        <polyline class="edge" points="348,300 348,346 366,346" marker-end="url(#a-ink)"/>
+        <text class="note" x="130" y="386">▲ replace() 原地换：运行中的 run 与新 run 不分代，没有 warm，没有 last-good</text>
+        <line class="band" x1="16" y1="400" x2="584" y2="400"/>
+
+        <!-- band 4 -->
+        <text class="lbl" x="16" y="416">能力注册表 · 内容</text>
+        <g class="nd"><rect x="16" y="428" width="260" height="36"/><text x="146" y="443" text-anchor="middle">PluginLoader → manifest 目录</text><text class="sub" x="146" y="457" text-anchor="middle">manifest_only · install / activate 返回 501</text></g>
+        <g class="nd warn"><rect x="16" y="484" width="260" height="36"/><text x="146" y="499" text-anchor="middle">PluginApi.register_*</text><text class="sub" x="146" y="513" text-anchor="middle">无 owner · 无 disposer · 无 unregister</text></g>
+        <g class="nd"><rect x="316" y="428" width="268" height="36"/><text x="450" y="443" text-anchor="middle">全局注册表（进程级）</text><text class="sub" x="450" y="457" text-anchor="middle">Tool · Hook · Channel · Provider · Skills</text></g>
+        <g class="nd warn"><rect x="316" y="484" width="110" height="28"/><text x="371" y="502" text-anchor="middle">SkillsWatcher</text></g>
+        <polyline class="edge" points="276,502 296,502 296,446 316,446" marker-end="url(#a-ink)"/>
+        <line class="edge wn" x1="371" y1="484" x2="371" y2="464" marker-end="url(#a-wn)"/>
+        <text class="elbl" x="380" y="478">reload active loader</text>
+        <text class="note" x="316" y="540">▲ SKILL.md 一变，运行中的 run 立刻看到新内容</text>
+        <line class="band" x1="16" y1="564" x2="584" y2="564"/>
+
+        <!-- band 5 -->
+        <text class="lbl" x="16" y="580">演化面</text>
+        <g class="nd"><rect x="16" y="592" width="200" height="36"/><text x="116" y="607" text-anchor="middle">Universe 快照 · 分支 · 评估</text><text class="sub" x="116" y="621" text-anchor="middle">switch / rollback fail closed → 只推荐</text></g>
+        <g class="nd"><rect x="16" y="648" width="200" height="36"/><text x="116" y="663" text-anchor="middle">CandidateService → Gates</text><text class="sub" x="116" y="677" text-anchor="middle">5 种 CandidateKind</text></g>
+        <g class="nd"><rect x="248" y="648" width="150" height="36"/><text x="323" y="663" text-anchor="middle">PromotionService</text><text class="sub" x="323" y="677" text-anchor="middle">canary · promote · rollback</text></g>
+        <g class="nd"><rect x="430" y="628" width="154" height="28"/><text x="507" y="646" text-anchor="middle">SkillPromotionAdapter</text></g>
+        <g class="nd warn"><rect x="430" y="672" width="154" height="28"/><text x="507" y="690" text-anchor="middle">其余 4 种 → Unavailable</text></g>
+        <g class="nd"><rect x="248" y="704" width="150" height="28"/><text x="323" y="722" text-anchor="middle">RollbackReconciler</text></g>
+        <line class="edge" x1="216" y1="666" x2="248" y2="666" marker-end="url(#a-ink)"/>
+        <polyline class="edge" points="398,666 414,666 414,642 430,642" marker-end="url(#a-ink)"/>
+        <polyline class="edge" points="414,666 414,686 430,686" marker-end="url(#a-ink)"/>
+        <line class="edge" x1="323" y1="684" x2="323" y2="704" marker-end="url(#a-ink)"/>
+      </svg>
