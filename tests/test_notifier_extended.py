@@ -6,6 +6,13 @@ import pytest
 
 from tianshu.models import Edict, Memorial, TaskStatus
 from tianshu.models.events import make_event
+from tianshu.models.principal import (
+    AuthContext,
+    AuthenticationSource,
+    ClientKind,
+    Principal,
+    PrincipalKind,
+)
 from tianshu.notifier.notifier import Notifier
 
 
@@ -62,7 +69,18 @@ class TestNotifierHandlers:
 
     async def test_register_unregister_ws(self, notifier):
         mock_ws = MagicMock()
-        notifier.register_ws(mock_ws)
+        auth_context = AuthContext(
+            principal=Principal(
+                id="user:owner",
+                kind=PrincipalKind.HUMAN,
+                display_name="Owner",
+                scopes=frozenset({"api"}),
+            ),
+            source=AuthenticationSource.BEARER,
+            client_kind=ClientKind.WEB,
+            correlation_id="ws-owner",
+        )
+        notifier.register_ws(mock_ws, auth_context)
         assert mock_ws in notifier._ws_clients
         notifier.unregister_ws(mock_ws)
         assert mock_ws not in notifier._ws_clients

@@ -8,7 +8,7 @@
 |---|---|---|
 | 出站通知 | 平台 → 用户 | `Notifier`、`ChannelRegistry`、`channels/*`（webhook/邮件） |
 | 双向 IM bot | 用户 ↔ 平台 | `gateway/feishu/FeishuBot`、`gateway/telegram/`（app bot，可下旨/审批） |
-| 实时 Web 流 | 平台 → 浏览器 | `Notifier` 的 WebSocket 广播（见 [gateway.md](./gateway.md) §6） |
+| 实时 Web 流 | 平台 → 浏览器 | `Notifier` 的 WebSocket 出站授权广播（见 [gateway.md](./gateway.md) §6） |
 
 ## 2. Notifier（广播 + 派发中枢）
 
@@ -16,7 +16,7 @@
 
 | 能力 | 说明 |
 |---|---|
-| WebSocket 广播 | `register_ws` / `broadcast_ws`，死连接自动剔除 |
+| WebSocket 广播 | `register_ws` 保存认证主体；`broadcast_ws` 按 Edict 所有权过滤，死连接自动剔除 |
 | 事件处理 | 订阅 `audit.completed`（urgent 跳去抖，否则 0.5s debounce）、`execution.failed`、`outer_loop.*`（实时不去抖） |
 | 外部派发 | durable internal-delivery outbox 按 `edict.dispatch.channels` 逐渠道发送 |
 | webhook | `send_webhook` 直发 POST |

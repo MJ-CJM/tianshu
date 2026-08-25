@@ -6,6 +6,25 @@
 > **重要基线修正（对评审文档）**：评审 §4 中新迁移编号 V25–V28 已过时——`0025_persona_allowed_paths` 已占用 V25（[../../src/tianshu/storage/migrations.py](../../src/tianshu/storage/migrations.py):4005），live tail 是 V30 `0030_consultation_rounds`（migrations.py:4160）。**本方案全部新迁移从 V31 起编号（0031–0035）**。
 > **流程约定（用户既有偏好）**：每阶段走 issue → `feat/`|`fix/` 分支 → PR（`Closes #n`）；PR 由用户合入、tag 由用户操作；跑 Python 一律 `.venv/bin/python`；宣称 CI 绿前 `gh pr checks` 亲验；前端改动后单跑 `cd web && npm run typecheck`（vitest/eslint 不查类型）。
 
+## 实施状态
+
+| 任务 | 状态 | 日期 | 验证 |
+|---|---|---|---|
+| P0 术语冻结与 Ring 0 守卫 | ⬜ 未开始 | — | — |
+| P1 SystemSnapshotV1 影子双写 | ⬜ 未开始 | — | — |
+| P2 ContributionHandle | ⬜ 未开始 | — | — |
+| P3 Pi 执行器代际与 continuity 固定 | ⬜ 未开始 | — | — |
+| P4a EvolutionPolicy 与 per-subject canary | ⬜ 未开始 | — | — |
+| P4b per-subject 运行分配与 UI | ⬜ 未开始 | — | — |
+| P5 CandidateKind.EXECUTOR 全链路 | ⬜ 未开始 | — | — |
+| P6 进程级 snapshot 重启与 last-good | ⬜ 未开始 | — | — |
+| P7 声明式内容每 run 冻结视图 | ⬜ 未开始 | — | — |
+| X1 WS 出站所有权过滤 | ✅ 已完成，待 PR 合入 | 2026-08-25 | 17 项所有权用例；32 项定向测试；全量 4746 passed、2 skipped |
+| X2 重试判据收敛 | ⬜ 未开始 | — | — |
+| X3 allowed_paths 受理校验 | ⬜ 未开始 | — | — |
+| X4 schema 落盘与 CI 门禁 | ⬜ 未开始 | — | — |
+| X5 路由 scope 表 | ⬜ 未开始 | — | — |
+
 ---
 
 ## 0. 一页总览

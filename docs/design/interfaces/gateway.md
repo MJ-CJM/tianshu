@@ -56,7 +56,14 @@
 
 ## 6. WebSocket 实时事件流
 
-`@gateway_router.websocket("/ws")`（即 `/api/ws`）：accept 后 `notifier.register_ws(ws)`，断线时 unregister。服务端单向推送，客户端 receive 仅用于保活。
+`@gateway_router.websocket("/ws")`（即 `/api/ws`）：认证完成并 accept 后
+`notifier.register_ws(ws, auth_context)`，断线时 unregister。服务端单向推送，客户端
+receive 仅用于保活。
+
+任务事件在服务端按 `edict_id → Edict.submitter` 与 `can_access_submitter` 过滤：普通主体只收到
+自己的任务，admin 可见全部。无有效 `edict_id`、Edict 不存在、submitter 为空或归属查询失败时
+fail closed 为仅 admin 可见。当前 `consultation.*` 不带 `edict_id`，因此普通主体依赖既有轮询
+读取详情进度，不接收其 WebSocket 实时通知；同理，无任务归属的系统级事件也仅向 admin 推送。
 
 推送的消息类型（由 Notifier 广播）：
 

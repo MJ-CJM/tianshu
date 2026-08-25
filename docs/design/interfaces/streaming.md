@@ -44,7 +44,7 @@ ReAct 主循环（见 react-loop.md §6）既要支持「阻塞式一次完成�
 
 设计立场：
 
-- **一个 edict 一个 callback 实例**：`edict_id` 在构造时绑定，回调本身不带 id，省去每次传参，也让多任务并发推送天然隔离。
+- **一个 edict 一个 callback 实例**：`edict_id` 在构造时绑定，回调本身不带 id，省去每次传参；Notifier 据此在服务端按任务所有者过滤，多任务并发不会跨主体泄漏。
 - **stream 不去抖**：与 `audit.completed` 的 0.5s 去抖（`DEBOUNCE_SECONDS`）不同，delta 必须实时逐条推，否则前端看不到「打字机」效果。`broadcast_ws` 直接群发，无队列。
 - **结果只摘 `is_error`**：工具完整结果不进 WS（可能很大、含敏感数据），前端只需知道「成功/失败」着色，详情走审计接口。
 
@@ -52,16 +52,19 @@ ReAct 主循环（见 react-loop.md §6）既要支持「阻塞式一次完成�
 
 ```text
 前端 new WebSocket(/api/ws)
-  → gateway/api.py websocket_endpoint: accept() + notifier.register_ws(ws)
+  → gateway/api.py websocket_endpoint: accept() + notifier.register_ws(ws, auth_context)
   → while True: receive_text()   # 服务端只读不解析，纯保活
   → WebSocketDisconnect: notifier.unregister_ws(ws)
 
 Agent 回调 → WebSocketStreamCallback → notifier.broadcast_ws(message)
-  → 遍历 _ws_clients 逐个 send_text(json.dumps(message, default=str))
-  → send 抛异常的连接收集进 dead，群发后从 _ws_clients.discard 清理（死连接自愈）
+  → 解析并缓存 edict_id 对应的 submitter
+  → 遍历 _ws_clients，仅向 can_access_submitter(auth_context, submitter) 为真的连接发送
+  → send 抛异常的连接收集进 dead，发送后从 _ws_clients 清理（死连接自愈）
 ```
 
-`/api/ws` 是**单一全局广播通道**：所有事件（`stream.*`、`tool.approval_required`、`audit.completed`、`execution.failed`、outer loop 事件…）都从这一条连接下来，前端按 `type` + `edict_id` 自行过滤。没有 per-edict 房间/订阅机制——简化优先于精确投递。
+`/api/ws` 仍是**单一传输通道**，但不是跨主体的全局可见广播：任务事件先由服务端按
+`Edict.submitter` 做出站授权，前端再按 `type` + `edict_id` 分派。无有效 `edict_id` 的事件仅
+admin 可见。系统没有 per-edict 房间或 subscribe 协议，身份过滤本身就是权限边界。
 
 ## 5. WS 事件 JSON schema
 

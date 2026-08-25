@@ -32,7 +32,7 @@ async def websocket_endpoint(websocket: WebSocket, request: Request = None):
     auth_service: AuthService = websocket.app.state.auth_service
     auth_context = get_auth_context(websocket)
     await websocket.accept()
-    notifier.register_ws(websocket)
+    notifier.register_ws(websocket, auth_context)
     monitor_task: asyncio.Task[None] | None = None
     try:
         if not auth_service.is_context_active(auth_context):
