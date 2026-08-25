@@ -60,6 +60,37 @@ class FailureReason(StrEnum):
     def is_agent_error(self) -> bool:
         return self.value.startswith("agent_error.")
 
+    @property
+    def is_retryable(self) -> bool:
+        """Whether an execution failure may consume another attempt."""
+
+        return self in _RETRYABLE_FAILURE_REASONS
+
+
+_RETRYABLE_FAILURE_REASONS = frozenset(
+    {
+        FailureReason.PROVIDER_CAPACITY_OR_RATE_LIMIT,
+        FailureReason.PROVIDER_SERVER_ERROR,
+        FailureReason.PROVIDER_NETWORK,
+        FailureReason.PROCESS_FAILURE,
+        FailureReason.AGENT_TIMEOUT,
+    }
+)
+
+
+def classify_exception_failure(exc: Exception) -> FailureReason:
+    """Map execution exception types to canonical failure reasons, failing closed."""
+
+    # TimeoutError and ConnectionError are OSError subclasses, so specific
+    # transport meanings must be checked before the generic process bucket.
+    if isinstance(exc, TimeoutError):
+        return FailureReason.AGENT_TIMEOUT
+    if isinstance(exc, ConnectionError):
+        return FailureReason.PROVIDER_NETWORK
+    if isinstance(exc, OSError):
+        return FailureReason.PROCESS_FAILURE
+    return FailureReason.UNKNOWN
+
 
 def _contains_any(s: str, *subs: str) -> bool:
     return any(sub in s for sub in subs)

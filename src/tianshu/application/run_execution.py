@@ -20,6 +20,7 @@ from tianshu.application.run_dispatcher import (
 from tianshu.models import Plan, TaskStatus, UsageSummary
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 from tianshu.models.canonical import RedactedError
+from tianshu.models.failure import classify_exception_failure
 
 logger = logging.getLogger(__name__)
 
@@ -226,11 +227,11 @@ def _redacted_failure(exc: Exception) -> RedactedError:
             details_hash=None,
         )
     digest = hashlib.sha256(type(exc).__name__.encode()).hexdigest()
-    retryable = isinstance(exc, (ConnectionError, TimeoutError))
+    reason = classify_exception_failure(exc)
     return RedactedError(
-        code="managed_execution_retryable" if retryable else "managed_execution_error",
+        code=reason.value,
         message="Managed execution failed",
-        retryable=retryable,
+        retryable=reason.is_retryable,
         details_hash=digest,
     )
 
