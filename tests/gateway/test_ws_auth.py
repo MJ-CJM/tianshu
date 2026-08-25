@@ -43,9 +43,10 @@ class RecordingNotifier:
         self.unregistered: list = []
         self.principal_ids: list[str] = []
 
-    def register_ws(self, websocket) -> None:
+    def register_ws(self, websocket, auth_context: AuthContext) -> None:
         self.registered.append(websocket)
-        self.principal_ids.append(websocket.state.auth_context.principal.id)
+        assert auth_context is websocket.state.auth_context
+        self.principal_ids.append(auth_context.principal.id)
 
     def unregister_ws(self, websocket) -> None:
         self.unregistered.append(websocket)

@@ -11,7 +11,9 @@ from typing import TYPE_CHECKING
 import httpx
 from fastapi import WebSocket
 
+from tianshu.authz import can_access_submitter
 from tianshu.models.events import EventEnvelope
+from tianshu.models.principal import AuthContext
 from tianshu.notifier.renderer import render_dingtalk, render_email, render_feishu, render_status
 from tianshu.security.redact import redact_mapping, redact_text
 from tianshu.storage import Storage
@@ -36,7 +38,9 @@ class Notifier:
     ) -> None:
         self._storage = storage
         self._channel_registry = channel_registry
-        self._ws_clients: set[WebSocket] = set()
+        self._ws_clients: dict[WebSocket, AuthContext] = {}
+        # Existing Edict APIs do not mutate submitter; unresolved/error lookups stay uncached.
+        self._ws_edict_submitters: dict[str, str | None] = {}
         self._debounce_timers: dict[str, asyncio.Task] = {}
         # 通知三级制免打扰时段(迭代 5,D2):start==end 关闭
         self._quiet_start = quiet_hours_start
@@ -60,14 +64,33 @@ class Notifier:
 
         return datetime.now().hour
 
-    def register_ws(self, ws: WebSocket) -> None:
-        self._ws_clients.add(ws)
+    def register_ws(self, ws: WebSocket, auth_context: AuthContext) -> None:
+        self._ws_clients[ws] = auth_context
 
     def unregister_ws(self, ws: WebSocket) -> None:
-        self._ws_clients.discard(ws)
+        self._ws_clients.pop(ws, None)
+
+    def _ws_submitter(self, message: dict) -> str | None:
+        edict_id = message.get("edict_id")
+        if not isinstance(edict_id, str) or not edict_id.strip():
+            return None
+        if edict_id in self._ws_edict_submitters:
+            return self._ws_edict_submitters[edict_id]
+        try:
+            edict = self._storage.get_edict(edict_id)
+        except Exception:
+            logger.exception("WebSocket ownership lookup failed for edict %s", edict_id)
+            return None
+        if edict is None:
+            return None
+        submitter = edict.submitter
+        if not isinstance(submitter, str) or not submitter.strip():
+            submitter = None
+        self._ws_edict_submitters[edict_id] = submitter
+        return submitter
 
     async def broadcast_ws(self, message: dict) -> None:
-        """Send message to all connected WebSocket clients.
+        """Send a message only to connected WebSocket clients authorized to see it.
 
         锦衣卫·出站脱敏(迭代 3):WS 是最宽的出站面(含流式 delta),统一在此
         redact。流式把 secret 切进两个 chunk 时单片匹配不到,属已知局限。
@@ -75,14 +98,20 @@ class Notifier:
         if not self._ws_clients:
             return
         data = json.dumps(redact_mapping(message), default=str)
-        dead: list[WebSocket] = []
-        for ws in self._ws_clients:
+        submitter = self._ws_submitter(message)
+        dead: list[tuple[WebSocket, AuthContext]] = []
+        for ws, auth_context in list(self._ws_clients.items()):
+            if not can_access_submitter(auth_context, submitter):
+                continue
+            if self._ws_clients.get(ws) is not auth_context:
+                continue
             try:
                 await ws.send_text(data)
             except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self._ws_clients.discard(ws)
+                dead.append((ws, auth_context))
+        for ws, auth_context in dead:
+            if self._ws_clients.get(ws) is auth_context:
+                self._ws_clients.pop(ws, None)
 
     async def send_webhook(self, url: str, payload: dict) -> None:
         """Send a webhook POST request."""
