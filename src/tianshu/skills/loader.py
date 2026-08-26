@@ -849,20 +849,23 @@ class SkillsLoader:
         self,
         filter_names: list[str] | None = None,
         include_dormant: bool = False,
-        metrics_store: _SkillMetricsStoreLike | None = None,
+        metrics_store: object | None = None,
     ) -> str:
         """Return skill index (name + description only) for system prompt injection."""
         filter_set = _validated_filter_names(filter_names)
         metadata = self.list_all_metadata()
+        typed_metrics_store = (
+            cast(_SkillMetricsStoreLike, metrics_store) if metrics_store is not None else None
+        )
 
         if filter_set is not None:
             metadata = [m for m in metadata if m["name"] in filter_set]
 
         # Filter dormant agent-created skills (unless explicitly requested)
-        if not include_dormant and metrics_store is not None:
+        if not include_dormant and typed_metrics_store is not None:
             filtered = []
             for m in metadata:
-                metrics = metrics_store.get(m["name"])
+                metrics = typed_metrics_store.get(m["name"])
                 if metrics and metrics.is_dormant() and metrics.created_by == "agent":
                     continue
                 filtered.append(m)
@@ -872,8 +875,8 @@ class SkillsLoader:
         for m in metadata:
             desc = m.get("description", "")
             status_marker = ""
-            if metrics_store is not None:
-                metrics = metrics_store.get(m["name"])
+            if typed_metrics_store is not None:
+                metrics = typed_metrics_store.get(m["name"])
                 if metrics and metrics.status == "warning":
                     status_marker = " [low success rate]"
                 elif metrics and metrics.status == "retire_suggested":
