@@ -15,8 +15,8 @@ Ubuntu + Python 3.12 是首个正式目标，历史保留批次实际在
 Checkpoint（2026-08-26）：P4a 已由 PR #107 合入 `feat/plugin-v1`（merge `b94d4846`，CI
 6/6）；P4b 已由 PR #109 合入（merge `a8a03071`），目标分支 live migration tail 为 V34。
 当前 checkout 已实现 P5 V35 的 `keqing:pi` EXECUTOR Candidate、精确 generation authority、
-per-subject canary、高危 Decision、换代与 last-good 回滚垂直切片；P5 本地最终门禁已通过，
-合入证据以对应 PR 为准，P6/P7 尚未完成。
+per-subject canary、高危 Decision、换代与 last-good 回滚垂直切片；P5 本地最终门禁已通过；
+PR #111 目标为 `feat/plugin-v1`、CI pending，P6/P7 尚未完成。
 
 成熟度定义：Stable (limited) 表示命名边界有自动化；Beta 表示主路径或只读预览可用，
 但交互、契约仍可能调整；Experimental 表示可试用但契约或支持承诺未冻结；

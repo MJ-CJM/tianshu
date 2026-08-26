@@ -520,3 +520,4 @@ launcher, and real-home lock boundaries are recorded separately for Linux CI rat
 than treated as product failures. Ruff check/format, Mypy (145 source files), all four
 import-linter contracts, Web typecheck, all 77 Web test files / 350 tests, ESLint
 (0 errors), the production build, and all 32 Playwright E2E tests pass.
+PR #111 targets `feat/plugin-v1`; target-branch CI is pending.

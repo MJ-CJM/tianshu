@@ -7,7 +7,7 @@
 > CI 6/6）；P4b 已由 PR #109 合入（merge `a8a03071`），集成分支 live migration tail
 > 为 V34。当前 checkout 已实现 P5 V35 的 `keqing:pi` EXECUTOR Candidate、精确 generation
 > authority、per-subject canary、高危 Decision、换代与 last-good 回滚垂直切片；P5 本地
-> 最终门禁已通过，合入证据以对应 PR 为准，P6/P7 尚未完成。
+> 最终门禁已通过；PR #111 目标为 `feat/plugin-v1`、CI pending，P6/P7 尚未完成。
 
 这份文档是 `docs/` 的当前状态入口。它用于回答“现在能不能用、支持到哪里、哪些
 还不能对外承诺”。详细能力和证据见
