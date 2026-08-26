@@ -2,6 +2,14 @@
 
 > 本页记录本轮研究使用的源码快照、证据等级和可漂移边界。目标设计结论不能反向充当
 > 当前能力证明。
+>
+> **实现补充（2026-08-26）**：下列 commit 与环境信息保留为原始调研快照，不覆盖历史证据。
+> 当前 checkpoint 另以 P4a PR #107（merge `b94d4846`，CI 6/6）和 P4b Issue #108 分支为准。
+> P4b 事实入口为 `models/run_assignment.py`、`storage/migrations.py`、
+> `storage/evolution_repo.py`、`universe/router.py`、`evolution/runtime_context.py`、
+> `evidence/service.py` 及对应 multi-subject/durable-schema/Evidence 测试。最终本地门禁为后端
+> 5270 passed、2 skipped、24 slow deselected，Web 347 passed；静态检查与生产构建通过，
+> PR #109 已创建，目标分支 CI 待完成。
 
 ## 1. 核验时间与源码快照
 

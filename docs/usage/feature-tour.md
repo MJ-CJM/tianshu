@@ -205,10 +205,15 @@
 **功能 14 / 20 · 页面标题“演化中心”**
 
 - **入口**：天工院〔实验〕 → 演化司〔实验〕 → `/evolution`。
-- **用户能做**：查看当前启用状态、Skill 候选、Gate、灰度分流、晋升和回滚证据。
+- **用户能做**：查看当前启用状态、Skill 候选、Gate、灰度分流、晋升和回滚证据；在当前
+  P4b 实现分支，管理员还可查看逐 subject 路由，并用严格 CAS 修改 Skill 的 evolution mode
+  与 max canary basis points。
 - **成熟度**：实验。
-- **明确边界**：当前 Web 是只读的权威投影，不提供晋升或回滚按钮；系统不会自行晋升
-  候选，非 Skill 的生产激活仍关闭，完整 G4 仍未完成。
+- **明确边界**：availability、source 和 curator protection 只读，`pinned` 不是版本 pin；
+  不提供 enabled、版本 pin、晋升或回滚按钮，policy 列表/详情/写入均只允许管理员。P4a 已由
+  PR #107 合入；上述 per-subject 路由和策略面板属于 P4b Issue #108 当前实现分支，本地最终
+  门禁已通过，PR #109 已创建、目标分支 CI 尚待完成。系统不会自行晋升候选，非 Skill 的生产激活仍关闭，
+  完整 G4 仍未完成。
 - **相关文档**：[Skills 当前边界](../design/skills/README.md)、
   [技能学习](../design/skills/learning.md)、[能力事实矩阵](../launch/capability-matrix.md)。
 

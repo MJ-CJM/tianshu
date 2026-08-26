@@ -133,9 +133,13 @@ def _assess_app_readiness(state):
             return False
         return error_codes <= GENERATION_CLEANUP_ONLY_ERRORS
 
-    def evolution_control_planes_ready() -> bool:
-        generation_ready, _error_codes = sample_generation_readiness()
-        return state.evolution_reconciler.readiness_probe() and generation_ready
+    def evolution_generation_cleanup_pending() -> bool:
+        generation_ready, error_codes = sample_generation_readiness()
+        return (
+            not generation_ready
+            and bool(error_codes)
+            and error_codes <= GENERATION_CLEANUP_ONLY_ERRORS
+        )
 
     return assess_readiness(
         ReadinessInputs(
@@ -158,7 +162,9 @@ def _assess_app_readiness(state):
             provider_profile=lambda: state.settings.startup_profile,
             workspace_ready=lambda: state.workspace_service.is_ready,
             generation_runtime_ready=generation_runtime_ready,
-            evolution_rollback_ready=evolution_control_planes_ready,
+            evolution_rollback_ready=state.evolution_reconciler.rollback_readiness_probe,
+            evolution_routing_enabled=lambda: state.settings.evolution_routing_enabled,
+            evolution_generation_cleanup_pending=evolution_generation_cleanup_pending,
             optional_integrations=optional_integrations,
         )
     )

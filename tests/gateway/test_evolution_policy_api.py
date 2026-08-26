@@ -208,6 +208,47 @@ def test_policy_put_atomically_persists_policy_audit_and_outbox(tmp_path: Path) 
         storage.close()
 
 
+def test_policy_list_is_admin_only_ordered_and_uses_the_strict_envelope(
+    tmp_path: Path,
+) -> None:
+    app, storage = _app(tmp_path)
+    api_headers = _pat(app, principal_id="user:api", admin=False)
+    admin_headers = _pat(app, principal_id="user:admin", admin=True)
+    try:
+        with TestClient(
+            app,
+            base_url=_BASE_URL,
+            client=("127.0.0.1", 41000),
+        ) as client:
+            denied = client.get("/api/evolution/policies", headers=api_headers)
+            first = client.put(
+                "/api/evolution/policies/skill:zeta",
+                headers=admin_headers,
+                json=_policy_body(mode="manual", max_canary_basis_points=250),
+            )
+            second = client.put(
+                "/api/evolution/policies/skill:alpha",
+                headers=admin_headers,
+                json=_policy_body(mode="frozen", max_canary_basis_points=0),
+            )
+            listed = client.get("/api/evolution/policies", headers=admin_headers)
+
+        assert denied.status_code == 403
+        assert first.status_code == second.status_code == 200
+        assert listed.status_code == 200
+        assert set(listed.json()) == {"data", "correlation_id"}
+        assert [item["subject_key"] for item in listed.json()["data"]] == [
+            "skill:alpha",
+            "skill:zeta",
+        ]
+        route_schema = app.openapi()["paths"]["/api/evolution/policies"]["get"]["responses"]["200"][
+            "content"
+        ]["application/json"]["schema"]
+        assert route_schema["$ref"].endswith("EvolutionPolicyListResponseV1")
+    finally:
+        storage.close()
+
+
 def test_policy_put_rolls_back_row_and_audit_when_outbox_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

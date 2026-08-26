@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import importlib
 import inspect
+import sqlite3
+from types import SimpleNamespace
 from typing import Any, get_args
 
 import pytest
@@ -13,12 +15,22 @@ from pydantic import ValidationError
 from tianshu.app import create_app
 from tianshu.config import TianshuSettings
 from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
-from tianshu.gateway.evolution_api import RunEvolutionAssignmentResponseV1
+from tianshu.gateway.evolution_api import (
+    EvolutionCenterResponseV1,
+    RunEvolutionAssignmentResponseV1,
+)
 from tianshu.models import Edict, Memorial
 from tianshu.models.canonical import canonical_sha256
+from tianshu.models.evolution_candidate import CandidateKind, CandidateVersionRefV1
 from tianshu.models.principal import Principal, PrincipalKind
+from tianshu.models.run_assignment import (
+    EffectiveEvolutionOverlayV1,
+    RunAssignmentSetV1,
+    SubjectRunAssignmentV1,
+)
 from tianshu.models.system_snapshot import SystemSnapshotV1
 from tianshu.storage import Storage
+from tianshu.storage.evolution_repo import EvolutionRepository
 from tianshu.storage.system_snapshot_repo import SystemSnapshotRepository
 from tianshu.universe.router import ChallengerRouter
 
@@ -89,6 +101,7 @@ def _future_fixture(
     )
     routing = symbols["Routing"](
         candidate_id=candidate.candidate_id,
+        subject_key="skill:reviewer",
         routing_version=3,
         allocation_percent=10,
         champion_assignment_count=82,
@@ -138,6 +151,7 @@ def test_contract_forbids_fabricated_pre_s5_data() -> None:
         "schema_version": 1,
         "status": "not_enabled",
         "reason_code": NOT_ENABLED_REASON,
+        "routing_enabled": True,
         "candidates": [],
         "routing": [],
         "last_gate_hash": None,
@@ -176,6 +190,7 @@ def test_future_fixture_shapes_preserve_gate_routing_and_rollback_truth(status: 
     assert snapshot.candidates[0].rollback_state == "ready"
     assert snapshot.routing[0].champion_assignment_count == 82
     assert snapshot.routing[0].challenger_assignment_count == 18
+    assert snapshot.routing[0].subject_key == "skill:reviewer"
     assert snapshot.last_gate_hash == HASH_C
 
 
@@ -333,11 +348,16 @@ def test_endpoint_is_authenticated_principal_scoped_and_correlated(tmp_path) -> 
             "schema_version": 1,
             "status": "not_enabled",
             "reason_code": NOT_ENABLED_REASON,
+            "routing_enabled": True,
             "candidates": [],
             "routing": [],
             "last_gate_hash": None,
         }
         assert response.json()["correlation_id"] == response.headers["x-correlation-id"]
+        route_schema = app.openapi()["paths"]["/api/evolution"]["get"]["responses"]["200"][
+            "content"
+        ]["application/json"]["schema"]
+        assert route_schema["$ref"].endswith(EvolutionCenterResponseV1.__name__)
     finally:
         storage.close()
 
@@ -359,6 +379,21 @@ def test_endpoint_source_failure_is_an_explicit_correlated_503(tmp_path) -> None
         storage.close()
 
 
+def test_endpoint_projects_the_read_only_routing_kill_switch(tmp_path) -> None:
+    symbols = _symbols()
+    service = SnapshotService(symbols)
+    app, storage = _app(tmp_path, symbols, service)
+    app.state.settings = app.state.settings.model_copy(update={"evolution_routing_enabled": False})
+    try:
+        with TestClient(app, base_url=BASE_URL, client=("127.0.0.1", 41000)) as client:
+            response = client.get("/api/evolution", headers=HEADERS)
+
+        assert response.status_code == 200
+        assert response.json()["data"]["routing_enabled"] is False
+    finally:
+        storage.close()
+
+
 def test_assignment_endpoint_is_owner_scoped_and_disclosure_safe(tmp_path) -> None:
     symbols = _symbols()
     app, storage = _app(tmp_path, symbols, SnapshotService(symbols))
@@ -373,12 +408,55 @@ def test_assignment_endpoint_is_owner_scoped_and_disclosure_safe(tmp_path) -> No
         storage.save_memorial(other_memorial)
         assignment = ChallengerRouter(storage).assign(owner_memorial.id)
         ChallengerRouter(storage).assign(other_memorial.id)
+        champion = CandidateVersionRefV1(
+            version="v1",
+            artifact_digest=HASH_A,
+            canonical_digest=HASH_B,
+        )
+        subject_assignments = tuple(
+            SubjectRunAssignmentV1(
+                assignment_id=f"assignment-owner-{name}",
+                memorial_id=owner_memorial.id,
+                kind=CandidateKind.SKILL,
+                subject_key=f"skill:{name}",
+                candidate_id=None,
+                champion_ref=champion,
+                selected_ref=champion,
+                routing_version=1,
+                bucket=index,
+                created_at=assignment.created_at,
+            )
+            for index, name in enumerate(("reviewer", "writer"))
+        )
+        assignment_material = {
+            "memorial_id": owner_memorial.id,
+            "assignments": [item.model_dump(mode="json") for item in subject_assignments],
+        }
+        assignment_set = RunAssignmentSetV1(
+            memorial_id=owner_memorial.id,
+            assignments=subject_assignments,
+            set_hash=canonical_sha256(assignment_material),
+        )
         snapshot_components = {"kernel": HASH_A}
         system_snapshot = SystemSnapshotV1(
             components=snapshot_components,
             digest=canonical_sha256(snapshot_components),
         )
         with storage.unit_of_work() as unit_of_work:
+            EvolutionRepository().insert_assignment_set(
+                unit_of_work.connection,
+                assignment_set,
+                tuple(
+                    EffectiveEvolutionOverlayV1(
+                        assignment_id=item.assignment_id,
+                        kind=item.kind,
+                        subject_key=item.subject_key,
+                        artifact_digest=item.selected_ref.artifact_digest,
+                        canonical_digest=item.selected_ref.canonical_digest,
+                    )
+                    for item in subject_assignments
+                ),
+            )
             SystemSnapshotRepository().insert_binding(
                 unit_of_work.connection,
                 memorial_id=owner_memorial.id,
@@ -428,6 +506,7 @@ def test_assignment_endpoint_is_owner_scoped_and_disclosure_safe(tmp_path) -> No
         assert owner.status_code == 200
         assert owner.json()["data"]["assignment"] == assignment.model_dump(mode="json")
         assert owner.json()["data"]["effective_overlay"] is None
+        assert owner.json()["data"]["assignment_set"] == assignment_set.model_dump(mode="json")
         assert owner.json()["data"]["system_snapshot"] == {
             "digest": system_snapshot.digest,
             "components": snapshot_components,
@@ -438,6 +517,7 @@ def test_assignment_endpoint_is_owner_scoped_and_disclosure_safe(tmp_path) -> No
         assert outsider.status_code == 404
         assert outsider.json()["detail"]["code"] == "run_assignment_not_found"
         assert admin.status_code == 200
+        assert admin.json()["data"]["assignment_set"] is None
         assert admin.json()["data"]["system_snapshot"] is None
         assert admin_missing.status_code == 404
         assert admin_missing.json()["detail"]["code"] == outsider.json()["detail"]["code"]
@@ -445,6 +525,82 @@ def test_assignment_endpoint_is_owner_scoped_and_disclosure_safe(tmp_path) -> No
             "get"
         ]["responses"]["200"]["content"]["application/json"]["schema"]
         assert route_schema["$ref"].endswith(RunEvolutionAssignmentResponseV1.__name__)
+    finally:
+        storage.close()
+
+
+def test_assignment_endpoint_fails_closed_on_projection_conflict(tmp_path) -> None:
+    symbols = _symbols()
+    app, storage = _app(tmp_path, symbols, SnapshotService(symbols))
+    try:
+        edict = Edict(id="edict-conflict", goal="conflict", submitter="user:owner")
+        memorial = Memorial(id="memorial-conflict", edict_id=edict.id)
+        storage.save_edict(edict)
+        storage.save_memorial(memorial)
+        assignment = ChallengerRouter(storage).assign(memorial.id)
+        champion = CandidateVersionRefV1(
+            version="v1",
+            artifact_digest=HASH_A,
+            canonical_digest=HASH_B,
+        )
+        subject = SubjectRunAssignmentV1(
+            assignment_id="assignment-conflicting-singleton",
+            memorial_id=memorial.id,
+            kind=CandidateKind.SKILL,
+            subject_key="skill:conflict",
+            candidate_id=None,
+            champion_ref=champion,
+            selected_ref=champion,
+            routing_version=1,
+            bucket=0,
+            created_at=assignment.created_at,
+        )
+        material = {
+            "memorial_id": memorial.id,
+            "assignments": [subject.model_dump(mode="json")],
+        }
+        assignment_set = RunAssignmentSetV1(
+            memorial_id=memorial.id,
+            assignments=(subject,),
+            set_hash=canonical_sha256(material),
+        )
+        with storage.unit_of_work() as unit_of_work:
+            EvolutionRepository().insert_assignment_set(
+                unit_of_work.connection,
+                assignment_set,
+                (
+                    EffectiveEvolutionOverlayV1(
+                        assignment_id=subject.assignment_id,
+                        kind=subject.kind,
+                        subject_key=subject.subject_key,
+                        artifact_digest=subject.selected_ref.artifact_digest,
+                        canonical_digest=subject.selected_ref.canonical_digest,
+                    ),
+                ),
+            )
+            unit_of_work.commit()
+        owner_token = app.state.auth_service.issue_pat(
+            Principal(
+                id="user:owner",
+                kind=PrincipalKind.HUMAN,
+                display_name="Owner",
+                scopes=frozenset({"api"}),
+            ),
+            label="evolution-conflict-owner",
+            scopes=frozenset({"api"}),
+        ).raw_token
+
+        with TestClient(app, base_url=BASE_URL, client=("127.0.0.1", 41000)) as client:
+            response = client.get(
+                f"/api/evolution/runs/{memorial.id}/assignment",
+                headers={"Authorization": f"Bearer {owner_token}"},
+            )
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == {
+            "code": "run_assignment_unavailable",
+            "correlation_id": response.headers["x-correlation-id"],
+        }
     finally:
         storage.close()
 
@@ -462,8 +618,54 @@ def test_production_service_is_truthfully_disabled_and_has_no_s5_data_dependency
     )
     assert snapshot.status == "not_enabled"
     assert snapshot.reason_code == NOT_ENABLED_REASON
+    assert snapshot.routing_enabled is True
     assert snapshot.candidates == snapshot.routing == ()
     assert snapshot.last_gate_hash is None
+
+
+def test_routing_summary_prefers_subject_rows_and_only_falls_back_for_old_memorials() -> None:
+    symbols = _symbols()
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    connection.executescript(
+        """
+        CREATE TABLE evolution_routing_allocations (
+            candidate_id TEXT PRIMARY KEY,
+            routing_version INTEGER NOT NULL,
+            allocation_basis_points INTEGER NOT NULL
+        );
+        CREATE TABLE run_evolution_assignments (
+            memorial_id TEXT PRIMARY KEY,
+            candidate_id TEXT,
+            routing_version INTEGER NOT NULL,
+            selected_ref_json TEXT NOT NULL,
+            champion_ref_json TEXT NOT NULL
+        );
+        CREATE TABLE run_subject_assignments (
+            memorial_id TEXT NOT NULL,
+            candidate_id TEXT,
+            routing_version INTEGER NOT NULL,
+            selected_ref_json TEXT NOT NULL,
+            champion_ref_json TEXT NOT NULL
+        );
+        INSERT INTO evolution_routing_allocations VALUES ('candidate-1', 3, 1000);
+        INSERT INTO run_evolution_assignments VALUES
+            ('memorial-old', 'candidate-1', 3, 'champion', 'champion'),
+            ('memorial-shadow', 'candidate-1', 3, 'challenger', 'champion');
+        INSERT INTO run_subject_assignments VALUES
+            ('memorial-shadow', 'candidate-1', 3, 'champion', 'champion'),
+            ('memorial-new', 'candidate-1', 3, 'challenger', 'champion');
+        """
+    )
+    candidate = SimpleNamespace(candidate_id="candidate-1", subject_key="skill:reviewer")
+
+    summary = symbols["Service"]._routing_summary(connection, candidate)
+
+    assert summary is not None
+    assert summary.subject_key == "skill:reviewer"
+    assert summary.champion_assignment_count == 2
+    assert summary.challenger_assignment_count == 1
+    connection.close()
 
 
 def test_composition_root_registers_evolution_without_replacing_universes() -> None:

@@ -71,6 +71,7 @@ class EvolutionCandidateSummaryV1(_StrictModel):
 
 class EvolutionRoutingSummaryV1(_StrictModel):
     candidate_id: str = Field(min_length=1, max_length=128)
+    subject_key: str = Field(min_length=1, max_length=512, pattern=r".*\S.*")
     routing_version: int = Field(ge=1)
     allocation_percent: float = Field(ge=0, le=100)
     champion_assignment_count: int = Field(ge=0)
@@ -81,6 +82,7 @@ class EvolutionCenterSnapshotV1(_StrictModel):
     schema_version: Literal[1] = 1
     status: Literal["not_enabled", "enabled", "degraded"]
     reason_code: str = Field(min_length=1, max_length=128, pattern=r"^[a-z0-9_]+$")
+    routing_enabled: bool = True
     candidates: tuple[EvolutionCandidateSummaryV1, ...] = Field(default=(), max_length=100)
     routing: tuple[EvolutionRoutingSummaryV1, ...] = Field(default=(), max_length=100)
     last_gate_hash: str | None = Field(default=None, pattern=_SHA256_PATTERN)

@@ -35,11 +35,18 @@ GENERATION_CLEANUP_ONLY_ERRORS = frozenset(
 class EvolutionRollbackReconciler:
     """Drive only the existing PromotionService rollback authority."""
 
-    def __init__(self, promotion_service: PromotionService, *, limit: int = 50) -> None:
+    def __init__(
+        self,
+        promotion_service: PromotionService,
+        *,
+        limit: int = 50,
+        routing_enabled: bool = True,
+    ) -> None:
         if type(limit) is not int or limit <= 0:
             raise ValueError("limit must be a positive integer")
         self._promotion_service = promotion_service
         self._limit = limit
+        self._routing_enabled = routing_enabled
         self._lock = Lock()
         self._last_error_code: str | None = None
 
@@ -65,6 +72,11 @@ class EvolutionRollbackReconciler:
             return completed
 
     def readiness_probe(self) -> bool:
+        return self._routing_enabled and self.rollback_readiness_probe()
+
+    def rollback_readiness_probe(self) -> bool:
+        """Report rollback convergence independently from the routing kill switch."""
+
         return not self._promotion_service.has_pending_rollbacks()
 
 

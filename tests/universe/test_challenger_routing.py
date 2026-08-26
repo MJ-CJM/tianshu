@@ -487,6 +487,11 @@ def test_concurrent_assignment_produces_one_immutable_row(storage) -> None:
         ).fetchone()[0]
         == 1
     )
+    subject_rows = storage._conn.execute(  # noqa: SLF001
+        """SELECT assignment_set_size FROM run_subject_assignments
+           WHERE memorial_id='memorial-1'"""
+    ).fetchall()
+    assert [row["assignment_set_size"] for row in subject_rows] == [1]
 
 
 @pytest.mark.asyncio

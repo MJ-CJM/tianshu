@@ -1,6 +1,6 @@
 # 目标领域模型与治理契约
 
-> **Status: Target model；P1 已落地 SystemSnapshot 影子归因子集，P3 已落地 `keqing:pi` executor runtime release/generation 子集。**
+> **Status: Target model；P1/P3/P4a 已合入，P4b Issue #108 已在实现分支完成，PR #109 已创建、CI 待完成。**
 > `SystemSnapshot`（典制）、`RuntimeGeneration`（朝）和 `EvolutionPolicy`（进化策略）已进入
 > `CONTEXT.md` 与 ADR；下表其余状态描述代码实现成熟度，不以术语已接受反推能力已实现。
 
@@ -13,14 +13,14 @@
 | `PluginRelease` | 某 Plugin 的不可变发布，绑定 package Artifact 与 manifest | Proposed |
 | `Capability` | Host 提供的稳定、类型化扩展契约 | Proposed 的统一模型 |
 | `Contribution` | PluginRelease 对某 Capability 的具体实现或注册项 | Proposed |
-| `EvolutionPolicy` | 每插件允许的变化 surface、模式、预算、裁决和回滚要求 | Canonical 术语；P4 实现 Proposed |
+| `EvolutionPolicy` | 每插件允许的模式与 canary 上限等治理约束 | Current/Partial：V33 已合入；allowed surfaces、approval、budget 仍是目标态 |
 | `PluginSetSpec` | 用户期望选择、版本约束、配置、权限及 EvolutionPolicy 引用 | Proposed |
 | `PluginSetSnapshot` | Resolver 产出的完整依赖闭包、Capability binding 与有效 Policy digest | Proposed |
 | `AgentDeployment` | 期望 SystemSnapshot、rollout 策略及 observed/active/last-good 状态 | Proposed |
 | `RuntimeGeneration` | SystemSnapshot 中某个受管 release 在具体 Host/scope 上 materialize 后的运行实例；ID 非内容摘要 | Current/Partial：P3 已实现 `keqing:pi` 内部代际机械；尚无公开晋升入口与通用 PluginHost |
 | `PluginInstance` | RuntimeGeneration 内一个 PluginRelease 的实际实例 | Proposed |
 | `SystemSnapshot` | 完整有效运行配置的不可变身份 | Shadow/Partial：P1 已实现组件摘要、内容寻址存储与 Evidence 归因；尚无完整依赖闭包、prompt 摘要和 generation 激活 |
-| `ExecutionAssignment` | Memorial 与 SystemSnapshot、generation、实验选择的不可变绑定 | Partial：P1 以 `run_system_bindings` 追加 snapshot shadow；P3 以独立 `run_generation_bindings` 固定 exact-attempt 代际，不改既有 `RunAssignmentV1`；per-subject 实验选择留待 P4 |
+| `ExecutionAssignment` | Memorial 与 SystemSnapshot、generation、实验选择的不可变绑定 | Partial：V31/V32 分别承载 snapshot shadow 与 exact-attempt 代际；P4b V34 以封存的 `RunAssignmentSetV1` 承载 per-subject 选择 |
 | `EvolutionCandidate` | 精确基线上的候选变化、来源、Gate、Evidence 和生命周期 | Current/Partial |
 | `EvaluationCampaign` | 版本化数据集、Evaluator、对照组、预算和评测结果的组合 | Proposed |
 | `Universe` | 实验分支、谱系和评估容器，不拥有生产 active pointer | Legacy/Partial |
@@ -36,6 +36,7 @@
 | `RuntimeGenerationV1` | `RuntimeGeneration`、`PluginInstance`，以及 active/last-good 运行指针 | P3 Current/Partial：`keqing:pi` executor scope 的七态记录；process scope 留待 P6 |
 | `run_system_bindings` | `ExecutionAssignment` 中 SystemSnapshot 关联事实 | P1 snapshot shadow；snapshot 启用时每 `(memorial_id, attempt_id)` insert-once，P3 仅作 V31 generation fallback；现有 `RunAssignmentV1` 不改 |
 | `run_generation_bindings` | `ExecutionAssignment` 中 exact-attempt generation 关联事实 | P3 独立 insert-once 权威；`bound` 可显式为 `[]`，无法证明的历史 Pi 为 `unresolved`；与 system binding 同在必须一致 |
+| `run_subject_assignments` | `ExecutionAssignment` 中 per-subject 进化选择 | P4b V34 分支实现：set hash/size 封存，1..64 原子写；不是 exact-attempt generation marker |
 
 P1 的 `run_system_bindings` 按 `(memorial_id, attempt_id)` insert-once，并把同一典制作为 required
 Evidence artifact 保存；这是需要保留的 P1 历史语义。P3 没有把该 shadow 升格为代际权威，而是
@@ -47,6 +48,11 @@ Evidence artifact 保存；这是需要保留的 P1 历史语义。P3 没有把�
 契约；`EvolutionPolicy` 到 per-subject 阶段才落表。`PluginSetSpec`、独立
 `EvaluationCampaign`、`AgentDeployment`、`PluginInstance` 和 `AgentSession` 等代码对象均
 deferred，出现真实消费者后再引入。
+
+当前 policy 语义应按实现理解：`frozen` 阻止新的 propose、canary 与 promote；`manual` 当前同样
+不允许进入 canary，尚未实现“有 Decision 即覆盖 manual”的通道。已经开始的 stage/evaluate
+可收口，rollback 始终允许。目标 YAML 中的 enabled、版本约束、allowed surfaces、approval
+和 budget 不是当前 P4b UI 能力；当前 UI 只修改 mode 与 max canary basis points。
 
 不要混淆：
 

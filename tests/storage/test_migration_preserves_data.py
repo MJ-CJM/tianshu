@@ -65,6 +65,7 @@ _COMPLETE_MIGRATION_LEDGER = [
     (31, "0031_system_snapshots"),
     (32, "0032_runtime_generations"),
     (33, "0033_evolution_policies"),
+    (34, "0034_run_subject_assignments"),
 ]
 _POST_BASELINE_TABLES = {
     "auth_tokens",
@@ -114,6 +115,8 @@ _POST_BASELINE_TABLES = {
     "run_generation_bindings",
     # v33 per-subject evolution governance (no row backfill)
     "evolution_policies",
+    # v34 immutable per-subject run attribution (no assignment backfill)
+    "run_subject_assignments",
 }
 _POST_BASELINE_INDEXES = {
     "idx_auth_tokens_principal",
@@ -178,6 +181,9 @@ _EVOLUTION_IMMUTABLE_TRIGGERS = {
     "generation_pointers_scope_immutable",
     "run_generation_bindings_no_replace",
     "run_generation_bindings_no_update",
+    "run_subject_assignments_sealed_insert",
+    "run_subject_assignments_no_update",
+    "run_subject_assignments_no_delete",
 }
 _V042_OWNED_TABLE_MANIFEST = (
     48,

@@ -1566,7 +1566,6 @@ class PromotionService:
             "allocation_exceeds_contract",
             "allocation_exceeds_policy",
             "evolution_policy_kind_conflict",
-            "global_canary_exists",
             "policy_forbids_canary",
             "subject_canary_exists",
             "subject_frozen",
@@ -1586,14 +1585,6 @@ class PromotionService:
         ).fetchone()
         if subject_conflict is not None:
             raise PromotionConflict("subject_canary_exists")
-        global_conflict = connection.execute(
-            """SELECT 1 FROM evolution_candidates
-               WHERE lifecycle='canary' AND candidate_id<>?
-               LIMIT 1""",
-            (candidate.candidate_id,),
-        ).fetchone()
-        if global_conflict is not None:
-            raise PromotionConflict("global_canary_exists")
 
     @staticmethod
     def _routing_row(connection: sqlite3.Connection, candidate_id: str) -> sqlite3.Row | None:

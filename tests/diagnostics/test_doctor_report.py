@@ -221,6 +221,8 @@ def _inputs(**overrides) -> ReadinessInputs:
         workspace_ready=lambda: True,
         generation_runtime_ready=lambda: True,
         evolution_rollback_ready=lambda: True,
+        evolution_routing_enabled=lambda: True,
+        evolution_generation_cleanup_pending=lambda: False,
         optional_integrations=lambda: {"mcp": None},
     )
     values.update(overrides)

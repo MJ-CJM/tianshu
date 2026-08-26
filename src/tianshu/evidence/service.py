@@ -47,7 +47,13 @@ from tianshu.models.governance_contract import (
     EffectiveGovernanceContractV1,
     RequestedGovernanceContractV1,
 )
-from tianshu.models.run_assignment import EvolutionRunEvidenceV1, RunAssignmentV1
+from tianshu.models.run_assignment import (
+    EffectiveEvolutionOverlayV1,
+    EvolutionRunEvidenceV1,
+    LegacyRunAssignmentV1,
+    RunAssignmentSetV1,
+    RunAssignmentV1,
+)
 from tianshu.models.run_state import RunPhase, agent_plan_continuation
 from tianshu.security.redact import redact_text
 from tianshu.security.sensitive_payload import contains_raw_sensitive_payload
@@ -113,6 +119,70 @@ class EvidenceIncompleteError(EvidenceServiceError):
 
 class EvidenceImportError(EvidenceServiceError):
     """An exported bundle failed bounded independent verification."""
+
+
+def _require_single_subject_assignment_shadow(
+    assignment_record: tuple[
+        RunAssignmentV1 | LegacyRunAssignmentV1,
+        EffectiveEvolutionOverlayV1 | None,
+    ]
+    | None,
+    assignment_set: RunAssignmentSetV1,
+) -> tuple[RunAssignmentV1, EffectiveEvolutionOverlayV1]:
+    if assignment_record is None or len(assignment_set.assignments) != 1:
+        raise EvidenceServiceError(
+            "single-subject assignment set conflicts with the legacy assignment shadow"
+        )
+    assignment, overlay = assignment_record
+    subject_assignment = assignment_set.assignments[0]
+    if (
+        not isinstance(assignment, RunAssignmentV1)
+        or overlay is None
+        or assignment_set.memorial_id != assignment.memorial_id
+        or subject_assignment.memorial_id != assignment.memorial_id
+        or subject_assignment.candidate_id != assignment.candidate_id
+        or subject_assignment.champion_ref != assignment.champion_ref
+        or subject_assignment.selected_ref != assignment.selected_ref
+        or subject_assignment.routing_version != assignment.routing_version
+        or subject_assignment.bucket != assignment.bucket
+        or subject_assignment.created_at != assignment.created_at
+        or subject_assignment.kind != overlay.kind
+        or subject_assignment.subject_key != overlay.subject_key
+        or subject_assignment.selected_ref.artifact_digest != overlay.artifact_digest
+        or subject_assignment.selected_ref.canonical_digest != overlay.canonical_digest
+    ):
+        raise EvidenceServiceError(
+            "single-subject assignment set conflicts with the legacy assignment shadow"
+        )
+    return assignment, overlay
+
+
+def _require_multi_subject_legacy_shadow(
+    assignment_record: tuple[
+        RunAssignmentV1 | LegacyRunAssignmentV1,
+        EffectiveEvolutionOverlayV1 | None,
+    ]
+    | None,
+    assignment_set: RunAssignmentSetV1,
+) -> None:
+    if assignment_record is None:
+        raise EvidenceServiceError(
+            "multi-subject assignment set conflicts with the legacy assignment shadow"
+        )
+    assignment, overlay = assignment_record
+    if (
+        len(assignment_set.assignments) <= 1
+        or not isinstance(assignment, LegacyRunAssignmentV1)
+        or overlay is not None
+        or assignment_set.memorial_id != assignment.memorial_id
+        or any(
+            subject_assignment.created_at != assignment.created_at
+            for subject_assignment in assignment_set.assignments
+        )
+    ):
+        raise EvidenceServiceError(
+            "multi-subject assignment set conflicts with the legacy assignment shadow"
+        )
 
 
 class _EvidenceStorage(Protocol):
@@ -916,24 +986,50 @@ class EvidenceService:
         checks = self._checks(connection, memorial_id, requested)
         artifact_by_digest = {plan_artifact.digest: plan_artifact}
         required_artifact_digests = {plan_artifact.digest}
-        assignment_record = EvolutionRepository().get_assignment(connection, memorial_id)
-        if assignment_record is not None:
-            assignment, overlay = assignment_record
-            if isinstance(assignment, RunAssignmentV1) and overlay is not None:
-                evolution_evidence = EvolutionRunEvidenceV1(
-                    assignment=assignment,
-                    overlay=overlay,
-                    candidate_id=assignment.candidate_id,
-                    routing_version=assignment.routing_version,
-                )
-                assignment_artifact = self._artifacts.put_bytes_current(
-                    connection,
-                    canonical_json_bytes(evolution_evidence),
-                    media_type="application/vnd.tianshu.evolution.assignment.v1+json",
-                    redaction="governed_candidate",
-                )
-                artifact_by_digest[assignment_artifact.digest] = assignment_artifact
-                required_artifact_digests.add(assignment_artifact.digest)
+        evolution_repository = EvolutionRepository()
+        assignment_record = evolution_repository.get_assignment(connection, memorial_id)
+        assignment_set = evolution_repository.get_assignment_set(connection, memorial_id)
+        evolution_evidence: EvolutionRunEvidenceV1 | None = None
+        if assignment_set is None:
+            if assignment_record is not None:
+                assignment, overlay = assignment_record
+                if isinstance(assignment, RunAssignmentV1) and overlay is not None:
+                    evolution_evidence = EvolutionRunEvidenceV1(
+                        assignment=assignment,
+                        overlay=overlay,
+                        candidate_id=assignment.candidate_id,
+                        routing_version=assignment.routing_version,
+                    )
+        elif len(assignment_set.assignments) == 1:
+            assignment, overlay = _require_single_subject_assignment_shadow(
+                assignment_record,
+                assignment_set,
+            )
+            evolution_evidence = EvolutionRunEvidenceV1(
+                assignment=assignment,
+                overlay=overlay,
+                candidate_id=assignment.candidate_id,
+                routing_version=assignment.routing_version,
+            )
+        else:
+            _require_multi_subject_legacy_shadow(assignment_record, assignment_set)
+            assignment_set_artifact = self._artifacts.put_bytes_current(
+                connection,
+                canonical_json_bytes(assignment_set),
+                media_type="application/vnd.tianshu.evolution.assignment-set.v1+json",
+                redaction="governed_candidate",
+            )
+            artifact_by_digest[assignment_set_artifact.digest] = assignment_set_artifact
+            required_artifact_digests.add(assignment_set_artifact.digest)
+        if evolution_evidence is not None:
+            assignment_artifact = self._artifacts.put_bytes_current(
+                connection,
+                canonical_json_bytes(evolution_evidence),
+                media_type="application/vnd.tianshu.evolution.assignment.v1+json",
+                redaction="governed_candidate",
+            )
+            artifact_by_digest[assignment_artifact.digest] = assignment_artifact
+            required_artifact_digests.add(assignment_artifact.digest)
         system_binding = SystemSnapshotRepository().get_last_binding(
             connection,
             memorial_id,

@@ -68,6 +68,8 @@ SYSTEM_AUDIT_METADATA_KEYS: dict[str, frozenset[str]] = {
             "old_version",
         }
     ),
+    "evolution_routing_disabled": frozenset(),
+    "evolution_continuity_converged": frozenset({"candidate_kind", "routing_version"}),
     "contribution_dispose_stale": frozenset(),
 }
 

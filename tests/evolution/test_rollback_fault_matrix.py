@@ -584,6 +584,21 @@ def test_readiness_degrades_for_pending_rollback_and_probe_failure() -> None:
     healthy = assess_readiness(_inputs(evolution_rollback_ready=lambda: True))
     assert healthy.status == "ready"
 
+    disabled = assess_readiness(_inputs(evolution_routing_enabled=lambda: False))
+    disabled_check = next(check for check in disabled.checks if check.id == "evolution.rollback")
+    assert disabled.status == "degraded"
+    assert disabled_check.evidence == {"ok": False, "routing_disabled": True}
+    assert "routing" in disabled_check.remediation.lower()
+
+    cleanup = assess_readiness(_inputs(evolution_generation_cleanup_pending=lambda: True))
+    cleanup_check = next(check for check in cleanup.checks if check.id == "evolution.rollback")
+    assert cleanup.status == "degraded"
+    assert cleanup_check.evidence == {
+        "ok": False,
+        "generation_cleanup_pending": True,
+    }
+    assert "generation" in cleanup_check.remediation.lower()
+
 
 @pytest.mark.asyncio
 async def test_restore_failure_degrades_but_does_not_stop_champion_dispatch(storage) -> None:

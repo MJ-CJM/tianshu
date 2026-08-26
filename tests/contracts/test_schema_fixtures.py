@@ -20,6 +20,8 @@ _EXPECTED_FILENAMES = (
     "agent-continuation-v1.schema.json",
     "outer-loop-continuation-v1.schema.json",
     "run-assignment-v1.schema.json",
+    "subject-run-assignment-v1.schema.json",
+    "run-assignment-set-v1.schema.json",
     "system-snapshot-v1.schema.json",
     "runtime-release-v1.schema.json",
     "runtime-generation-v1.schema.json",

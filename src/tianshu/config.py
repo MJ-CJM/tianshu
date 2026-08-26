@@ -60,6 +60,7 @@ class TianshuSettings(BaseSettings):
     artifact_max_bytes: int = 100 * 1024 * 1024
     artifact_quota_bytes: int = 5 * 1024 * 1024 * 1024
     evolution_routing_secret: str = ""
+    evolution_routing_enabled: bool = True
     system_snapshot_enabled: bool = True
     system_snapshot_strict: bool = Field(
         default=False,

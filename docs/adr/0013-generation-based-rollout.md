@@ -24,10 +24,11 @@
 - **进化策略 (`EvolutionPolicy`)**：针对单个插件或进化对象约束可变化范围、模式、预算、
   裁决和回滚要求的治理规则；它与插件启用状态和版本锁定相互独立。
 
-运行关联事实分成两个正交记录：V31 `run_system_bindings` 是 snapshot 启用时的典制 shadow；
+运行关联事实分成三个正交记录：V31 `run_system_bindings` 是 snapshot 启用时的典制 shadow；
 V32 `run_generation_bindings` 是每个 `(memorial_id, attempt_id)` 的 insert-once 朝选择权威。
-前者只作为 V31 历史 generation fallback；两者同在时 generation ids 必须一致。典制、朝和
-binding 不复用主键，也不向冻结的 `RunAssignmentV1` 增加字段。
+V34 `run_subject_assignments` 是每个 Memorial 的 per-subject 进化选择集合。前者只作为 V31
+历史 generation fallback；前两者同在时 generation ids 必须一致。V34 不表示 exact-attempt
+generation，也不向冻结的 `RunAssignmentV1` 增加字段。
 
 ### 2. 热更新只采用代际切换
 
@@ -101,6 +102,51 @@ promote 的外部 activate 位于 durable intended 与最终 completed 事务之
 存在尚未被相同 command-key completed 行收口的 promote intended 或 applied journal，
 EvolutionPolicy 更新必须 fail closed。该约束防止外部发布已生效后 policy 被翻为 frozen、
 最终候选 CAS 被拒绝而形成 live state 与 durable lifecycle 分裂。
+
+### 3.2 Per-subject assignment set 是封存事实
+
+P4b 以后 `get_routable_candidates()` 是运行分流的权威多值读者；旧 singular reader 只保留
+兼容用途，不能重新成为全局 backstop。每个 Memorial 的 V34 集合必须满足：
+
+- 没有 continuity 继承源的 fresh root：0 个 canary 只保留旧 legacy 投影；1 个 canary
+  保留旧精确投影并写 V34 singleton；N>1 保留旧 legacy 投影并写完整 V34 set。follow-up
+  先继承父 assignment set，不按当时 active canary 数重新决定 shape；
+- 身份固定为
+  `'assignment:' + sha256(f"{memorial_id}\0{kind.value}\0{subject_key}".encode()).hexdigest()`；
+  runtime map key 固定为
+  `kind.value:subject_key`，避免跨 kind 同名碰撞；
+- set 的 canonical hash 和 size 随每行持久化封存，大小只能为 1..64；batch + SAVEPOINT 保证
+  全有或全无，65 条必须零写入；数据库以 sealed-insert、no-update、条件 no-delete 守住边界，
+  reader 再按 canonical 顺序重算 set hash/size，缺行或被篡改时 fail closed；
+- bind 时逐 assignment 复验 candidate provenance 与 overlay/payload digest，再对多值 map 和
+  嵌套 payload 深冻结；`always` 注入按确定顺序执行。singleton 兼容访问不重复调用 payload
+  resolver（旧投影与 V34 行仍各自解码），N>1 的 singular accessor 返回 `None`；
+- CANARY follow-up 继承父选择；PROMOTED 选择 `candidate.candidate`；回滚态选择 base；ARCHIVED
+  按当前 version 的 lifecycle journal 判定，若从 PROMOTED 归档则选 candidate，否则选 base，
+  journal 缺失时 fail closed。路由顺序是 existing replay → continuity inheritance → fresh-root
+  kill switch，因此关闸只阻止 fresh root 新选 challenger，follow-up 仍保持已持久化 continuity
+  sticky；
+- fresh root 0 个 canary 不产生 governed assignment artifact；singleton 保留既有
+  assignment artifact；N>1 只使用
+  `application/vnd.tianshu.evolution.assignment-set.v1+json`，不同时挂旧 artifact。
+  SystemSnapshot 的 `evolution_overlay_set` 保存 canonical overlay 列表的 digest，并不内嵌
+  assignment set 或 set hash；
+- kill switch 关闭时 `EvolutionRollbackReconciler.readiness_probe()` 返回 false，但
+  `evolution.rollback` 是 optional readiness check；若没有其他 required failure，整体 health
+  为 degraded 且 `/health/ready` 仍返回 HTTP 200。这是有意避免关闭可选自进化时把仍可服务
+  业务的实例摘除；启动时尽力写 audit/outbox。
+
+V34 checksum 冻结为
+`2ef0237b22f47310bf1f5d48d20c0262998bba960f1c9418687e54860dd2172f`，callback fingerprint
+冻结为 `121909d74e49a0263e893327f0caf38f2915e322bd2028a099d4c5b8bde6f180`。owned objects
+固定为 `run_subject_assignments`、`run_subject_assignments_sealed_insert`、
+`run_subject_assignments_no_update` 与 `run_subject_assignments_no_delete`。
+
+V34 应用后，回滚必须先关 routing、重启、排空 active attempts/OPEN continuities，并仅对
+active CANARY authorities 走正常 promote/rollback，把全局 active canary 数降至旧 reader 至多
+能解释的 1 个、最好为 0，同时完成 pending rollback；不得为了代码回退把已经 PROMOTED 的
+subject 强退到 base。数据库必须保留 V34 declaration、checksum、callback、表、触发器和
+ledger，只能退到仍理解 V34 的行为兼容 reader；禁止把纯 V33/P4a 二进制部署到 V34 数据库。
 
 ### 4. 依赖边界分阶段收紧
 

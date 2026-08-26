@@ -16,20 +16,33 @@ from tianshu.evolution.runtime_context import (
     RunBindingContextV1,
     bind_evolution_runtime,
     bind_run_binding,
+    runtime_subject_key,
 )
 from tianshu.evolution.system_snapshot import SystemSnapshotResolver
-from tianshu.models.canonical import JsonValue, canonical_json_bytes
-from tianshu.models.evolution_candidate import CandidateVersionRefV1
+from tianshu.models.canonical import JsonValue, canonical_json_bytes, canonical_sha256
+from tianshu.models.events import make_event
+from tianshu.models.evolution_candidate import (
+    CandidateKind,
+    CandidateLifecycle,
+    CandidateVersionRefV1,
+    EvolutionCandidateV1,
+)
 from tianshu.models.run_assignment import (
     EffectiveEvolutionOverlayV1,
     EvolutionRunEvidenceV1,
     LegacyRunAssignmentV1,
+    RunAssignmentSetV1,
     RunAssignmentV1,
+    SubjectRunAssignmentV1,
 )
+from tianshu.models.system_audit import AppendSystemAuditRequest
 from tianshu.storage.evolution_repo import (
+    EvolutionAssignmentConflict,
     EvolutionRepository,
     EvolutionRepositoryDecodeError,
 )
+from tianshu.storage.outbox_repo import OutboxRepository
+from tianshu.storage.system_audit_repo import _append_system_audit_unlocked
 from tianshu.storage.system_snapshot_repo import (
     SystemBinding,
     SystemBindingWriteResult,
@@ -72,6 +85,7 @@ PayloadResolver = Callable[
     dict[str, JsonValue],
 ]
 Assignment = RunAssignmentV1 | LegacyRunAssignmentV1
+SubjectAssignmentRecord = tuple[SubjectRunAssignmentV1, EffectiveEvolutionOverlayV1]
 BeforeInsert = Callable[[Assignment], None]
 
 
@@ -124,6 +138,7 @@ class ChallengerRouter:
         self,
         storage: _Storage,
         *,
+        routing_enabled: bool = True,
         allocation_secret: bytes | None = None,
         bucket_calculator: BucketCalculator = allocation_bucket,
         payload_resolver: PayloadResolver | None = None,
@@ -132,7 +147,10 @@ class ChallengerRouter:
         before_insert: BeforeInsert | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
+        if type(routing_enabled) is not bool:
+            raise TypeError("routing_enabled must be a bool")
         self._storage = storage
+        self._routing_enabled = routing_enabled
         self._allocation_secret = allocation_secret
         self._bucket_calculator = bucket_calculator
         self._payload_resolver = payload_resolver
@@ -164,6 +182,8 @@ class ChallengerRouter:
             raise ValueError("memorial_id must be non-blank")
         connection = unit_of_work.connection
         existing = self._repository.get_assignment(connection, memorial_id)
+        assignment_set = self._repository.get_assignment_set(connection, memorial_id)
+        self._repository.validate_assignment_projection(existing, assignment_set)
         if existing is not None:
             return existing[0]
         if inherit_from_memorial_id is not None:
@@ -173,48 +193,68 @@ class ChallengerRouter:
                 inherit_from_memorial_id=inherit_from_memorial_id,
                 created_at=created_at,
             )
-        candidate = self._repository.get_routable_candidate(connection)
-        if candidate is None:
-            assigned_at = (created_at or self._clock()).astimezone(UTC)
-            legacy = LegacyRunAssignmentV1(
+        if not self._routing_enabled:
+            return self._insert_legacy(
+                connection,
+                memorial_id=memorial_id,
+                created_at=created_at,
+            )
+        candidates = self._repository.get_routable_candidates(connection)
+        if not candidates:
+            return self._insert_legacy(
+                connection,
+                memorial_id=memorial_id,
+                created_at=created_at,
+            )
+        if len(candidates) > 64:
+            raise EvolutionAssignmentConflict("run assignment set exceeds 64 subjects")
+        assigned_at = (created_at or self._clock()).astimezone(UTC)
+        records = tuple(
+            self._route_subject(
+                connection,
+                memorial_id=memorial_id,
+                candidate=candidate,
+                created_at=assigned_at,
+            )
+            for candidate in candidates
+        )
+        assignment_set = self._assignment_set(memorial_id, records)
+        overlay: EffectiveEvolutionOverlayV1 | None = None
+        if len(records) == 1:
+            subject_assignment, _subject_overlay = records[0]
+            if subject_assignment.candidate_id is None:
+                raise EvolutionAssignmentConflict("governed subject assignment has no candidate")
+            assignment_id = self._assignment_id(memorial_id)
+            governed_assignment = RunAssignmentV1(
+                assignment_id=assignment_id,
+                memorial_id=memorial_id,
+                candidate_id=subject_assignment.candidate_id,
+                champion_ref=subject_assignment.champion_ref,
+                selected_ref=subject_assignment.selected_ref,
+                routing_version=subject_assignment.routing_version,
+                bucket=subject_assignment.bucket,
+                created_at=assigned_at,
+            )
+            overlay = self._overlay_for_legacy_assignment(
+                governed_assignment,
+                records[0][1],
+            )
+            assignment: Assignment = governed_assignment
+        else:
+            assignment = LegacyRunAssignmentV1(
                 assignment_id=self._assignment_id(memorial_id),
                 memorial_id=memorial_id,
                 created_at=assigned_at,
             )
-            if self._before_insert is not None:
-                self._before_insert(legacy)
-            return self._repository.insert_legacy_assignment(connection, legacy)
-        routing = candidate.routing
-        assert routing is not None
-        bucket = self._bucket(memorial_id, routing.allocation_seed_id)
-        selected_challenger = selects_challenger(
-            bucket=bucket,
-            allocation_basis_points=routing.allocation_basis_points,
-        )
-        selected_ref = candidate.candidate if selected_challenger else candidate.base
-        assigned_at = (created_at or self._clock()).astimezone(UTC)
-        assignment_id = self._assignment_id(memorial_id)
-        assignment = RunAssignmentV1(
-            assignment_id=assignment_id,
-            memorial_id=memorial_id,
-            candidate_id=candidate.candidate_id,
-            champion_ref=candidate.base,
-            selected_ref=selected_ref,
-            routing_version=routing.routing_version,
-            bucket=bucket,
-            created_at=assigned_at,
-        )
-        overlay = EffectiveEvolutionOverlayV1(
-            assignment_id=assignment_id,
-            kind=candidate.kind,
-            subject_key=candidate.subject_key,
-            artifact_digest=selected_ref.artifact_digest,
-            canonical_digest=selected_ref.canonical_digest,
-        )
-        self._resolve_payload(connection, selected_ref, overlay)
         if self._before_insert is not None:
             self._before_insert(assignment)
-        return self._repository.insert_assignment(connection, assignment, overlay)
+        return self._insert_assignment_bundle(
+            connection,
+            assignment=assignment,
+            overlay=overlay,
+            assignment_set=assignment_set,
+            records=records,
+        )
 
     def _inherit_assignment(
         self,
@@ -227,6 +267,11 @@ class ChallengerRouter:
         if not inherit_from_memorial_id.strip():
             raise ValueError("inherit_from_memorial_id must be non-blank")
         inherited = self._repository.get_assignment(connection, inherit_from_memorial_id)
+        inherited_set = self._repository.get_assignment_set(
+            connection,
+            inherit_from_memorial_id,
+        )
+        self._repository.validate_assignment_projection(inherited, inherited_set)
         if inherited is None:
             parent_exists = connection.execute(
                 "SELECT 1 FROM memorials WHERE id = ?",
@@ -234,19 +279,44 @@ class ChallengerRouter:
             ).fetchone()
             if parent_exists is None:
                 raise LookupError("parent run assignment not found")
-            assigned_at = (created_at or self._clock()).astimezone(UTC)
-            legacy_assignment = LegacyRunAssignmentV1(
-                assignment_id=self._assignment_id(memorial_id),
+            return self._insert_legacy(
+                connection,
                 memorial_id=memorial_id,
-                created_at=assigned_at,
+                created_at=created_at,
             )
-            if self._before_insert is not None:
-                self._before_insert(legacy_assignment)
-            return self._repository.insert_legacy_assignment(connection, legacy_assignment)
         parent, parent_overlay = inherited
         assignment_id = self._assignment_id(memorial_id)
         assigned_at = (created_at or self._clock()).astimezone(UTC)
         if isinstance(parent, LegacyRunAssignmentV1):
+            if inherited_set is not None:
+                records, converged = self._inherit_subject_records(
+                    connection,
+                    memorial_id=memorial_id,
+                    assignment_set=inherited_set,
+                    created_at=assigned_at,
+                )
+                legacy_assignment = parent.model_copy(
+                    update={
+                        "assignment_id": assignment_id,
+                        "memorial_id": memorial_id,
+                        "created_at": assigned_at,
+                    }
+                )
+                if self._before_insert is not None:
+                    self._before_insert(legacy_assignment)
+                legacy_durable = self._insert_assignment_bundle(
+                    connection,
+                    assignment=legacy_assignment,
+                    overlay=None,
+                    assignment_set=self._assignment_set(memorial_id, records),
+                    records=records,
+                )
+                self._record_continuity_convergence(
+                    connection,
+                    memorial_id=memorial_id,
+                    assignments=converged,
+                )
+                return legacy_durable
             legacy_assignment = parent.model_copy(
                 update={
                     "assignment_id": assignment_id,
@@ -258,18 +328,395 @@ class ChallengerRouter:
                 self._before_insert(legacy_assignment)
             return self._repository.insert_legacy_assignment(connection, legacy_assignment)
         assert parent_overlay is not None
+        candidate = self._repository.get_candidate(connection, parent.candidate_id)
+        if candidate is None:
+            raise EvolutionAssignmentConflict("parent assignment candidate is unavailable")
+        selected_ref = self._continuity_selected_ref(
+            connection,
+            candidate=candidate,
+            parent_selected_ref=parent.selected_ref,
+        )
         governed_assignment = parent.model_copy(
             update={
                 "assignment_id": assignment_id,
                 "memorial_id": memorial_id,
+                "selected_ref": selected_ref,
                 "created_at": assigned_at,
             }
         )
-        overlay = parent_overlay.model_copy(update={"assignment_id": assignment_id})
+        overlay = parent_overlay.model_copy(
+            update={
+                "assignment_id": assignment_id,
+                "artifact_digest": selected_ref.artifact_digest,
+                "canonical_digest": selected_ref.canonical_digest,
+            }
+        )
         self._resolve_payload(connection, governed_assignment.selected_ref, overlay)
+        subject_assignment = SubjectRunAssignmentV1(
+            assignment_id=self._subject_assignment_id(
+                memorial_id,
+                candidate.kind,
+                candidate.subject_key,
+            ),
+            memorial_id=memorial_id,
+            kind=candidate.kind,
+            subject_key=candidate.subject_key,
+            candidate_id=governed_assignment.candidate_id,
+            champion_ref=governed_assignment.champion_ref,
+            selected_ref=governed_assignment.selected_ref,
+            routing_version=governed_assignment.routing_version,
+            bucket=governed_assignment.bucket,
+            created_at=assigned_at,
+        )
+        subject_overlay = EffectiveEvolutionOverlayV1(
+            assignment_id=subject_assignment.assignment_id,
+            kind=subject_assignment.kind,
+            subject_key=subject_assignment.subject_key,
+            artifact_digest=subject_assignment.selected_ref.artifact_digest,
+            canonical_digest=subject_assignment.selected_ref.canonical_digest,
+        )
         if self._before_insert is not None:
             self._before_insert(governed_assignment)
-        return self._repository.insert_assignment(connection, governed_assignment, overlay)
+        records = ((subject_assignment, subject_overlay),)
+        governed_durable = self._insert_assignment_bundle(
+            connection,
+            assignment=governed_assignment,
+            overlay=overlay,
+            assignment_set=self._assignment_set(memorial_id, records),
+            records=records,
+        )
+        if selected_ref != parent.selected_ref:
+            self._record_continuity_convergence(
+                connection,
+                memorial_id=memorial_id,
+                assignments=(subject_assignment,),
+            )
+        return governed_durable
+
+    def _insert_legacy(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        memorial_id: str,
+        created_at: datetime | None,
+    ) -> LegacyRunAssignmentV1:
+        assignment = LegacyRunAssignmentV1(
+            assignment_id=self._assignment_id(memorial_id),
+            memorial_id=memorial_id,
+            created_at=(created_at or self._clock()).astimezone(UTC),
+        )
+        if self._before_insert is not None:
+            self._before_insert(assignment)
+        return self._repository.insert_legacy_assignment(connection, assignment)
+
+    def _route_subject(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        memorial_id: str,
+        candidate: EvolutionCandidateV1,
+        created_at: datetime,
+    ) -> SubjectAssignmentRecord:
+        routing = candidate.routing
+        assert routing is not None
+        bucket = self._bucket(memorial_id, routing.allocation_seed_id)
+        selected_ref = (
+            candidate.candidate
+            if selects_challenger(
+                bucket=bucket,
+                allocation_basis_points=routing.allocation_basis_points,
+            )
+            else candidate.base
+        )
+        assignment = SubjectRunAssignmentV1(
+            assignment_id=self._subject_assignment_id(
+                memorial_id,
+                candidate.kind,
+                candidate.subject_key,
+            ),
+            memorial_id=memorial_id,
+            kind=candidate.kind,
+            subject_key=candidate.subject_key,
+            candidate_id=candidate.candidate_id,
+            champion_ref=candidate.base,
+            selected_ref=selected_ref,
+            routing_version=routing.routing_version,
+            bucket=bucket,
+            created_at=created_at,
+        )
+        overlay = EffectiveEvolutionOverlayV1(
+            assignment_id=assignment.assignment_id,
+            kind=assignment.kind,
+            subject_key=assignment.subject_key,
+            artifact_digest=assignment.selected_ref.artifact_digest,
+            canonical_digest=assignment.selected_ref.canonical_digest,
+        )
+        self._resolve_payload(connection, assignment.selected_ref, overlay)
+        return assignment, overlay
+
+    @staticmethod
+    def _overlay_for_legacy_assignment(
+        assignment: RunAssignmentV1,
+        subject_overlay: EffectiveEvolutionOverlayV1,
+    ) -> EffectiveEvolutionOverlayV1:
+        return subject_overlay.model_copy(update={"assignment_id": assignment.assignment_id})
+
+    def _load_assignment_state(
+        self,
+        connection: sqlite3.Connection,
+        memorial_id: str,
+    ) -> tuple[
+        tuple[Assignment, EffectiveEvolutionOverlayV1 | None] | None,
+        RunAssignmentSetV1 | None,
+    ]:
+        loaded = self._repository.get_assignment(connection, memorial_id)
+        assignment_set = self._repository.get_assignment_set(connection, memorial_id)
+        self._repository.validate_assignment_projection(loaded, assignment_set)
+        return loaded, assignment_set
+
+    @staticmethod
+    def _records_for_assignment_set(
+        assignment_set: RunAssignmentSetV1 | None,
+    ) -> tuple[SubjectAssignmentRecord, ...]:
+        if assignment_set is None:
+            return ()
+        return tuple(
+            (
+                assignment,
+                EffectiveEvolutionOverlayV1(
+                    assignment_id=assignment.assignment_id,
+                    kind=assignment.kind,
+                    subject_key=assignment.subject_key,
+                    artifact_digest=assignment.selected_ref.artifact_digest,
+                    canonical_digest=assignment.selected_ref.canonical_digest,
+                ),
+            )
+            for assignment in assignment_set.assignments
+        )
+
+    @staticmethod
+    def _snapshot_overlay_map(
+        assignment: Assignment,
+        overlay: EffectiveEvolutionOverlayV1 | None,
+        records: tuple[SubjectAssignmentRecord, ...],
+    ) -> dict[str, EffectiveEvolutionOverlayV1]:
+        if not records:
+            return {}
+        if len(records) == 1:
+            if not isinstance(assignment, RunAssignmentV1) or overlay is None:
+                raise EvolutionAssignmentConflict(
+                    "single-subject assignment shadow conflicts with legacy projection"
+                )
+            subject = records[0][0]
+            return {runtime_subject_key(subject.kind, subject.subject_key): overlay}
+        result: dict[str, EffectiveEvolutionOverlayV1] = {}
+        for subject, subject_overlay in records:
+            key = runtime_subject_key(subject.kind, subject.subject_key)
+            if key in result:
+                raise EvolutionAssignmentConflict("runtime subject identity conflicts")
+            result[key] = subject_overlay
+        return result
+
+    def _inherit_subject_records(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        memorial_id: str,
+        assignment_set: RunAssignmentSetV1,
+        created_at: datetime,
+    ) -> tuple[tuple[SubjectAssignmentRecord, ...], tuple[SubjectRunAssignmentV1, ...]]:
+        records: list[SubjectAssignmentRecord] = []
+        converged: list[SubjectRunAssignmentV1] = []
+        for parent in assignment_set.assignments:
+            if parent.candidate_id is None:
+                raise EvolutionAssignmentConflict(
+                    "governed parent subject assignment has no candidate"
+                )
+            candidate = self._repository.get_candidate(connection, parent.candidate_id)
+            if (
+                candidate is None
+                or candidate.kind is not parent.kind
+                or candidate.subject_key != parent.subject_key
+                or candidate.base != parent.champion_ref
+            ):
+                raise EvolutionAssignmentConflict(
+                    "parent subject assignment candidate attribution conflicts"
+                )
+            selected_ref = self._continuity_selected_ref(
+                connection,
+                candidate=candidate,
+                parent_selected_ref=parent.selected_ref,
+            )
+            assignment = parent.model_copy(
+                update={
+                    "assignment_id": self._subject_assignment_id(
+                        memorial_id,
+                        parent.kind,
+                        parent.subject_key,
+                    ),
+                    "memorial_id": memorial_id,
+                    "selected_ref": selected_ref,
+                    "created_at": created_at,
+                }
+            )
+            overlay = EffectiveEvolutionOverlayV1(
+                assignment_id=assignment.assignment_id,
+                kind=assignment.kind,
+                subject_key=assignment.subject_key,
+                artifact_digest=selected_ref.artifact_digest,
+                canonical_digest=selected_ref.canonical_digest,
+            )
+            self._resolve_payload(connection, selected_ref, overlay)
+            records.append((assignment, overlay))
+            if selected_ref != parent.selected_ref:
+                converged.append(assignment)
+        return tuple(records), tuple(converged)
+
+    @staticmethod
+    def _assignment_set(
+        memorial_id: str,
+        records: tuple[SubjectAssignmentRecord, ...],
+    ) -> RunAssignmentSetV1:
+        assignments = tuple(record[0] for record in records)
+        material = {
+            "memorial_id": memorial_id,
+            "assignments": [assignment.model_dump(mode="json") for assignment in assignments],
+        }
+        return RunAssignmentSetV1(
+            memorial_id=memorial_id,
+            assignments=assignments,
+            set_hash=canonical_sha256(material),
+        )
+
+    def _insert_assignment_bundle(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        assignment: Assignment,
+        overlay: EffectiveEvolutionOverlayV1 | None,
+        assignment_set: RunAssignmentSetV1,
+        records: tuple[SubjectAssignmentRecord, ...],
+    ) -> Assignment:
+        """Atomically dual-write the legacy projection and sealed subject set."""
+
+        connection.execute("SAVEPOINT evolution_assignment_bundle_insert")
+        try:
+            if isinstance(assignment, LegacyRunAssignmentV1):
+                durable: Assignment = self._repository.insert_legacy_assignment(
+                    connection,
+                    assignment,
+                )
+            else:
+                if overlay is None:
+                    raise EvolutionAssignmentConflict(
+                        "governed assignment requires an effective overlay"
+                    )
+                durable = self._repository.insert_assignment(connection, assignment, overlay)
+            self._repository.insert_assignment_set(
+                connection,
+                assignment_set,
+                tuple(record[1] for record in records),
+            )
+        except BaseException:
+            connection.execute("ROLLBACK TO SAVEPOINT evolution_assignment_bundle_insert")
+            connection.execute("RELEASE SAVEPOINT evolution_assignment_bundle_insert")
+            raise
+        connection.execute("RELEASE SAVEPOINT evolution_assignment_bundle_insert")
+        return durable
+
+    @staticmethod
+    def _continuity_selected_ref(
+        connection: sqlite3.Connection,
+        *,
+        candidate: EvolutionCandidateV1,
+        parent_selected_ref: CandidateVersionRefV1,
+    ) -> CandidateVersionRefV1:
+        if candidate.lifecycle is CandidateLifecycle.CANARY:
+            return parent_selected_ref
+        if candidate.lifecycle is CandidateLifecycle.PROMOTED:
+            return candidate.candidate
+        if candidate.lifecycle is CandidateLifecycle.ARCHIVED:
+            try:
+                transition = EvolutionRepository().get_verified_lifecycle_transition_to(
+                    connection,
+                    candidate_id=candidate.candidate_id,
+                    to_lifecycle=CandidateLifecycle.ARCHIVED,
+                )
+            except EvolutionRepositoryDecodeError as exc:
+                raise EvolutionAssignmentConflict(
+                    "archived candidate continuity provenance conflicts"
+                ) from exc
+            if (
+                transition is None
+                or transition[0] > candidate.version
+                or transition[2] is not CandidateLifecycle.ARCHIVED
+            ):
+                raise EvolutionAssignmentConflict(
+                    "archived candidate continuity provenance is unavailable"
+                )
+            if transition[1] is CandidateLifecycle.PROMOTED:
+                return candidate.candidate
+        return candidate.base
+
+    @staticmethod
+    def _record_continuity_convergence(
+        connection: sqlite3.Connection,
+        *,
+        memorial_id: str,
+        assignments: tuple[SubjectRunAssignmentV1, ...],
+    ) -> None:
+        for assignment in assignments:
+            if assignment.candidate_id is None:
+                continue
+            correlation_id = (
+                "continuity-"
+                + hashlib.sha256(
+                    f"{memorial_id}\0{assignment.kind.value}\0{assignment.subject_key}".encode()
+                ).hexdigest()
+            )
+            connection.execute("SAVEPOINT evolution_continuity_audit")
+            try:
+                _append_system_audit_unlocked(
+                    connection,
+                    AppendSystemAuditRequest(
+                        correlation_id=correlation_id,
+                        actor_digest=hashlib.sha256(b"system:evolution-router").hexdigest(),
+                        action="evolution_continuity_converged",
+                        outcome="succeeded",
+                        reason_code="evolution_continuity_converged",
+                        subject_kind="evolution_assignment",
+                        subject_digest=hashlib.sha256(
+                            f"{assignment.kind.value}\0{assignment.subject_key}".encode()
+                        ).hexdigest(),
+                        metadata={
+                            "candidate_kind": assignment.kind.value,
+                            "routing_version": assignment.routing_version,
+                        },
+                    ),
+                )
+                OutboxRepository().add(
+                    connection,
+                    make_event(
+                        event_type="evolution_continuity_converged",
+                        memorial_id=memorial_id,
+                        producer="evolution_router",
+                        payload={
+                            "candidate_id": assignment.candidate_id,
+                            "kind": assignment.kind.value,
+                            "subject_key": assignment.subject_key,
+                            "routing_version": assignment.routing_version,
+                            "correlation_id": correlation_id,
+                        },
+                    ),
+                )
+                connection.execute("RELEASE SAVEPOINT evolution_continuity_audit")
+            except Exception:  # noqa: BLE001 - audit must not block continuity recovery
+                connection.execute("ROLLBACK TO SAVEPOINT evolution_continuity_audit")
+                connection.execute("RELEASE SAVEPOINT evolution_continuity_audit")
+                logger.warning(
+                    "Evolution continuity convergence could not be audited",
+                    exc_info=True,
+                )
 
     def get(self, memorial_id: str) -> Assignment | None:
         loaded = self._load(memorial_id)
@@ -328,17 +775,23 @@ class ChallengerRouter:
             return self._binding_context(existing)
 
         try:
-            loaded = self._repository.get_assignment(connection, memorial_id)
-        except EvolutionRepositoryDecodeError as exc:
+            loaded, assignment_set = self._load_assignment_state(connection, memorial_id)
+        except (EvolutionRepositoryDecodeError, EvolutionAssignmentConflict) as exc:
             raise RunAssignmentUnavailable("run_assignment_unavailable") from exc
         if loaded is None:
             raise LookupError("run assignment not found")
         assignment, overlay = loaded
-        if isinstance(assignment, RunAssignmentV1):
+        records = self._records_for_assignment_set(assignment_set)
+        if records:
+            for subject_assignment, subject_overlay in records:
+                self._resolve_payload(
+                    connection,
+                    subject_assignment.selected_ref,
+                    subject_overlay,
+                )
+        elif isinstance(assignment, RunAssignmentV1):
             assert overlay is not None
             self._resolve_payload(connection, assignment.selected_ref, overlay)
-        else:
-            overlay = None
 
         controller = self._get_generation_controller()
         try:
@@ -348,6 +801,12 @@ class ChallengerRouter:
                 attempt_id=attempt_id,
                 assignment=assignment,
                 overlay=overlay,
+                assignment_set=assignment_set,
+                subject_overlays=self._snapshot_overlay_map(
+                    assignment,
+                    overlay,
+                    records,
+                ),
                 persist_generation_selection=True,
             )
         finally:
@@ -377,18 +836,57 @@ class ChallengerRouter:
     ) -> Iterator[EvolutionRuntimeContext | None]:
         legacy = False
         run_binding: RunBindingContextV1 | None = None
+        singular_assignment: RunAssignmentV1 | None = None
+        singular_overlay: EffectiveEvolutionOverlayV1 | None = None
+        singular_payload: dict[str, JsonValue] | None = None
+        subject_assignments: tuple[SubjectRunAssignmentV1, ...] = ()
+        overlays: dict[str, EffectiveEvolutionOverlayV1] = {}
+        payloads: dict[str, dict[str, JsonValue]] = {}
         with self._storage.unit_of_work() as unit_of_work:
             try:
-                loaded = self._repository.get_assignment(
+                loaded, assignment_set = self._load_assignment_state(
                     unit_of_work.connection,
                     memorial_id,
                 )
-            except EvolutionRepositoryDecodeError as exc:
+            except (EvolutionRepositoryDecodeError, EvolutionAssignmentConflict) as exc:
                 raise RunAssignmentUnavailable("run_assignment_unavailable") from exc
             if loaded is None:
                 raise LookupError("run assignment not found")
             assignment, overlay = loaded
-            if isinstance(assignment, LegacyRunAssignmentV1):
+            records = self._records_for_assignment_set(assignment_set)
+            if records:
+                for subject_assignment, subject_overlay in records:
+                    key = runtime_subject_key(
+                        subject_assignment.kind,
+                        subject_assignment.subject_key,
+                    )
+                    if key in overlays:
+                        raise RunAssignmentUnavailable("run_assignment_unavailable")
+                    overlays[key] = subject_overlay
+                    payloads[key] = self._resolve_payload(
+                        unit_of_work.connection,
+                        subject_assignment.selected_ref,
+                        subject_overlay,
+                    )
+                subject_assignments = tuple(record[0] for record in records)
+                if len(records) == 1:
+                    if not isinstance(assignment, RunAssignmentV1) or overlay is None:
+                        raise RunAssignmentUnavailable("run_assignment_unavailable")
+                    key = next(iter(overlays))
+                    singular_assignment = assignment
+                    singular_overlay = overlay
+                    singular_payload = payloads[key]
+                run_binding = self._bind_system_snapshot(
+                    unit_of_work.connection,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt_id,
+                    assignment=assignment,
+                    overlay=overlay,
+                    assignment_set=assignment_set,
+                    subject_overlays=overlays,
+                )
+                unit_of_work.commit()
+            elif isinstance(assignment, LegacyRunAssignmentV1):
                 legacy = True
                 run_binding = self._bind_system_snapshot(
                     unit_of_work.connection,
@@ -405,6 +903,11 @@ class ChallengerRouter:
                     assignment.selected_ref,
                     overlay,
                 )
+                if overlay.kind is None or overlay.subject_key is None:
+                    raise RunAssignmentUnavailable("run_assignment_unavailable")
+                singular_assignment = assignment
+                singular_overlay = overlay
+                singular_payload = payload
                 run_binding = self._bind_system_snapshot(
                     unit_of_work.connection,
                     memorial_id=memorial_id,
@@ -420,12 +923,13 @@ class ChallengerRouter:
                 with bind_run_binding(run_binding):
                     yield None
             return
-        assert isinstance(assignment, RunAssignmentV1)
-        assert overlay is not None
         context = EvolutionRuntimeContext(
-            assignment=assignment,
-            overlay=overlay,
-            selected_payload=payload,
+            assignment=singular_assignment,
+            overlay=singular_overlay,
+            selected_payload=singular_payload,
+            assignments=subject_assignments,
+            overlays=overlays,
+            payloads=payloads,
             system_snapshot=(run_binding.system_snapshot if run_binding is not None else None),
         )
         if run_binding is None:
@@ -443,6 +947,8 @@ class ChallengerRouter:
         attempt_id: str | None,
         assignment: Assignment,
         overlay: EffectiveEvolutionOverlayV1 | None,
+        assignment_set: RunAssignmentSetV1 | None = None,
+        subject_overlays: Mapping[str, EffectiveEvolutionOverlayV1] | None = None,
         persist_generation_selection: bool = False,
     ) -> RunBindingContextV1 | None:
         if attempt_id is None:
@@ -547,6 +1053,8 @@ class ChallengerRouter:
             snapshot = resolver.resolve_for_run(
                 assignment,
                 overlay,
+                assignment_set=assignment_set,
+                subject_overlays=subject_overlays,
                 executor_digests=(
                     selection.executor_manifest_digests if selection is not None else None
                 ),
@@ -685,6 +1193,15 @@ class ChallengerRouter:
     @staticmethod
     def _assignment_id(memorial_id: str) -> str:
         return "assignment:" + hashlib.sha256(memorial_id.encode()).hexdigest()
+
+    @staticmethod
+    def _subject_assignment_id(
+        memorial_id: str,
+        kind: CandidateKind,
+        subject_key: str,
+    ) -> str:
+        identity = f"{memorial_id}\0{kind.value}\0{subject_key}".encode()
+        return "assignment:" + hashlib.sha256(identity).hexdigest()
 
     def _resolve_payload(
         self,

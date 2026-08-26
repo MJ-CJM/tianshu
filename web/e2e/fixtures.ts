@@ -559,26 +559,56 @@ export async function installBlockedEvolutionContract(page: Page): Promise<void>
           schema_version: 1,
           status: "degraded",
           reason_code: "blocking_gate_failed",
-          candidates: [{
-            candidate_id: "candidate:s4-blocked",
-            kind: "policy",
-            version: 1,
-            lifecycle: "blocked",
-            artifact_hash: "sha256:s4-blocked-artifact",
-            promotion_allowed: false,
-            rollback_state: "ready",
-            gates: [{
-              code: "gate:evidence",
-              status: "failed",
-              blocking: true,
-              current: 0,
-              required: 1,
-              evidence_bundle_id: null,
-              evidence_hash: null,
-            }],
-          }],
-          routing: [],
-          last_gate_hash: "sha256:s4-blocked-gate",
+          routing_enabled: true,
+          candidates: [
+            {
+              candidate_id: "candidate:s4-blocked",
+              kind: "policy",
+              version: 1,
+              lifecycle: "blocked",
+              artifact_hash: "a".repeat(64),
+              promotion_allowed: false,
+              rollback_state: "ready",
+              gates: [{
+                code: "gate:evidence",
+                status: "failed",
+                blocking: true,
+                current: 0,
+                required: 1,
+                evidence_bundle_id: null,
+                evidence_hash: null,
+              }],
+            },
+            {
+              candidate_id: "candidate:skill-reviewer",
+              kind: "skill",
+              version: 2,
+              lifecycle: "canary",
+              artifact_hash: "b".repeat(64),
+              promotion_allowed: false,
+              rollback_state: "ready",
+              gates: [],
+            },
+          ],
+          routing: [
+            {
+              candidate_id: "candidate:s4-blocked",
+              subject_key: "policy:guardrails",
+              routing_version: 1,
+              allocation_percent: 5,
+              champion_assignment_count: 12,
+              challenger_assignment_count: 1,
+            },
+            {
+              candidate_id: "candidate:skill-reviewer",
+              subject_key: "skill:reviewer",
+              routing_version: 2,
+              allocation_percent: 10,
+              champion_assignment_count: 18,
+              challenger_assignment_count: 2,
+            },
+          ],
+          last_gate_hash: "c".repeat(64),
         },
       }),
     });
@@ -845,8 +875,12 @@ export async function assertZoomHasNoPrimaryHorizontalTrap(page: Page): Promise<
       await expect(page.getByRole("heading", { name: "Task Workspace" })).toBeVisible();
     }
     if (page.url() !== originalUrl) {
-      await page.goto(originalUrl);
       const originalPath = new URL(originalUrl).pathname;
+      await page.goBack();
+      await expect.poll(
+        () => new URL(page.url()).pathname,
+        "side navigation returns to the original route without reloading the document",
+      ).toBe(originalPath);
       const heading = {
         "/control": "Control Center",
         "/approvals": "Task Workspace",

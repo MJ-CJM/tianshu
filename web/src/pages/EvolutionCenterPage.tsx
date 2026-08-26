@@ -1,4 +1,5 @@
-import { Tag, Typography } from "antd";
+import { lazy, Suspense } from "react";
+import { Alert, Tag, Typography } from "antd";
 
 import type { EvolutionCenterSnapshotV1 } from "../api/evolution";
 import {
@@ -7,13 +8,19 @@ import {
 } from "../components/capabilities/CapabilityMaturity";
 import PageContainer from "../components/common/PageContainer";
 import MonoText from "../components/common/MonoText";
-import EvolutionGate from "../components/evolution/EvolutionGate";
 import PageDataState from "../components/states/PageDataState";
 import { useT } from "../i18n";
 import {
   isEvolutionSnapshotEmpty,
   useEvolutionCenter,
 } from "../hooks/useEvolutionCenter";
+
+const EvolutionPolicyPanel = lazy(
+  () => import("../components/evolution/EvolutionPolicyPanel"),
+);
+const EvolutionGate = lazy(
+  () => import("../components/evolution/EvolutionGate"),
+);
 
 const panelStyle = {
   border: "1px solid var(--ts-color-border)",
@@ -64,7 +71,6 @@ function EnabledEmptySnapshot() {
 
 function SnapshotContent({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 }) {
   const t = useT();
-  if (snapshot.status === "not_enabled") return <DisabledSnapshot snapshot={snapshot} />;
   const routingByCandidate = new Map(
     snapshot.routing.map((item) => [item.candidate_id, item] as const),
   );
@@ -99,14 +105,53 @@ function SnapshotContent({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 }) 
         <Typography.Title id="evolution-candidates-title" level={4} style={{ margin: 0 }}>
           {t("page.evolutionCenter.candidatesTitle")}
         </Typography.Title>
-        {snapshot.candidates.map((candidate) => (
-          <EvolutionGate
-            key={candidate.candidate_id}
-            candidate={candidate}
-            routing={routingByCandidate.get(candidate.candidate_id) ?? null}
-          />
-        ))}
+        <Suspense
+          fallback={
+            <Typography.Text role="status" type="secondary">
+              {t("pageDataState.loadingTitle")}
+            </Typography.Text>
+          }
+        >
+          {snapshot.candidates.map((candidate) => (
+            <EvolutionGate
+              key={candidate.candidate_id}
+              candidate={candidate}
+              routing={routingByCandidate.get(candidate.candidate_id) ?? null}
+            />
+          ))}
+        </Suspense>
       </section>
+    </div>
+  );
+}
+
+function GovernedSnapshotContent({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 }) {
+  const t = useT();
+  if (snapshot.status === "not_enabled") return <DisabledSnapshot snapshot={snapshot} />;
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      {!snapshot.routing_enabled ? (
+        <Alert
+          type="warning"
+          showIcon
+          message={t("page.evolutionCenter.routingDisabled")}
+          description={t("page.evolutionCenter.routingDisabledDescription")}
+        />
+      ) : null}
+      {isEvolutionSnapshotEmpty(snapshot) ? (
+        <EnabledEmptySnapshot />
+      ) : (
+        <SnapshotContent snapshot={snapshot} />
+      )}
+      <Suspense
+        fallback={
+          <Typography.Text role="status" type="secondary">
+            {t("page.evolutionCenter.policiesLoading")}
+          </Typography.Text>
+        }
+      >
+        <EvolutionPolicyPanel />
+      </Suspense>
     </div>
   );
 }
@@ -126,7 +171,7 @@ export default function EvolutionCenterPage() {
         boundary={t("page.evolutionCenter.capabilityBoundary")}
       />
       {isEnabledEmpty ? (
-        <EnabledEmptySnapshot />
+        <GovernedSnapshotContent snapshot={data} />
       ) : (
         <PageDataState
           status={status}
@@ -135,7 +180,7 @@ export default function EvolutionCenterPage() {
           isEmpty={isEvolutionSnapshotEmpty}
           onRetry={refetch}
         >
-          {(snapshot) => <SnapshotContent snapshot={snapshot} />}
+          {(snapshot) => <GovernedSnapshotContent snapshot={snapshot} />}
         </PageDataState>
       )}
     </PageContainer>

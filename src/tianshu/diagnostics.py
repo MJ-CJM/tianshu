@@ -725,6 +725,10 @@ class ReadinessInputs:
     generation_runtime_ready: Callable[[], bool]
     # rollback_pending is operationally degraded: traffic is sealed, restore is incomplete.
     evolution_rollback_ready: Callable[[], bool]
+    # Operator kill switch is distinct from a rollback that has not converged.
+    evolution_routing_enabled: Callable[[], bool]
+    # Cleanup-only generation drift is degraded, not a pending candidate rollback.
+    evolution_generation_cleanup_pending: Callable[[], bool]
     # 可选集成：name -> None(未启用) | True(健康) | False(启用但异常)
     optional_integrations: Callable[[], dict[str, bool | None]]
 
@@ -819,22 +823,37 @@ def assess_readiness(inputs: ReadinessInputs) -> ReadinessReport:
             else "当前生效的 LLM 配置缺 api_key/model；在 Web 配置页补齐或改用 demo 档位",
         )
     )
+    routing_value, routing_errored = _guarded(inputs.evolution_routing_enabled)
+    routing_enabled = routing_value is True
     rollback_value, rollback_errored = _guarded(inputs.evolution_rollback_ready)
-    rollback_ok = rollback_value is True
+    rollback_ready = rollback_value is True
+    cleanup_value, cleanup_errored = _guarded(inputs.evolution_generation_cleanup_pending)
+    generation_cleanup_pending = cleanup_value is True
+    rollback_ok = routing_enabled and rollback_ready and not generation_cleanup_pending
     rollback_evidence: dict[str, object] = {"ok": rollback_ok}
-    if rollback_errored:
+    if routing_errored or rollback_errored or cleanup_errored:
         rollback_evidence["probe_error"] = True
-    elif not rollback_ok:
+    elif not routing_enabled:
+        rollback_evidence["routing_disabled"] = True
+    elif not rollback_ready:
         rollback_evidence["rollback_pending"] = True
+    elif generation_cleanup_pending:
+        rollback_evidence["generation_cleanup_pending"] = True
+    if rollback_ok:
+        rollback_remediation = ""
+    elif not routing_enabled and not routing_errored:
+        rollback_remediation = "Evolution routing 已由全局开关关闭；确认排空与回退完成后再重新开放"
+    elif generation_cleanup_pending and not cleanup_errored:
+        rollback_remediation = "Runtime generation 正在排空清理；确认旧代释放完成"
+    else:
+        rollback_remediation = "Evolution rollback 尚未验证完成；保持流量封闭并检查恢复日志"
     checks.append(
         DoctorCheck(
             id="evolution.rollback",
             status="pass" if rollback_ok else "degraded",
             required=False,
             evidence=_safe_evidence(rollback_evidence),
-            remediation=""
-            if rollback_ok
-            else "Evolution rollback 尚未验证完成；保持流量封闭并检查恢复日志",
+            remediation=rollback_remediation,
         )
     )
     optional, optional_errored = _guarded(inputs.optional_integrations)

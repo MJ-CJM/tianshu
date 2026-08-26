@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from datetime import datetime
 from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -20,7 +21,9 @@ from tianshu.models.evolution_candidate import (
 from tianshu.models.run_assignment import (
     EffectiveEvolutionOverlayV1,
     LegacyRunAssignmentV1,
+    RunAssignmentSetV1,
     RunAssignmentV1,
+    SubjectRunAssignmentV1,
 )
 from tianshu.storage.decision_repo import DecisionDecodeError, DecisionRepository
 from tianshu.storage.evolution_policy_repo import (
@@ -187,6 +190,83 @@ def _append_lifecycle_journal(
     )
 
 
+def _decode_lifecycle_journal_transition(
+    row: sqlite3.Row,
+) -> tuple[CandidateLifecycle | None, CandidateLifecycle]:
+    raw = row["entry_json"]
+    if not isinstance(raw, str) or hashlib.sha256(raw.encode()).hexdigest() != row["entry_hash"]:
+        raise EvolutionRepositoryDecodeError("candidate lifecycle journal is corrupt")
+    try:
+        payload = cast(
+            dict[str, object],
+            _json_value(raw, field="entry_json", expected=dict),
+        )
+        if set(payload) != {
+            "schema_version",
+            "candidate_id",
+            "candidate_version",
+            "from_lifecycle",
+            "to_lifecycle",
+            "decision_request_id",
+            "created_at",
+        }:
+            raise ValueError("unexpected lifecycle journal fields")
+        if type(payload["schema_version"]) is not int or payload["schema_version"] != 1:
+            raise ValueError("unsupported lifecycle journal schema")
+        if not isinstance(payload["candidate_id"], str) or not payload["candidate_id"].strip():
+            raise ValueError("invalid lifecycle journal candidate id")
+        if type(payload["candidate_version"]) is not int or payload["candidate_version"] < 1:
+            raise ValueError("invalid lifecycle journal candidate version")
+        from_lifecycle = (
+            CandidateLifecycle(payload["from_lifecycle"])
+            if isinstance(payload["from_lifecycle"], str)
+            else None
+        )
+        if payload["from_lifecycle"] is not None and from_lifecycle is None:
+            raise ValueError("invalid lifecycle journal source")
+        if not isinstance(payload["to_lifecycle"], str):
+            raise ValueError("invalid lifecycle journal target")
+        to_lifecycle = CandidateLifecycle(payload["to_lifecycle"])
+        decision_request_id = payload["decision_request_id"]
+        if decision_request_id is not None and (
+            not isinstance(decision_request_id, str) or not decision_request_id.strip()
+        ):
+            raise ValueError("invalid lifecycle journal decision")
+        created_at = payload["created_at"]
+        if not isinstance(created_at, str):
+            raise ValueError("invalid lifecycle journal timestamp")
+        parsed_created_at = datetime.fromisoformat(created_at)
+        if parsed_created_at.tzinfo is None or parsed_created_at.isoformat() != created_at:
+            raise ValueError("invalid lifecycle journal timestamp")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise EvolutionRepositoryDecodeError("candidate lifecycle journal is corrupt") from exc
+
+    expected_id = _journal_id(
+        cast(str, payload["candidate_id"]),
+        cast(int, payload["candidate_version"]),
+        to_lifecycle,
+    )
+    if (
+        row["journal_id"] != expected_id
+        or row["candidate_id"] != payload["candidate_id"]
+        or row["candidate_version"] != payload["candidate_version"]
+        or row["from_lifecycle"] != (from_lifecycle.value if from_lifecycle is not None else None)
+        or row["to_lifecycle"] != to_lifecycle.value
+        or row["decision_request_id"] != decision_request_id
+        or row["created_at"] != created_at
+        or row["entry_hash"] != canonical_sha256(payload)
+    ):
+        raise EvolutionRepositoryDecodeError("candidate lifecycle journal conflicts")
+    if from_lifecycle is not None:
+        try:
+            validate_lifecycle_transition(from_lifecycle, to_lifecycle)
+        except ValueError as exc:
+            raise EvolutionRepositoryDecodeError(
+                "candidate lifecycle journal transition is illegal"
+            ) from exc
+    return from_lifecycle, to_lifecycle
+
+
 def _require_high_risk_code_promotion_decision(
     connection: sqlite3.Connection,
     *,
@@ -281,35 +361,356 @@ class EvolutionRepository:
         ).fetchone()
         return _decode_candidate(row) if row is not None else None
 
-    def get_routable_candidate(self, connection: sqlite3.Connection) -> EvolutionCandidateV1 | None:
-        """Return the single canary routing authority or fail closed if ambiguous."""
+    def get_verified_lifecycle_transition_to(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        candidate_id: str,
+        to_lifecycle: CandidateLifecycle,
+    ) -> tuple[int, CandidateLifecycle | None, CandidateLifecycle] | None:
+        rows = connection.execute(
+            """SELECT journal_id, candidate_id, candidate_version, from_lifecycle,
+                      to_lifecycle, decision_request_id, entry_json, entry_hash, created_at
+               FROM evolution_lifecycle_journal
+               WHERE candidate_id=? AND to_lifecycle=?
+               ORDER BY candidate_version""",
+            (candidate_id, to_lifecycle.value),
+        ).fetchall()
+        if not rows:
+            return None
+        if len(rows) != 1:
+            raise EvolutionRepositoryDecodeError(
+                "candidate lifecycle journal has multiple terminal transitions"
+            )
+        from_lifecycle, durable_to_lifecycle = _decode_lifecycle_journal_transition(rows[0])
+        return rows[0]["candidate_version"], from_lifecycle, durable_to_lifecycle
+
+    def get_routable_candidates(
+        self, connection: sqlite3.Connection
+    ) -> tuple[EvolutionCandidateV1, ...]:
+        """Return one complete canary routing authority per governed subject."""
 
         rows = connection.execute(
-            _SELECT_CANDIDATE + " WHERE lifecycle = 'canary' ORDER BY created_at, candidate_id"
+            _SELECT_CANDIDATE
+            + " WHERE lifecycle = 'canary'"
+            + " ORDER BY kind, subject_key, created_at, candidate_id"
         ).fetchall()
         candidates = tuple(_decode_candidate(row) for row in rows)
+        seen_subjects: set[tuple[CandidateKind, str]] = set()
+        for candidate in candidates:
+            subject = (candidate.kind, candidate.subject_key)
+            if subject in seen_subjects:
+                raise EvolutionRepositoryConflict("multiple canary routing authorities for subject")
+            seen_subjects.add(subject)
+        for candidate in candidates:
+            routing = candidate.routing
+            allocation = connection.execute(
+                "SELECT * FROM evolution_routing_allocations WHERE candidate_id=?",
+                (candidate.candidate_id,),
+            ).fetchone()
+            if routing is None or allocation is None:
+                raise EvolutionRepositoryConflict("canary routing authority is incomplete")
+            payload = routing.model_dump(mode="json")
+            if (
+                allocation["routing_version"] != routing.routing_version
+                or allocation["allocation_basis_points"] != routing.allocation_basis_points
+                or allocation["allocation_seed_id"] != routing.allocation_seed_id
+                or allocation["routing_json"] != canonical_json_bytes(payload).decode("utf-8")
+                or allocation["routing_hash"] != canonical_sha256(payload)
+            ):
+                raise EvolutionRepositoryConflict("canary routing authority conflicts")
+        return candidates
+
+    def get_routable_candidate(self, connection: sqlite3.Connection) -> EvolutionCandidateV1 | None:
+        """Return the legacy single canary authority or fail closed if ambiguous."""
+
+        candidates = self.get_routable_candidates(connection)
         if len(candidates) > 1:
             raise EvolutionRepositoryConflict("multiple canary routing authorities")
-        if not candidates:
-            return None
-        candidate = candidates[0]
-        routing = candidate.routing
-        row = connection.execute(
-            "SELECT * FROM evolution_routing_allocations WHERE candidate_id=?",
-            (candidate.candidate_id,),
-        ).fetchone()
-        if routing is None or row is None:
-            raise EvolutionRepositoryConflict("canary routing authority is incomplete")
-        payload = routing.model_dump(mode="json")
+        return candidates[0] if candidates else None
+
+    def _decode_subject_assignment_row(
+        self,
+        connection: sqlite3.Connection,
+        row: sqlite3.Row,
+    ) -> tuple[SubjectRunAssignmentV1, EffectiveEvolutionOverlayV1]:
+        raw = row["assignment_json"]
+        try:
+            decoded = json.loads(raw) if isinstance(raw, str) else None
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise EvolutionRepositoryDecodeError(
+                "persisted subject assignment is not valid JSON"
+            ) from exc
+        if not isinstance(decoded, dict) or canonical_sha256(decoded) != row["assignment_hash"]:
+            raise EvolutionRepositoryDecodeError("persisted subject assignment hash does not match")
+        try:
+            assignment = SubjectRunAssignmentV1.model_validate_json(raw)
+        except (ValidationError, TypeError, ValueError) as exc:
+            raise EvolutionRepositoryDecodeError(
+                "persisted subject assignment violates the v1 contract"
+            ) from exc
+        if canonical_json_bytes(assignment).decode("utf-8") != raw:
+            raise EvolutionRepositoryDecodeError("subject assignment_json is not canonical JSON")
         if (
-            row["routing_version"] != routing.routing_version
-            or row["allocation_basis_points"] != routing.allocation_basis_points
-            or row["allocation_seed_id"] != routing.allocation_seed_id
-            or row["routing_json"] != canonical_json_bytes(payload).decode("utf-8")
-            or row["routing_hash"] != canonical_sha256(payload)
+            row["assignment_id"] != assignment.assignment_id
+            or row["memorial_id"] != assignment.memorial_id
+            or row["kind"] != assignment.kind.value
+            or row["subject_key"] != assignment.subject_key
+            or row["candidate_id"] != assignment.candidate_id
+            or row["routing_version"] != assignment.routing_version
+            or row["bucket"] != assignment.bucket
+            or row["champion_ref_json"]
+            != canonical_json_bytes(assignment.champion_ref).decode("utf-8")
+            or row["selected_ref_json"]
+            != canonical_json_bytes(assignment.selected_ref).decode("utf-8")
+            or row["created_at"] != assignment.created_at.isoformat()
         ):
-            raise EvolutionRepositoryConflict("canary routing authority conflicts")
-        return candidate
+            raise EvolutionRepositoryDecodeError(
+                "subject assignment columns conflict with assignment_json"
+            )
+        if assignment.candidate_id is None:
+            if assignment.selected_ref != assignment.champion_ref:
+                raise EvolutionRepositoryDecodeError(
+                    "subject assignment without candidate selected a challenger"
+                )
+        else:
+            candidate = self.get_candidate(connection, assignment.candidate_id)
+            if (
+                candidate is None
+                or candidate.kind is not assignment.kind
+                or candidate.subject_key != assignment.subject_key
+                or candidate.base != assignment.champion_ref
+                or assignment.selected_ref not in {candidate.base, candidate.candidate}
+            ):
+                raise EvolutionRepositoryDecodeError(
+                    "subject assignment candidate attribution conflicts"
+                )
+        overlay = EffectiveEvolutionOverlayV1(
+            assignment_id=assignment.assignment_id,
+            kind=assignment.kind,
+            subject_key=assignment.subject_key,
+            artifact_digest=assignment.selected_ref.artifact_digest,
+            canonical_digest=assignment.selected_ref.canonical_digest,
+        )
+        if row["overlay_digest"] != canonical_sha256(overlay):
+            raise EvolutionRepositoryDecodeError("subject assignment overlay digest conflicts")
+        return assignment, overlay
+
+    def _get_subject_assignment(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        memorial_id: str,
+        kind: CandidateKind,
+        subject_key: str,
+    ) -> tuple[SubjectRunAssignmentV1, EffectiveEvolutionOverlayV1] | None:
+        row = connection.execute(
+            """SELECT * FROM run_subject_assignments
+               WHERE memorial_id=? AND kind=? AND subject_key=?""",
+            (memorial_id, kind.value, subject_key),
+        ).fetchone()
+        return self._decode_subject_assignment_row(connection, row) if row is not None else None
+
+    def get_assignment_set(
+        self, connection: sqlite3.Connection, memorial_id: str
+    ) -> RunAssignmentSetV1 | None:
+        rows = connection.execute(
+            """SELECT * FROM run_subject_assignments
+               WHERE memorial_id=? ORDER BY kind, subject_key""",
+            (memorial_id,),
+        ).fetchall()
+        if not rows:
+            return None
+        declared_hashes = {row["assignment_set_hash"] for row in rows}
+        declared_sizes = {row["assignment_set_size"] for row in rows}
+        if len(declared_hashes) != 1 or len(declared_sizes) != 1:
+            raise EvolutionRepositoryDecodeError(
+                "persisted run assignment set seal is inconsistent"
+            )
+        declared_hash = next(iter(declared_hashes))
+        declared_size = next(iter(declared_sizes))
+        if type(declared_size) is not int or declared_size != len(rows):
+            raise EvolutionRepositoryDecodeError(
+                "persisted run assignment set member count conflicts with its seal"
+            )
+        assignments = tuple(self._decode_subject_assignment_row(connection, row)[0] for row in rows)
+        try:
+            return RunAssignmentSetV1(
+                memorial_id=memorial_id,
+                assignments=assignments,
+                set_hash=declared_hash,
+            )
+        except (ValidationError, TypeError, ValueError) as exc:
+            raise EvolutionRepositoryDecodeError(
+                "persisted run assignment set violates the v1 contract"
+            ) from exc
+
+    @staticmethod
+    def validate_assignment_projection(
+        existing: tuple[
+            RunAssignmentV1 | LegacyRunAssignmentV1,
+            EffectiveEvolutionOverlayV1 | None,
+        ]
+        | None,
+        assignment_set: RunAssignmentSetV1 | None,
+    ) -> None:
+        """Reject missing or contradictory legacy/V34 assignment shadows."""
+
+        if existing is None:
+            if assignment_set is not None:
+                raise EvolutionAssignmentConflict("subject assignments require a legacy projection")
+            return
+        if assignment_set is None:
+            return
+        assignment, overlay = existing
+        if len(assignment_set.assignments) > 1:
+            if (
+                not isinstance(assignment, LegacyRunAssignmentV1)
+                or overlay is not None
+                or assignment_set.memorial_id != assignment.memorial_id
+                or any(
+                    subject.created_at != assignment.created_at
+                    for subject in assignment_set.assignments
+                )
+            ):
+                raise EvolutionAssignmentConflict(
+                    "multi-subject assignments require a legacy projection"
+                )
+            return
+        if not isinstance(assignment, RunAssignmentV1) or overlay is None:
+            raise EvolutionAssignmentConflict(
+                "single-subject assignment shadow conflicts with legacy projection"
+            )
+        subject = assignment_set.assignments[0]
+        if (
+            subject.memorial_id != assignment.memorial_id
+            or subject.candidate_id != assignment.candidate_id
+            or subject.champion_ref != assignment.champion_ref
+            or subject.selected_ref != assignment.selected_ref
+            or subject.routing_version != assignment.routing_version
+            or subject.bucket != assignment.bucket
+            or subject.created_at != assignment.created_at
+            or overlay.kind is not subject.kind
+            or overlay.subject_key != subject.subject_key
+            or overlay.artifact_digest != subject.selected_ref.artifact_digest
+            or overlay.canonical_digest != subject.selected_ref.canonical_digest
+        ):
+            raise EvolutionAssignmentConflict(
+                "single-subject assignment shadow conflicts with legacy projection"
+            )
+
+    def insert_assignment_set(
+        self,
+        connection: sqlite3.Connection,
+        assignment_set: RunAssignmentSetV1,
+        overlays: tuple[EffectiveEvolutionOverlayV1, ...],
+    ) -> RunAssignmentSetV1:
+        """Persist one complete immutable subject set or accept an exact replay."""
+
+        if not connection.in_transaction:
+            raise RuntimeError("assignment set writes require a caller-owned transaction")
+        if len(overlays) != len(assignment_set.assignments):
+            raise ValueError("assignment set overlays must match its members")
+        for assignment, overlay in zip(assignment_set.assignments, overlays, strict=True):
+            expected_overlay = EffectiveEvolutionOverlayV1(
+                assignment_id=assignment.assignment_id,
+                kind=assignment.kind,
+                subject_key=assignment.subject_key,
+                artifact_digest=assignment.selected_ref.artifact_digest,
+                canonical_digest=assignment.selected_ref.canonical_digest,
+            )
+            if overlay != expected_overlay:
+                raise ValueError("effective overlay does not match subject assignment")
+            if assignment.candidate_id is None:
+                if assignment.selected_ref != assignment.champion_ref:
+                    raise ValueError("subject assignment without candidate must select champion")
+            else:
+                candidate = self.get_candidate(connection, assignment.candidate_id)
+                if (
+                    candidate is None
+                    or candidate.kind is not assignment.kind
+                    or candidate.subject_key != assignment.subject_key
+                    or candidate.base != assignment.champion_ref
+                    or assignment.selected_ref not in {candidate.base, candidate.candidate}
+                ):
+                    raise ValueError("candidate does not match subject assignment")
+
+        existing = self.get_assignment_set(connection, assignment_set.memorial_id)
+        if existing is not None:
+            if existing != assignment_set:
+                raise EvolutionAssignmentConflict("Memorial subject assignment set is immutable")
+            return existing
+
+        connection.execute("SAVEPOINT evolution_assignment_set_insert")
+        try:
+            for assignment, overlay in zip(
+                assignment_set.assignments,
+                overlays,
+                strict=True,
+            ):
+                raw = canonical_json_bytes(assignment).decode("utf-8")
+                connection.execute(
+                    """INSERT INTO run_subject_assignments (
+                           assignment_id, memorial_id, kind, subject_key, candidate_id,
+                           routing_version, bucket, champion_ref_json, selected_ref_json,
+                           overlay_digest, assignment_json, assignment_hash,
+                           assignment_set_hash, assignment_set_size, created_at
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        assignment.assignment_id,
+                        assignment.memorial_id,
+                        assignment.kind.value,
+                        assignment.subject_key,
+                        assignment.candidate_id,
+                        assignment.routing_version,
+                        assignment.bucket,
+                        canonical_json_bytes(assignment.champion_ref).decode("utf-8"),
+                        canonical_json_bytes(assignment.selected_ref).decode("utf-8"),
+                        canonical_sha256(overlay),
+                        raw,
+                        canonical_sha256(assignment),
+                        assignment_set.set_hash,
+                        len(assignment_set.assignments),
+                        assignment.created_at.isoformat(),
+                    ),
+                )
+            durable = self.get_assignment_set(connection, assignment_set.memorial_id)
+            if durable != assignment_set:  # pragma: no cover - insert must preserve the set
+                raise EvolutionAssignmentConflict("Memorial subject assignment set disappeared")
+        except sqlite3.IntegrityError as exc:
+            connection.execute("ROLLBACK TO SAVEPOINT evolution_assignment_set_insert")
+            connection.execute("RELEASE SAVEPOINT evolution_assignment_set_insert")
+            replay = self.get_assignment_set(connection, assignment_set.memorial_id)
+            if replay == assignment_set:
+                return replay
+            raise EvolutionAssignmentConflict(
+                "Memorial subject assignment set identity conflict"
+            ) from exc
+        except BaseException:
+            connection.execute("ROLLBACK TO SAVEPOINT evolution_assignment_set_insert")
+            connection.execute("RELEASE SAVEPOINT evolution_assignment_set_insert")
+            raise
+        connection.execute("RELEASE SAVEPOINT evolution_assignment_set_insert")
+        return durable
+
+    def insert_subject_assignment(
+        self,
+        connection: sqlite3.Connection,
+        assignment: SubjectRunAssignmentV1,
+        overlay: EffectiveEvolutionOverlayV1,
+    ) -> SubjectRunAssignmentV1:
+        """Compatibility wrapper that seals one subject as a singleton set."""
+
+        material = {
+            "memorial_id": assignment.memorial_id,
+            "assignments": [assignment.model_dump(mode="json")],
+        }
+        assignment_set = RunAssignmentSetV1(
+            memorial_id=assignment.memorial_id,
+            assignments=(assignment,),
+            set_hash=canonical_sha256(material),
+        )
+        return self.insert_assignment_set(connection, assignment_set, (overlay,)).assignments[0]
 
     def get_assignment(
         self, connection: sqlite3.Connection, memorial_id: str
@@ -596,14 +997,6 @@ class EvolutionRepository:
                 ).fetchone()
                 if subject_conflict is not None:
                     raise EvolutionRepositoryConflict("subject_canary_exists")
-                global_conflict = connection.execute(
-                    """SELECT 1 FROM evolution_candidates
-                       WHERE lifecycle='canary' AND candidate_id<>?
-                       LIMIT 1""",
-                    (candidate.candidate_id,),
-                ).fetchone()
-                if global_conflict is not None:
-                    raise EvolutionRepositoryConflict("global_canary_exists")
 
         if (
             candidate.lifecycle is not current.lifecycle
