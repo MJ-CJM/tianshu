@@ -333,10 +333,57 @@ match, not only template ownership. Two mutation-style negative cases prove the
 guard rejects a dynamic `/api/.../{id}` rule shadowing a later exact admin route
 and a public SPA catch-all shadowing a later exact admin route.
 Boundary: no database migration or schema change; the live migration tail
-remains V32. Status: implementation complete for Issue #104; PR pending.
+remains V32. Status: merged into `feat/plugin-v1` via PR #105.
 Verification: final X5 focused matrix 216 passed and the complete
 timing-sensitive slice 26 passed. Independent security review was APPROVED,
 including an additional 184-test focused pass, a 33-test health pass, and zero
 Starlette first-match mismatches across 261 top-level concrete route
 declarations. Ruff, Mypy (141 source files), and all four import-linter contracts
-passed. Target-branch CI and merge evidence remain pending until the PR exists.
+passed. Target-branch CI passed 6/6; merge commit is `8f2c11cd`.
+
+=== Agent OS P4a / evolution policy enforcement (2026-08-26) ===
+Decision: add frozen EvolutionPolicyV1 and V33 evolution_policies as the
+per-subject evolution authorization authority. Runtime grandfathering remains
+skill=canary and every other current kind=manual when no durable row exists,
+while GET policy returns 404 for a missing row and never synthesizes a durable
+default. PUT uses strict missing-row CAS: only a missing row with null expected
+version inserts version 1; missing+non-null, existing+null, kind mismatch, and
+every stale expected version conflict. Repeating identical content with a stale
+version is still rejected.
+
+Compatibility decision: V33 installs the `(kind, subject_key)` partial unique
+canary index, but P4a does not yet enable a second subject to enter CANARY. The
+existing `get_routable_candidate` reader remains globally single-valued until
+P4b, so `start_canary` and the sole `save_candidate` UPDATE authority retain a
+temporary global single-canary write backstop. P4b will remove that global
+backstop only after the multi-value reader is authoritative, while retaining
+subject-level exclusion and the V33 index.
+
+Safety decision: frozen blocks propose before artifact materialization,
+start_canary before routing writes, and promote before its intended journal;
+stage/evaluate may finish without receiving traffic, and rollback always
+remains allowed. Repository-level policy, contract-cap, policy-cap, and canary
+uniqueness checks protect direct and future candidate write paths. Policy
+updates are rejected while the same subject has a promote intended or applied
+journal that is not closed by a completed row with the same command key. This
+prevents policy mutation across the external activation window and avoids
+live/durable split-brain.
+
+Boundary: no P4b assignment table, multi-subject read path, runtime overlay
+dictionary, kill switch, or Web UI is included. The migration tail advances
+from V32 to V33 only. V33 migration checksum is
+`725e801902e3e8e321a369164d3a5728adb40f96a8c77f2644820a6f69671fc7`;
+the frozen upgrade callback fingerprint is
+`15aa3bd9527ca0c12be760c8213d029ac554e9ca5b6c7e117ad03c0fd4030d3c`.
+
+Status: implementation complete for Issue #106; PR pending. Verification:
+515 P4a policy/CAS/API/migration/route and affected candidate, promotion,
+rollback, gate, routing, schema, audit, Skills API and auth tests passed in
+isolated groups. One initial multi-file process exited with the known macOS
+watchdog/FSEvents native status 133 after its first file; every constituent file
+then passed in a fresh process, so the native teardown is recorded rather than
+misreported as a Python assertion. Ruff check/format, Mypy (143 source files),
+and all four import-linter contracts passed. The two new admin-only policy
+routes produce 265 protected rules, 15 public rules and 279 route inventory
+references with exact coverage. Target-branch CI and merge evidence remain
+pending until the PR exists.

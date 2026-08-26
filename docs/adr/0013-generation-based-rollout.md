@@ -80,6 +80,28 @@ Evaluator、权限、进化策略或晋升权威。
 本轮不实现 `auto` 进化模式，也不允许自动晋升。可表达的进化模式仅为 frozen、manual、
 canary；既有 `automatic_promotion_allowed: Literal[False]` 保持不变。
 
+### 3.1 EvolutionPolicy 写入与晋升不确定窗口
+
+EvolutionPolicy 与插件 enabled、版本 pinning 相互独立。`frozen` 阻止新的 propose、进入
+CANARY 与进入 PROMOTED；已经开始的 stage/evaluate 可以收口但不得取得流量或晋升，避免
+在 staging 状态机中途撕裂。rollback 是恢复安全边，任何 policy mode 都不得阻止。
+
+显式 policy 行使用严格 compare-and-swap。无 durable 行且 expected version 为空时才允许
+首插 version 1；无行但 expected 非空、已有行但 expected 为空、或 expected 不精确匹配均为
+冲突，重复提交相同内容也不绕过 stale-version 冲突。`subject_key` 是策略主身份，`kind` 在
+repository/API 层不可变。缺行祖父化只用于执行路径计算有效 mode；治理 API 不合成虚拟行，
+GET 缺行返回 404。
+
+P4a 建立 `(kind, subject_key) WHERE lifecycle='canary'` 的 partial unique index，但在 P4b
+多值路由读者合入前，现有 `get_routable_candidate()` 仍只能解释一个全局 canary。因此 P4a
+暂时在唯一候选 UPDATE 权威和 start-canary 早拒层保留全局单 canary backstop；P4b 切换到
+per-subject 读路径后再将其收窄为同 subject 排他。
+
+promote 的外部 activate 位于 durable intended 与最终 completed 事务之间。只要同 subject
+存在尚未被相同 command-key completed 行收口的 promote intended 或 applied journal，
+EvolutionPolicy 更新必须 fail closed。该约束防止外部发布已生效后 policy 被翻为 frozen、
+最终候选 CAS 被拒绝而形成 live state 与 durable lifecycle 分裂。
+
 ### 4. 依赖边界分阶段收紧
 
 目标依赖方向是入口与执行面依赖应用/进化/证据/插件面，后者再依赖存储与治理微内核，
@@ -99,4 +121,8 @@ canary；既有 `automatic_promotion_allowed: Literal[False]` 保持不变。
   `SystemSnapshot + exact attempt generation marker` 是一次运行的完整归因单位；snapshot 关闭时
   marker 仍可独立证明该 attempt 选择了具体 generation set（包括显式空集合）。
 - 插件可以保持启用并锁定版本，同时由进化策略单独冻结其进化。
+- P4a 只建立 per-subject 灰度的策略与数据库基础，不提前开放第二个全局 canary；多
+  subject 并行能力以 P4b 多值读路径合入为准。
+- policy CAS 与 unresolved promote journal guard 共同保证治理配置更新不会跨越外部
+  activation 的不确定窗口。
 - 动态加载第三方代码、进程内 reload 和普通 Evolution 修改治理微内核均不由本 ADR 开放。

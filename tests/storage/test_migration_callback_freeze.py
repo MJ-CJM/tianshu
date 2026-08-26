@@ -136,6 +136,8 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0032_runtime_generations": (
         "67c47b31f787a514d567fd2cdb8754599073648fba412e2e66f5f8ea32a8470c"
     ),
+    # v33 appends per-subject evolution policy and the subject-canary DB wall.
+    "0033_evolution_policies": ("15aa3bd9527ca0c12be760c8213d029ac554e9ca5b6c7e117ad03c0fd4030d3c"),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

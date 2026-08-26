@@ -16,7 +16,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, Protocol, cast
+from typing import Literal, Never, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -47,6 +47,10 @@ from tianshu.models.principal import (
     PrincipalKind,
 )
 from tianshu.models.system_audit import AppendSystemAuditRequest
+from tianshu.storage.evolution_policy_repo import (
+    EvolutionPolicyRepository,
+    default_mode_for,
+)
 from tianshu.storage.evolution_repo import EvolutionRepository, EvolutionRepositoryConflict
 from tianshu.storage.outbox_repo import OutboxRepository
 from tianshu.storage.system_audit_repo import _append_system_audit_unlocked
@@ -774,6 +778,7 @@ class PromotionService:
         self._adapter_resolver = adapter_resolver
         self._clock = clock or (lambda: datetime.now(UTC))
         self._repository = EvolutionRepository()
+        self._policy_repository = EvolutionPolicyRepository()
         self._outbox = OutboxRepository()
         self._reconciliation_error_codes: tuple[str, ...] = ()
 
@@ -806,6 +811,22 @@ class PromotionService:
             self._require_expected_version(candidate, command.expected_version)
             if candidate.lifecycle is not CandidateLifecycle.READY:
                 raise PromotionConflict("promotion_preconditions_not_met")
+            policy = self._policy_repository.get_policy(connection, candidate.subject_key)
+            if policy is not None and policy.kind is not candidate.kind:
+                raise PromotionConflict("evolution_policy_kind_conflict")
+            mode = policy.mode if policy is not None else default_mode_for(candidate.kind)
+            if mode != "canary":
+                raise PromotionConflict("policy_forbids_canary")
+            if command.allocation_basis_points > (
+                candidate.evolution_contract.max_canary_allocation_basis_points
+            ):
+                raise PromotionConflict("allocation_exceeds_contract")
+            if (
+                policy is not None
+                and command.allocation_basis_points > policy.max_canary_basis_points
+            ):
+                raise PromotionConflict("allocation_exceeds_policy")
+            self._require_canary_slot(connection, candidate)
             try:
                 report = self._gates.get_current_report_current(connection, candidate_id)
             except EvolutionRepositoryConflict as exc:
@@ -819,10 +840,6 @@ class PromotionService:
                 or report.gate_snapshot_version != candidate.gate_snapshot_version
             ):
                 raise PromotionConflict("gate_snapshot_conflict")
-            if command.allocation_basis_points > (
-                candidate.evolution_contract.max_canary_allocation_basis_points
-            ):
-                raise PromotionConflict("allocation_exceeds_contract")
             if self._routing_row(connection, candidate_id) is not None:
                 raise PromotionConflict("promotion_preconditions_not_met")
             now = self._now()
@@ -832,17 +849,20 @@ class PromotionService:
                 routing_version=1,
             )
             self._insert_routing(connection, candidate_id, routing, now=now)
-            durable = self._repository.save_candidate(
-                connection,
-                candidate.model_copy(
-                    update={
-                        "routing": routing,
-                        "lifecycle": CandidateLifecycle.CANARY,
-                        "updated_at": now,
-                    }
-                ),
-                expected_version=candidate.version,
-            )
+            try:
+                durable = self._repository.save_candidate(
+                    connection,
+                    candidate.model_copy(
+                        update={
+                            "routing": routing,
+                            "lifecycle": CandidateLifecycle.CANARY,
+                            "updated_at": now,
+                        }
+                    ),
+                    expected_version=candidate.version,
+                )
+            except EvolutionRepositoryConflict as exc:
+                self._raise_repository_conflict(exc)
             receipt = PromotionReceiptV1(
                 action="start_canary",
                 idempotency_key=command.idempotency_key,
@@ -929,6 +949,14 @@ class PromotionService:
             self._require_expected_version(candidate, command.expected_version)
             if candidate.lifecycle is not CandidateLifecycle.CANARY:
                 raise PromotionConflict("promotion_preconditions_not_met")
+            intended = self._load_journal(connection, command_key, "intended")
+            if intended is None:
+                policy = self._policy_repository.get_policy(connection, candidate.subject_key)
+                if policy is not None and policy.kind is not candidate.kind:
+                    raise PromotionConflict("evolution_policy_kind_conflict")
+                mode = policy.mode if policy is not None else default_mode_for(candidate.kind)
+                if mode == "frozen":
+                    raise PromotionConflict("subject_frozen")
             start = self._require_start_binding(connection, candidate)
             self._validate_bound_report(connection, candidate, start)
             self._require_routing_matches(connection, candidate, start)
@@ -941,7 +969,6 @@ class PromotionService:
                     )
                 except EvolutionRepositoryConflict as exc:
                     raise PromotionConflict("promotion_decision_required") from exc
-            intended = self._load_journal(connection, command_key, "intended")
             if intended is None:
                 now = self._now()
                 intended = _JournalEntry(
@@ -1054,12 +1081,14 @@ class PromotionService:
                     high_risk_decision_request_id=command.decision_request_id,
                 )
             except EvolutionRepositoryConflict as exc:
-                code = (
-                    "promotion_decision_required"
-                    if current.kind is CandidateKind.CODE
-                    else "candidate_version_conflict"
+                self._raise_repository_conflict(
+                    exc,
+                    default=(
+                        "promotion_decision_required"
+                        if current.kind is CandidateKind.CODE
+                        else "candidate_version_conflict"
+                    ),
                 )
-                raise PromotionConflict(code) from exc
             receipt = PromotionReceiptV1(
                 action="promote",
                 idempotency_key=command.idempotency_key,
@@ -1525,6 +1554,46 @@ class PromotionService:
     def _require_expected_version(candidate: EvolutionCandidateV1, expected_version: int) -> None:
         if candidate.version != expected_version:
             raise PromotionConflict("candidate_version_conflict")
+
+    @staticmethod
+    def _raise_repository_conflict(
+        error: EvolutionRepositoryConflict,
+        *,
+        default: str = "candidate_version_conflict",
+    ) -> Never:
+        code = str(error)
+        if code in {
+            "allocation_exceeds_contract",
+            "allocation_exceeds_policy",
+            "evolution_policy_kind_conflict",
+            "global_canary_exists",
+            "policy_forbids_canary",
+            "subject_canary_exists",
+            "subject_frozen",
+        }:
+            raise PromotionConflict(code) from error
+        raise PromotionConflict(default) from error
+
+    @staticmethod
+    def _require_canary_slot(
+        connection: sqlite3.Connection, candidate: EvolutionCandidateV1
+    ) -> None:
+        subject_conflict = connection.execute(
+            """SELECT 1 FROM evolution_candidates
+               WHERE lifecycle='canary' AND kind=? AND subject_key=? AND candidate_id<>?
+               LIMIT 1""",
+            (candidate.kind.value, candidate.subject_key, candidate.candidate_id),
+        ).fetchone()
+        if subject_conflict is not None:
+            raise PromotionConflict("subject_canary_exists")
+        global_conflict = connection.execute(
+            """SELECT 1 FROM evolution_candidates
+               WHERE lifecycle='canary' AND candidate_id<>?
+               LIMIT 1""",
+            (candidate.candidate_id,),
+        ).fetchone()
+        if global_conflict is not None:
+            raise PromotionConflict("global_canary_exists")
 
     @staticmethod
     def _routing_row(connection: sqlite3.Connection, candidate_id: str) -> sqlite3.Row | None:

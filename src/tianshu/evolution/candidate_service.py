@@ -31,6 +31,10 @@ from tianshu.models.evolution_candidate import (
     RollbackSpecV1,
 )
 from tianshu.models.run_assignment import EffectiveEvolutionOverlayV1
+from tianshu.storage.evolution_policy_repo import (
+    EvolutionPolicyRepository,
+    default_mode_for,
+)
 from tianshu.storage.evolution_repo import EvolutionRepository, EvolutionRepositoryConflict
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
@@ -98,6 +102,7 @@ class CandidateService:
         self._storage = storage
         self._artifacts = artifacts
         self._repository = EvolutionRepository()
+        self._policy_repository = EvolutionPolicyRepository()
         self._live_authorities = live_authorities
         self._clock = clock or (lambda: datetime.now(UTC))
 
@@ -185,6 +190,14 @@ class CandidateService:
         writes: list[ArtifactWriteReceipt] = []
         try:
             with self._storage.unit_of_work() as unit_of_work:
+                policy = self._policy_repository.get_policy(
+                    unit_of_work.connection, proposal.subject_key
+                )
+                if policy is not None and policy.kind is not proposal.kind:
+                    raise CandidateServiceError("evolution_policy_kind_conflict")
+                mode = policy.mode if policy is not None else default_mode_for(proposal.kind)
+                if mode == "frozen":
+                    raise CandidateServiceError("subject_frozen")
                 base, base_write = adapter.materialize_base_current(
                     unit_of_work.connection, proposal
                 )

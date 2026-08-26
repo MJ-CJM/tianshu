@@ -47,6 +47,7 @@ from tianshu.models.evolution_candidate import (
     GateName,
     RollbackSpecV1,
 )
+from tianshu.models.evolution_policy import EvolutionPolicyV1
 from tianshu.models.governance_contract import AcceptanceCheckV1, AcceptancePolicyV1
 from tianshu.models.principal import (
     AuthContext,
@@ -58,6 +59,7 @@ from tianshu.models.principal import (
 from tianshu.skills.install_service import EvaluateSkillGateCommand, ProposeSkillCommand
 from tianshu.storage import Storage
 from tianshu.storage.decision_repo import DecisionRepository
+from tianshu.storage.evolution_policy_repo import EvolutionPolicyRepository
 from tianshu.storage.evolution_repo import EvolutionRepository, EvolutionRepositoryConflict
 
 NOW = datetime(2026, 7, 18, 8, tzinfo=UTC)
@@ -134,6 +136,22 @@ def _ready(
         candidate = _candidate(kind)
         if candidate_id is not None:
             candidate = candidate.model_copy(update={"candidate_id": candidate_id})
+        policy_repository = EvolutionPolicyRepository()
+        if policy_repository.get_policy(unit_of_work.connection, candidate.subject_key) is None:
+            policy_repository.upsert_policy(
+                unit_of_work.connection,
+                EvolutionPolicyV1(
+                    subject_key=candidate.subject_key,
+                    kind=candidate.kind,
+                    mode="canary",
+                    max_canary_basis_points=(
+                        candidate.evolution_contract.max_canary_allocation_basis_points
+                    ),
+                    version=1,
+                    updated_at=NOW,
+                ),
+                expected_version=None,
+            )
         current = repository.insert_candidate(unit_of_work.connection, candidate)
         for lifecycle in (
             CandidateLifecycle.STAGED,

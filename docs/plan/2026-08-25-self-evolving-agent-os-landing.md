@@ -2,8 +2,8 @@
 
 > **文档性质**：可直接开工的重构落地方案（最终合成版）。由三份独立视角方案（风险优先 / 最小改动 / 目标纯度）经总架构师合成，合成准则按优先级为：①与当前源码相符；②每步不破坏 fail-closed 不变量、可独立合入与回退；③最少过渡债（对象边界与目标架构一致）；④篇幅完整（分歧处的取舍理由写在各阶段"决策与取舍"小节）。
 > **修订记录**：本方案经三路校验（符号核对/可行性/完备性）修订并落盘，日期 2026-08-25。
-> **基线**：集成分支 `feat/plugin-v1`（近端提交 `3de9aa83`，含 X1 PR #89、P0 PR #91、P1 PR #93、P2 PR #95、X4 PR #97、P3 PR #99、X2 PR #101 与 X3 PR #103）；目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
-> **迁移编号基线**：P1 已占用 V31 `0031_system_snapshots`；P3 已追加并冻结 V32 `0032_runtime_generations`，当前 live tail 为 V32。P2 无迁移，后续计划迁移从 V33 起。历史 V25 `0025_persona_allowed_paths` 与 V30 `0030_consultation_rounds` 编号保持不变。
+> **基线**：集成分支 `feat/plugin-v1`（近端提交 `8f2c11cd`，含 X1 PR #89、P0 PR #91、P1 PR #93、P2 PR #95、X4 PR #97、P3 PR #99、X2 PR #101、X3 PR #103 与 X5 PR #105）；目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
+> **迁移编号基线**：P1 已占用 V31 `0031_system_snapshots`；P3 已追加并冻结 V32 `0032_runtime_generations`；P4a 分支已追加并冻结 V33 `0033_evolution_policies`，当前实现分支 live tail 为 V33。历史 V25 `0025_persona_allowed_paths` 与 V30 `0030_consultation_rounds` 编号保持不变。
 > **流程约定（2026-08-25 用户授权）**：每阶段走 issue → `feat/`|`fix/` 分支 → PR（`Closes #n`），PR 目标统一为集成分支 `feat/plugin-v1`；亲验 `gh pr checks` 全绿后由执行方直接合入，不逐个等待用户确认；全部阶段完成后由用户在 `feat/plugin-v1` 做总体验证，tag 仍由用户操作。跑 Python 一律 `.venv/bin/python`；前端改动后单跑 `cd web && npm run typecheck`（vitest/eslint 不查类型）。
 
 ## 实施状态
@@ -14,7 +14,7 @@
 | P1 SystemSnapshotV1 影子双写 | ✅ 已合入（PR #93） | 2026-08-25 | V31 `0031_system_snapshots`；202 项 P1 聚焦测试；全量 4806 passed、2 skipped；Web typecheck/338 tests/lint/build 全绿；真实 Demo 开启态三面摘要对账、关闭态零 binding/artifact |
 | P2 ContributionHandle | ✅ 已合入（PR #95） | 2026-08-25 | 82 项 P2 聚焦测试；全量 4830 passed、2 skipped；六类 owned handle、逆序释放、stale 身份保护及 MCP 重新发现/断连/shutdown 回收；原生 live/demo 冒烟、插件面 fail-closed 与 CI 5/5 均绿 |
 | P3 Pi 执行器代际与 continuity 固定 | ✅ 已合入（PR #99） | 2026-08-26 | V32、materializer、registry binding、continuity、reconciler、readiness、可观测性与 Web 投影；backend 5096 passed、2 skipped；Web typecheck/339 tests/lint/build 与全部静态门禁通过 |
-| P4a EvolutionPolicy 与 per-subject canary | ⬜ 未开始 | — | — |
+| P4a EvolutionPolicy 与 per-subject canary 写侧基础 | 🟢 实现完成，待合入（Issue #106；PR 待创建） | 2026-08-26 | V33；严格 CAS、frozen 三闸、repo-level 执法、临时全局单 canary backstop、promote journal guard；515 项分组聚焦/回归测试与静态门禁通过 |
 | P4b per-subject 运行分配与 UI | ⬜ 未开始 | — | — |
 | P5 CandidateKind.EXECUTOR 全链路 | ⬜ 未开始 | — | — |
 | P6 进程级 snapshot 重启与 last-good | ⬜ 未开始 | — | — |
@@ -23,13 +23,21 @@
 | X2 重试判据收敛 | ✅ 已合入（PR #101） | 2026-08-26 | 17 个 FailureReason 值不变；5 类可重试真值表、异常类型映射、canonical failure ledger、generation_retired 与 unknown fail-closed 已覆盖；240 项聚焦回归及静态门禁通过；目标分支 CI 6/6 全绿 |
 | X3 allowed_paths 受理校验 | ✅ 已合入（PR #103） | 2026-08-26 | `_insert_edict` 首写前权威校验；内建相对 glob 精确值豁免；非法 fresh 请求五表零写；历史 replay 与 409 优先级保持；101 项聚焦回归及静态门禁通过；目标分支 CI 6/6 全绿 |
 | X4 schema 落盘与 CI 门禁 | ✅ 已合入（PR #97） | 2026-08-26 | 9 个 V1 schema 统一登记；105 项聚焦测试；全量 4866 passed、2 skipped；Ruff/format/Mypy/lint-imports 与 Web typecheck/338 tests/lint/build 全绿；合并提交目标分支 CI 6/6 全绿，含严格 Required CI 汇总与 backend/frontend clean-worktree guard |
-| X5 路由 scope 表 | 🟢 实现完成，待合入（Issue #104；PR 待创建） | 2026-08-26 | 263 条 protected、15 条 public 显式规则覆盖 277 个 route inventory refs；移除 API/method fallback，锁定 OR/AND、docs/WS/MCP/static/readiness/webhook 语义；运行时 first-match 与两类 shadow 负例已守卫；无迁移，live tail 仍为 V32 |
+| X5 路由 scope 表 | ✅ 已合入（PR #105） | 2026-08-26 | 263 条 protected、15 条 public 显式规则覆盖 277 个 route inventory refs；移除 API/method fallback，锁定 OR/AND、docs/WS/MCP/static/readiness/webhook 语义；运行时 first-match 与两类 shadow 负例已守卫；目标分支 CI 6/6 全绿 |
 
-### X5 实施裁决（Issue #104，PR 待创建）
+### X5 实施裁决（Issue #104，PR #105）
 
 X5 已将 scope 判定收敛为显式、不可变的路由策略表：263 条 protected 规则和 15 条 public 规则覆盖当前 277 个 HTTP、WebSocket、MCP mount 与静态兼容 route inventory refs，不再保留 `/api/**` 或按 HTTP method 猜测 scope 的 fallback。策略表明确表达 global-read 的 `api OR admin`、workspace apply 的 `api AND workspace:apply`，并分别锁定 docs/OpenAPI、`/api/ws`、MCP 六种方法、SPA/assets 静态面、auth-aware readiness 与动态 webhook 精确 POST 路径的既有语义。
 
-兼容性裁决是：已认证请求命中 protected namespace 但没有注册路由时返回 `404 route_not_allowed`，从而保留既有 router 404 行为，同时保证未知路由不再继承默认 scope；匿名请求仍先经过认证闸门，未登记 WebSocket 仍 fail-closed。覆盖门禁同时按模板与真实运行时 first-match 检查唯一归属，并用“动态 `/api/.../{id}` 抢先遮蔽后置精确 admin 路由”和“public SPA catch-all 抢先遮蔽后置精确 admin 路由”两类负例证明 shadow 能被检出。最终 X5 聚焦矩阵 216 passed，完整 timing-sensitive 切片 26 passed；独立安全复核 APPROVED，并额外完成 184 项聚焦回归、33 项 health 回归及 261 个顶层具体路由的 Starlette 首匹配零错位核对。Ruff、Mypy（141 source files）和四项 import-linter 契约通过；本阶段没有数据库迁移，PR 尚待创建。
+兼容性裁决是：已认证请求命中 protected namespace 但没有注册路由时返回 `404 route_not_allowed`，从而保留既有 router 404 行为，同时保证未知路由不再继承默认 scope；匿名请求仍先经过认证闸门，未登记 WebSocket 仍 fail-closed。覆盖门禁同时按模板与真实运行时 first-match 检查唯一归属，并用“动态 `/api/.../{id}` 抢先遮蔽后置精确 admin 路由”和“public SPA catch-all 抢先遮蔽后置精确 admin 路由”两类负例证明 shadow 能被检出。最终 X5 聚焦矩阵 216 passed，完整 timing-sensitive 切片 26 passed；独立安全复核 APPROVED，并额外完成 184 项聚焦回归、33 项 health 回归及 261 个顶层具体路由的 Starlette 首匹配零错位核对。Ruff、Mypy（141 source files）和四项 import-linter 契约通过；本阶段无数据库迁移，并已通过 PR #105 合入 `feat/plugin-v1`，目标分支 CI 6/6 全绿。
+
+### P4a 实施裁决（Issue #106，PR 待创建）
+
+P4a 将每个 subject 的进化授权落成显式 `EvolutionPolicyV1` 与 V33 `evolution_policies` 表。可表达 mode 仅为 frozen、manual、canary，`auto` 在类型与数据库 CHECK 两层均不可表达；无行仍按 skill=canary、其余当前 kind=manual 祖父化，但 GET API 对缺行返回 404，不制造 durable 假事实。PUT 使用严格 missing-row CAS：只有“无行 + `expected_version=null`”能首插 version 1，已有行必须精确匹配版本，陈旧的相同内容重试仍冲突，kind 不可变。成功响应固定为 `{data, correlation_id}`，策略行、SystemAudit `evolution_policy_updated` 与同名 outbox event 在同一 UoW 原子提交。
+
+兼容性裁决是：V33 虽已建立 `(kind, subject_key) WHERE lifecycle='canary'` partial unique index，P4a 仍不开放多 subject 并行 canary。旧 `get_routable_candidate()` 在 P4b 前只能解释一个全局 authority，因此 `start_canary` 早拒与 `save_candidate` 唯一 UPDATE 权威共同保留临时全局单 canary backstop；P4b 切换多值读路径时再收窄为 subject 级排他。frozen 在第一笔 artifact 前阻止 propose、在 routing 写入前阻止 start_canary、在 intended journal 前阻止 promote；stage/evaluate 可收口，rollback 始终放行。repo 层同时守住模式、合约 allocation 上限与显式 policy 上限，不能靠绕过服务层规避。
+
+安全裁决是：policy upsert 在同 subject 存在未由相同 command-key completed 行收口的 promote intended/applied journal 时返回冲突。由此 policy 无法在 `intended → adapter.activate → applied/final commit` 窗口中翻转，避免外部已经激活而 durable candidate 因 frozen 防线停留在 CANARY。V33 migration checksum 为 `725e801902e3e8e321a369164d3a5728adb40f96a8c77f2644820a6f69671fc7`，upgrade callback source fingerprint 为 `15aa3bd9527ca0c12be760c8213d029ac554e9ca5b6c7e117ad03c0fd4030d3c`。分组运行的 P4a 新增与影响面回归共 515 passed；Ruff check/format、Mypy（143 source files）与四项 import-linter 契约通过。两条新 admin-only policy 路由使当前显式表达到 265 条 protected、15 条 public，覆盖 279 个 route inventory refs；目标分支 CI 与合并证据待 PR 创建后补齐。
 
 ---
 
@@ -654,6 +662,8 @@ CREATE TABLE run_generation_bindings (
 
 **目标**：拆掉「全局仅 1 个 canary」——不同 `(kind, subject_key)` 各自 canary、各自 sticky，**同 subject 冲突仍 fail-closed**；每插件（subject）一行 EvolutionPolicy：frozen / manual / canary（auto 不实现）。**0/1 canary 场景行为与主干逐字节一致**（影子双写保证）。4a（policy 表 + 写侧执法，纯加法）与 4b（读路径多 subject，全方案唯一重写既有行为测试预期的一步）分两个 PR 隔离爆炸半径。
 
+**阶段边界补充**：P4a 只建立 `(kind, subject_key)` partial unique index、policy 执法与未来 per-subject 写侧基础，不在旧单值读者仍生效时开放第二个 subject 同时进入 CANARY。`EvolutionRepository.get_routable_candidate()` 在 P4b 前仍是全局单值权威，因此 P4a 在 `save_candidate` 与 `start_canary` 保留临时全局单 canary 写侧 backstop；P4b 切换到 `get_routable_candidates()` 后才把该 backstop 收窄为同 `(kind, subject_key)` 排他。
+
 **前置依赖**：P1（binding/overlay digest 语义）。与 P3 无硬依赖，可并行开发、先后合入均可。
 
 #### P4a 改动清单（EvolutionPolicy，≈4–5 天，含 Codex A3）
@@ -662,13 +672,13 @@ CREATE TABLE run_generation_bindings (
 |---|---|---|
 | 修改 | src/tianshu/storage/migrations.py | V33 `0033_evolution_policies`（DDL 见下）；四件套照通用约定 |
 | 新增 | src/tianshu/models/evolution_policy.py | `class EvolutionPolicyV1(_StrictModel)` 字段表：`subject_key: str`（1..512 trim）/ `kind: CandidateKind` / `mode: Literal["frozen","manual","canary"]` / `max_canary_basis_points: int`（ge=0, le=1000，不越过 EvolutionContractV1 的 10% 上限；model_validator：mode=='canary' 时必须 1..1000，与 V33 CHECK 同构——对照 evolution_candidate.py:172 契约层禁 0）/ `version: int`（ge=1）/ `updated_at: datetime` |
-| 新增 | src/tianshu/storage/evolution_policy_repo.py | `class EvolutionPolicyRepository`（无状态）：`def get_policy(self, connection, subject_key: str) -> EvolutionPolicyV1 | None`；`def upsert_policy(self, connection, policy, *, expected_version: int | None) -> EvolutionPolicyV1`（CAS；None=首插必须 version=1）；模块级 `def default_mode_for(kind: CandidateKind) -> Literal["frozen","manual","canary"]`——**缺省祖父化：`SKILL` 无行 = `canary`（保持现状），其余 kind 无行 = `manual`（新 kind 生而严格）** |
+| 新增 | src/tianshu/storage/evolution_policy_repo.py | `class EvolutionPolicyRepository`（无状态）：`get_policy` 缺行返回 `None`，祖父化缺省只供执行路径计算，GET API 不合成虚拟行；`upsert_policy` 使用严格 missing-row CAS——仅无行且 expected 为 `None` 时首插 version 1，无行+非空 expected、已有行+空 expected、版本不精确匹配均冲突，相同内容 stale retry 也不例外；kind 是不可变身份，UPDATE SQL 不修改 kind；模块级 `default_mode_for` 保持 **SKILL 无行=canary，其余当前 kind 无行=manual** |
 | 修改 | src/tianshu/evolution/candidate_service.py:178 | `propose` 开头：`mode == 'frozen'` → `CandidateServiceError("subject_frozen")`（在任何 artifact 物化之前，零副作用拒绝；用户可继续**使用**该插件——enabled 与进化授权正交） |
-| 修改 | src/tianshu/evolution/promotion.py:784 | `start_canary` 前置追加：① 有效 mode（行值或 default_mode_for）≠ `canary` → `PromotionConflict("policy_forbids_canary")`（manual 的"Decision 后放行"延期，本轮一律拒）；② allocation ≤ `min(contract.max_canary_allocation_basis_points, policy.max_canary_basis_points)`（无 `or` 回退；无策略行时只用 contract 上限——『显式 0=禁止 allocation』与『未配置』不共用一个值）；③ **写侧排他收紧**：`SELECT 1 FROM evolution_candidates WHERE lifecycle='canary' AND kind=? AND subject_key=? AND candidate_id<>?` 命中 → `PromotionConflict("subject_canary_exists")`（读侧全局唯一 evolution_repo.py:270-278 兜底暂不动，4b 收窄；写侧既有 self-routing 检查 :826-827 保留——该收紧在"全局本就只许 1 canary"现状下不可能命中新拒绝，行为面零变化） |
-| 修改 | src/tianshu/evolution/promotion.py:935-943（promote durable 预检链同段） | **第三个执法点**：promote 前置读有效 mode，mode == 'frozen' → `PromotionConflict("subject_frozen")`（与高危 Decision 门并列，都是地板——否则候选进 CANARY 后管理员翻 frozen 仍可一路 PROMOTED：PROMOTED 仅可自 CANARY 进入（evolution_candidate.py:59-85），propose/start_canary 两个既有执法点拦不到在途候选）；rollback 不受 policy 限制（回滚永远放行）。ADR-0013 明写取舍：『frozen 拦 propose/start_canary/promote 三点；已在途候选允许完成评测（stage/evaluate 不拦，避免中途撕裂 staging 状态机——对 domain-and-governance §8 frozen 行「允许评测=否」的偏离为有意取舍），但不得进入流量与晋升』 |
-| 新增 | src/tianshu/gateway/evolution_api.py 端点 | `GET/PUT /api/evolution/policies/{subject_key}`（admin scope；`{data, correlation_id}` 信封 :50-53 风格；PUT body = mode/max_canary_basis_points + expected_version CAS；403/409 映射沿 :156-161；**PUT 成功在同一 UoW 内写 SystemAudit 事件 `evolution_policy_updated`**（payload 含 subject_key/old_mode/new_mode/old_bp/new_bp/actor/correlation_id，走既有 _append_system_audit_unlocked + outbox 通道——治理面配置变更事后可查））。**不复活** plugins install/activate 501 |
+| 修改 | src/tianshu/evolution/promotion.py:784 | `start_canary` 前置追加：① 有效 mode ≠ `canary` → `policy_forbids_canary`；② allocation ≤ contract 与显式 policy 两层上限；③ 同 `(kind, subject_key)` 冲突 → `subject_canary_exists`；④ **P4a 临时全局 backstop**：任一其他 canary 存在即 `global_canary_exists`。两次检查和候选更新同在 `BEGIN IMMEDIATE` UoW；P4b 才删除全局检查并保留 subject SELECT 与 V33 index |
+| 修改 | src/tianshu/evolution/promotion.py:935-943（promote durable 预检链同段） | **第三个执法点**：completed 命令重放优先；尚无 intended 时读取有效 mode，frozen → `subject_frozen`。policy upsert 同时拒绝同 subject 未被相同 command-key completed 收口的 promote intended/applied journal，封住外部 activate 窗口；rollback 不受 policy 限制，stage/evaluate 可收口但不得取得流量或晋升 |
+| 新增 | src/tianshu/gateway/evolution_api.py 端点 | admin-only `GET/PUT /api/evolution/policies/{subject_key}`；PUT body 明确包含 `kind / mode / max_canary_basis_points / expected_version`，GET 缺行 404；成功响应固定 `{data, correlation_id}`，不增加 `success`。策略行、SystemAudit `evolution_policy_updated` 与同名 outbox event 在同一 UoW 提交，任一写失败整体回滚；**不复活** plugins install/activate 501 |
 | 修改（Codex A3-a） | src/tianshu/storage/migrations.py V33 同块 | 在 `0033_evolution_policies` 迁移块追加 `CREATE UNIQUE INDEX idx_evolution_candidates_subject_canary ON evolution_candidates(kind, subject_key) WHERE lifecycle='canary'`（定位为 **P4b per-subject 灰度的第三道墙**，全局唯一仍由 evolution_repo.py:270-278 读侧 + 上表③写侧 SELECT 共守）。同 PR 必带：① tests/evolution/test_evolution_migration_schema.py 的 `_declared_v18_objects` / `_unique_column_sets` 登记新索引（否则锁定测试必红）；② `save_candidate` 的 IntegrityError 捕成 `EvolutionRepositoryConflict("subject_canary_exists")`，promotion 层映 409；③ 迁移前存量体检 `SELECT kind, subject_key, count(*) FROM evolution_candidates WHERE lifecycle='canary' GROUP BY 1,2 HAVING count(*)>1` |
-| 修改（Codex A3-b） | src/tianshu/storage/evolution_repo.py:545 `save_candidate` | 策略执法**下沉到唯一 UPDATE 路径**：`target_lifecycle in {CANARY, PROMOTED}` 时读有效 mode（行值或 default_mode_for），frozen → 拒；≠canary 且 target=CANARY → 拒。这一处结构上罩住 gates / promotion×4 / candidate_service 全部现有及未来写点，是**写前校验不是写后改写**（不碰 append-only），也不误伤 stage/evaluate（ADR-0013 取舍原样成立）。上表 propose/start_canary/promote 三个入口检查保留为早拒（好错误码、零 artifact 副作用），不再是唯一防线。同步扩 tests/architecture/test_promotion_authority.py 扫描集，断言 policy 判定只在 evolution_repo 一处实现。**不做** codex 的「写后压平」与 probe 端点——前者与 append-only 冲突，后者由 `GET /policies/{subject_key}` 已覆盖 |
+| 修改（Codex A3-b） | src/tianshu/storage/evolution_repo.py:545 `save_candidate` | 策略执法**下沉到唯一 UPDATE 路径**：CANARY/PROMOTED 目标统一守 kind/mode/frozen；CANARY 额外守 contract cap、显式 policy cap、subject 唯一与 P4a 临时全局唯一。该写前防线覆盖绕过 PromotionService 的现有及未来写点，也不误伤 stage/evaluate/rollback；partial unique index 的 SQLite 冲突精确映为 `subject_canary_exists`。入口检查保留为早拒，不再是唯一防线 |
 
 **V33 DDL**（V18 严格模板；可变表无触发器，仿 evolution_routing_allocations）：
 
@@ -734,8 +744,8 @@ CREATE TABLE run_subject_assignments (
 
 #### 兼容策略与开关
 
-- **P4a**：祖父化缺省保证存量 skill canary 流程零变化（无行 = skill:canary / 其余:manual）；写侧排他收紧在单 canary 现状下不可能命中。
-- **P4b**：0/1 canary 时旧表语义逐字节保留（新表影子行不被消费为权威——读侧新表优先但内容等值有断言）；>1 canary 是此前不可能的新能力，"灰度开关"即"先别给第二个 subject 开 canary"（4a 已按 policy+排他把关）；存量行照读（decode 校验一字未改）；legacy 占位行继续写（重试路由稳定 + V22 清理动机不回归）。
+- **P4a**：无策略行仍按 skill=canary、其余当前 kind=manual 计算有效 mode，保证存量 skill 流程不因迁移自动改变；GET API 对缺行仍返回 404。V33 提前建立 per-subject partial unique index，但旧读侧仍是全局单值，因此 `start_canary` 与 `save_candidate` 暂时保留全局单 canary backstop。policy PUT 使用严格 CAS，kind 不可变；同 subject 有 unresolved promote intended/applied 时拒绝更新。
+- **P4b**：切换多值读路径后才移除 P4a 的全局 backstop，保留同 subject SELECT、partial unique index 与 repo-level policy 执法三道墙。0/1 canary 时旧表语义逐字节保留；存量行照读，legacy 占位行继续写。
 - revert 代码后：读写全部回到旧表单 canary 语义，新表/policy 表留存无害。
 
 #### 测试清单
@@ -743,8 +753,8 @@ CREATE TABLE run_subject_assignments (
 | 测试文件 | 断言 |
 |---|---|
 | tests/storage/test_durable_schema_v33.py / v34.py（新）+ freeze 登记 ×2 | 形状；mode CHECK 拒 'auto'；kind CHECK 收 'executor' 拒未知值；UNIQUE(memorial_id,kind,subject_key)；条件 no_delete 语义；前序冻结 |
-| tests/evolution/test_evolution_policy.py（新） | frozen 拒 propose（零 artifact 副作用）且不影响该 subject 现役 payload 解析；manual/非 canary 拒 start_canary；canary 放行；bp=min(contract,policy)；缺省 skill=canary/其余=manual；upsert CAS 冲突；PUT 端点鉴权与幂等且同 UoW 落 `evolution_policy_updated` 审计；CANARY 中翻 frozen → promote 409（subject_frozen）、rollback 放行 |
-| tests/evolution/test_evolution_policy.py（Codex A3） | 绕过 PromotionService 直调 `save_candidate` 把 frozen subject 推到 CANARY → 拒（执法在 repo 层生效）；同 (kind,subject_key) 第二行 canary 直插 → IntegrityError 映 `subject_canary_exists`/409；迁移形状测试含新索引 |
+| tests/evolution/test_evolution_policy_repository.py + tests/gateway/test_evolution_policy_api.py（新） | 缺省 skill=canary/其余=manual；strict CAS 五格矩阵、kind immutable、promote journal guard；admin-only GET/PUT、缺行 404、精确信封，以及 policy/audit/outbox 同 UoW 原子提交 |
+| tests/evolution/test_evolution_policy_enforcement.py（新，含 Codex A3） | frozen 在零 artifact 副作用处拒 propose；manual/frozen 拒 start_canary；allocation 取 contract/policy 双上限；CANARY 后 frozen 拒 promote、rollback 放行；绕过 PromotionService 直调 `save_candidate` 仍受 mode/allocation/subject 与 P4a 全局唯一约束；迁移形状测试锁定 partial index 与 409 映射 |
 | tests/universe/test_multi_subject_routing.py（新） | 两 subject（skill:foo + skill:bar 或 skill+persona）并行 canary：各自分桶独立命中（统计断言仿 tests/evolution/test_routing_distribution.py）、各自 sticky、重启/重试不重分桶；同 subject 双 canary → conflict；**影子等值**：单 canary 时旧表行与主干产物逐字节相同、新表行与旧行内容等值；新表行随事务原子回滚（仿 test_challenger_routing.py:754）；rollback 单 subject 置零不动他 subject |
 | tests/application/test_generation_continuity.py（扩，P3 建） | 同一 conversation 连续 N 次 follow-up 的 selected_ref 恒定（canary 选择随 continuity sticky）；canary 结束（promote/rollback）后 follow-up 收敛 champion |
 | 改写存量（4b） | test_promotion_fail_closed.py：排他用例改 per-subject + 新增"不同 subject 可并存"正例（**test_rollback_fault_matrix.py:13-20 import 其私有 fixture，两文件连坐同步**——建议先行小 PR 把 `_contract/_candidate/_service` 提为共享 conftest helper）；tests/evolution/test_routing_distribution.py 扩多 subject 分布；test_s4_s5_handoff.py 布局断言更新 |
@@ -757,7 +767,7 @@ CREATE TABLE run_subject_assignments (
 - [ ] `skill:foo` 与 `skill:bar`（P5 后加 `executor:keqing:pi`）并行 canary，各自 sticky、各自 rollback、互不干扰
 - [ ] 用户可保持某插件 enabled 同时 frozen（frozen 后 propose 409、现役运行不受影响）——验收标准"单个插件可保持 enabled 同时 frozen"达成
 - [ ] 同 subject 冲突 fail-closed 未弱化；`Literal[False]` 未动；auto 双重不可表达（类型 + CHECK）
-- [ ] （Codex A3）partial unique index 已入 V33 且锁定测试已登记；policy 执法在 `save_candidate` 单点生效（AST 断言）
+- [x] （Codex A3）partial unique index 已入 V33 且锁定测试已登记；直调 `save_candidate` 绕过服务层的回归测试证明 repo-level policy/mode/allocation/唯一性防线生效
 - [ ] bind 热路径成本测量：N subject 时候选读次数线性有界（N≤snapshot 组件上界 64）
 - [ ] 关闸（`evolution_routing_enabled=0`）后新 run 零 challenger、开闸后恢复且存量 assignment 不重分桶（全局 kill switch 验收）
 

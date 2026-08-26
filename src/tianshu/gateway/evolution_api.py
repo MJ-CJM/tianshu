@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import NoReturn
+import hashlib
+import sqlite3
+from datetime import UTC, datetime
+from typing import Annotated, NoReturn
 
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, HTTPException, Path, Request
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tianshu.application.evolution_view import (
     EvolutionCenterQueryService,
@@ -21,12 +24,23 @@ from tianshu.evolution.promotion import (
     StartCanaryCommand,
 )
 from tianshu.gateway.auth import get_auth_context
+from tianshu.models.events import make_event
+from tianshu.models.evolution_candidate import CandidateKind
+from tianshu.models.evolution_policy import EvolutionPolicyMode, EvolutionPolicyV1
 from tianshu.models.run_assignment import (
     EffectiveEvolutionOverlayV1,
     LegacyRunAssignmentV1,
     RunAssignmentV1,
 )
+from tianshu.models.system_audit import AppendSystemAuditRequest
+from tianshu.storage.evolution_policy_repo import (
+    EvolutionPolicyConflict,
+    EvolutionPolicyRepository,
+    EvolutionPolicyRepositoryError,
+)
 from tianshu.storage.evolution_repo import EvolutionRepository, EvolutionRepositoryConflict
+from tianshu.storage.outbox_repo import OutboxRepository
+from tianshu.storage.system_audit_repo import _append_system_audit_unlocked
 from tianshu.storage.system_snapshot_repo import SystemSnapshotRepository
 
 evolution_router = APIRouter(prefix="/evolution", tags=["evolution-center"])
@@ -59,6 +73,105 @@ class RunEvolutionAssignmentResponseV1(BaseModel):
 
     data: RunEvolutionAssignmentViewV1
     correlation_id: str
+
+
+class UpsertEvolutionPolicyRequestV1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    kind: CandidateKind
+    mode: EvolutionPolicyMode
+    max_canary_basis_points: int = Field(ge=0, le=1_000)
+    expected_version: int | None = Field(ge=1)
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def parse_kind(cls, value: object) -> object:
+        return CandidateKind(value) if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def validate_canary_allocation(self) -> UpsertEvolutionPolicyRequestV1:
+        if self.mode == "canary" and self.max_canary_basis_points == 0:
+            raise ValueError("canary mode requires a positive max_canary_basis_points")
+        return self
+
+
+class EvolutionPolicyResponseV1(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    data: EvolutionPolicyV1
+    correlation_id: str
+
+
+_SubjectKey = Annotated[
+    str,
+    Path(min_length=1, max_length=512, pattern=r".*\S.*"),
+]
+_EVOLUTION_POLICY_EVENT = "evolution_policy_updated"
+
+
+def _raise_evolution_policy_error(
+    error: EvolutionPolicyRepositoryError,
+    correlation_id: str,
+) -> NoReturn:
+    code = (
+        error.reason_code
+        if isinstance(error, EvolutionPolicyConflict)
+        else "evolution_policy_decode_error"
+    )
+    raise HTTPException(409, {"code": code, "correlation_id": correlation_id}) from error
+
+
+def _record_evolution_policy_update(
+    connection: sqlite3.Connection,
+    *,
+    previous: EvolutionPolicyV1 | None,
+    current: EvolutionPolicyV1,
+    principal_id: str,
+    correlation_id: str,
+) -> None:
+    _append_system_audit_unlocked(
+        connection,
+        AppendSystemAuditRequest(
+            correlation_id=correlation_id,
+            actor_digest=hashlib.sha256(principal_id.encode()).hexdigest(),
+            action=_EVOLUTION_POLICY_EVENT,
+            outcome="succeeded",
+            reason_code=_EVOLUTION_POLICY_EVENT,
+            subject_kind="evolution_policy",
+            subject_digest=hashlib.sha256(current.subject_key.encode()).hexdigest(),
+            metadata={
+                "candidate_kind": current.kind.value,
+                "old_mode": previous.mode if previous is not None else None,
+                "new_mode": current.mode,
+                "old_canary_basis_points": (
+                    previous.max_canary_basis_points if previous is not None else None
+                ),
+                "new_canary_basis_points": current.max_canary_basis_points,
+                "old_version": previous.version if previous is not None else None,
+                "new_version": current.version,
+            },
+        ),
+    )
+    OutboxRepository().add(
+        connection,
+        make_event(
+            event_type=_EVOLUTION_POLICY_EVENT,
+            producer="evolution_policy_api",
+            payload={
+                "subject_key": current.subject_key,
+                "kind": current.kind.value,
+                "old_mode": previous.mode if previous is not None else None,
+                "new_mode": current.mode,
+                "old_canary_basis_points": (
+                    previous.max_canary_basis_points if previous is not None else None
+                ),
+                "new_canary_basis_points": current.max_canary_basis_points,
+                "old_version": previous.version if previous is not None else None,
+                "new_version": current.version,
+                "correlation_id": correlation_id,
+            },
+        ),
+    )
 
 
 @evolution_router.get("")
@@ -138,6 +251,73 @@ def get_run_evolution_assignment(
         ),
         correlation_id=context.correlation_id,
     )
+
+
+@evolution_router.get(
+    "/policies/{subject_key}",
+    response_model=EvolutionPolicyResponseV1,
+)
+def get_evolution_policy(
+    subject_key: _SubjectKey,
+    request: Request,
+) -> EvolutionPolicyResponseV1:
+    context = get_auth_context(request)
+    repository = EvolutionPolicyRepository()
+    try:
+        with request.app.state.storage.unit_of_work() as unit_of_work:
+            policy = repository.get_policy(unit_of_work.connection, subject_key)
+            unit_of_work.commit()
+    except EvolutionPolicyRepositoryError as exc:
+        _raise_evolution_policy_error(exc, context.correlation_id)
+    if policy is None:
+        raise HTTPException(
+            404,
+            {
+                "code": "evolution_policy_not_found",
+                "correlation_id": context.correlation_id,
+            },
+        )
+    return EvolutionPolicyResponseV1(data=policy, correlation_id=context.correlation_id)
+
+
+@evolution_router.put(
+    "/policies/{subject_key}",
+    response_model=EvolutionPolicyResponseV1,
+)
+def put_evolution_policy(
+    subject_key: _SubjectKey,
+    body: UpsertEvolutionPolicyRequestV1,
+    request: Request,
+) -> EvolutionPolicyResponseV1:
+    context = get_auth_context(request)
+    repository = EvolutionPolicyRepository()
+    requested = EvolutionPolicyV1(
+        subject_key=subject_key,
+        kind=body.kind,
+        mode=body.mode,
+        max_canary_basis_points=body.max_canary_basis_points,
+        version=body.expected_version if body.expected_version is not None else 1,
+        updated_at=datetime.now(UTC),
+    )
+    try:
+        with request.app.state.storage.unit_of_work() as unit_of_work:
+            previous = repository.get_policy(unit_of_work.connection, subject_key)
+            durable = repository.upsert_policy(
+                unit_of_work.connection,
+                requested,
+                expected_version=body.expected_version,
+            )
+            _record_evolution_policy_update(
+                unit_of_work.connection,
+                previous=previous,
+                current=durable,
+                principal_id=context.principal.id,
+                correlation_id=context.correlation_id,
+            )
+            unit_of_work.commit()
+    except EvolutionPolicyRepositoryError as exc:
+        _raise_evolution_policy_error(exc, context.correlation_id)
+    return EvolutionPolicyResponseV1(data=durable, correlation_id=context.correlation_id)
 
 
 @evolution_router.get("/candidates/{candidate_id}")
