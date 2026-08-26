@@ -2,8 +2,8 @@
 
 > **文档性质**：可直接开工的重构落地方案（最终合成版）。由三份独立视角方案（风险优先 / 最小改动 / 目标纯度）经总架构师合成，合成准则按优先级为：①与当前源码相符；②每步不破坏 fail-closed 不变量、可独立合入与回退；③最少过渡债（对象边界与目标架构一致）；④篇幅完整（分歧处的取舍理由写在各阶段"决策与取舍"小节）。
 > **修订记录**：本方案经三路校验（符号核对/可行性/完备性）修订并落盘，日期 2026-08-25。
-> **基线**：集成分支 `feat/plugin-v1`（近端合并提交 `a8a03071`，已含 P4b PR #109）；目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
-> **迁移编号基线**：P1 已占用 V31 `0031_system_snapshots`；P3 已冻结 V32 `0032_runtime_generations`；P4a 已冻结 V33 `0033_evolution_policies`；P4b 已冻结并由 PR #109 合入 V34 `0034_run_subject_assignments`，集成分支 live tail 为 V34。当前 P5 checkout 已冻结 V35 `0035_executor_candidate_kind`。历史 V25 `0025_persona_allowed_paths` 与 V30 `0030_consultation_rounds` 编号保持不变。
+> **基线**：集成分支 `feat/plugin-v1`（近端合并提交 `567b028e`，已含 P5 PR #111）；目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
+> **迁移编号基线**：P1 已占用 V31 `0031_system_snapshots`；P3 已冻结 V32 `0032_runtime_generations`；P4a 已冻结 V33 `0033_evolution_policies`；P4b 已冻结并由 PR #109 合入 V34 `0034_run_subject_assignments`；P5 已冻结并由 PR #111 合入 V35 `0035_executor_candidate_kind`，集成分支 live tail 为 V35。P6 不新增迁移。历史 V25 `0025_persona_allowed_paths` 与 V30 `0030_consultation_rounds` 编号保持不变。
 > **流程约定（2026-08-25 用户授权）**：每阶段走 issue → `feat/`|`fix/` 分支 → PR（`Closes #n`），PR 目标统一为集成分支 `feat/plugin-v1`；亲验 `gh pr checks` 全绿后由执行方直接合入，不逐个等待用户确认；全部阶段完成后由用户在 `feat/plugin-v1` 做总体验证，tag 仍由用户操作。跑 Python 一律 `.venv/bin/python`；前端改动后单跑 `cd web && npm run typecheck`（vitest/eslint 不查类型）。
 
 ## 实施状态
@@ -16,8 +16,8 @@
 | P3 Pi 执行器代际与 continuity 固定 | ✅ 已合入（PR #99） | 2026-08-26 | V32、materializer、registry binding、continuity、reconciler、readiness、可观测性与 Web 投影；backend 5096 passed、2 skipped；Web typecheck/339 tests/lint/build 与全部静态门禁通过 |
 | P4a EvolutionPolicy 与 per-subject canary 写侧基础 | ✅ 已合入（PR #107，merge `b94d4846`） | 2026-08-26 | V33；严格 CAS、frozen 三闸、repo-level 执法、promote journal guard；目标分支 CI 6/6 全绿 |
 | P4b per-subject 运行分配与 UI | ✅ 已合入（Issue #108；PR #109，merge `a8a03071`） | 2026-08-26 | V34；assignment set 持久封存、1..64 原子批写、continuity 选择、运行时深冻结、逐 assignment provenance/digest 复验与 truthful UI；最终后端 5270 passed、2 skipped、24 slow deselected；Web 347 passed，静态检查与生产构建通过 |
-| P5 CandidateKind.EXECUTOR 全链路 | 🟢 当前 checkout 实现与本地门禁完成（Issue #110；PR #111，CI pending） | 2026-08-27 | V35；EXECUTOR Candidate、高危 Decision、精确 generation authority、per-subject canary、promote/rollback saga、drift scanner 与 Keqing/Evolution 投影；P5 聚焦 190、迁移/数据 122、Web 350、E2E 32 均通过，静态门禁与生产构建通过 |
-| P6 进程级 snapshot 重启与 last-good | ⬜ 未开始 | — | — |
+| P5 CandidateKind.EXECUTOR 全链路 | ✅ 已合入（Issue #110；PR #111，merge `567b028e`） | 2026-08-27 | V35；EXECUTOR Candidate、高危 Decision、精确 generation authority、per-subject canary、promote/rollback saga、drift scanner 与 Keqing/Evolution 投影；目标分支 CI 6/6 全绿 |
+| P6 进程级 snapshot 重启与 last-good | 🟡 当前 checkout 已实现，最终门禁与 PR 待完成（Issue #112） | 2026-08-27 | 无迁移；专用 process bootstrap、strict/非 strict 启动校验、run binding 独立错误码、Pi/process scope 隔离、Evolution Center 只读投影；最终数字以 P6 PR 为准 |
 | P7 声明式内容每 run 冻结视图 | ⬜ 未开始 | — | — |
 | X1 WS 出站所有权过滤 | ✅ 已合入（PR #89） | 2026-08-25 | 17 项所有权用例；32 项定向测试；全量 4746 passed、2 skipped；CI 5/5 绿 |
 | X2 重试判据收敛 | ✅ 已合入（PR #101） | 2026-08-26 | 17 个 FailureReason 值不变；5 类可重试真值表、异常类型映射、canonical failure ledger、generation_retired 与 unknown fail-closed 已覆盖；240 项聚焦回归及静态门禁通过；目标分支 CI 6/6 全绿 |
@@ -74,7 +74,8 @@ import-linter、TypeScript、ESLint（0 error）与生产构建通过。PR 与�
 3. 注册表贡献带 owner/disposer（`ContributionHandle`），可按 owner 逆序整体卸载。
 4. Candidate 按 `(kind, subject_key)` 独立 canary（拆掉"全局仅 1 个 canary"，**同 subject 冲突仍 fail-closed**）；每插件一行 `EvolutionPolicy`（frozen/manual/canary，`auto` 不实现且类型级 + DB 级双重不可表达）。
 5. `CandidateKind.EXECUTOR` 全链路：版本漂移 → 幂等 PROPOSED 候选 → Gate → per-subject canary → 高危 Decision → `ExecutorPromotionAdapter` 换代 / 回滚 last-good。
-6. 进程级 snapshot 重启与 last-good；`GenerationReconciler` 与现有 `EvolutionRollbackReconciler` 组合进同一个后台 reconcile loop（独立锁与职责，不复制六个循环）。
+6. 进程级 snapshot 重启与 last-good；进程由启动路径中的专用 `ProcessSnapshotBootstrap`
+   管理，不进入 Pi `GenerationReconciler`，也不做进程内 Python 模块热卸载。
 7. 声明式内容每 run 冻结视图（先 skills），SkillsWatcher 不再直接改 active。
 8. 治理微内核（Edict / Memorial / Attempt / Decision / Evidence / Effect journal / Promotion Authority）**不进入进化**，且该边界由可执行约束（import-linter + AST 架构测试 + DB 触发器）守住。
 
@@ -100,7 +101,7 @@ import-linter、TypeScript、ESLint（0 error）与生产构建通过。PR 与�
 | **P3**（PR-3a）Pi 执行器代际与 continuity 固定 | PR-3a | stage/warm/activate/drain + attempt lease + durable continuity retention | `RuntimeReleaseV1` + `RuntimeGenerationV1` + `generation_repo` + registry 代际 API + `pi_probe` + 独立 `GenerationReconciler` + 继承规则 + receipt 绝对路径/版本与 EventBus 等待夹具（Codex B8/B9） | **V32** | 1.5–2 周 + 2 天（≈21.5 天） | keqing status 页多"代际"列（active/last-good/活跃 run 数）；换代期间长任务/会话不换 Pi 版本 |
 | **P4**（PR-4，**提前**；拆 4a/4b 两 PR）按 subject 独立灰度 + EvolutionPolicy | PR-4 | 拆全局单 canary；每插件一行 frozen/manual/canary | `evolution_policies` 表 + propose/start_canary 执法 + canary partial unique index + `save_candidate` 执法收口（Codex A3）+（4b）`run_subject_assignments` 双写 + `get_routable_candidates` + overlays dict | **V33、V34** | 1.5–2 周 + 2 天 + conftest fixture 解耦先行小 PR ≈1 天（≈34.5 天） | Evolution Center routing 按 subject 分行；policy API 可冻结单个插件的进化（enabled 与进化正交）；两插件可并行灰度 |
 | **P5**（PR-3b，**后移**）CandidateKind.EXECUTOR 全链路 | PR-3b | 漂移→候选→Gate→canary→Decision→换代/回滚闭环 | 枚举 + kind CHECK 重建 + Executor 两个 adapter + 漂移巡检 + 前端/CLI 投影 | **V35** | 1.5–2 周（含分支 A 子表连带重建 +2–3 天；≈44.5 天） | 客卿馆 Pi 版本漂移出现治理候选，可全链走到换代与回滚；"代际"列联动 |
-| **P6**（PR-5）进程级 snapshot 重启与 last-good | PR-5 | serve 启动校验 snapshot；binding 翻转 fail-closed | `serve --system-snapshot` + strict 模式 + `scope='process'` 指针入 GenerationReconciler | 无 | 3–4 天（≈48.5 天） | `tianshu serve --system-snapshot`；启动漂移审计/strict 拒启提示 last-good |
+| **P6**（PR-5）进程级 snapshot 重启与 last-good | PR-5 | serve 启动校验 snapshot；binding 翻转 fail-closed | `serve --system-snapshot` + strict 模式 + 专用 `ProcessSnapshotBootstrap` 管理 `scope='process'` 指针；Pi reconciler 排除 process | 无 | 3–4 天（≈48.5 天） | `tianshu serve --system-snapshot`；启动漂移审计/strict 拒启提示 last-good |
 | **P7** 声明式内容每 run 冻结视图 | 评审"PR-4 之后" | SkillsWatcher 退出 active 直改；每 run 冻结 skills 视图 | `freeze_view` + watcher 只失效缓存 + `frozen_views` 入 runtime context | 无 | 4 天–1 周（≈53.5 天） | 运行中 run 不受 SKILL.md 热改/晋升影响（行为保证，UI 无显） |
 | **并行轨** Codex 借鉴独立项 | §8.2 | 堵现存洞 + 基建门禁，不占关键路径 | X1 WS 所有权过滤（**立即**）· X2 重试判据收敛 · X3 allowed_paths 受理校验 · X4 schema 落盘 + CI 门禁（P3 前）· X5 路由 scope 表（P4a 前） | 无 | 8–10 天（可与 P0–P2 同期由第二会话承担） | secure-remote 下 WS 不再越权可见；新契约/新路由漏登记即 CI 红 |
 
@@ -902,7 +903,14 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 
 ### 阶段 P6（PR-5）：进程级 snapshot 重启与 last-good（≈3–4 天）
 
-**目标**：进程本身进入 snapshot 治理：`tianshu serve --system-snapshot <digest>` 启动校验；漂移默认记审计继续、strict 模式退出并提示 last-good；`scope='process'` 指针由 GenerationReconciler 维护；**binding 写入从影子豁免翻转为 fail-closed（strict 下）**。
+**目标**：进程本身进入 snapshot 治理：`tianshu serve --system-snapshot <digest>` 指定启动
+对照；漂移默认记审计继续，strict 模式在任何由 P6 admission 产生的 process snapshot/release/
+generation/pointer/audit 写入前退出，并提示 actual/last-good/可得的组件差异；该拒绝早于
+routing audit、plugin sync、Pi recovery 与 scheduler/run，但不承诺回滚 admission 前既有的
+迁移、Persona/Provider/目录装配写入；`scope='process'` 指针由专用
+`ProcessSnapshotBootstrap` 在 scheduler/run 启动前维护；
+**binding 写入从影子豁免翻转为 fail-closed（strict 下）**。last-good 固定解释为“上一成功激活
+且仍保留的 snapshot”，不是上一次干净退出凭证。
 
 **前置依赖**：P1（Resolver + strict 开关占位）、P3（generation_pointers 表与 reconciler）。
 
@@ -912,31 +920,36 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 |---|---|---|
 | 修改 | src/tianshu/cli/commands/serve.py:23 | `def serve(host, port, reload)` 加 `system_snapshot: str | None = typer.Option(None, "--system-snapshot")`；沿既有"回灌 env 再重建 Settings"模式（serve.py:38-41，CLI 不成为绕过校验的第二路径）→ `TIANSHU_SYSTEM_SNAPSHOT_TARGET` |
 | 修改 | src/tianshu/config.py | 加 `system_snapshot_target: str | None = None`；`system_snapshot_strict`（P1 已占位）在此获得完整语义；启动校验拒绝 strict=1 且 system_snapshot_enabled=0 的矛盾组合 |
-| 修改 | src/tianshu/bootstrap/wiring_snapshot.py（app.py lifespan 装配完成处） | 启动序列：`resolver.resolve()`；目标 digest = CLI 参数 > generation_pointers(scope='process').active 对应 release_digest > 无（首启，记录当前为 active）；不等且 strict → 退出非零，stderr 含 last_good digest 与**差异组件清单**（脱敏，仿 serve.py:43-50 惯例）；不等且非 strict → SystemAudit 记 `system_snapshot_drift` 继续；健康启动后经 GenerationRepository CAS：新建 process 代（release_digest=resolved digest，state=active）、上一 process 代经 recover_on_startup 走两步 CAS：active→draining→disposed（同一 UoW 内两次 save_generation，落两条 journal，from_state 链完整——§1.3 转移图无 active→disposed 直达边，不加边）、pointer.last_good → 上一次干净退出的 digest |
+| 新增/修改 | src/tianshu/evolution/process_snapshot.py；src/tianshu/bootstrap/wiring_snapshot.py；src/tianshu/app.py | `resolver.resolve()` 在事务外计算，随后一把 `BEGIN IMMEDIATE` UoW 完成 snapshot、process release、STAGED→WARMING→READY→ACTIVE 与 pointer 更新。目标 digest = CLI 参数 > process active release > 当前 resolved；未知显式目标以稳定 `target_snapshot_unavailable` 拒绝且不伪造 diff；不等且 strict → 不改 process snapshot/release/generation/pointer/audit，错误含 target/actual/last-good 与可得的差异组件；非 strict → best-effort `system_snapshot_drift` 审计后按 actual 推进。A→B 保留 A，B→C dispose A 并保留 B；返回 retained last-good 走 repository rollback。admission 位于 resolver 所需基础装配之后，但早于 plugin catalog、routing audit、Pi generation recovery/bootstrap、scheduler/run；迁移、Persona/Provider/目录等 resolver 前置装配不在“零写”承诺内 |
 | 修改 | src/tianshu/universe/router.py bind_runtime | **翻转**：`system_snapshot_strict=True` 时 binding resolve/写入失败抛 `SystemSnapshotUnavailable(EvolutionRuntimeUnavailable)`（**必须继承该基类**——run_dispatcher.py:253 按基类归类，裸异常会被误标 run_assignment_unavailable）→ run FAILED `code="system_snapshot_unavailable"`；影子豁免路径仅在非 strict 保留 |
 | 修改 | src/tianshu/application/run_dispatcher.py:253-258 | 错误码分类从二元 isinstance 改为三分（现状是二元硬编码 `failure_code = "run_assignment_unavailable" if isinstance(exc, (RunAssignmentUnavailable, LookupError)) else "candidate_overlay_unavailable"`——任何继承 EvolutionRuntimeUnavailable 的新异常都会被标成 candidate_overlay_unavailable，永远不会出现 system_snapshot_unavailable）：RunAssignmentUnavailable/LookupError → `run_assignment_unavailable`；新增 SystemSnapshotUnavailable → `system_snapshot_unavailable`；其余 EvolutionRuntimeUnavailable → `candidate_overlay_unavailable`。SystemSnapshotUnavailable 须直接继承 EvolutionRuntimeUnavailable、**不得继承 RunAssignmentUnavailable**（否则被旧分支吃掉）；tests/application/test_run_dispatcher_lifecycle.py 扩三分类矩阵用例 |
-| 修改 | src/tianshu/evolution/reconciler.py | GenerationReconciler 增 `scope='process'` 分支：指针收敛、孤儿 process 代清理、last_good 缺失 readiness 降级告警 |
-| 修改 | src/tianshu/application/evolution_view.py | EvolutionCenterSnapshotV1 加 `active_generation: str | None`、`last_good_generation: str | None` 只读字段（不开新端点） |
+| 修改 | src/tianshu/storage/generation_repo.py；src/tianshu/executor/generation_controller.py；src/tianshu/evolution/reconciler.py；src/tianshu/bootstrap/wiring_executor.py | release decoder、recovery candidate、retention root、controller/reconciler 与生产 wiring 全部按 scope 隔离。Pi 只处理 `executor:keqing:pi`；process 永不进入 Pi materializer、registry、authority、attempt binding 或 readiness。该隔离 guard 已先由 PR #113 合入基线，确保未来回退 P6 主 PR 时遗留 process 行仍对 P5 无害 |
+| 修改 | src/tianshu/application/evolution_view.py；src/tianshu/models/evolution_view.py；web/src/pages/EvolutionCenterPage.tsx | `EvolutionCenterSnapshotV1` 加必需但可空的 `active_generation`、`last_good_generation` 只读字段（不开新端点）；候选为空时仍展示，snapshot 关闭时忽略遗留 process 行并明确返回 null；三语同步 |
 
 **数据迁移**：无（复用 V32 表；scope 列无 CHECK 枚举，值域扩 'process' 零迁移）。
 
-**兼容策略与开关**：strict 默认 False——合入后先跑影子观测窗口（`system_snapshot_drift` 与 `system_snapshot_binding_failed` 审计为零），再由用户显式开 strict（不设自动转严）；不传 `--system-snapshot` 且非 strict = 现状行为 + 多一行 process 代记账。
+**兼容策略与开关**：strict 默认 False——合入后先跑影子观测窗口（`system_snapshot_drift` 与 `system_snapshot_binding_failed` 审计为零），再由用户显式开 strict（不设自动转严）；不传 `--system-snapshot` 且非 strict = 以已持久 active 为对照，首次启动则以当前 snapshot 建立 process 代。关闭 SystemSnapshot 时不运行 bootstrap，API 的 process 两字段为 null。
 
 #### 测试清单
 
 | 测试文件 | 断言 |
 |---|---|
-| tests/cli/test_serve_snapshot.py（新，`env -u FORCE_COLOR`） | `--system-snapshot` 回灌 env 生效；strict + 漂移 → 退出码非零且 stderr 含 last-good digest（不泄其他配置）；非 strict 记 drift 继续 |
-| tests/evolution/test_process_snapshot.py（新） | 循环 N 次 resolve digest 稳定（100 次脚本 CI 可选 job）；改一个 provider profile 后 digest 变且仅 provider_profiles 组件变；process 指针 CAS 推进与 last_good 轮转；strict 下 binding 写失败 → run FAILED code=system_snapshot_unavailable（继承链断言）；非 strict 同故障 → run 继续 + 审计 |
-| tests/evolution/test_generation_reconciler.py（扩） | process scope：崩溃后指针收敛、last_good 缺失 readiness 降级；上一 process 代收尾的 journal 含 draining 中间态（两步 CAS 断言） |
+| tests/cli/test_serve_snapshot.py（新，`env -u FORCE_COLOR`） | `--system-snapshot` 回灌 env 生效；摘要形状和 snapshot-disabled 组合由同一 Settings 校验拒绝，CLI 不形成旁路 |
+| tests/evolution/test_process_snapshot.py（新） | 首启与连续 100 次相同重启幂等；A→B→C 只保留 active/last-good；返回 retained last-good 走 rollback；strict 漂移零写；非 strict 审计并推进；未知目标零写；损坏指针 fail closed；UoW 故障整体回滚 |
+| tests/executor/test_generation_scope_isolation.py（新） | Pi controller/reconciler 面对合法或损坏的 process active/last-good 都不读取、不物化、不改指针，readiness 不受 process 行污染；显式越界 mutator 在任何写入前拒绝 |
 | 回归 | tests/application/test_run_dispatcher_lifecycle.py:87-126（bind 失败完成 attempt）在 strict 下扩新错误码用例 |
 
 **验收 checklist**：
-- [ ] 连续 100 次重启 digest 稳定；strict 漂移退出提示可操作（含 last-good 与差异组件）
-- [ ] strict 故障注入（改 SKILL.md 后重启）按预期拒启；非 strict 只记不拒
-- [ ] 影子观测窗口审计为零后才建议开 strict（写入 docs/plan 运维段）
+- [x] 连续 100 次相同 snapshot 重启稳定且不新增 generation；strict 漂移提示含 target、actual、last-good 与可得的差异组件
+- [x] strict run binding 失败使 attempt 进入 FAILED，稳定 code=`system_snapshot_unavailable` 且 runner 未调用；非 strict 保持 shadow 降级与审计
+- [x] process release/generation/pointer 与 Pi materializer/registry/authority/attempt binding/reconciler 隔离
+- [x] lifespan strict 漂移在 plugin catalog、routing-disabled audit、Pi recovery 前拒绝；相关 process/Pi/plugin/audit/outbox 表保持逐行不变。完整启动前置装配零写不在 P6 范围
+- [ ] P6 PR 最终全量 CI 与目标分支合入
 
-**回退方式**：关 strict（运行时）；revert PR 安全（process 指针行留存无害）。**工作量**：≈3–4 天。
+**回退方式**：先关 strict 可恢复宽松运行；scope-filtering/Pi-only production wiring 作为独立
+前向兼容 guard 先合入集成分支，因此之后 revert P6 主 PR 时，V32 中不可变的 process release、
+generation 与 pointer 行留存也不会被 Pi 恢复链读取。不要依赖手工删除这些受不可变触发器保护的
+行；若需数据级彻底回退，只使用启动前备份恢复。**工作量**：≈3–4 天。
 
 **决策与取舍**：①strict 翻转集中在本阶段（风险优先案 P6 翻转拍板）而非 P1 就给完整语义（目标纯度案）——影子期需要数据积累，翻转是独立一步；②process 代的 release_digest = base snapshot digest（两案一致）；③`tianshu keqing status` CLI 归 P5 可选项（不在本阶段重复）。
 
@@ -1016,8 +1029,8 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 
 ### 4.3 可观测性
 
-- **SystemAudit 新事件码**（全部走既有 `_append_system_audit_unlocked` + outbox 通道，gates.py:661-696 范式；失败静默降级不阻断执行）：`system_snapshot_binding_failed`（P1 影子降级，strict 后消失）、`system_snapshot_drift`（P1 多 attempt / P6 启动漂移）、`generation_retired`（P3 结构化错误码）、`evolution_policy_updated`（P4a 治理面配置变更）、`evolution_routing_disabled`（P4b 全局 kill switch 关闸）、`skills_view_drift`（P7）；generation 状态转移全量入 `runtime_generation_journal`（不可变）。
-- **readiness_probe 聚合**：pending rollback（现有）+ 未 drain 旧代（P3）+ last_good 缺失（P6），被既有 diagnostics/启动探针消费（reconciler.py:45 通道）。
+- **SystemAudit 新事件码**：`system_snapshot_binding_failed`（P1 影子降级，strict 下转换为 run 失败）、`system_snapshot_drift`（P1 多 attempt / P6 启动漂移）、`generation_retired`（P3 结构化错误码）、`evolution_policy_updated`（P4a 治理面配置变更）、`evolution_routing_disabled`（P4b 全局 kill switch 关闸）、`skills_view_drift`（P7）。除 P6 startup drift 只写 best-effort SystemAudit 外，其余需要投递的事件沿既有 `_append_system_audit_unlocked` + outbox 范式；generation 状态转移全量入不可变 `runtime_generation_journal`。
+- **readiness_probe 聚合**：pending rollback（现有）+ Pi 未 drain 旧代（P3）由既有 diagnostics/启动探针消费。P6 process 指针/日志/release 损坏在启动 bootstrap 与 Evolution 读取边界 fail closed，不伪装成 Pi readiness 分支。
 - 漂移与换代事件不新建总线——正确性走 outbox/SystemAudit/journal，EventBus 只作 UI 通知（roadmap §2.2 既定）。
 - 部署告警补充：`evolution_routing_secret` 为空且出现 canary 时 allocation_bucket fail-closed（router.py:58-59）——P4 文档与 readiness 提示补上。
 

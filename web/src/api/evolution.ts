@@ -47,6 +47,8 @@ export interface EvolutionCenterSnapshotV1 {
   status: "not_enabled" | "enabled" | "degraded";
   reason_code: string;
   routing_enabled: boolean;
+  active_generation: string | null;
+  last_good_generation: string | null;
   candidates: EvolutionCandidateSummaryV1[];
   routing: EvolutionRoutingSummaryV1[];
   last_gate_hash: string | null;

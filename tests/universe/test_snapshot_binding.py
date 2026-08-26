@@ -5,6 +5,8 @@ from __future__ import annotations
 from hashlib import sha256
 from typing import cast
 
+import pytest
+
 from tests.universe.test_challenger_routing import (
     _router,
     _seed_canary,
@@ -16,8 +18,32 @@ from tianshu.evolution.runtime_context import (
 )
 from tianshu.evolution.system_snapshot import SystemSnapshotResolver
 from tianshu.models.run_assignment import RunAssignmentV1
-from tianshu.storage.system_snapshot_repo import SystemSnapshotRepository
-from tianshu.universe.router import ChallengerRouter
+from tianshu.storage.system_snapshot_repo import (
+    SystemSnapshotRepository,
+    SystemSnapshotRepositoryDecodeError,
+)
+from tianshu.universe.router import (
+    ChallengerRouter,
+    EvolutionRuntimeUnavailable,
+    GenerationBindingUnavailable,
+    SystemSnapshotUnavailable,
+)
+
+
+class _CorruptSystemBindingRepository(SystemSnapshotRepository):
+    def get_binding(self, *args: object, **kwargs: object):
+        del args, kwargs
+        raise SystemSnapshotRepositoryDecodeError("corrupt system binding")
+
+
+class _CorruptGenerationBindingRepository(SystemSnapshotRepository):
+    def get_binding(self, *args: object, **kwargs: object):
+        del args, kwargs
+        return None
+
+    def get_generation_binding(self, *args: object, **kwargs: object):
+        del args, kwargs
+        raise SystemSnapshotRepositoryDecodeError("corrupt generation binding")
 
 
 def _digest(value: str) -> str:
@@ -141,6 +167,111 @@ def test_resolver_failure_is_audited_without_binding_or_runtime_context(storage)
     )
 
 
+def test_strict_resolver_failure_fails_closed_without_binding(storage) -> None:
+    _seed_memorial(storage)
+
+    class _FailingResolver:
+        def resolve_for_run(self, *_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("/private/secret/api-key")
+
+    resolver = cast(SystemSnapshotResolver, _FailingResolver())
+    router = ChallengerRouter(
+        storage,
+        snapshot_resolver=lambda: resolver,
+        system_snapshot_strict=True,
+    )
+    router.assign("memorial-1")
+
+    with (
+        pytest.raises(SystemSnapshotUnavailable, match="system_snapshot_unavailable"),
+        router.bind_runtime("memorial-1", attempt_id="attempt-strict-failed"),
+    ):
+        raise AssertionError("strict snapshot failure must not enter runtime")
+
+    assert SystemSnapshotUnavailable.__bases__ == (EvolutionRuntimeUnavailable,)
+    assert storage._conn.execute("SELECT COUNT(*) FROM system_snapshots").fetchone()[0] == 0  # noqa: SLF001
+    assert storage._conn.execute("SELECT COUNT(*) FROM run_system_bindings").fetchone()[0] == 0  # noqa: SLF001
+
+
+def test_strict_prebind_failure_rolls_back_all_attempt_bindings(storage) -> None:
+    _seed_memorial(storage)
+
+    class _FailingResolver:
+        def resolve_for_run(self, *_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("snapshot resolver failed")
+
+    resolver = cast(SystemSnapshotResolver, _FailingResolver())
+    router = ChallengerRouter(
+        storage,
+        snapshot_resolver=lambda: resolver,
+        system_snapshot_strict=True,
+    )
+    router.assign("memorial-1")
+
+    with (
+        pytest.raises(SystemSnapshotUnavailable, match="system_snapshot_unavailable"),
+        storage.unit_of_work() as unit_of_work,
+    ):
+        router.prebind_runtime_current(
+            unit_of_work,
+            memorial_id="memorial-1",
+            attempt_id="attempt-strict-prebind",
+        )
+
+    assert storage._conn.execute("SELECT COUNT(*) FROM run_generation_bindings").fetchone()[0] == 0  # noqa: SLF001
+    assert storage._conn.execute("SELECT COUNT(*) FROM run_system_bindings").fetchone()[0] == 0  # noqa: SLF001
+
+
+@pytest.mark.parametrize("prebind", (False, True))
+def test_strict_corrupt_system_binding_has_snapshot_failure_code(storage, prebind: bool) -> None:
+    _seed_memorial(storage)
+    router = ChallengerRouter(storage, system_snapshot_strict=True)
+    router._snapshot_repository = _CorruptSystemBindingRepository()  # noqa: SLF001
+    router.assign("memorial-1")
+
+    if prebind:
+        with (
+            pytest.raises(SystemSnapshotUnavailable, match="system_snapshot_unavailable"),
+            storage.unit_of_work() as unit_of_work,
+        ):
+            router.prebind_runtime_current(
+                unit_of_work,
+                memorial_id="memorial-1",
+                attempt_id="attempt-corrupt-system-prebind",
+            )
+    else:
+        with (
+            pytest.raises(SystemSnapshotUnavailable, match="system_snapshot_unavailable"),
+            router.bind_runtime("memorial-1", attempt_id="attempt-corrupt-system-bind"),
+        ):
+            raise AssertionError("corrupt strict snapshot binding must not enter runtime")
+
+
+@pytest.mark.parametrize("prebind", (False, True))
+def test_corrupt_generation_marker_keeps_generation_failure_code(storage, prebind: bool) -> None:
+    _seed_memorial(storage)
+    router = ChallengerRouter(storage, system_snapshot_strict=True)
+    router._snapshot_repository = _CorruptGenerationBindingRepository()  # noqa: SLF001
+    router.assign("memorial-1")
+
+    if prebind:
+        with (
+            pytest.raises(GenerationBindingUnavailable, match="generation_binding_unavailable"),
+            storage.unit_of_work() as unit_of_work,
+        ):
+            router.prebind_runtime_current(
+                unit_of_work,
+                memorial_id="memorial-1",
+                attempt_id="attempt-corrupt-generation-prebind",
+            )
+    else:
+        with (
+            pytest.raises(GenerationBindingUnavailable, match="generation_binding_unavailable"),
+            router.bind_runtime("memorial-1", attempt_id="attempt-corrupt-generation-bind"),
+        ):
+            raise AssertionError("corrupt generation binding must not enter runtime")
+
+
 def test_repository_failure_rolls_back_snapshot_and_preserves_governed_runtime(storage) -> None:
     _seed_canary(storage)
     _seed_memorial(storage)
@@ -182,3 +313,33 @@ def test_repository_failure_rolls_back_snapshot_and_preserves_governed_runtime(s
         ).fetchone()[0]
         == 1
     )
+
+
+def test_strict_repository_failure_rolls_back_snapshot_and_fails_closed(storage) -> None:
+    _seed_memorial(storage)
+    resolver = _snapshot_resolver()
+    router = ChallengerRouter(
+        storage,
+        snapshot_resolver=lambda: resolver,
+        system_snapshot_strict=True,
+    )
+    router.assign("memorial-1")
+    with storage.unit_of_work() as unit_of_work:
+        unit_of_work.connection.execute(
+            """
+            CREATE TRIGGER reject_strict_runtime_system_binding
+            BEFORE INSERT ON run_system_bindings BEGIN
+                SELECT RAISE(ABORT, 'injected binding failure');
+            END
+            """
+        )
+        unit_of_work.commit()
+
+    with (
+        pytest.raises(SystemSnapshotUnavailable, match="system_snapshot_unavailable"),
+        router.bind_runtime("memorial-1", attempt_id="attempt-strict-repo-failed"),
+    ):
+        raise AssertionError("strict snapshot failure must not enter runtime")
+
+    assert storage._conn.execute("SELECT COUNT(*) FROM system_snapshots").fetchone()[0] == 0  # noqa: SLF001
+    assert storage._conn.execute("SELECT COUNT(*) FROM run_system_bindings").fetchone()[0] == 0  # noqa: SLF001

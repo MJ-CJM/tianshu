@@ -22,6 +22,7 @@ loader.get() 返回 None，prompt_builder 只注入裸 _BASE_IDENTITY，助手�
 config 向上依赖 persona。"""
 
 _SHA256_HASH = re.compile(r"sha256:[0-9a-f]{64}")
+_LOWERCASE_SHA256 = re.compile(r"[0-9a-f]{64}")
 _CONTAINER_PRIVATE_NETWORKS = tuple(
     ipaddress.ip_network(cidr)
     for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
@@ -72,6 +73,7 @@ class TianshuSettings(BaseSettings):
             "TIANSHU_SYSTEM_SNAPSHOT_STRICT",
         ),
     )
+    system_snapshot_target: str | None = None
     host: str = "127.0.0.1"
     port: int = 8000
     security_mode: Literal["trusted-local", "secure-remote"] = "trusted-local"
@@ -210,6 +212,15 @@ class TianshuSettings(BaseSettings):
             raise ValueError("bounded numeric settings cannot be boolean")
         return value
 
+    @field_validator("system_snapshot_target", mode="before")
+    @classmethod
+    def validate_system_snapshot_target(cls, value: object) -> object:
+        if value is None:
+            return value
+        if not isinstance(value, str) or _LOWERCASE_SHA256.fullmatch(value) is None:
+            raise ValueError("system_snapshot_target must be 64 lowercase hex characters")
+        return value
+
     @model_validator(mode="after")
     def validate_universe_retention(self) -> Self:
         if (
@@ -223,6 +234,8 @@ class TianshuSettings(BaseSettings):
     def validate_system_snapshot_switches(self) -> Self:
         if self.system_snapshot_strict and not self.system_snapshot_enabled:
             raise ValueError("system_snapshot_strict requires system_snapshot_enabled")
+        if self.system_snapshot_target is not None and not self.system_snapshot_enabled:
+            raise ValueError("system_snapshot_target requires system_snapshot_enabled")
         if self.executor_generation_enabled and not self.system_snapshot_enabled:
             raise ValueError("executor_generation_enabled requires system_snapshot_enabled")
         return self

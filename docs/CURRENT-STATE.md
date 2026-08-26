@@ -1,13 +1,13 @@
 # 当前实现与支持边界
 
-> 更新时间：2026-08-26<br>
+> 更新时间：2026-08-27<br>
 > 适用版本：`0.5.2`<br>
 > 适用范围：可信本地、单机、单节点 SQLite<br>
 > 分支 checkpoint：P4a 已由 PR #107 合入 `feat/plugin-v1`（merge `b94d4846`，目标分支
-> CI 6/6）；P4b 已由 PR #109 合入（merge `a8a03071`），集成分支 live migration tail
-> 为 V34。当前 checkout 已实现 P5 V35 的 `keqing:pi` EXECUTOR Candidate、精确 generation
-> authority、per-subject canary、高危 Decision、换代与 last-good 回滚垂直切片；P5 本地
-> 最终门禁已通过；PR #111 目标为 `feat/plugin-v1`、CI pending，P6/P7 尚未完成。
+> CI 6/6）；P4b 已由 PR #109 合入（merge `a8a03071`）；P5 已由 PR #111 合入
+> `feat/plugin-v1`（merge `567b028e`），集成分支 live migration tail 为 V35。当前 P6
+> checkout 已实现 process scope 的 SystemSnapshot 启动代际、strict fail-closed binding
+> 与 Evolution Center 只读 active/last-good 投影；P7 尚未完成。
 
 这份文档是 `docs/` 的当前状态入口。它用于回答“现在能不能用、支持到哪里、哪些
 还不能对外承诺”。详细能力和证据见
@@ -45,7 +45,7 @@
 | 成本与用量 | 可用 | 记录多模型/多 Provider token、缓存读取和取消任务成本 | 结果取决于 Provider 返回的用量与价格配置，不等于账单系统 |
 | Skills | 读取可用、变更受治理 | 在统一目录查看 live Skill、读取详情、为 Agent Skill Pin；API 可创建候选 | Web 不直接新建/编辑/delete/archive live；Persona 外部导入只预览 Skill、不安装；自动 reviewer/curator 默认关闭并在 LLM 前 fail fast |
 | 插件清单 / 受信任源码贡献 | 清单实验只读；内部生命周期可用 | 查看本地 manifest 元数据；内建装配可让 Tool/Hook/Channel/Provider/Skill/Command 按 owner 登记、逆序释放；MCP session 工具随重新发现、断连与 shutdown 清理 | 用户仍不能安装、加载、激活或执行第三方插件代码，相关 API 仍返回 501；ContributionHandle 只覆盖受信任进程内对象，不是动态 PluginHost |
-| 自进化（Evolution） | 实验；P4 已合入，P5 Pi 垂直切片已实现 | 从演化司查看 Skill/EXECUTOR 候选、Gate、逐 subject 分流与回滚证据；管理员可用严格 CAS 修改 evolution mode 与 max canary basis points。Pi 候选可经 Gate、canary、高危 Decision、精确 generation authority、promote 与 rollback 闭环，并从 assignment、Edict 详情和 Evidence artifact 对账运行选择 | availability/source/curator protection 只读，`pinned` 不是版本 pin；没有 per-plugin enabled 或版本 pin，也没有 Web 晋升/回滚按钮。policy API 均为 admin-only。全局 executor kill switch 不等于插件 enabled；完整 dependency lock、allowed surfaces/approval/budget、通用 PluginSet/第三方插件 Promotion Authority 和自动晋升仍未完成 |
+| 自进化（Evolution） | 实验；P4/P5 已合入，P6 process slice 当前 checkout 已实现 | 从演化司查看 Skill/EXECUTOR 候选、Gate、逐 subject 分流、回滚证据，以及当前进程 active/last-good generation；管理员可用严格 CAS 修改 evolution mode 与 max canary basis points。Pi 候选可经 Gate、canary、高危 Decision、精确 generation authority、promote 与 rollback 闭环，并从 assignment、Edict 详情和 Evidence artifact 对账运行选择 | process 投影只读，last-good 是上一成功激活且仍保留的 snapshot，不是“上次干净退出”证明；availability/source/curator protection 只读，`pinned` 不是版本 pin；没有 per-plugin enabled 或版本 pin，也没有 Web 晋升/回滚按钮。policy API 均为 admin-only。全局 executor kill switch 不等于插件 enabled；完整 dependency lock、allowed surfaces/approval/budget、通用 PluginSet/第三方插件 Promotion Authority 和自动晋升仍未完成 |
 | 平行位面（Universes / Code variant） | 实验、可发现 | 从天工院的诸界台创建快照/分支、diff、评估、归档和恢复 | switch、rollback、promote-code 固定 fail closed；代码候选只到 evaluated/recommended |
 | 评测（Evals） | Beta、导航标记“试行”、可发现 | 从天工院的考功司查看真实评测集、运行、分数、失败分布和历史差异 | 数据为空时展示真实启动方式，不生成示例成绩 |
 | Keqing 外部执行器 | 实验、可发现且默认关闭 | 从客卿馆查看安装/验证版本及 Pi 的 generation id、状态、活跃 run 数、last-good 和已存在的治理候选，并跳转演化中心 | 不自动升级外部 CLI；状态 GET 不扫描漂移或创建候选，页面没有直接 generation stage/activate 控件；P5 只覆盖 Pi，Claude Code/Codex/OpenCode 尚未进入 RuntimeGeneration，且无 Provider 侧硬成本上限 |
@@ -93,7 +93,7 @@
   set，不按当时 active canary 数重新抽桶。CANARY 沿用父选择，PROMOTED 选择 candidate，
   回滚态选择 base，ARCHIVED 按当前 version lifecycle journal 判定且缺失时 fail closed。
   `evolution_overlay_set` 只保存 canonical overlay 列表的 digest，不内嵌 assignment set。
-- 当前 P5 checkout 的 V35 `0035_executor_candidate_kind` 扩展候选 kind，并在 FK=ON 下
+- P5 的 V35 `0035_executor_candidate_kind` 扩展候选 kind，并在 FK=ON 下
   连带重建候选表及六张子表；同时增加 executor generation authority 当前表与不可变 journal。
   有效 authority 精确绑定 candidate/version/release/generation/promotion command，是 canary
   READY 代的 routing、recovery 与 retention root；缺失、错配、歧义、损坏或撤销均失败关闭。
@@ -101,6 +101,15 @@
   `ExecutorPromotionAdapter` 继续装配，以保留现有 generation recovery、效果收口、rollback
   与 pending rollback reconciliation。`TIANSHU_EXECUTOR_DRIFT_SCAN_ENABLED` 独立默认关闭；
   Keqing GET 始终只读，候选仅由 control-plane scanner 产生。
+- P6 当前 checkout 不新增迁移，复用 V32 表，以 `scope=process` 的 release、generation 与
+  active/last-good pointer 记录启动时解析出的 canonical `SystemSnapshotV1`。专用
+  `ProcessSnapshotBootstrap` 在 scheduler/run 之前完成首启、幂等重启、推进或返回 retained
+  last-good；Pi controller/reconciler、registry、authority 与 attempt binding 均不接触 process
+  行。`TIANSHU_SYSTEM_SNAPSHOT_STRICT=true` 时目标漂移不改由 P6 admission 管理的 process
+  snapshot/release/generation/pointer/audit，并在 routing audit、plugin catalog、Pi recovery 与
+  scheduler/run 前拒启；非 strict 记审计后按实际 snapshot 推进。未知显式目标始终以稳定错误
+  拒绝，不能伪造组件 diff。迁移、Persona/Provider/目录等 snapshot resolver 前置装配可能已经
+  写入，不在 P6 零写承诺内。
 - 关闭 `TIANSHU_EVOLUTION_ROUTING_ENABLED` 后，existing replay 与 continuity inheritance
   仍先于 fresh-root kill switch，因此已持久化 follow-up 保持 sticky，只有 fresh root 不再新选
   challenger。内部 Evolution probe 会返回 false；`evolution.rollback` 是可选 readiness check，

@@ -10,10 +10,11 @@
 > allowed_surfaces/approval/budget；runtime key 为 `kind.value:subject_key`。Web 只读展示
 > availability/source/curator protection，只编辑 mode 与 max canary basis points；`pinned`
 > 不是版本 pin。sticky 必须来自持久 assignment set；manual 的 Decision override 尚未实现。
-> 当前 P5 checkout 又完成 Pi EXECUTOR 治理垂直切片。下文“只有 Skill adapter、其余映射
+> P5 已由 PR #111 合入 `feat/plugin-v1`。下文“只有 Skill adapter、其余映射
 > `UnavailablePromotionAdapter`”是 `88462b2a` 的历史事实；P5 后 EXECUTOR 始终映射
 > `ExecutorPromotionAdapter`，`executor_generation_enabled` 只关闭新的前向演化，保留 recovery、
-> rollback 与 reconcile。P6/P7 尚未完成。
+> rollback 与 reconcile。当前 P6 checkout 又实现 process snapshot generation 与 strict binding；
+> P7 尚未完成。
 
 ## 1. 总评
 
@@ -264,7 +265,8 @@ snapshot 时 system snapshot/binding 零写入的兼容语义（P3 exact marker 
 - `tianshu serve --system-snapshot <digest>`（缺省 = `generation_pointers` 中 `scope=process` 的 active）；
 - 启动时 `SystemSnapshotResolver.resolve()` 与目标 digest 不等 → 若 `TIANSHU_SNAPSHOT_STRICT=1`
   则退出并提示 last-good，否则记 `system_snapshot_drift` 并继续（影子期默认）；
-- `GenerationReconciler` 处理 `scope=process` 的 active/last-good 指针；
+- 专用 `ProcessSnapshotBootstrap` 在 run/scheduler 启动前处理 `scope=process` 的 active/last-good
+  指针；executor `GenerationReconciler` 显式只处理 Pi scope，避免 process 材料进入 Pi registry；
 - 退出条件：连续 100 次重启 digest 稳定；改一个 provider profile 后 digest 变化且只有该组件变化。
 
 ### 之后（按报告 Phase 4–6，不在本文展开）

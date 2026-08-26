@@ -13,6 +13,7 @@ from tianshu.models.canonical import JsonValue, canonical_sha256
 
 _DIGEST_PATTERN = r"^[0-9a-f]{64}$"
 _GENERATION_ID_PATTERN = r"^rg-[0-9a-f]{32}$"
+PROCESS_GENERATION_SCOPE = "process"
 
 
 class RuntimeGenerationState(StrEnum):
@@ -262,6 +263,7 @@ def validate_last_good_generation_transition(
 __all__ = [
     "CliVersionSource",
     "GenerationPointerV1",
+    "PROCESS_GENERATION_SCOPE",
     "RuntimeGenerationState",
     "RuntimeGenerationV1",
     "RuntimeReleaseV1",

@@ -773,6 +773,8 @@ class GenerationController:
     ) -> GenerationRollbackResult:
         """Rollback an exact authority pair or accept its completed replay."""
 
+        if not scope.strip():
+            raise ValueError("scope must be non-blank")
         self._require_managed_scope(scope)
         with (
             self._unit_of_work_factory() as unit_of_work,
@@ -1112,6 +1114,8 @@ class GenerationController:
         connection: sqlite3.Connection,
         required_scopes: tuple[str, ...],
     ) -> tuple[str, ...]:
+        for scope in required_scopes:
+            self._require_managed_scope(scope)
         pointers = tuple(
             self._repository.get_pointer(connection, scope=scope) for scope in required_scopes
         )

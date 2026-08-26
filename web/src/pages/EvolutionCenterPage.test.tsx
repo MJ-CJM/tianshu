@@ -37,12 +37,16 @@ import EvolutionCenterPage from "./EvolutionCenterPage";
 const HASH_A = "a".repeat(64);
 const HASH_B = "b".repeat(64);
 const HASH_C = "c".repeat(64);
+const GENERATION_A = `rg-${"a".repeat(32)}`;
+const GENERATION_B = `rg-${"b".repeat(32)}`;
 
 const NOT_ENABLED: EvolutionCenterSnapshotV1 = {
   schema_version: 1,
   status: "not_enabled",
   reason_code: "s5_governed_evolution_not_enabled",
   routing_enabled: true,
+  active_generation: null,
+  last_good_generation: null,
   candidates: [],
   routing: [],
   last_gate_hash: null,
@@ -52,12 +56,16 @@ const ENABLED_EMPTY: EvolutionCenterSnapshotV1 = {
   ...NOT_ENABLED,
   status: "enabled",
   reason_code: "enabled_no_candidates",
+  active_generation: GENERATION_B,
+  last_good_generation: GENERATION_A,
 };
 
 const DEGRADED_EMPTY: EvolutionCenterSnapshotV1 = {
   ...NOT_ENABLED,
   status: "degraded",
   reason_code: "evolution_source_degraded",
+  active_generation: GENERATION_B,
+  last_good_generation: GENERATION_A,
 };
 
 const FIXTURE: EvolutionCenterSnapshotV1 = {
@@ -65,6 +73,8 @@ const FIXTURE: EvolutionCenterSnapshotV1 = {
   status: "enabled",
   reason_code: "minimum_samples_blocking",
   routing_enabled: true,
+  active_generation: GENERATION_B,
+  last_good_generation: GENERATION_A,
   candidates: [
     {
       candidate_id: "candidate-skill-7",
@@ -187,6 +197,9 @@ describe("authoritative Evolution Center snapshot", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "暂无数据" })).not.toBeInTheDocument();
     expect(screen.queryByText("0")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "进程运行世代" })).toBeInTheDocument();
+    expect(screen.getByText(GENERATION_B)).toBeInTheDocument();
+    expect(screen.getByText(GENERATION_A)).toBeInTheDocument();
   });
 
   it("renders degraded status and reason even when the snapshot has no candidates", async () => {
@@ -243,6 +256,9 @@ describe("authoritative Evolution Center snapshot", () => {
     renderPage();
 
     expect(await screen.findByText("candidate-skill-7")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "进程运行世代" })).toBeInTheDocument();
+    expect(screen.getByText(GENERATION_B)).toBeInTheDocument();
+    expect(screen.getByText(GENERATION_A)).toBeInTheDocument();
     expect(screen.getByText(HASH_A)).toBeInTheDocument();
     expect(screen.getByText(HASH_B)).toBeInTheDocument();
     expect(screen.getByText(HASH_C)).toBeInTheDocument();

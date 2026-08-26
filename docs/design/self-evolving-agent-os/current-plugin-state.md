@@ -25,10 +25,19 @@ assignment-set artifact。它仍不是第三方动态 PluginHost；Web 也只提
 max canary basis points 的严格 CAS 编辑，availability/source/curator protection 只读，
 `pinned` 不表示版本锁定。
 
-当前 P5 checkout 又完成一条受治理的 Pi executor 垂直切片：后台漂移巡检可产生
+P5 已由 PR #111 合入 `feat/plugin-v1`（merge `567b028e`）：后台漂移巡检可产生
 `CandidateKind.EXECUTOR`，候选经 Gate、per-subject canary、高危 Decision 和精确 generation
 authority 后激活 READY 代，并可回滚到 last-good。它只覆盖 `keqing:pi`，不改变 manifest-only
 catalog 与第三方代码不加载的边界。
+
+当前 P6 checkout 又把**天枢进程本身**纳入独立 `scope=process` 的 SystemSnapshot generation：
+启动时解析当前典制，复用 V32 active/last-good 指针。严格模式发现目标漂移时，不写 P6
+admission 管理的 process snapshot/release/generation/pointer/audit，并在 routing audit、plugin
+sync、Pi recovery 与 scheduler/run 前拒绝；admission 前既有的迁移、Persona/Provider/目录装配
+写入不在该承诺内。非严格模式记录审计后推进；A→B 仍保留 A，B→C 后才回收 A。Pi
+controller/reconciler、executor registry、authority 与 attempt binding 均显式排除 process 行。
+它不是进程内 Python 热卸载，也没有虚构 clean-shutdown receipt；last-good 只表示“上一个成功
+激活且仍保留的快照”。
 
 本页合并原 `docs/design/plugins/` 与 `docs/impl/plugins/` 的内容，作为本报告目录中的唯一
 插件现状说明。用户开发示例仍在 [扩展开发指南](../../usage/extension-guide.md)，但当前/目标
@@ -54,10 +63,13 @@ catalog 与第三方代码不加载的边界。
 | attempt 代际固定与 continuity | 内部可用 | exact attempt 租约、follow-up/基础设施重试/DAG root 继承；周期任务每次 fresh root 取当时 active |
 | 代际生产写入口 | 受治理窄入口可用 | 无直接 GenerationController HTTP/CLI；EXECUTOR candidate 的 canary/promote 经 PromotionService 间接驱动 exact stage/warm/activate |
 | per-subject Skill canary | 已合入 | V34 封存 1..64 条 assignment；PR #109 已合入 `feat/plugin-v1` |
-| per-subject Pi EXECUTOR canary | P5 checkout 已实现 | Challenger 绑定获授权 READY 代，champion 保持 active；缺失、错配、歧义或撤销 authority 失败关闭 |
-| EXECUTOR 高危晋升与回滚 | P5 checkout 已实现 | promote 永远需要精确已决议 Decision；只激活映射代；rollback 恢复 last-good 并撤权，可从 durable pending 状态继续 |
+| per-subject Pi EXECUTOR canary | 已合入 | PR #111；Challenger 绑定获授权 READY 代，champion 保持 active；缺失、错配、歧义或撤销 authority 失败关闭 |
+| EXECUTOR 高危晋升与回滚 | 已合入 | PR #111；promote 永远需要精确已决议 Decision；只激活映射代；rollback 恢复 last-good 并撤权，可从 durable pending 状态继续 |
 | EXECUTOR 前向演化开关 | 默认关闭 | 关闭只拒绝新的 start-canary/promote；adapter、existing generation recovery、rollback 和 reconcile 保留 |
 | EXECUTOR 漂移巡检 | 默认关闭 | control-plane scanner 显式启用后提案；Keqing GET 只读，不扫描或创建候选 |
+| process SystemSnapshot generation | P6 checkout 已实现 | V32 `scope=process` 直接保存 canonical `SystemSnapshotV1`；启动幂等、漂移、回滚和 active/last-good 保留由专用 bootstrap 处理 |
+| strict SystemSnapshot run binding | 默认关闭 | strict 时 resolver/持久化失败在 runner 前以 `system_snapshot_unavailable` 失败；非 strict 保留有审计的 shadow 行为 |
+| process generation 只读投影 | P6 checkout 已实现 | Evolution API/Web 在有候选与空候选状态都显示 active/last-good；关闭 snapshot 时两者明确为 null |
 | 插件 enabled / version pin | 不支持 | P4b UI 不提供这两个开关；curator protection 不是版本 pin |
 
 P4b 路由顺序是 existing replay → continuity inheritance → fresh-root kill switch。关闭 routing
@@ -170,9 +182,9 @@ V31 `0031_system_snapshots` 用不可更新、不可删除、不可 replace 的�
 Evidence 中增加 `application/vnd.tianshu.system-snapshot.v1+json` required artifact；assignment
 只读 API 和 Edict 详情可以投影同一内容摘要。
 
-这一阶段仍是 **shadow / 影子模式**：默认开关只控制是否写入，解析或持久化失败会尽力写入
-SystemAudit 与 durable outbox，但不改变任务结果；`system_snapshot_strict` 只登记配置，严格
-拒绝语义留到 P6。它也不等于完整运行内容已经全部可归因：dependency-lock 目前仍是零值占位，
+P1 写侧最初是 **shadow / 影子模式**。P6 当前 checkout 已让 `system_snapshot_strict=true` 真正
+在 resolver 或 authoritative binding 失败时于 runner 前拒绝，并保留默认关闭的兼容路径；非严格
+模式仍尽力写 SystemAudit 与 durable outbox 后继续。它仍不等于完整运行内容已经全部可归因：dependency-lock 目前仍是零值占位，
 policy 只覆盖 id/priority，prompt key 尚未填充。P3 已让非空 generation tuple 在绑定与执行面
 fail closed，但 P1 的典制写入本身仍是影子模式；系统仍没有动态加载、第三方依赖闭包、
 Canary 切换或第三方插件级热替换。P2 的受信任 contribution 也尚未接入
@@ -250,7 +262,30 @@ reconcile 继续可用。这个区别保证“停止继续进化”不会同时�
 冲突拒绝。当前正式运行模型本来就是 single-host、single-node、single-process SQLite，不由此
 扩展为多进程或分布式编排承诺。
 
-## 8. 为什么当前不开自动加载
+## 8. P6 进程 SystemSnapshot generation 与严格绑定
+
+P6 不新增迁移，复用 V32 五张 generation 表。`runtime_generation_releases` 的 process 行直接保存
+canonical `SystemSnapshotV1`，且 `release_digest == snapshot.digest`；`RuntimeReleaseV1` 继续只
+表示 executor release，repository 以 `insert/get_process_release` 窄接口和 scope-aware decoder
+阻止两类材料互相解释。
+
+`ProcessSnapshotBootstrap` 在完整 resolver 与 executor 装配之后、任何 scheduler/run 工作之前
+执行。相同内容重启不新建 generation；接受的新内容按 STAGED→WARMING→READY→ACTIVE 原子推进。
+active 与 last-good 只保留两代；返回已保留的 last-good 使用 repository rollback。严格漂移在
+写入 snapshot/release/generation/audit 前拒绝，未知显式目标返回 `target_snapshot_unavailable`；
+非严格漂移记录 `system_snapshot_drift` 后继续。这里没有 clean-exit 标记，所以文档不得把
+last-good 写成“最近一次干净退出”。
+
+process generation 不进入 Pi materializer、executor registry、authority、attempt binding 或 Pi
+readiness。`GenerationController` 与 executor `GenerationReconciler` 的生产组合点只管理
+`executor:keqing:pi`，保留根扫描也按 scope 隔离。运行绑定的 strict 失败由 dispatcher 归类为
+稳定、脱敏的 `system_snapshot_unavailable`；默认 strict-off 保留历史 shadow 兼容。
+
+Evolution Center 仅投影 process active/last-good generation id，不提供切换按钮。关闭
+SystemSnapshot 时即使数据库留有旧 process 行也返回 null。P7 才处理 Skills 等声明式内容的
+per-run frozen view；P6 不做任意 Python 模块 reload/unload。
+
+## 9. 为什么当前不开自动加载
 
 执行第三方入口前至少需要完成：
 

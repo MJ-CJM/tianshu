@@ -14,9 +14,15 @@ from tianshu.models.evolution_view import (
     EvolutionRoutingSummaryV1,
 )
 from tianshu.models.principal import AuthContext
+from tianshu.models.runtime_generation import PROCESS_GENERATION_SCOPE, RuntimeGenerationState
 from tianshu.storage.evolution_repo import (
     EvolutionRepository,
     EvolutionRepositoryError,
+)
+from tianshu.storage.generation_repo import (
+    GenerationRepository,
+    GenerationRepositoryDecodeError,
+    GenerationRepositoryError,
 )
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
@@ -66,10 +72,14 @@ class EvolutionCenterQueryService:
         self,
         storage: _Storage | None = None,
         gate_reader: _GateReader | None = None,
+        *,
+        system_snapshot_enabled: bool = True,
     ) -> None:
         self._storage = storage
         self._gate_reader = gate_reader
+        self._system_snapshot_enabled = system_snapshot_enabled
         self._repository = EvolutionRepository()
+        self._generation_repository = GenerationRepository()
 
     def get_snapshot(self, auth: AuthContext) -> EvolutionCenterSnapshotV1:
         del auth
@@ -77,7 +87,13 @@ class EvolutionCenterQueryService:
             return self._disabled_snapshot()
         try:
             return self._read_snapshot()
-        except (EvolutionRepositoryError, sqlite3.Error, TypeError, ValueError) as exc:
+        except (
+            EvolutionRepositoryError,
+            GenerationRepositoryError,
+            sqlite3.Error,
+            TypeError,
+            ValueError,
+        ) as exc:
             raise EvolutionCenterUnavailable("governed evolution read failed") from exc
 
     @staticmethod
@@ -85,6 +101,8 @@ class EvolutionCenterQueryService:
         return EvolutionCenterSnapshotV1(
             status="not_enabled",
             reason_code=EVOLUTION_NOT_ENABLED_REASON_CODE,
+            active_generation=None,
+            last_good_generation=None,
             candidates=(),
             routing=(),
             last_gate_hash=None,
@@ -99,6 +117,7 @@ class EvolutionCenterQueryService:
         degraded = False
         with self._storage.unit_of_work() as unit_of_work:
             connection = unit_of_work.connection
+            active_generation, last_good_generation = self._process_generation_roots(connection)
             rows = connection.execute(
                 """SELECT candidate_id
                    FROM evolution_candidates
@@ -138,10 +157,67 @@ class EvolutionCenterQueryService:
         return EvolutionCenterSnapshotV1(
             status=status,
             reason_code=reason_code,
+            active_generation=active_generation,
+            last_good_generation=last_good_generation,
             candidates=tuple(summaries),
             routing=tuple(routing),
             last_gate_hash=reports[0][1].report_hash if reports else None,
         )
+
+    def _process_generation_roots(
+        self,
+        connection: sqlite3.Connection,
+    ) -> tuple[str | None, str | None]:
+        if not self._system_snapshot_enabled:
+            return None, None
+        pointer = self._generation_repository.get_pointer(
+            connection,
+            scope=PROCESS_GENERATION_SCOPE,
+        )
+        if pointer is None:
+            return None, None
+        active = self._generation_repository.get_generation(
+            connection,
+            scope=PROCESS_GENERATION_SCOPE,
+            generation_id=pointer.active_generation_id,
+        )
+        last_good = self._generation_repository.get_generation(
+            connection,
+            scope=PROCESS_GENERATION_SCOPE,
+            generation_id=pointer.last_good_generation_id,
+        )
+        if active is None or last_good is None:
+            raise GenerationRepositoryDecodeError(
+                "process generation pointer roots are unavailable"
+            )
+        if active.state is not RuntimeGenerationState.ACTIVE:
+            raise GenerationRepositoryDecodeError("process active generation is not active")
+        if active.generation_id == last_good.generation_id:
+            valid_last_good = last_good.state is RuntimeGenerationState.ACTIVE
+        else:
+            valid_last_good = last_good.state is RuntimeGenerationState.DRAINING
+        if not valid_last_good:
+            raise GenerationRepositoryDecodeError("process last-good generation is not retained")
+        self._generation_repository.list_journal(
+            connection,
+            generation_id=active.generation_id,
+        )
+        if last_good.generation_id != active.generation_id:
+            self._generation_repository.list_journal(
+                connection,
+                generation_id=last_good.generation_id,
+            )
+        active_release = self._generation_repository.get_process_release(
+            connection,
+            release_digest=active.release_digest,
+        )
+        last_good_release = self._generation_repository.get_process_release(
+            connection,
+            release_digest=last_good.release_digest,
+        )
+        if active_release is None or last_good_release is None:
+            raise GenerationRepositoryDecodeError("process generation release is unavailable")
+        return active.generation_id, last_good.generation_id
 
     @staticmethod
     def _candidate_summary(

@@ -27,6 +27,14 @@ def serve(
     port: int | None = typer.Option(
         None, "--port", help="监听端口(默认取 TIANSHU_PORT,未设置则 8000)"
     ),
+    system_snapshot: str | None = typer.Option(
+        None,
+        "--system-snapshot",
+        help=(
+            "指定启动时对照的 64 位小写 SystemSnapshot 摘要；"
+            "仅在 TIANSHU_SYSTEM_SNAPSHOT_STRICT=true 时要求匹配"
+        ),
+    ),
     reload: bool = typer.Option(False, "--reload", help="代码变更自动重启(开发用)"),
 ):
     """启动天枢服务:浏览器打开提示的地址即可使用 Web UI。"""
@@ -39,6 +47,8 @@ def serve(
         os.environ["TIANSHU_HOST"] = host
     if port is not None:
         os.environ["TIANSHU_PORT"] = str(port)
+    if system_snapshot is not None:
+        os.environ["TIANSHU_SYSTEM_SNAPSHOT_TARGET"] = system_snapshot
 
     try:
         settings = TianshuSettings()

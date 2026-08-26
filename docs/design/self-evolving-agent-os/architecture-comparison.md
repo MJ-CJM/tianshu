@@ -12,10 +12,9 @@
 
 ## 1. 现在（as-is，`88462b2a`）
 
-> 这是实施前的 as-is，不代表 2026-08-26 实现分支。当前 checkpoint：P4b 已由 PR #109
-> 合入 `feat/plugin-v1`（merge `a8a03071`）；当前 P5 checkout 已完成 V35 EXECUTOR Candidate、
-> 精确 generation authority、per-subject canary、高危 Decision、Pi 换代与 last-good 回滚
-> 垂直切片。P6/P7 仍未完成，右图仍是全部阶段落地后的目标态。
+> 这是实施前的 as-is，不代表当前实现。P4b PR #109 与 P5 PR #111 已合入
+> `feat/plugin-v1`；当前 P6 checkout 又完成 process scope generation、启动漂移校验、strict
+> run binding 和只读 active/last-good 投影。P7 仍未完成，右图仍是全部阶段落地后的目标态。
 
 ![当前架构：运行只绑定单个 candidate overlay，执行器 replace 原地替换，注册表无 owner，SkillsWatcher 直接 reload，只有 Skill 有晋升适配器](../../assets/design/self-evolving-agent-os/as-is.svg)
 
@@ -39,7 +38,7 @@
 | 分流粒度 | 历史基线全局只允许 1 个 canary；P4b 已按 `(kind, subject_key)` 独立灰度并持久封存 assignment set | 按 subject 各自 canary、sticky 与 rollback；每插件一行 `EvolutionPolicy`：frozen / manual / canary | PR-4 |
 | 版本漂移 | 客卿馆显示"待兼容验证"，人工确认后更新基线 | 漂移 → `CandidateKind.EXECUTOR` 候选 → Gates → per-subject canary → Decision → Executor adapter 换代 / 回 last-good | PR-3b / P5（PR-4 后） |
 | 内容变更 | SkillsWatcher 直接 reload active loader，运行中的 run 会看到新内容 | run 在 bind_runtime 冻结内容视图；watcher 只失效缓存，变化走 Candidate | PR-4 之后 |
-| 进程级发布 | 重启即当前代码，没有 snapshot 校验 | `tianshu serve --system-snapshot`；漂移记录，严格模式回 last-good | PR-5 |
+| 进程级发布 | 重启即当前代码，没有 snapshot 校验 | `tianshu serve --system-snapshot` 指定对照；strict 漂移不写 P6 admission 管理的 process snapshot/release/generation/pointer/audit，并在 routing audit、plugin sync、Pi recovery 与 scheduler/run 前拒绝；非 strict 审计后推进；admission 前既有装配写入不在该承诺内；返回 retained last-good 时走专用 rollback；不做活体 reload | PR-5 / P6 checkout |
 | 不变 | Edict / Memorial / Attempt / Decision / Evidence / Effect journal / 静态 DAG / Universe fail closed / `automatic_promotion_allowed: Literal[False]` | 同左。治理微内核（Ring 0）不进入进化，`PromotionService` 只拆文件不拆职责 | — |
 
 ## 4. 换代是怎么发生的：Pi 执行器一次切换
@@ -61,7 +60,7 @@ durable roots 也清空后才可回收。conversation / 深度任务的 follow-u
 | PR-3a | Pi 执行器代际、exact-attempt lease/marker 与 continuity 固定（不持久化整数 refcount） | ≈ 1.5–2 周 |
 | PR-4 | 按 subject 灰度：拆掉"单一全局 canary"；`EvolutionPolicy` 表 frozen / manual / canary | ≈ 1.5 周 |
 | PR-3b / P5 | 在 PR-4 后接入 EXECUTOR：漂移 → Candidate → Gate → per-subject canary → Decision → 晋升/回滚 | ≈ 1.5–2 周 |
-| PR-5 | 进程级 snapshot 重启：`serve --system-snapshot`，严格模式回 last-good，`GenerationReconciler` 接管 process 指针 | ≈ 3 天 |
+| PR-5 / P6 | 进程级 snapshot 重启：专用 startup bootstrap 管理 process 指针；Pi reconciler 明确隔离；strict 拒启、非 strict 审计、retained last-good 回滚 | ≈ 3 天 |
 
 此后按 [migration-roadmap.md](migration-roadmap.md) Phase 4–6 把 Provider / Channel →
 其他 Executor → Tool → Skill / Persona / Memory → 声明式 UI 逐类迁入 Capability seam；

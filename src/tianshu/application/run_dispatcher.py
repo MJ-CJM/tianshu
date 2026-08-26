@@ -28,6 +28,7 @@ from tianshu.universe.router import (
     GenerationBindingUnavailable,
     GenerationRetired,
     RunAssignmentUnavailable,
+    SystemSnapshotUnavailable,
 )
 
 logger = logging.getLogger(__name__)
@@ -281,6 +282,9 @@ class RunDispatcher:
             elif isinstance(exc, (GenerationBindingUnavailable, ExecutorGenerationError)):
                 failure_code = "generation_binding_unavailable"
                 failure_message = "runtime generation binding is unavailable"
+            elif isinstance(exc, SystemSnapshotUnavailable):
+                failure_code = "system_snapshot_unavailable"
+                failure_message = "system snapshot binding is unavailable"
             elif isinstance(exc, (RunAssignmentUnavailable, LookupError)):
                 failure_code = "run_assignment_unavailable"
                 failure_message = "governed evolution runtime is unavailable"

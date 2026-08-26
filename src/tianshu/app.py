@@ -265,9 +265,11 @@ async def lifespan(app: FastAPI):
         bootstrap.wire_consultation(app, settings)
         bootstrap.wire_persona_quality(app, settings)
         bootstrap.wire_scheduling(app, settings)
-        bootstrap.wire_plugins(app, settings)
         bootstrap.wire_hook_registrations(app, settings)
         bootstrap.wire_system_snapshot(app, settings)
+        bootstrap.initialize_process_snapshot(app, settings)
+        bootstrap.initialize_evolution_routing_audit(app, settings)
+        bootstrap.wire_plugins(app, settings)
         await bootstrap.initialize_executor_evolution(app, settings)
         await bootstrap.wire_channel_bots(app, settings)
         startup_stops.append(app.state.bot_manager.stop_all)
@@ -369,6 +371,7 @@ async def lifespan(app: FastAPI):
         evolution_center_service = EvolutionCenterQueryService(
             app.state.storage,
             app.state.evolution_gate_evaluator,
+            system_snapshot_enabled=settings.system_snapshot_enabled,
         )
         app.state.evolution_center_service = evolution_center_service
         app.state.control_center_service = ControlCenterQueryService(

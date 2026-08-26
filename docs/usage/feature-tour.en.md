@@ -241,10 +241,12 @@ approval.
 - **Maturity**: experimental.
 - **Explicit boundary**: availability, source, and curator protection are read-only; `pinned` is
   not a version pin. There is no per-plugin enabled switch, version pin, promotion button, or
-  rollback button, and all policy list/detail/write APIs are administrator-only. P4b merged into
-  `feat/plugin-v1` through PR #109. The current P5 checkout connects only the governed Pi EXECUTOR
-  Candidate/Gate/canary/Decision/promotion/rollback vertical slice. The system does not auto-promote
-  candidates; production activation for other non-Skill kinds remains closed, and full G4 is not complete.
+  rollback button, and all policy list/detail/write APIs are administrator-only. P4b merged through
+  PR #109, and the governed Pi EXECUTOR vertical slice merged through PR #111. The current P6
+  checkout also shows the process SystemSnapshot active/last-good generation as read-only data.
+  It provides no process-switch control; last-good means the previous successfully activated retained
+  snapshot, not proof of a clean exit. The system does not auto-promote candidates; production
+  activation for other non-Skill kinds remains closed, and full G4 is not complete.
 - **Related docs**: [Current Skills Boundary](../design/skills/README.md),
   [Skill Learning](../design/skills/learning.md),
   [Capability Matrix](../launch/capability-matrix.md).

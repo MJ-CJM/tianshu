@@ -35,6 +35,7 @@ from tianshu.universe.router import (
     EvolutionRuntimeUnavailable,
     GenerationBindingUnavailable,
     GenerationRetired,
+    SystemSnapshotUnavailable,
 )
 
 _NOW = datetime(2026, 7, 15, 8, tzinfo=UTC)
@@ -100,6 +101,10 @@ async def test_missing_router_rejects_before_claim_or_runner() -> None:
         (
             GenerationBindingUnavailable("generation_binding_unavailable"),
             "generation_binding_unavailable",
+        ),
+        (
+            SystemSnapshotUnavailable("system_snapshot_unavailable"),
+            "system_snapshot_unavailable",
         ),
         (GenerationRetired("generation_retired"), "generation_retired"),
         (

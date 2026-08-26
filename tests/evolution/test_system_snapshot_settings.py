@@ -56,6 +56,32 @@ def test_snapshot_strict_uses_documented_environment_name(monkeypatch) -> None:
     assert TianshuSettings(_env_file=None).system_snapshot_strict is True
 
 
+def test_system_snapshot_target_is_an_exact_lowercase_sha256(monkeypatch) -> None:
+    digest = "a" * 64
+    monkeypatch.setenv("TIANSHU_SYSTEM_SNAPSHOT_TARGET", digest)
+
+    assert TianshuSettings(_env_file=None).system_snapshot_target == digest
+
+    for invalid in ("A" * 64, f"sha256:{digest}", f" {digest}", "a" * 63):
+        with pytest.raises(
+            ValidationError,
+            match="system_snapshot_target must be 64 lowercase hex characters",
+        ):
+            TianshuSettings(_env_file=None, system_snapshot_target=invalid)
+
+
+def test_system_snapshot_target_requires_snapshot_wiring() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="system_snapshot_target requires system_snapshot_enabled",
+    ):
+        TianshuSettings(
+            _env_file=None,
+            system_snapshot_enabled=False,
+            system_snapshot_target="a" * 64,
+        )
+
+
 def test_disabled_wiring_exposes_explicit_none() -> None:
     app = FastAPI()
     settings = TianshuSettings(_env_file=None, system_snapshot_enabled=False)

@@ -43,6 +43,7 @@ from tianshu.bootstrap.wiring_scheduler import (
     wire_scheduling,
 )
 from tianshu.bootstrap.wiring_skills import (
+    initialize_evolution_routing_audit,
     runtime_skills_target,
     wire_evolution_services,
     wire_skill_curator,
@@ -50,13 +51,15 @@ from tianshu.bootstrap.wiring_skills import (
     wire_skills,
     wire_skills_watcher,
 )
-from tianshu.bootstrap.wiring_snapshot import wire_system_snapshot
+from tianshu.bootstrap.wiring_snapshot import initialize_process_snapshot, wire_system_snapshot
 from tianshu.bootstrap.wiring_storage import wire_storage
 from tianshu.bootstrap.wiring_tools import wire_tools
 from tianshu.bootstrap.wiring_universe import wire_universe
 
 __all__ = [
     "initialize_executor_evolution",
+    "initialize_evolution_routing_audit",
+    "initialize_process_snapshot",
     "wire_auditor",
     "wire_channel_bots",
     "wire_channels",

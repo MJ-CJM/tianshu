@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from tianshu.models.canonical import JsonValue, canonical_json_bytes, canonical_sha256
 from tianshu.models.events import make_event
 from tianshu.models.runtime_generation import (
+    PROCESS_GENERATION_SCOPE,
     GenerationPointerV1,
     RuntimeGenerationState,
     RuntimeGenerationV1,
@@ -23,6 +24,7 @@ from tianshu.models.runtime_generation import (
     validate_regular_generation_transition,
 )
 from tianshu.models.system_audit import AppendSystemAuditRequest
+from tianshu.models.system_snapshot import SystemSnapshotV1
 from tianshu.storage.correlation import correlation_for_memorial
 from tianshu.storage.outbox_repo import OutboxRepository
 from tianshu.storage.system_audit_repo import _append_system_audit_unlocked
@@ -139,6 +141,10 @@ def _decode_timestamp(raw: object, *, field: str) -> datetime:
 
 
 def _decode_release(row: sqlite3.Row) -> RuntimeReleaseV1:
+    if row["scope"] == PROCESS_GENERATION_SCOPE:
+        raise GenerationRepositoryDecodeError(
+            "process release cannot be decoded as an executor release"
+        )
     raw = row["release_json"]
     if not isinstance(raw, str):
         raise GenerationRepositoryDecodeError("release_json is not text")
@@ -158,6 +164,64 @@ def _decode_release(row: sqlite3.Row) -> RuntimeReleaseV1:
         raise GenerationRepositoryDecodeError("runtime release columns do not match release_json")
     _decode_timestamp(row["first_seen_at"], field="first_seen_at")
     return release
+
+
+def _decode_process_release(row: sqlite3.Row) -> SystemSnapshotV1:
+    if row["scope"] != PROCESS_GENERATION_SCOPE:
+        raise GenerationRepositoryDecodeError(
+            "executor release cannot be decoded as a process release"
+        )
+    raw = row["release_json"]
+    if not isinstance(raw, str):
+        raise GenerationRepositoryDecodeError("release_json is not text")
+    try:
+        snapshot = SystemSnapshotV1.model_validate_json(raw)
+    except (ValidationError, TypeError, ValueError) as exc:
+        raise GenerationRepositoryDecodeError(
+            "persisted process release violates the SystemSnapshotV1 contract"
+        ) from exc
+    if raw != canonical_json_bytes(snapshot).decode("utf-8"):
+        raise GenerationRepositoryDecodeError("release_json is not canonical JSON")
+    if row["release_digest"] != snapshot.digest or row["schema_version"] != snapshot.schema_version:
+        raise GenerationRepositoryDecodeError("process release columns do not match release_json")
+    _decode_timestamp(row["first_seen_at"], field="first_seen_at")
+    return snapshot
+
+
+def _get_release_row(
+    connection: sqlite3.Connection,
+    release_digest: str,
+) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT release_digest, schema_version, scope, release_json, first_seen_at
+        FROM runtime_generation_releases
+        WHERE release_digest = ?
+        """,
+        (release_digest,),
+    ).fetchone()
+
+
+def _require_release_scope(row: sqlite3.Row, scope: str) -> None:
+    if row["scope"] != scope:
+        raise GenerationRepositoryConflict("runtime release belongs to another scope")
+
+
+def _release_exists(
+    connection: sqlite3.Connection,
+    *,
+    scope: str,
+    release_digest: str,
+) -> bool:
+    row = _get_release_row(connection, release_digest)
+    if row is None:
+        return False
+    _require_release_scope(row, scope)
+    if scope == PROCESS_GENERATION_SCOPE:
+        _decode_process_release(row)
+    else:
+        _decode_release(row)
+    return True
 
 
 def _decode_generation(row: sqlite3.Row) -> RuntimeGenerationV1:
@@ -372,6 +436,8 @@ class GenerationRepository:
         """Insert immutable release material, accepting only an exact replay."""
 
         _require_transaction(connection)
+        if release.scope == PROCESS_GENERATION_SCOPE:
+            raise ValueError("process releases require insert_process_release")
         existing = self.get_release(
             connection,
             scope=release.scope,
@@ -414,6 +480,55 @@ class GenerationRepository:
             raise GenerationRepositoryConflict("runtime release disappeared")
         return durable
 
+    def insert_process_release(
+        self,
+        connection: sqlite3.Connection,
+        snapshot: SystemSnapshotV1,
+        *,
+        first_seen_at: datetime | None = None,
+    ) -> SystemSnapshotV1:
+        """Insert one process release backed directly by a canonical snapshot."""
+
+        _require_transaction(connection)
+        existing = self.get_process_release(
+            connection,
+            release_digest=snapshot.digest,
+        )
+        if existing is not None:
+            if existing != snapshot:
+                raise GenerationRepositoryConflict("process release identity is immutable")
+            return existing
+        try:
+            connection.execute(
+                """
+                INSERT INTO runtime_generation_releases (
+                    release_digest, schema_version, scope, release_json, first_seen_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    snapshot.digest,
+                    snapshot.schema_version,
+                    PROCESS_GENERATION_SCOPE,
+                    canonical_json_bytes(snapshot).decode("utf-8"),
+                    _timestamp(_utc_now(first_seen_at)),
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            replay = self.get_process_release(
+                connection,
+                release_digest=snapshot.digest,
+            )
+            if replay == snapshot:
+                return replay
+            raise GenerationRepositoryConflict("process release identity conflict") from exc
+        durable = self.get_process_release(
+            connection,
+            release_digest=snapshot.digest,
+        )
+        if durable != snapshot:
+            raise GenerationRepositoryConflict("process release disappeared")
+        return durable
+
     def get_release(
         self,
         connection: sqlite3.Connection,
@@ -421,20 +536,26 @@ class GenerationRepository:
         scope: str,
         release_digest: str,
     ) -> RuntimeReleaseV1 | None:
-        row = connection.execute(
-            """
-            SELECT release_digest, schema_version, scope, release_json, first_seen_at
-            FROM runtime_generation_releases
-            WHERE release_digest = ?
-            """,
-            (release_digest,),
-        ).fetchone()
+        if scope == PROCESS_GENERATION_SCOPE:
+            raise ValueError("process releases require get_process_release")
+        row = _get_release_row(connection, release_digest)
         if row is None:
             return None
+        _require_release_scope(row, scope)
         release = _decode_release(row)
-        if release.scope != scope:
-            raise GenerationRepositoryConflict("runtime release belongs to another scope")
         return release
+
+    def get_process_release(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        release_digest: str,
+    ) -> SystemSnapshotV1 | None:
+        row = _get_release_row(connection, release_digest)
+        if row is None:
+            return None
+        _require_release_scope(row, PROCESS_GENERATION_SCOPE)
+        return _decode_process_release(row)
 
     def insert_staged(
         self,
@@ -462,12 +583,12 @@ class GenerationRepository:
             or generation.activated_at is not None
         ):
             raise ValueError("new runtime generations must be staged at version 1")
-        release = self.get_release(
+        release_exists = _release_exists(
             connection,
             scope=generation.scope,
             release_digest=generation.release_digest,
         )
-        if release is None:
+        if not release_exists:
             raise GenerationRepositoryConflict("runtime generation release does not exist")
         existing = self._get_generation_by_id(connection, generation.generation_id)
         if existing is not None:
@@ -902,6 +1023,10 @@ class GenerationRepository:
             if generation is None:
                 raise GenerationRepositoryConflict("generation_ids contains an unknown identity")
             self.list_journal(connection, generation_id=generation_id)
+            if generation.scope == PROCESS_GENERATION_SCOPE:
+                raise GenerationRepositoryConflict(
+                    "process generations cannot be bound to execution attempts"
+                )
             if generation.scope in seen_scopes:
                 raise GenerationRepositoryConflict("generation_ids contains duplicate scopes")
             if generation.state in {
@@ -979,16 +1104,16 @@ class GenerationRepository:
             if last_good.state is not expected_last_good_state:
                 raise GenerationRepositoryDecodeError("pointer last-good root has an invalid state")
             for generation in (active, last_good):
-                if (
-                    self.get_release(
-                        connection,
-                        scope=generation.scope,
-                        release_digest=generation.release_digest,
-                    )
-                    is None
+                if not _release_exists(
+                    connection,
+                    scope=generation.scope,
+                    release_digest=generation.release_digest,
                 ):
                     raise GenerationRepositoryDecodeError("pointer release does not exist")
                 generation_ids.add(generation.generation_id)
+
+        if scope == PROCESS_GENERATION_SCOPE:
+            return frozenset(generation_ids)
 
         attempt_rows = connection.execute(
             """

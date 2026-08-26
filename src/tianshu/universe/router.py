@@ -131,6 +131,10 @@ class RunAssignmentUnavailable(EvolutionRuntimeUnavailable):
     """A durable assignment deterministically failed integrity decoding."""
 
 
+class SystemSnapshotUnavailable(EvolutionRuntimeUnavailable):
+    """A run could not establish its required immutable system snapshot."""
+
+
 class GenerationBindingUnavailable(EvolutionRuntimeUnavailable):
     """A new runtime-generation binding could not be established safely."""
 
@@ -181,6 +185,7 @@ class ChallengerRouter:
         bucket_calculator: BucketCalculator = allocation_bucket,
         payload_resolver: PayloadResolver | None = None,
         snapshot_resolver: Callable[[], SystemSnapshotResolver | None] | None = None,
+        system_snapshot_strict: bool = False,
         generation_controller: Callable[[], _GenerationController | None] | None = None,
         executor_generation_authority_resolver: Callable[
             [], _ExecutorGenerationAuthorityResolver | None
@@ -191,12 +196,15 @@ class ChallengerRouter:
     ) -> None:
         if type(routing_enabled) is not bool:
             raise TypeError("routing_enabled must be a bool")
+        if type(system_snapshot_strict) is not bool:
+            raise TypeError("system_snapshot_strict must be a bool")
         self._storage = storage
         self._routing_enabled = routing_enabled
         self._allocation_secret = allocation_secret
         self._bucket_calculator = bucket_calculator
         self._payload_resolver = payload_resolver
         self._snapshot_resolver = snapshot_resolver
+        self._system_snapshot_strict = system_snapshot_strict
         self._generation_controller = generation_controller
         self._executor_generation_authority_resolver = executor_generation_authority_resolver
         self._before_insert = before_insert
@@ -807,6 +815,11 @@ class ChallengerRouter:
                 memorial_id=memorial_id,
                 attempt_id=attempt_id,
             )
+        except SystemSnapshotRepositoryDecodeError as exc:
+            if self._system_snapshot_strict:
+                raise SystemSnapshotUnavailable("system_snapshot_unavailable") from exc
+            raise GenerationBindingUnavailable("generation_binding_unavailable") from exc
+        try:
             existing_generation_binding = self._snapshot_repository.get_generation_binding(
                 connection,
                 memorial_id=memorial_id,
@@ -1017,6 +1030,11 @@ class ChallengerRouter:
                 memorial_id=memorial_id,
                 attempt_id=attempt_id,
             )
+        except SystemSnapshotRepositoryDecodeError as exc:
+            if self._system_snapshot_strict:
+                raise SystemSnapshotUnavailable("system_snapshot_unavailable") from exc
+            raise GenerationBindingUnavailable("generation_binding_unavailable") from exc
+        try:
             exact_generation_binding = self._snapshot_repository.get_generation_binding(
                 connection,
                 memorial_id=memorial_id,
@@ -1140,12 +1158,16 @@ class ChallengerRouter:
         )
 
         if self._snapshot_resolver is None:
+            if self._system_snapshot_strict:
+                raise SystemSnapshotUnavailable("system_snapshot_unavailable")
             if selection is not None and selection.generation_ids:
                 raise GenerationBindingUnavailable("generation_binding_unavailable")
             return generation_context
         try:
             resolver = self._snapshot_resolver()
             if resolver is None:
+                if self._system_snapshot_strict:
+                    raise SystemSnapshotUnavailable("system_snapshot_unavailable")
                 if selection is not None and selection.generation_ids:
                     raise GenerationBindingUnavailable("generation_binding_unavailable")
                 return generation_context
@@ -1160,7 +1182,7 @@ class ChallengerRouter:
             )
             generation_ids = selection.generation_ids if selection is not None else ()
             result: SystemBindingWriteResult | None
-            if generation_ids:
+            if generation_ids or self._system_snapshot_strict:
                 result = self._snapshot_repository.insert_binding(
                     connection,
                     memorial_id=memorial_id,
@@ -1176,7 +1198,7 @@ class ChallengerRouter:
                     snapshot=snapshot,
                     generation_ids=(),
                 )
-        except GenerationBindingUnavailable:
+        except (GenerationBindingUnavailable, SystemSnapshotUnavailable):
             raise
         except Exception:
             recorded = self._snapshot_repository.record_event(
@@ -1189,6 +1211,8 @@ class ChallengerRouter:
                 logger.warning(
                     "system snapshot resolver failure could not be audited",
                 )
+            if self._system_snapshot_strict:
+                raise SystemSnapshotUnavailable("system_snapshot_unavailable") from None
             if selection is not None and selection.generation_ids:
                 raise GenerationBindingUnavailable("generation_binding_unavailable") from None
             return generation_context
