@@ -550,17 +550,27 @@ class GenerationRepository:
     def list_recovery_candidates(
         self,
         connection: sqlite3.Connection,
+        *,
+        scope: str | None = None,
     ) -> tuple[RuntimeGenerationV1, ...]:
+        if scope is not None and not scope.strip():
+            raise ValueError("scope must be non-blank")
         placeholders = ",".join("?" for _ in _RECOVERY_STATES)
+        scope_clause = " AND scope = ?" if scope is not None else ""
+        parameters: tuple[object, ...] = tuple(
+            state.value for state in sorted(_RECOVERY_STATES, key=lambda state: state.value)
+        )
+        if scope is not None:
+            parameters += (scope,)
         rows = connection.execute(
             f"""
             SELECT generation_id, schema_version, scope, release_digest, state, version,
                    created_at, activated_at, updated_at
             FROM runtime_generations
-            WHERE state IN ({placeholders})
+            WHERE state IN ({placeholders}){scope_clause}
             ORDER BY scope, created_at, generation_id
             """,
-            tuple(state.value for state in sorted(_RECOVERY_STATES, key=lambda state: state.value)),
+            parameters,
         ).fetchall()
         generations = tuple(_decode_generation(row) for row in rows)
         for generation in generations:
@@ -923,16 +933,30 @@ class GenerationRepository:
     def retained_generation_ids(
         self,
         connection: sqlite3.Connection,
+        *,
+        scope: str | None = None,
     ) -> frozenset[str]:
         """Derive durable roots without maintaining a persisted refcount."""
 
+        if scope is not None and not scope.strip():
+            raise ValueError("scope must be non-blank")
         generation_ids: set[str] = set()
-        pointer_rows = connection.execute(
-            """
-            SELECT scope, active_generation_id, last_good_generation_id, version, updated_at
-            FROM generation_pointers
-            """
-        ).fetchall()
+        if scope is None:
+            pointer_rows = connection.execute(
+                """
+                SELECT scope, active_generation_id, last_good_generation_id, version, updated_at
+                FROM generation_pointers
+                """
+            ).fetchall()
+        else:
+            pointer_rows = connection.execute(
+                """
+                SELECT scope, active_generation_id, last_good_generation_id, version, updated_at
+                FROM generation_pointers
+                WHERE scope = ?
+                """,
+                (scope,),
+            ).fetchall()
         for row in pointer_rows:
             pointer = _decode_pointer(row)
             active = self._require_generation(
@@ -1003,7 +1027,9 @@ class GenerationRepository:
                 connection,
                 selected_ids,
             )
-            generation_ids.update(item.generation_id for item in generations)
+            generation_ids.update(
+                item.generation_id for item in generations if scope is None or item.scope == scope
+            )
 
         retry_rows = connection.execute(
             """
@@ -1043,7 +1069,9 @@ class GenerationRepository:
                 connection,
                 retry_generation_ids,
             )
-            generation_ids.update(item.generation_id for item in generations)
+            generation_ids.update(
+                item.generation_id for item in generations if scope is None or item.scope == scope
+            )
 
         continuity_rows = connection.execute(
             """
@@ -1077,7 +1105,9 @@ class GenerationRepository:
                 connection,
                 continuity_generation_ids,
             )
-            generation_ids.update(item.generation_id for item in generations)
+            generation_ids.update(
+                item.generation_id for item in generations if scope is None or item.scope == scope
+            )
         return frozenset(generation_ids)
 
     def dispose_if_unreferenced(
@@ -1123,7 +1153,7 @@ class GenerationRepository:
             raise GenerationRepositoryConflict("runtime generation version conflict")
         if generation.state is not RuntimeGenerationState.DRAINING:
             raise GenerationRepositoryConflict("only draining generations can be disposed")
-        if generation_id in self.retained_generation_ids(connection):
+        if generation_id in self.retained_generation_ids(connection, scope=scope):
             return None
         return self._transition(
             connection,
