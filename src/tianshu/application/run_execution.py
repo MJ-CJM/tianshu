@@ -13,6 +13,10 @@ from tianshu.application.fenced_run_completion import (
     FencedRunCompletion,
     FencedRunCompletionCommand,
 )
+from tianshu.application.managed_attempt import (
+    ManagedRunSuspended,
+    bind_managed_attempt_authority,
+)
 from tianshu.application.run_dispatcher import (
     AttemptAuthority,
     AttemptRunResult,
@@ -81,11 +85,6 @@ class ProductionRunRunner:
         self._projections: dict[tuple[str, str, int], ManagedExecutionProjection] = {}
 
     async def __call__(self, authority: AttemptAuthority) -> AttemptRunResult:
-        from tianshu.executor.managed_tools import (
-            ManagedRunSuspended,
-            bind_managed_attempt_authority,
-        )
-
         try:
             with bind_managed_attempt_authority(authority):
                 planning = await self._planner.plan_attempt(authority)
@@ -217,7 +216,7 @@ def _authority_key(authority: AttemptAuthority) -> tuple[str, str, int]:
 
 
 def _redacted_failure(exc: Exception) -> RedactedError:
-    from tianshu.executor.adapters import ExecutorGenerationUnavailable
+    from tianshu.models.executor_generation import ExecutorGenerationUnavailable
 
     if isinstance(exc, ExecutorGenerationUnavailable):
         return RedactedError(

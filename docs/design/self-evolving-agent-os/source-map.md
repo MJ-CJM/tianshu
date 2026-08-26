@@ -7,13 +7,15 @@
 > 当前 checkpoint 另以 P4a PR #107（merge `b94d4846`，CI 6/6）和已合入的 P4b PR #109
 >（merge `a8a03071`）为准。
 > P4b 事实入口为 `models/run_assignment.py`、`storage/migrations.py`、
-> `storage/evolution_repo.py`、`universe/router.py`、`evolution/runtime_context.py`、
+> `storage/evolution_repo.py`、`application/runtime_router.py`、`models/runtime_context.py`、
 > `evidence/service.py` 及对应 multi-subject/durable-schema/Evidence 测试。最终本地门禁为后端
 > 5270 passed、2 skipped、24 slow deselected，Web 347 passed；静态检查与生产构建通过。
 > P5 已由 PR #111 合入 `feat/plugin-v1`（merge `567b028e`）。P6 已由 PR #114
 > 合入同一集成分支（merge `8f32cc4c`，CI 6/6），事实入口与验证路径另列于下文。
 > P7 已由 PR #116 合入同一集成分支（merge `feba5a91`，CI 6/6）；本地聚焦回归
 > 与 PR backend/frontend/E2E/release/Required CI 均已通过，不从 P6 或历史阶段数字外推。
+> Issue #119 的架构收口将旧 `universe/router.py`、`evolution/runtime_context.py` 等路径保留为
+> compatibility re-export；下文以 canonical owner 为事实入口。
 
 ## 1. 核验时间与源码快照
 
@@ -92,7 +94,7 @@ uv 0.9.27、项目 Python 3.12.12、pytest 9.0.3，HEAD `88462b2a`。
 - [`src/tianshu/models/runtime_generation.py`](../../../src/tianshu/models/runtime_generation.py)
 - [`src/tianshu/storage/generation_repo.py`](../../../src/tianshu/storage/generation_repo.py)
 - [`src/tianshu/bootstrap/wiring_snapshot.py`](../../../src/tianshu/bootstrap/wiring_snapshot.py)
-- [`src/tianshu/universe/router.py`](../../../src/tianshu/universe/router.py)
+- [`src/tianshu/application/runtime_router.py`](../../../src/tianshu/application/runtime_router.py)
 - [`src/tianshu/application/evolution_view.py`](../../../src/tianshu/application/evolution_view.py)
 - [`tests/evolution/test_process_snapshot.py`](../../../tests/evolution/test_process_snapshot.py)
 - [`tests/storage/test_process_generation_repo.py`](../../../tests/storage/test_process_generation_repo.py)
@@ -108,8 +110,8 @@ Issue #115 / PR #116 的已合入实现仅覆盖 Skills，无数据迁移；`off
 
 - [`src/tianshu/models/frozen_content.py`](../../../src/tianshu/models/frozen_content.py)
 - [`src/tianshu/skills/loader.py`](../../../src/tianshu/skills/loader.py)
-- [`src/tianshu/evolution/runtime_context.py`](../../../src/tianshu/evolution/runtime_context.py)
-- [`src/tianshu/universe/router.py`](../../../src/tianshu/universe/router.py)
+- [`src/tianshu/models/runtime_context.py`](../../../src/tianshu/models/runtime_context.py)
+- [`src/tianshu/application/runtime_router.py`](../../../src/tianshu/application/runtime_router.py)
 - [`src/tianshu/application/run_dispatcher.py`](../../../src/tianshu/application/run_dispatcher.py)
 - [`src/tianshu/application/managed_run_ingress.py`](../../../src/tianshu/application/managed_run_ingress.py)
 - [`src/tianshu/application/scheduled_runs.py`](../../../src/tianshu/application/scheduled_runs.py)

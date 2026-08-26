@@ -33,6 +33,7 @@ from tianshu.evolution.promotion import (
     StartCanaryCommand,
     UnavailablePromotionAdapter,
 )
+from tianshu.executor.capabilities import get_executor_manifest
 from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
 from tianshu.gateway.evolution_api import evolution_router
 from tianshu.gateway.keqing_api import keqing_router
@@ -264,7 +265,11 @@ def test_default_disabled_executor_adapter_fails_closed_for_sync_and_http_canary
     artifacts = _artifact_store(storage, Path(settings.artifact_dir))
     app = _secure_app(storage, settings)
     app.state.artifact_store = artifacts
-    app.state.evidence_service = EvidenceService(storage, artifacts)
+    app.state.evidence_service = EvidenceService(
+        storage,
+        artifacts,
+        executor_manifest_provider=get_executor_manifest,
+    )
     wire_evolution_services(app, settings, skill_target=tmp_path / "runtime-skills")
     candidate = _ready(storage, CandidateKind.EXECUTOR)
     app.state.promotion_service = PromotionService(

@@ -8,22 +8,11 @@ from collections.abc import Awaitable, Callable
 from typing import Literal
 
 import jsonschema
-from pydantic import BaseModel
 
-from tianshu.models.side_effect import SideEffectSemantics
+from tianshu.models.tool_definition import ToolDefinition
 from tianshu.tools.types import ToolHook, ToolResult, error_result
 
 logger = logging.getLogger(__name__)
-
-
-class ToolDefinition(BaseModel):
-    name: str
-    description: str
-    parameters: dict
-    tier: int = 0  # T0-T3, Phase 0: label only, no runtime interception
-    max_result_chars: int = 8000  # Per-tool result truncation limit
-    side_effect: bool = False  # True = modifies state; intercepted in winding_down phase
-    managed_effect_semantics: SideEffectSemantics | None = None
 
 
 class ToolRegistryConflict(RuntimeError):

@@ -9,16 +9,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tianshu.executor.workspace_context import BoundWorkspace
-from tianshu.executor.workspace_policy import (
-    WORKSPACE_MAIN_SOURCE_ID,
-    WorkspacePolicyValidationError,
-    validate_workspace_policy,
-)
 from tianshu.executor.workspace_service import WorkspaceLeaseRequest, WorkspaceService
 from tianshu.models.common import TaskStatus
 from tianshu.models.governance_contract import EffectiveGovernanceContractV1
 from tianshu.models.memorial import Memorial
 from tianshu.models.workspace import CanonicalChangeSet, WorkspaceLeaseState
+from tianshu.models.workspace_policy import (
+    WORKSPACE_MAIN_SOURCE_ID,
+    WorkspacePolicyValidationError,
+    validate_workspace_policy,
+)
 from tianshu.storage import Storage
 
 _MAX_PARENT_DEPTH = 64

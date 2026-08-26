@@ -11,6 +11,7 @@ import tianshu.bootstrap.wiring_skills as wiring_skills
 from tianshu.bootstrap.wiring_skills import wire_evolution_services, wire_skills_watcher
 from tianshu.config import TianshuSettings
 from tianshu.evidence.service import ArtifactStore, EvidenceService
+from tianshu.executor.capabilities import get_executor_manifest
 from tianshu.models.evolution_candidate import CandidateKind
 from tianshu.models.frozen_content import (
     FrozenContentViewsV1,
@@ -44,7 +45,11 @@ def _wire_app(tmp_path: Path, settings: TianshuSettings) -> tuple[FastAPI, Stora
         max_object_bytes=settings.artifact_max_bytes,
         max_total_bytes=settings.artifact_quota_bytes,
     )
-    app.state.evidence_service = EvidenceService(storage, app.state.artifact_store)
+    app.state.evidence_service = EvidenceService(
+        storage,
+        app.state.artifact_store,
+        executor_manifest_provider=get_executor_manifest,
+    )
     wire_evolution_services(app, settings, skill_target=tmp_path / "skills")
     return app, storage
 

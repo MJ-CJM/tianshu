@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from tianshu.authz import can_access_submitter
-from tianshu.evidence.models import ClosedEvidenceBundleV1
 from tianshu.models.decision import DecisionRecordV1
 from tianshu.models.edict_detail import (
     EdictDecisionDetailV1,
@@ -16,6 +15,7 @@ from tianshu.models.edict_detail import (
     EvidenceEnvironmentDetailV1,
     EvidenceExecutorIdentityV1,
 )
+from tianshu.models.evidence import ClosedEvidenceBundleV1
 from tianshu.models.principal import AuthContext
 from tianshu.models.run_state import agent_plan_continuation
 from tianshu.storage import Storage

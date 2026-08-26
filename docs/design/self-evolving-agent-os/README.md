@@ -54,6 +54,7 @@
 | [source-map.md](source-map.md) | 证据等级、源码快照和外部一手资料索引 |
 | [review-and-implementation-plan.md](review-and-implementation-plan.md) | 2026-08-24 独立评审：同意什么、修正什么，以及 PR 级实现顺序 |
 | [architecture-comparison.md](architecture-comparison.md) | 现在 → 目标的逐行架构对照图、Pi 换代时序与落地顺序 |
+| [implementation-acceptance.md](implementation-acceptance.md) | P0–P7/X1–X5 实现收口、架构边界、兼容层和仍需用户验证的事项 |
 | [落地方案（docs/plan）](../../plan/2026-08-25-self-evolving-agent-os-landing.md) | 2026-08-25 合成并经三路校验的分阶段实施方案（P0–P7、V31–V35 迁移、逐阶段验收） |
 
 ## 事实与建议的标记
@@ -94,6 +95,12 @@ Promotion Authority 与 PluginHost 仍未完成。P3 的 attempt 代际权威是
 承载其中的 per-subject 选择，不提前建立同名大聚合。`AgentSession`
 明确不在首期引入，continuity 先按 conversation/长任务、scheduled root、DAG/retry 的
 Edict/Memorial 规则固定。
+
+Issue #119 又完成了 P0/P7 的依赖边界收口：ADR-0013 登记的九类反向依赖已清零，
+`application / evolution / evidence / plugins` 已进入完整四层 import-linter 契约；移动的异常、
+ContextVar、Pydantic contract 与路由类均由旧路径重导出同一 canonical 对象。详情见
+[implementation-acceptance.md](implementation-acceptance.md)。这不改变“第三方动态 PluginHost
+尚未完成”和“P7 当前只冻结 Skills”的产品边界。
 
 ## 与现有文档的关系
 

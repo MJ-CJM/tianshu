@@ -8,12 +8,14 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from threading import Lock
 
+from tianshu.evolution.executor_ports import (
+    GenerationRegistryPort,
+    MaterializedExecutorGenerationPort,
+)
 from tianshu.evolution.promotion import PromotionConflict, PromotionService
-from tianshu.executor.adapters import (
-    ExecutorAdapterRegistry,
+from tianshu.models.executor_generation import (
     ExecutorGenerationConflict,
     ExecutorGenerationError,
-    MaterializedExecutorGeneration,
 )
 from tianshu.models.executor_generation_authority import (
     ExecutorGenerationAuthorityStatus,
@@ -104,7 +106,7 @@ class GenerationReconciler:
         self,
         repository: GenerationRepository,
         unit_of_work_factory: UnitOfWorkFactory,
-        registry: ExecutorAdapterRegistry,
+        registry: GenerationRegistryPort,
         *,
         clock: Callable[[], datetime] | None = None,
         snapshot_binding_available: Callable[[], bool] | None = None,
@@ -517,7 +519,7 @@ class GenerationReconciler:
         self,
         connection: sqlite3.Connection,
         generation: RuntimeGenerationV1,
-        record: MaterializedExecutorGeneration,
+        record: MaterializedExecutorGenerationPort,
         *,
         include_state: bool = True,
     ) -> bool:

@@ -66,7 +66,7 @@ Phase 1 比报告写的便宜得多（§3.5）。
 | `HookRegistry.run` 已有 per-type timeout 与 fail-secure 集合 | [`kernel/hooks.py:86-125`](../../../src/tianshu/kernel/hooks.py) | 报告 §4.2 把"handler 有 timeout"列为目标，实际已部分成立；缺的是 budget/熔断/crash-loop quarantine |
 | `RunDispatcher` 已有 stop-claims → drain → cancel 的关停序列 | `application/run_dispatcher.py:195-216` | "drain 旧代"在进程级已经存在，不必在进程内再造一套 |
 | `EvolutionRollbackReconciler` 已是 level-based、串行、可重入的 reconciler 雏形 | [`evolution/reconciler.py`](../../../src/tianshu/evolution/reconciler.py) | 扩成 `GenerationReconciler` 即可，不需要六个 |
-| import-linter 三层契约 | `pyproject.toml [tool.importlinter]`：`gateway/executor/scheduler/bootstrap/universe : storage/secrets/memory/persona/skills : kernel/models/config/bus` | "微内核不可被插件反向依赖"可以直接用它落成可执行约束；注意 `evolution / evidence / application / plugins / governance` 目前不在任何层里 |
+| import-linter 完整四层契约 | `pyproject.toml [tool.importlinter]`：入口/执行面 → `application/evolution/evidence/plugins` → `storage/secrets/memory/persona/skills` → `kernel/models/config/bus` | Issue #119 已清零 ADR-0013 的九类存量反向边；`tests/architecture/test_layer_contract.py` 锁定完整层表和唯一 TYPE_CHECKING ignore，不能通过删层或加例外静默弱化 |
 
 ## 3. 不同意与补充
 
@@ -192,7 +192,7 @@ snapshot、在 Memorial/RunState/Evidence 三处双写"。实际：
 | `src/tianshu/evolution/system_snapshot.py`（新） | `SystemSnapshotResolver`：装配期从 `app.state` 收集组件（kernel = `tianshu_version + dependency_lock_hash`，复用 `evidence/service.py:664` 的 lock hash 计算；executor = 每个 adapter 的 `canonical_sha256(manifest)` + `probe()` 中的版本字段）；`resolve_for_run(assignment)` 追加 `evolution_overlay = overlay_digest`（legacy assignment 时省略该 key） |
 | `src/tianshu/storage/migrations.py` | V31 `0031_system_snapshots`：`system_snapshots(snapshot_digest PK, schema_version, components_json, first_seen_at)`；`run_system_bindings(memorial_id, attempt_id, snapshot_digest, generation_ids_json DEFAULT '[]', created_at, PRIMARY KEY(memorial_id, attempt_id))`。沿用 `_*_STATEMENTS + _*_CHECKSUM` 模式并登记 callback 指纹；V31 形状冻结不 ALTER，P3 另建 generation authority |
 | `src/tianshu/storage/evolution_repo.py` | `insert_system_binding(connection, memorial_id, attempt_id, snapshot)`：先 `INSERT OR IGNORE system_snapshots`，再插 binding；同 attempt 重复写入必须等值，否则 `EvolutionAssignmentConflict` |
-| `src/tianshu/universe/router.py` `bind_runtime` | 在现有 UoW 内解析并写入 binding；`EvolutionRuntimeContext` 增加 `system_snapshot: SystemSnapshotV1`（`runtime_context.py`） |
+| `src/tianshu/application/runtime_router.py` `bind_runtime` | 在现有 UoW 内解析并写入 binding；`EvolutionRuntimeContext` 增加 `system_snapshot: SystemSnapshotV1`（canonical 为 `models/runtime_context.py`；旧路径兼容重导出） |
 | `src/tianshu/evidence/service.py` ~L911 | 关闭 Evidence 时读取该 Memorial 最后一个 attempt 的 binding，以 artifact `application/vnd.tianshu.system-snapshot.v1+json` 挂入 `required_artifact_digests`（与 assignment artifact 同一段代码模式） |
 | `src/tianshu/gateway/…`（可选） | `GET /api/edicts/{id}` 详情投影 `system_snapshot_digest`，Web 暂不展示 |
 
@@ -238,8 +238,8 @@ snapshot、在 Memorial/RunState/Evidence 三处双写"。实际：
 |---|---|
 | `storage/evolution_repo.py` | 无 subject 参数的 `get_routable_candidates(connection)` 返回权威多值集合；不同 `(kind, subject_key)` 允许并存 canary，同 pair 仍 fail closed |
 | `storage/migrations.py` V34 `0034_run_subject_assignments` | 新增不可变 per-subject assignment 表；现有 `RunAssignmentV1` 与旧表不改。fresh root singleton 保持旧表投影与旧 Evidence artifact 逐字节兼容，同时有意新增 V34 set 与 assignment API 字段 |
-| `universe/router.py` | `assign_current` 对每个有 canary 的 subject 独立分桶（`allocation_seed_id` 已按 candidate 区分，bucket 天然不同） |
-| `evolution/runtime_context.py` | `overlays` / `payloads` 以 `kind.value:subject_key` 为 key 并深冻结；N>1 时 singular accessor 返回 `None` |
+| `application/runtime_router.py` | `assign_current` 对每个有 canary 的 subject 独立分桶（`allocation_seed_id` 已按 candidate 区分，bucket 天然不同） |
+| `models/runtime_context.py` | `overlays` / `payloads` 以 `kind.value:subject_key` 为 key 并深冻结；N>1 时 singular accessor 返回 `None` |
 | `storage/migrations.py` V33 `0033_evolution_policies` | 实际冻结列为 `subject_key PK, kind, mode ∈ {frozen,manual,canary}, max_canary_basis_points, version, created_at, updated_at`；无行时 Skill 祖父化为 `canary`，其余 kind 为 `manual`；allowed surfaces / approval / budget 留在目标态 |
 | `candidate_service.py` / `promotion.py` | `propose`：`frozen` → 拒绝；`start_canary`：mode≠`canary` → 拒绝，bp 取 `min(contract, policy)`；`promote` 已要求 Decision，不变 |
 | Web 天工院 | P4b 实际交付：availability/source/curator protection 只读；mode 与 max canary basis points 严格 CAS。无 enabled/version-pin 开关 |

@@ -5,10 +5,10 @@ from collections.abc import Mapping
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from tianshu.evolution.adapters.base import AdapterError, BaseCandidateAdapter
-from tianshu.executor.workspace_policy import validate_workspace_policy
 from tianshu.models.canonical import JsonValue
 from tianshu.models.evolution_candidate import CandidateKind
 from tianshu.models.governance_contract import RecoveryPolicyV1, WorkspacePolicyV1
+from tianshu.models.workspace_policy import validate_workspace_policy
 
 
 class _PolicySourceV1(BaseModel):

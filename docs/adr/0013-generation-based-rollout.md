@@ -151,15 +151,24 @@ ledger，只能退到仍理解 V34 的行为兼容 reader；禁止把纯 V33/P4a
 ### 4. 依赖边界分阶段收紧
 
 目标依赖方向是入口与执行面依赖应用/进化/证据/插件面，后者再依赖存储与治理微内核，
-底层不得反向依赖上层。P0 不为满足理想分层而重排既有 import；当前已知例外包括：
+底层不得反向依赖上层。P0 不为满足理想分层而重排既有 import；当时登记的已知例外包括：
 
 - application 依赖 executor 和 universe；
 - evidence、evolution 和 plugins 依赖 executor（plugins 经 tools registry 间接依赖）；
 - models、storage 和 skills 依赖 evidence，skills 还依赖 evolution。
 
 这些边只登记为存量例外，不授权新增同类依赖。P0 先用可通过的 import-linter forbidden
-契约守住无冲突边界；后续阶段逐项解耦，最迟在 P7 前清零本 ADR 的例外清单并收紧为完整
-层级约束。
+契约守住无冲突边界；P7 收口阶段（Issue #119）已通过 canonical 下沉、兼容重导出、
+consumer-owned Protocol 与 composition-root 注入清零上述九类边，并启用完整四层约束：
+
+1. `gateway / executor / scheduler / bootstrap / universe`；
+2. `application / evolution / evidence / plugins`；
+3. `storage / secrets / memory / persona / skills`；
+4. `kernel / models / config / bus`。
+
+唯一保留的 ignore 是 `kernel.ambient -> persona.model` 的 `TYPE_CHECKING` 类型标注；
+`tests/architecture/test_layer_contract.py` 锁定完整层表和该唯一例外，禁止以后通过删层或新增
+ignore 静默弱化契约。
 
 ## 影响
 

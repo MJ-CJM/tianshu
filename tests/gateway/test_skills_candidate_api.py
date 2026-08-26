@@ -17,6 +17,7 @@ from tianshu.bootstrap.wiring_skills import wire_evolution_services
 from tianshu.config import TianshuSettings
 from tianshu.evidence.service import ArtifactStore, EvidenceService
 from tianshu.evolution.gates import REQUIRED_GATES
+from tianshu.executor.capabilities import get_executor_manifest
 from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
 from tianshu.gateway.evolution_api import evolution_router
 from tianshu.gateway.skills_api import skills_router
@@ -59,7 +60,11 @@ def _app(tmp_path: Path) -> tuple[FastAPI, Storage, Path]:
         max_object_bytes=1024 * 1024,
         max_total_bytes=8 * 1024 * 1024,
     )
-    app.state.evidence_service = EvidenceService(storage, app.state.artifact_store)
+    app.state.evidence_service = EvidenceService(
+        storage,
+        app.state.artifact_store,
+        executor_manifest_provider=get_executor_manifest,
+    )
     app.state.skills_loader = SkillsLoader(builtin_dir=tmp_path / "builtin-skills", user_dir=live)
     app.state.skill_metrics_store = None
     app.state.public_webhook_paths = set()

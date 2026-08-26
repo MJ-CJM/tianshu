@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable
 
 from tianshu.evolution.candidate_service import CandidateService, CandidateServiceError
-from tianshu.executor.keqing.generation import PI_GENERATION_SCOPE, PiReleaseMaterializer
+from tianshu.evolution.executor_ports import RuntimeReleaseMaterializerPort
 from tianshu.models.canonical import canonical_sha256
 from tianshu.models.evolution_candidate import (
     CandidateKind,
@@ -19,6 +19,7 @@ from tianshu.models.evolution_candidate import (
     GateName,
     ProvenanceInputV1,
 )
+from tianshu.models.executor_generation import PI_GENERATION_SCOPE
 from tianshu.models.runtime_generation import RuntimeGenerationState, RuntimeReleaseV1
 from tianshu.storage.evolution_repo import EvolutionRepository
 from tianshu.storage.generation_repo import GenerationRepository
@@ -43,7 +44,7 @@ class ExecutorDriftScanner:
         *,
         unit_of_work_factory: UnitOfWorkFactory,
         candidate_service: CandidateService,
-        materializer: PiReleaseMaterializer,
+        materializer: RuntimeReleaseMaterializerPort,
         enabled: bool = False,
         interval_seconds: float = 3600.0,
         monotonic: Callable[[], float] = time.monotonic,

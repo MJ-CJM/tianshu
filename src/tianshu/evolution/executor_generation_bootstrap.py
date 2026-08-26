@@ -6,9 +6,12 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from tianshu.executor.generation_controller import GenerationController, GenerationRecoveryReport
-from tianshu.executor.keqing.generation import PI_GENERATION_SCOPE, PiReleaseMaterializer
+from tianshu.evolution.executor_ports import (
+    GenerationControlPort,
+    RuntimeReleaseMaterializerPort,
+)
 from tianshu.models.canonical import canonical_sha256
+from tianshu.models.executor_generation import PI_GENERATION_SCOPE, GenerationRecoveryReport
 from tianshu.models.runtime_generation import (
     GenerationPointerV1,
     RuntimeGenerationState,
@@ -38,8 +41,8 @@ class ExecutorGenerationBootstrap:
         self,
         *,
         unit_of_work_factory: UnitOfWorkFactory,
-        controller: GenerationController,
-        materializer: PiReleaseMaterializer,
+        controller: GenerationControlPort,
+        materializer: RuntimeReleaseMaterializerPort,
         enabled: bool,
     ) -> None:
         self._unit_of_work_factory = unit_of_work_factory

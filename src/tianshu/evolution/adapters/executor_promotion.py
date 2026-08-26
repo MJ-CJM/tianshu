@@ -20,7 +20,7 @@ from tianshu.evolution.adapters.base import (
     CanaryPreparationReceiptV1,
     RollbackReceiptV1,
 )
-from tianshu.executor.generation_controller import GenerationController
+from tianshu.evolution.executor_ports import GenerationControlPort
 from tianshu.models.canonical import canonical_json_bytes, canonical_sha256
 from tianshu.models.evolution_candidate import (
     CandidateKind,
@@ -68,7 +68,7 @@ class ExecutorPromotionAdapter:
     def __init__(
         self,
         artifacts: ArtifactStore,
-        generation_controller: GenerationController,
+        generation_controller: GenerationControlPort,
         unit_of_work_factory: UnitOfWorkFactory,
         *,
         evolution_enabled: bool = True,

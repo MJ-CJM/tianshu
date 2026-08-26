@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from tianshu.application.runtime_router import ChallengerRouter
 from tianshu.models import Memorial, TaskStatus
 from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.canonical import JsonValue, canonical_json_bytes, canonical_sha256
@@ -17,7 +18,6 @@ from tianshu.models.events import EventEnvelope
 from tianshu.storage import Storage
 from tianshu.storage.memorial_repo import insert_memorial
 from tianshu.storage.outbox_repo import OutboxRepository
-from tianshu.universe.router import ChallengerRouter
 
 
 class _Reconciler(Protocol):

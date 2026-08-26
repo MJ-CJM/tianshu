@@ -137,8 +137,8 @@ def _skill_requirements_met(openclaw: dict) -> bool:
 
 
 def _runtime_skill_overlays() -> dict[str, _RuntimeSkillOverlay]:
-    from tianshu.evolution.runtime_context import current_evolution_runtime, runtime_subject_key
     from tianshu.models.canonical import canonical_sha256
+    from tianshu.models.runtime_context import current_evolution_runtime, runtime_subject_key
 
     runtime = current_evolution_runtime()
     if runtime is None:

@@ -17,7 +17,6 @@ from tianshu.application.run_execution import ManagedExecutionProjection
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager
 from tianshu.dag import validate_dag_structure
-from tianshu.evolution.runtime_context import current_run_binding
 from tianshu.executor.adapters import (
     DelegatingExecutorAdapter,
     ExecutionMode,
@@ -59,6 +58,7 @@ from tianshu.models.failure import (
 from tianshu.models.governance_contract import LegacyEdictGovernanceMapper
 from tianshu.models.memorial import Memorial
 from tianshu.models.plan import Plan
+from tianshu.models.runtime_context import current_run_binding
 from tianshu.persona.model import DEFAULT_EXECUTOR_ID
 from tianshu.storage import Storage
 

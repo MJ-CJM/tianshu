@@ -548,7 +548,7 @@ def test_runtime_overlay_requirements_preserve_lower_load_all_live_and_frozen(
         selected_payload=None,
     )
     monkeypatch.setattr(
-        "tianshu.evolution.runtime_context.current_evolution_runtime",
+        "tianshu.models.runtime_context.current_evolution_runtime",
         lambda: runtime,
     )
 
@@ -604,7 +604,7 @@ def test_oversized_runtime_overlay_is_not_load_all_eligible(
         selected_payload=None,
     )
     monkeypatch.setattr(
-        "tianshu.evolution.runtime_context.current_evolution_runtime",
+        "tianshu.models.runtime_context.current_evolution_runtime",
         lambda: runtime,
     )
 
@@ -726,7 +726,7 @@ def test_frozen_load_all_preserves_runtime_overlay_order_at_budget_boundary(
         selected_payload=None,
     )
     monkeypatch.setattr(
-        "tianshu.evolution.runtime_context.current_evolution_runtime",
+        "tianshu.models.runtime_context.current_evolution_runtime",
         lambda: runtime,
     )
 
@@ -948,7 +948,7 @@ async def test_registered_workspace_tools_preserve_frozen_runtime_overlay_priori
     )
     with monkeypatch.context() as patch:
         patch.setattr(
-            "tianshu.evolution.runtime_context.current_evolution_runtime",
+            "tianshu.models.runtime_context.current_evolution_runtime",
             lambda: runtime,
         )
         views = _views(loader)
@@ -1092,7 +1092,7 @@ async def test_absent_runtime_overlay_freezes_hidden_state_for_tools(
     )
     with monkeypatch.context() as patch:
         patch.setattr(
-            "tianshu.evolution.runtime_context.current_evolution_runtime",
+            "tianshu.models.runtime_context.current_evolution_runtime",
             lambda: runtime,
         )
         views = _views(loader)
@@ -1135,7 +1135,7 @@ async def test_selected_base_absence_reveals_lower_skill_layer(
         selected_payload=None,
     )
     monkeypatch.setattr(
-        "tianshu.evolution.runtime_context.current_evolution_runtime",
+        "tianshu.models.runtime_context.current_evolution_runtime",
         lambda: runtime,
     )
 

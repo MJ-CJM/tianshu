@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from tianshu.executor.adapters import ExecutorGenerationUnavailable
 from tianshu.executor.adapters.protocol import DelegatingExecutorAdapter
 from tianshu.executor.capabilities import ExecutorCapabilityManifestV1, pi_manifest
 from tianshu.executor.execution_gateway import ExecutionGateway
@@ -28,9 +27,12 @@ from tianshu.executor.keqing.versions import (
     resolve_stage_executable,
 )
 from tianshu.models.canonical import canonical_sha256
+from tianshu.models.executor_generation import (
+    PI_GENERATION_SCOPE,
+    ExecutorGenerationUnavailable,
+)
 from tianshu.models.runtime_generation import RuntimeReleaseV1
 
-PI_GENERATION_SCOPE = "executor:keqing:pi"
 PI_ADAPTER_ID = "keqing:pi"
 PI_SINGLE_ARGV_SHAPE = "pi --mode json --no-session <prompt> [--model <model>]"
 PI_SESSION_ARGV_SHAPE = (

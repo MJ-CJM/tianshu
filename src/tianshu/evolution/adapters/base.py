@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from tianshu.evidence.models import ArtifactRefV1
 from tianshu.evidence.service import ArtifactStore, ArtifactWriteReceipt
 from tianshu.models.canonical import JsonValue, canonical_json_bytes, canonical_sha256
+from tianshu.models.evidence import ArtifactRefV1
 from tianshu.models.evolution_candidate import (
     CandidateKind,
     CandidateLifecycle,

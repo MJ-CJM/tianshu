@@ -19,10 +19,13 @@ from uuid import uuid4
 
 from tianshu.executor.adapters import (
     ExecutorAdapterRegistry,
-    ExecutorGenerationConflict,
-    ExecutorGenerationUnavailable,
 )
 from tianshu.executor.adapters.protocol import ExecutorAdapter
+from tianshu.models.executor_generation import (
+    ExecutorGenerationConflict,
+    ExecutorGenerationUnavailable,
+    GenerationRecoveryReport,
+)
 from tianshu.models.governance_contract import RequestedGovernanceContractV1
 from tianshu.models.runtime_generation import (
     GenerationPointerV1,
@@ -135,12 +138,6 @@ class GenerationWarmError(GenerationControllerError):
 
 class GenerationRecoveryError(GenerationControllerError):
     """Startup could not reconstruct every retained generation."""
-
-
-@dataclass(frozen=True, slots=True)
-class GenerationRecoveryReport:
-    materialized_generation_ids: tuple[str, ...]
-    failed_generation_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)

@@ -12,6 +12,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from croniter import croniter
 from pydantic import BaseModel, ConfigDict
 
+from tianshu.application.runtime_router import (
+    ChallengerRouter,
+    FrozenContentViewUnavailable,
+    GenerationBindingUnavailable,
+)
 from tianshu.models import EdictRuntime, EdictSchedule, Memorial, TaskStatus
 from tianshu.models.attempt import AttemptStatus
 from tianshu.models.canonical import canonical_sha256
@@ -23,11 +28,6 @@ from tianshu.storage.scheduler_repo import (
     load_scheduler_job,
 )
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
-from tianshu.universe.router import (
-    ChallengerRouter,
-    FrozenContentViewUnavailable,
-    GenerationBindingUnavailable,
-)
 
 
 class ScheduledFireConflict(RuntimeError):

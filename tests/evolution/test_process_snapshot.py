@@ -4,6 +4,7 @@ from collections.abc import Iterator
 
 import pytest
 
+import tianshu.evolution.process_snapshot as process_snapshot_module
 from tianshu.evolution.process_snapshot import (
     ProcessSnapshotBootstrap,
     ProcessSnapshotDriftError,
@@ -211,6 +212,48 @@ def test_non_strict_drift_audits_and_advances_actual_snapshot(storage) -> None:
     assert [(row["action"], row["subject_digest"]) for row in actions] == [
         ("system_snapshot_drift", snapshot_b.digest)
     ]
+
+
+def test_non_strict_drift_audit_failure_is_best_effort_and_atomic(
+    storage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ids = _ids("1", "2")
+    snapshot_a = _snapshot(kernel="a" * 64, provider_profiles="1" * 64)
+    snapshot_b = _snapshot(kernel="a" * 64, provider_profiles="2" * 64)
+    _bootstrap(storage, snapshot_a, ids=ids).initialize()
+    append_audit = process_snapshot_module._append_system_audit_unlocked
+
+    def fail_after_audit_write(connection, request):
+        append_audit(connection, request)
+        raise RuntimeError("injected audit failure")
+
+    monkeypatch.setattr(
+        process_snapshot_module,
+        "_append_system_audit_unlocked",
+        fail_after_audit_write,
+    )
+
+    report = _bootstrap(storage, snapshot_b, ids=ids).initialize()
+
+    assert report.action == "advanced"
+    assert report.drifted is True
+    pointer = _pointer(storage)
+    assert pointer is not None
+    assert pointer.active_generation_id == report.active_generation_id
+    with storage.unit_of_work() as unit_of_work:
+        assert (
+            SystemSnapshotRepository().get_snapshot(
+                unit_of_work.connection,
+                snapshot_b.digest,
+            )
+            == snapshot_b
+        )
+        audit_count = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM system_audit_events"
+        ).fetchone()[0]
+        unit_of_work.commit()
+    assert audit_count == 0
 
 
 def test_unknown_explicit_target_fails_without_inventing_component_diff(storage) -> None:
