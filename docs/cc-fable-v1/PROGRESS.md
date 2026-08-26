@@ -536,9 +536,10 @@ previous successfully activated and still retained snapshot, not a clean-exit re
 
 === Agent OS P7 / per-run frozen Skills view (2026-08-27) ===
 
-Status: implementation complete for issue #115; PR pending creation. Focused loader,
-binding, dispatcher, snapshot-audit, promotion, and wiring regressions pass. Full PR CI
-remains pending and no unknown PR number is recorded here.
+Status: complete and merged into `feat/plugin-v1` by PR #116 (`feba5a91`). Focused
+loader, binding, dispatcher, snapshot-audit, promotion, and wiring regressions pass;
+the PR backend, frontend, Web E2E, release-wheel, dependency-review, and Required CI
+checks all passed (6/6).
 The real three-thread barrier regression also passes: promotion blocks after its atomic
 swap, the watcher blocks after cache invalidation, and a third thread freezes while both
 are in flight; old/new views and rollback remain internally consistent.

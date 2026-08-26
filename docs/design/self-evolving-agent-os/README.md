@@ -76,8 +76,8 @@ PR #109 合入 `feat/plugin-v1`（merge `a8a03071`）。P5 已由 PR #111 合入
 （merge `567b028e`），完成 Pi EXECUTOR Candidate、精确 generation authority、canary、高危
 Decision、换代与回滚垂直切片。P6 已由 PR #114 合入 `feat/plugin-v1`（merge
 `8f32cc4c`），完成 process scope 的 SystemSnapshot generation、启动漂移校验、strict
-run binding 与 Evolution Center 只读 active/last-good 投影。P7 当前已完成开发、PR
-待创建：仅对 Skills 提供每 run 不可变视图和 `off` / `shadow` / `enforce`
+run binding 与 Evolution Center 只读 active/last-good 投影。P7 已由 PR #116 合入同一
+集成分支（merge `feba5a91`，CI 6/6）：仅对 Skills 提供每 run 不可变视图和 `off` / `shadow` / `enforce`
 语义，不新增数据迁移。它保证同进程 mid-run 稳定；重启后持久回放旧内容所需的
 artifact-backed `skills_view` 延期到 P7b。其最终并发边界包括基于已打开目录 fd 与完整
 stability witness 的连续双 capture 与 symlink fail-closed、live/frozen 读取语义等价、polling

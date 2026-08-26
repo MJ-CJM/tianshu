@@ -13,7 +13,8 @@
 ## 1. 现在（as-is，`88462b2a`）
 
 > 这是实施前的 as-is，不代表当前实现。P4b PR #109、P5 PR #111 和 P6 PR #114
-> 已合入 `feat/plugin-v1`；P6 merge 为 `8f32cc4c`。P7 当前已完成开发、PR 待创建，
+> 已合入 `feat/plugin-v1`；P6 merge 为 `8f32cc4c`。P7 已由 PR #116 合入同一分支
+>（merge `feba5a91`，CI 6/6），
 > 仅将 Skills 的每 run 视图落成 `off` / `shadow` / `enforce`。右图仍是全部
 > PluginSet/第三方插件阶段落地后的目标态。
 
@@ -38,7 +39,7 @@
 | 执行器换代 | `replace()` 原地换；没有 warm、没有 last-good；运行中的 run 与新 run 不分代 | stage → warm → activate；新 run 取新代，运行中的 run 固定旧代，exact-attempt lease 与 durable continuity roots 都释放后才 dispose；warm 失败指针不动 | PR-3a |
 | 分流粒度 | 历史基线全局只允许 1 个 canary；P4b 已按 `(kind, subject_key)` 独立灰度并持久封存 assignment set | 按 subject 各自 canary、sticky 与 rollback；每插件一行 `EvolutionPolicy`：frozen / manual / canary | PR-4 |
 | 版本漂移 | 客卿馆显示"待兼容验证"，人工确认后更新基线 | 漂移 → `CandidateKind.EXECUTOR` 候选 → Gates → per-subject canary → Decision → Executor adapter 换代 / 回 last-good | PR-3b / P5（PR-4 后） |
-| 内容变更 | 历史基线中 SkillsWatcher 直接 reload active loader，运行中的 run 会看到新内容 | P7 frozen wiring 中 watcher 只失效缓存并通知；observer 统一改为 polling，规避 macOS 原子交换期间的 FSEvents 崩溃。run 在 `bind_runtime` 冻结 Skills 视图；目录 fd + 完整 stability witness + injected generation 的连续双 capture 避免 mixed view并拒绝搜索路径/成员/嵌套资源 symlink，requirements/max-size/load_all/metadata/injected/fallback 与 live 同义且 eligibility 进入来源身份。selected base absent 显露低层，challenger/unknown absent 保留历史 hide-lower；新的 absent candidate 稳定拒绝。当前仅 Skills 完成；其他声明式内容及 durable global tombstone、“变更必须先走 Candidate”仍是目标 | P7 开发完成，PR 待创建 |
+| 内容变更 | 历史基线中 SkillsWatcher 直接 reload active loader，运行中的 run 会看到新内容 | P7 frozen wiring 中 watcher 只失效缓存并通知；observer 统一改为 polling，规避 macOS 原子交换期间的 FSEvents 崩溃。run 在 `bind_runtime` 冻结 Skills 视图；目录 fd + 完整 stability witness + injected generation 的连续双 capture 避免 mixed view并拒绝搜索路径/成员/嵌套资源 symlink，requirements/max-size/load_all/metadata/injected/fallback 与 live 同义且 eligibility 进入来源身份。selected base absent 显露低层，challenger/unknown absent 保留历史 hide-lower；新的 absent candidate 稳定拒绝。当前仅 Skills 完成；其他声明式内容及 durable global tombstone、“变更必须先走 Candidate”仍是目标 | P7 已由 PR #116 合入 |
 | 进程级发布 | 重启即当前代码，没有 snapshot 校验 | `tianshu serve --system-snapshot` 指定对照；strict 漂移不写 P6 admission 管理的 process snapshot/release/generation/pointer/audit，并在 routing audit、plugin sync、Pi recovery 与 scheduler/run 前拒绝；非 strict 审计后推进；admission 前既有装配写入不在该承诺内；返回 retained last-good 时走专用 rollback；不做活体 reload | PR-5 / P6，已由 PR #114 合入 |
 | 不变 | Edict / Memorial / Attempt / Decision / Evidence / Effect journal / 静态 DAG / Universe fail closed / `automatic_promotion_allowed: Literal[False]` | 同左。治理微内核（Ring 0）不进入进化，`PromotionService` 只拆文件不拆职责 | — |
 
@@ -62,7 +63,7 @@ durable roots 也清空后才可回收。conversation / 深度任务的 follow-u
 | PR-4 | 按 subject 灰度：拆掉"单一全局 canary"；`EvolutionPolicy` 表 frozen / manual / canary | ≈ 1.5 周 |
 | PR-3b / P5 | 在 PR-4 后接入 EXECUTOR：漂移 → Candidate → Gate → per-subject canary → Decision → 晋升/回滚 | ≈ 1.5–2 周 |
 | PR-5 / P6 | 进程级 snapshot 重启：专用 startup bootstrap 管理 process 指针；Pi reconciler 明确隔离；strict 拒启、非 strict 审计、retained last-good 回滚；已由 PR #114 合入（`8f32cc4c`） | 已完成 |
-| P7 | Skills 每 run 不可变视图；`off` / `shadow` / `enforce`；稳定捕获、live/frozen 语义等价、assignment-aware absent 与新 absent fail-closed；watcher polling/晋升主动失效缓存；prebind 旧 snapshot 与当前 Skills 不一致时 shadow 审计，enforce 仅在 audit+outbox 成功后 post-commit 失败。scheduled fire 已提交则交 reconciler 并按 durable cursor/root 收口，提交前失败整笔回滚；claimable retry 成功写 `skills_view_binding_recovered`，终态重放不重冻；生产 prebind/dispatch 两阶段各最多 freeze 一次；无迁移 | 开发完成，PR 待创建 |
+| P7 | Skills 每 run 不可变视图；`off` / `shadow` / `enforce`；稳定捕获、live/frozen 语义等价、assignment-aware absent 与新 absent fail-closed；watcher polling/晋升主动失效缓存；prebind 旧 snapshot 与当前 Skills 不一致时 shadow 审计，enforce 仅在 audit+outbox 成功后 post-commit 失败。scheduled fire 已提交则交 reconciler 并按 durable cursor/root 收口，提交前失败整笔回滚；claimable retry 成功写 `skills_view_binding_recovered`，终态重放不重冻；生产 prebind/dispatch 两阶段各最多 freeze 一次；无迁移 | 已由 PR #116 合入（CI 6/6） |
 
 当前 P7 只保证同进程 mid-run 稳定；持久旧 Skills 字节并跨重启回放的
 artifact-backed `skills_view` 与 durable global Skill tombstone 属于 P7b，明确延期。文件稳定性承诺限于本地 POSIX 普通写者

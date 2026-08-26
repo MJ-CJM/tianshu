@@ -4,13 +4,14 @@
 > 详细来源和证据等级见 [source-map.md](source-map.md)。
 >
 > **实现进展（2026-08-27）**：上游比较仍按固定快照成立。Tianshu 已合入 P1/P3/P4a；
-> P4b PR #109 与 P5 PR #111 已合入 `feat/plugin-v1`。P5 完成 Pi EXECUTOR Candidate、
-> 精确 generation authority、canary、Decision、换代与回滚垂直切片；当前 P6 checkout
-> 完成 process snapshot 启动代际、strict run binding 与只读投影。冻结的
+> P4b PR #109、P5 PR #111、P6 PR #114 与 P7 PR #116 已合入 `feat/plugin-v1`。P5 完成
+> Pi EXECUTOR Candidate、精确 generation authority、canary、Decision、换代与回滚垂直切片；
+> P6 完成 process snapshot 启动代际、strict run binding 与只读投影，P7 完成 Skills 每 run
+> 不可变视图。冻结的
 > `LegacyRunAssignmentV1` / `RunAssignmentV1` 继续承载 fresh root 的 0/1 旧投影；V34
 > `RunAssignmentSetV1` 从 singleton 起承载 per-subject 选择，N>1 时旧表只留 legacy 投影。
 > 因此本文早期“仅单 assignment、缺 per-subject 归因”的描述是历史研究基线；process
-> snapshot 启动代际已在 P6 checkout 落地，通用 PluginHost/完整 PluginSet last-good 仍是后续阶段。
+> snapshot 启动代际已由 P6 落地，通用 PluginHost/完整 PluginSet last-good 仍是后续阶段。
 
 ## 1. 当前 Tianshu：治理地基强，运行时插件尚未建立
 
@@ -27,7 +28,9 @@
 Executor 域已经有一条可复用的 Capability seam：`ExecutorAdapterRegistry` 提供
 `register / replace / get / prepare / bind_effective`，每个 run 经 `prepare()` 得到
 `PreparedExecutor`；`ExecutorCapabilityManifestV1` 与执行模式在注册、绑定时校验。Pi 垂直
-切片因此不需要先新建通用 PluginHost，缺的是 generation、引用计数、last-good 与可逆卸载。
+切片因此不需要先新建通用 PluginHost。P3/P5 已为 `keqing:pi` 落地不可变 release、
+stage/warm/activate/drain、exact-attempt lease 与 continuity root、last-good 和受治理回滚；
+当前缺口是把这些能力泛化到第三方 Executor 与通用 PluginHost，而不是 Pi 本身仍无代际。
 
 事实入口：[当前插件扩展实现与支持边界](current-plugin-state.md)、
 [`PluginApi`](../../../src/tianshu/plugins/api.py)、
@@ -35,14 +38,14 @@ Executor 域已经有一条可复用的 Capability seam：`ExecutorAdapterRegist
 
 > **2026-08-25 P2 更新**：受信任源码的六类 contribution 已补 owner、handle、逆序 disposer
 > 与 stale identity guard；MCP session 工具也已接入该生命周期。以下缺口相应收敛为动态
-> 第三方插件、generation、隔离与完整 PluginSet 归因，而不是“完全没有 owner/disposer”。
+> 第三方插件、通用代际化、隔离与完整 PluginSet 归因，而不是“完全没有 owner/disposer”。
 
 当前插件体系仍缺少：
 
 - Package 验证和依赖解析；
 - 可由 manifest 驱动的第三方 Capability seam 与依赖闭包；
-- Executor seam 的 generation、引用计数、统一 disposer 和 last-good 边界；
-- side-by-side、warming、health、drain、last-good；
+- 非 Pi Executor/第三方 PluginHost 的通用 generation、lease/root retention、统一 disposer 和 last-good 边界；
+- 可复用到任意 Executor 的 side-by-side、warming、health、drain 与 last-good；Pi 已有窄切片实现；
 - 插件级状态 schema、迁移和回滚；
 - 第三方代码隔离与 Secret Broker；
 - PluginSet 级运行归因。

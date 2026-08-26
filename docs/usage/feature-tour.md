@@ -211,9 +211,11 @@
 - **明确边界**：availability、source 和 curator protection 只读，`pinned` 不是版本 pin；
   不提供 per-plugin enabled、版本 pin、晋升或回滚按钮，policy 列表/详情/写入均只允许管理员。
   P4b 已由 PR #109 合入 `feat/plugin-v1`，P5 Pi EXECUTOR 垂直切片已由 PR #111 合入；
-  当前 P6 checkout 还会只读显示进程 SystemSnapshot 的 active/last-good generation。
+  P6 PR #114 还会只读显示进程 SystemSnapshot 的 active/last-good generation，P7 PR #116
+  为运行绑定 Skills 不可变视图，但没有新增本页操作入口。
   这里不提供进程切换按钮；last-good 表示上一成功激活且仍保留的 snapshot，不是干净退出
-  凭证。系统不会自行晋升候选，其他非 Skill kind 的生产激活仍关闭，完整 G4 仍未完成。
+  凭证。系统不会自行晋升候选；除 Pi EXECUTOR 外，其他非 Skill kind 的生产激活仍关闭，
+  完整 G4 仍未完成。
 - **相关文档**：[Skills 当前边界](../design/skills/README.md)、
   [技能学习](../design/skills/learning.md)、[能力事实矩阵](../launch/capability-matrix.md)。
 

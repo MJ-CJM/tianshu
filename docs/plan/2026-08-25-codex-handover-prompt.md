@@ -1,9 +1,11 @@
 # Codex 执行交接 prompt（自进化 Agent OS 落地 + Codex 借鉴并入项）
 
-> 用法：把下方分隔线之间的整段粘贴给 codex；每次只改「本次执行」一行的任务代号。
+> **状态：已归档，不得再次作为执行 prompt 使用。** 下方内容保留为 X1–X5 / P0–P7 的历史实施流程与审计记录。
+> 历史用法：把下方分隔线之间的整段粘贴给 codex；每次只改「本次执行」一行的任务代号。
 > 任务代号一览：`X1`–`X5` 并行轨（规格在 [reference/openai-codex-harness-analysis.md](../reference/openai-codex-harness-analysis.md) §三 对应节 + 方案 §8.2）；`P0`–`P7`（含 `P4a`/`P4b`）主线阶段（规格在 [2026-08-25-self-evolving-agent-os-landing.md](./2026-08-25-self-evolving-agent-os-landing.md) §3）。
 > 推荐顺序：`X1` → `P0` → `P1` ∥ `P2` ∥ `X2` ∥ `X3` → `X4` → `P3` → `X5` → `P4a` → `P4b` → `P5` → `P6` → `P7`。
 > 分支策略：集成分支 `feat/plugin-v1` 承载整个大需求，所有任务 PR 以它为 base；**全部任务完成并整体验证前，不合 main**。
+> **收官状态（2026-08-27）**：X1–X5 与 P0–P7 已全部合入 `feat/plugin-v1`；当前剩余的是用户在集成分支上的总体验证及最终合入 `main`，不是阶段开发未完成。后期用户已授权执行方在任务 PR CI 全绿后直接合入集成分支；仍不得代用户打 tag 或合入 `main`。
 
 ---
 
@@ -13,7 +15,7 @@
 
 ## 0. 一次只做一个任务
 
-**本次执行的任务：`X1`**（后续每次我会说"继续 <代号>"，你只做那一个；`P1` 与 `P2` 可在我明确要求时并行）。
+**本次执行的任务：无（X1–X5 与 P0–P7 已收官）**。以下步骤仅保留为历史记录，不得据此重复创建 issue、分支或 PR。
 
 任务分两轨，规格出处不同：
 
@@ -22,7 +24,7 @@
 | 主线 | `P0` `P1` `P2` `P3` `P4a` `P4b` `P5` `P6` `P7` | `docs/plan/2026-08-25-self-evolving-agent-os-landing.md` §3 对应阶段全节（含标 `Codex Xn` 的并入行） | 顺序 P0→P1→P2→P3→P4a→P4b→P5→P6→P7；P2 可与 P1 并行 |
 | 并行轨 | `X1` WS 所有权过滤 · `X2` 重试判据收敛 · `X3` allowed_paths 受理校验 · `X4` schema 落盘 + CI 门禁 · `X5` 路由 scope 表 | `docs/reference/openai-codex-harness-analysis.md` §三 的 A1 / B2 / B7 / B3 / B1 节 + 方案 §8.2 的时点约束 | `X1` 立即；`X4` 须在 `P3` 合入前；`X5` 须在 `P4a` 合入前；其余随时 |
 
-每个任务以"PR 已开、CI 已亲验、汇报已发"为终点，**不要合并 PR、不要打 tag**——这两步由我操作。
+每个任务以“PR 已开、CI 已亲验并合入 `feat/plugin-v1`、汇报已发”为终点。用户已授权执行方在 CI 全绿后直接合入集成分支；**不要打 tag，也不要把集成分支合入 `main`**——这两步仍由用户操作。
 
 ## 0.1 分支策略（本次大需求独立于 main）
 
@@ -82,7 +84,7 @@
    - 已知三处时序偶发：outbox scheduler ×2、process group ×1。若红了，先判断你的 diff 是否碰得到、本地复跑是否稳定，不要为它们改测试。
 6. 逐条对照本任务**验收 checklist**，未满足的不得进入下一步；规格里标"demo 栈手工"的验收项，用 `tianshu serve` 起 demo profile 实际操作一遍并把观察结果写进 PR。
 7. 提交：conventional commits（`feat:` / `fix:` / `test:` / `docs:`），小步多次；PR 标题同 issue，正文含：改动摘要（按改动清单对照）、迁移说明、测试计划（勾选）、验收 checklist 状态、回退方式、`Closes #<n>`。`git push -u origin sea/<代号>-<slug>` 后 `gh pr create --base feat/plugin-v1`（**base 必须是集成分支**）。
-8. `gh pr checks <n> --watch` 亲眼看到全绿再汇报；红了先修，修不了说明原因。**不 merge、不 tag、不碰 main。**
+8. `gh pr checks <n> --watch` 亲眼看到全绿；红了先修，修不了说明原因。按后期用户授权，全绿后由执行方合入 `feat/plugin-v1`；**不 tag、不碰 main。**
 9. 同步文档（方案 §4.4）：在 `docs/plan/2026-08-25-self-evolving-agent-os-landing.md` 文首增加/更新「实施状态」表（仿 `docs/plan/2026-07-23-keqing-pi-implementation.md` 样式，逐任务记录状态、日期、测试数；并行轨任务也登记）；新迁移时更新 `docs/CURRENT-STATE.md` 迁移序列；能力矩阵与 CONTEXT.md 按规格要求更新；`X4` 合入后，后续每个新增 V1 契约的阶段须登记 `SCHEMA_EXPORTS`。这些随同一 PR 提交。
 
 ## 5. 汇报格式（每任务结束一次，直接在对话里给）

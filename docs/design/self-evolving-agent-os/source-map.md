@@ -12,8 +12,8 @@
 > 5270 passed、2 skipped、24 slow deselected，Web 347 passed；静态检查与生产构建通过。
 > P5 已由 PR #111 合入 `feat/plugin-v1`（merge `567b028e`）。P6 已由 PR #114
 > 合入同一集成分支（merge `8f32cc4c`，CI 6/6），事实入口与验证路径另列于下文。
-> P7 当前开发完成、PR 待创建；本地聚焦回归已通过，完整门禁只能以未来
-> PR 的实际检查为准，不从 P6 或历史阶段数字外推。
+> P7 已由 PR #116 合入同一集成分支（merge `feba5a91`，CI 6/6）；本地聚焦回归
+> 与 PR backend/frontend/E2E/release/Required CI 均已通过，不从 P6 或历史阶段数字外推。
 
 ## 1. 核验时间与源码快照
 
@@ -103,9 +103,8 @@ uv 0.9.27、项目 Python 3.12.12、pytest 9.0.3，HEAD `88462b2a`。
 
 ### P7 Skills 每 run 不可变视图
 
-Issue #115 的当前实现仅覆盖 Skills，无数据迁移；`off` / `shadow` / `enforce`
-分别表示完全兼容、构建对账但读 live、绑定视图且失败关闭。开发已完成，
-PR 待创建；下列是当前 checkout 的事实入口：
+Issue #115 / PR #116 的已合入实现仅覆盖 Skills，无数据迁移；`off` / `shadow` / `enforce`
+分别表示完全兼容、构建对账但读 live、绑定视图且失败关闭。下列是当前集成分支的事实入口：
 
 - [`src/tianshu/models/frozen_content.py`](../../../src/tianshu/models/frozen_content.py)
 - [`src/tianshu/skills/loader.py`](../../../src/tianshu/skills/loader.py)

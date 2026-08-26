@@ -38,8 +38,8 @@
 
 ### 2.1 当前 P7 落点：只有 Skills 进入每 run 冻结
 
-P6 已由 PR #114 合入 `feat/plugin-v1`（merge `8f32cc4c`）。P7 当前开发完成、
-PR 待创建，只把 **Skills 声明式读取面**落成每 run 不可变视图：
+P6 已由 PR #114 合入 `feat/plugin-v1`（merge `8f32cc4c`）。P7 已由 PR #116
+合入同一分支（merge `feba5a91`，CI 6/6），只把 **Skills 声明式读取面**落成每 run 不可变视图：
 
 - `off`：不构建 frozen view，保持原行为；
 - `shadow`：执行 bind 构建，并在 SystemSnapshot 身份可用时对账源摘要，漂移审计后继续 live 读取；
