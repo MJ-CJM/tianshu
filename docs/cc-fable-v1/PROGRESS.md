@@ -510,8 +510,7 @@ side-effect free.
 Boundary: this is a governed Pi executor slice, not automatic CLI upgrade, a direct
 public GenerationController API, a general third-party PluginHost, automatic promotion,
 or multi-process coordination. Same-command executor canary single-flight is
-process-local, matching the supported single-process SQLite deployment model. P6 process
-snapshot strictness and P7 per-run frozen Skill views remain pending.
+process-local, matching the supported single-process SQLite deployment model.
 
 Local verification: the focused P5 executor/evolution suite passes 190 tests and the
 migration/data-preservation suite passes 122. The complete non-slow backend collection
@@ -520,4 +519,103 @@ launcher, and real-home lock boundaries are recorded separately for Linux CI rat
 than treated as product failures. Ruff check/format, Mypy (145 source files), all four
 import-linter contracts, Web typecheck, all 77 Web test files / 350 tests, ESLint
 (0 errors), the production build, and all 32 Playwright E2E tests pass.
-PR #111 targets `feat/plugin-v1`; target-branch CI is pending.
+PR #111 was merged into `feat/plugin-v1` as `567b028e`.
+
+=== Agent OS P6 / process SystemSnapshot generation and strict binding (2026-08-27) ===
+
+Status: complete and merged. PR #114 was merged into `feat/plugin-v1` as
+`8f32cc4c` with all six required checks passing.
+
+Decision: P6 reuses the V32 generation tables with `scope=process`; no migration is
+added. A dedicated startup bootstrap maintains process active/last-good generations,
+strict target drift fails before P6 admission writes and before routing/plugin/Pi/run
+startup, and non-strict drift is audited before advancing. Pi materialization,
+authority, attempt binding, and reconciliation remain scope-isolated. Runtime binding
+failures use the independent `system_snapshot_unavailable` code. Last-good means the
+previous successfully activated and still retained snapshot, not a clean-exit receipt.
+
+=== Agent OS P7 / per-run frozen Skills view (2026-08-27) ===
+
+Status: implementation complete for issue #115; PR pending creation. Focused loader,
+binding, dispatcher, snapshot-audit, promotion, and wiring regressions pass. Full PR CI
+remains pending and no unknown PR number is recorded here.
+The real three-thread barrier regression also passes: promotion blocks after its atomic
+swap, the watcher blocks after cache invalidation, and a third thread freezes while both
+are in flight; old/new views and rollback remain internally consistent.
+Freeze opens directories as fds and records a stability witness for every file/directory:
+device, inode, mode, size, mtime_ns, and ctime_ns. Injected generation participates in
+the witness and injected Skills are sorted by name. A view is accepted only when two
+consecutive whole captures, including all witness data, agree. Three attempts under
+continuous churn fail closed; exchange plus cleanup cannot publish a mixed tree.
+Every search-path component, Skill directory/member, and nested resource is captured
+without following symlinks; any such symlink fails closed. Requirements, maximum raw
+size, load-all eligibility, metadata, injected Skills, lower-layer fallback, precedence,
+and budget behavior now have live/frozen parity regressions. The effective requirements
+environment decision is hashed as `load-all-eligible`, so a decision change produces a
+new source identity even when SKILL.md bytes do not change.
+
+Absence remains assignment-aware. A selected base/champion absence removes only the
+governed target layer and reveals a lower-priority source; a selected challenger or
+unknown legacy absence preserves the historical hide-lower tombstone. New absent
+candidates fail before start-canary, promote, or activate with the stable
+`skill_absence_requires_durable_tombstone` error. A durable global tombstone is deferred
+to P7b and must not be inferred from the compatibility overlay.
+
+Decision: P7 freezes only Skills and adds no migration. Two default-off switches form
+three rollout modes: off does not build a view; shadow builds, compares when a snapshot
+identity is available, and leaves
+the runner on live reads; enforce binds the immutable view and returns the stable
+`skills_view_unavailable` failure before the runner when the decoded Skills identity is
+missing, the view cannot be built, or its digest has drifted. A structurally corrupt
+persisted SystemSnapshot/run binding remains a P6 binding failure and keeps
+`system_snapshot_unavailable` in strict mode or `generation_binding_unavailable`
+otherwise; P7 does not relabel it. Legacy and governed bindings, task-local isolation,
+watcher invalidation, and Skill promotion/rollback cache invalidation are covered.
+
+Audit semantics are explicit: only a real source-digest mismatch emits successful
+`skills_view_drift`. Fatal view-factory, whole-capture, or model-validation failures,
+plus a missing decoded Skills identity in enforce mode, emit failed
+`skills_view_binding_failed`. Shadow skips comparison when identity is absent and does
+not emit that failed event. A single SKILL.md parse failure retains loader warning-and-
+skip behavior and does not by itself become a binding-failed audit. Both event classes
+use one audit/outbox transaction and exclude Skill content and raw exception details.
+
+Enforced prebind registers a caller-UoW post-commit failure only after audit and outbox
+were written successfully. Those records and caller business writes commit atomically,
+then the stable error is raised; if evidence recording fails, the entire transaction
+rolls back. A same-key P7 marker triggers revalidation only while the attempt remains
+claimable, so exact terminal replay does not freeze against current Skills again. The
+promotion cache invalidator is wired independently of the frozen-view flags; uncertain
+desired/no-op retries and successful `verify_rollback` hits also invalidate.
+
+Scheduler handling distinguishes those two transaction outcomes. A post-commit
+`ScheduledFireBindingUnavailable` carries the durable `PreparedFire`: interval loops stay
+active with the committed next cursor, once consumes its initial root only once, run-now
+does not alter the timer cursor, and every claimable attempt explicitly wakes the durable
+run reconciler. A pre-commit audit/outbox failure rolls back fire, attempt, and cursor
+writes, retains the initial root, and does not wake the reconciler, so the same fire can
+recover. Successful retry records `skills_view_binding_recovered`; failure to record that
+recovery also rolls back rather than leaving an in-memory-only recovery claim.
+
+`SkillsWatcher` uses `PollingObserver` in every mode, including frozen wiring, because
+native macOS FSEvents can abort the process during atomic Skill-tree exchanges. Frozen
+wiring remains invalidate-plus-notify only, while the no-callback legacy path preserves
+its debounced reload behavior; callbacks queued by a stopped watcher generation are
+discarded.
+
+These capture guarantees assume local POSIX semantics, ordinary writers, and reliable
+ctime/stat changes. They do not claim resistance to privileged writers or filesystems
+whose ctime is not a trustworthy mutation witness.
+
+Each binding phase freezes at most once. A run without prebind freezes once; production
+prebind plus dispatch deliberately performs one identity capture and one execution
+rebuild because the phases may cross a process boundary. Reusing the same in-memory view
+across those phases is not a P7 guarantee and would require the deferred P7b artifact.
+
+Prebind boundary: P7 guarantees same-process mid-run stability. When an old persisted
+SystemSnapshot cannot be reconstructed from current Skills bytes after prebind or
+restart, shadow audits and continues live while enforce fails closed. The runtime must
+not silently pair an old snapshot with a new view. Artifact-backed `skills_view`
+persistence for durable old-content replay is deferred to P7b because it expands
+retention, quota, secret-scanning, and rollback contracts. Persona, Prompt, Provider,
+general PluginSet, and third-party PluginHost evolution remain outside P7.

@@ -36,6 +36,37 @@
 模型权重、LoRA 和训练数据版本可以作为签名 `ModelArtifact` 被 `SystemSnapshot` 引用，但
 应使用独立的离线训练、评测和发布管线，而不是作为普通运行时插件自动替换。
 
+### 2.1 当前 P7 落点：只有 Skills 进入每 run 冻结
+
+P6 已由 PR #114 合入 `feat/plugin-v1`（merge `8f32cc4c`）。P7 当前开发完成、
+PR 待创建，只把 **Skills 声明式读取面**落成每 run 不可变视图：
+
+- `off`：不构建 frozen view，保持原行为；
+- `shadow`：执行 bind 构建，并在 SystemSnapshot 身份可用时对账源摘要，漂移审计后继续 live 读取；
+- `enforce`：把视图绑定到 run；已解码的 Skills 身份缺失、视图构建失败或摘要漂移以
+  `skills_view_unavailable` 在 runner 前失败关闭。持久 snapshot/binding 结构损坏仍沿用
+  P6 的 `system_snapshot_unavailable`（strict）或 `generation_binding_unavailable`，不被重分类。
+
+它不等于插件安装、enabled、version pin 或自动进化，Persona/Prompt/Provider 也没有
+随之冻结。P7 无数据迁移，只保证同进程 mid-run 稳定；跨重启耐久回放
+旧内容所需的 artifact-backed `skills_view` 延期到 P7b。实现细节与明确不支持项
+统一见 [current-plugin-state.md](current-plugin-state.md)，阶段验收见
+[落地方案](../../plan/2026-08-25-self-evolving-agent-os-landing.md)。
+其中每个绑定阶段最多冻结一次；无 prebind 的 run 一次，生产 prebind + dispatch
+是“身份捕获 + 执行重建”两个阶段，不跨进程复用同一 view。
+捕获过程以目录 fd 读取，将文件/目录完整 stat witness、injected generation 和按名称排序的
+注入 Skill 纳入全量 capture；连续两次一致才接受，三轮持续 churn 后 fail closed，并拒绝
+搜索路径/成员/嵌套资源 symlink。requirements/max-size/load_all/metadata/injected/fallback 与
+live 同义，requirements 环境 eligibility 进入来源身份；watcher 统一使用 polling observer，
+避免 macOS 原子交换时的 FSEvents 崩溃。selected base absent 只显露低层，challenger/unknown
+absent 保持历史 hide-lower；新的 absent candidate 在 canary/promote/activate 以稳定错误拒绝，
+durable global tombstone 延期 P7b。enforce prebind 只有 audit+outbox 成功才登记 UoW
+post-commit failure；scheduled fire 已提交则按 durable cursor/root 收口并显式唤醒 reconciler，
+提交前失败整笔回滚、不推进 cursor 或清 initial root。同-key marker 仅对 claimable attempt
+触发重冻，成功写 `skills_view_binding_recovered`，终态幂等重放不重冻。promotion invalidator
+无论 frozen flag 开关都装配，desired/no-op 重试及 `verify_rollback` 命中也失效缓存。该稳定性边界限于
+本地 POSIX 普通写者和可靠 ctime，不覆盖特权写者或 ctime 不可靠文件系统。
+
 ## 3. 自进化可以改变什么
 
 每个 `EvolutionPolicy` 可以独立允许以下变化面：

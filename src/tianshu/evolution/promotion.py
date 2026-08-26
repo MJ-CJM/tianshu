@@ -7,6 +7,7 @@ import ctypes
 import errno
 import hashlib
 import json
+import logging
 import os
 import shutil
 import sqlite3
@@ -63,6 +64,9 @@ _DARWIN_AT_FDCWD = -2
 _LINUX_AT_FDCWD = -100
 _RENAME_EXCHANGE = 0x00000002
 _RENAME_NOFOLLOW_ANY = 0x00000010
+
+logger = logging.getLogger(__name__)
+_SKILL_ABSENCE_UNAVAILABLE = "skill_absence_requires_durable_tombstone"
 
 
 def _atomic_exchange(source: Path, target: Path) -> None:
@@ -294,24 +298,57 @@ class UnavailablePromotionAdapter:
 class SkillPromotionAdapter:
     """Idempotently replace one validated live skill with an artifact-backed package."""
 
-    def __init__(self, artifacts: ArtifactStore, *, live_root: Path) -> None:
+    def __init__(
+        self,
+        artifacts: ArtifactStore,
+        *,
+        live_root: Path,
+        cache_invalidator: Callable[[], None] | None = None,
+    ) -> None:
         self._artifacts = artifacts
         Path(live_root).mkdir(parents=True, exist_ok=True, mode=0o700)
         self._live_root = Path(live_root).resolve(strict=True)
         self._validator = SkillCandidateAdapter(artifacts, live_root=self._live_root)
         self._lock_path = self._live_root / ".promotion.lock"
         self._exchange_ready = False
+        self._cache_invalidator = cache_invalidator
 
     def activate(self, candidate: EvolutionCandidateV1) -> ActivationReceiptV1:
         if candidate.kind is not CandidateKind.SKILL:
             raise AdapterError("skill promotion kind mismatch")
         if candidate.lifecycle is not CandidateLifecycle.CANARY:
             raise AdapterError("skill activation requires canary candidate")
+        self.validate_canary(candidate)
         self._apply(candidate, digest=candidate.candidate.artifact_digest)
         return ActivationReceiptV1(
             candidate_id=candidate.candidate_id,
             artifact_digest=candidate.candidate.artifact_digest,
         )
+
+    def validate_canary(
+        self,
+        candidate: EvolutionCandidateV1,
+        *,
+        connection: sqlite3.Connection | None = None,
+    ) -> None:
+        """Reject deletion candidates until a durable global tombstone exists."""
+
+        try:
+            package = (
+                self._load_package(candidate.candidate.artifact_digest)
+                if connection is None
+                else self._load_package_current(
+                    connection,
+                    candidate.candidate.artifact_digest,
+                )
+            )
+            name = package.get("name")
+            if not isinstance(name, str) or candidate.subject_key != f"skill:{name}":
+                raise ValueError("candidate subject does not match skill package")
+        except (ArtifactStoreError, AdapterError, OSError, TypeError, ValueError):
+            raise AdapterError("skill canary validation failed") from None
+        if package.get("state") == "absent":
+            raise AdapterOperationUnavailable(_SKILL_ABSENCE_UNAVAILABLE)
 
     def rollback(self, candidate: EvolutionCandidateV1) -> AdapterRollbackReceiptV1:
         with self.rollback_guard(candidate, applied=False) as receipt:
@@ -352,6 +389,14 @@ class SkillPromotionAdapter:
                 artifact_digest=candidate.base.artifact_digest,
             )
 
+    def _invalidate_cache(self) -> None:
+        if self._cache_invalidator is None:
+            return
+        try:
+            self._cache_invalidator()
+        except Exception:  # noqa: BLE001 - invalidation is best effort after durable replacement
+            logger.warning("Skill promotion cache invalidation failed", exc_info=True)
+
     def verify_rollback(self, candidate: EvolutionCandidateV1) -> AdapterRollbackReceiptV1 | None:
         """Return a receipt only when the governed base is already live and exact."""
 
@@ -370,6 +415,7 @@ class SkillPromotionAdapter:
             with self._locked():
                 if not self._matches(target, package):
                     return None
+                self._invalidate_cache()
         except (ArtifactStoreError, AdapterError, OSError, TypeError, ValueError):
             raise AdapterError("skill rollback verification failed") from None
         return AdapterRollbackReceiptV1(
@@ -552,6 +598,17 @@ class SkillPromotionAdapter:
 
     def _load_package(self, digest: str) -> dict[str, object]:
         raw = self._artifacts.get_bytes(digest)
+        return self._normalize_package(raw, digest)
+
+    def _load_package_current(
+        self,
+        connection: sqlite3.Connection,
+        digest: str,
+    ) -> dict[str, object]:
+        raw = self._artifacts.get_bytes_current(connection, digest)
+        return self._normalize_package(raw, digest)
+
+    def _normalize_package(self, raw: bytes, digest: str) -> dict[str, object]:
         payload = json.loads(raw)
         if (
             not isinstance(payload, dict)
@@ -591,6 +648,7 @@ class SkillPromotionAdapter:
         stage = self._live_root / f".promotion-stage-{target.name}-{digest}"
         self._reconcile(target, package, fallback=fallback, backup=backup, stage=stage)
         if self._matches(target, package):
+            self._invalidate_cache()
             return
         if not self._matches(target, fallback):
             raise ValueError("live skill does not match the governed fallback")
@@ -598,6 +656,7 @@ class SkillPromotionAdapter:
         if state == "absent":
             if target.exists() or target.is_symlink():
                 os.replace(target, stage)
+                self._invalidate_cache()
                 self._remove_tree(stage)
             return
         if state != "present":
@@ -608,10 +667,12 @@ class SkillPromotionAdapter:
         self._prepare_stage(stage, package)
         if target_present:
             _atomic_exchange(stage, target)
+            self._invalidate_cache()
             if not self._matches(target, package) or not self._matches(stage, fallback):
                 raise ValueError("atomic skill exchange did not preserve exact trees")
         else:
             os.replace(stage, target)
+            self._invalidate_cache()
         self._remove_tree(stage)
 
     def _ensure_atomic_exchange(self) -> None:
@@ -860,6 +921,7 @@ class PromotionService:
                 return cast(PromotionReceiptV1, existing)
             if candidate.kind is CandidateKind.EXECUTOR:
                 raise PromotionConflict("executor_canary_requires_async_path")
+            self._require_skill_canary_capability(connection, candidate)
             self._require_expected_version(candidate, command.expected_version)
             if candidate.lifecycle is not CandidateLifecycle.READY:
                 raise PromotionConflict("promotion_preconditions_not_met")
@@ -1404,6 +1466,7 @@ class PromotionService:
             self._require_expected_version(candidate, command.expected_version)
             if candidate.lifecycle is not CandidateLifecycle.CANARY:
                 raise PromotionConflict("promotion_preconditions_not_met")
+            self._require_skill_canary_capability(connection, candidate)
             self._require_no_inflight_subject_transition(
                 connection,
                 candidate,
@@ -2038,6 +2101,25 @@ class PromotionService:
             or auth.principal.scopes.isdisjoint({"api", "admin"})
         ):
             raise PromotionAuthorizationError("promotion_scope_required")
+
+    def _require_skill_canary_capability(
+        self,
+        connection: sqlite3.Connection,
+        candidate: EvolutionCandidateV1,
+    ) -> None:
+        if candidate.kind is not CandidateKind.SKILL:
+            return
+        validate = getattr(self._adapter_resolver(candidate.kind), "validate_canary", None)
+        if not callable(validate):
+            raise PromotionConflict("skill_canary_validation_failed")
+        try:
+            validate(candidate, connection=connection)
+        except AdapterOperationUnavailable as exc:
+            if str(exc) == _SKILL_ABSENCE_UNAVAILABLE:
+                raise PromotionConflict(_SKILL_ABSENCE_UNAVAILABLE) from exc
+            raise PromotionConflict("skill_canary_validation_failed") from exc
+        except Exception as exc:
+            raise PromotionConflict("skill_canary_validation_failed") from exc
 
     def _now(self) -> datetime:
         value = self._clock()

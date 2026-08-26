@@ -13,8 +13,9 @@
 > P5 已由 PR #111 合入 `feat/plugin-v1`。下文“只有 Skill adapter、其余映射
 > `UnavailablePromotionAdapter`”是 `88462b2a` 的历史事实；P5 后 EXECUTOR 始终映射
 > `ExecutorPromotionAdapter`，`executor_generation_enabled` 只关闭新的前向演化，保留 recovery、
-> rollback 与 reconcile。当前 P6 checkout 又实现 process snapshot generation 与 strict binding；
-> P7 尚未完成。
+> rollback 与 reconcile。P6 已由 PR #114 合入 `feat/plugin-v1`（merge `8f32cc4c`），
+> 实现 process snapshot generation 与 strict binding。P7 当前开发完成、PR 待创建；
+> 实现仅限 Skills，且无数据迁移。
 
 ## 1. 总评
 
@@ -260,7 +261,9 @@ snapshot、在 Memorial/RunState/Evidence 三处双写"。实际：
 snapshot 时 system snapshot/binding 零写入的兼容语义（P3 exact marker 仍写 `bound []`），同时
 阻断之后才激活新代的生产路径。
 
-### PR-5 进程级 snapshot 重启与 last-good（≈3 天）
+### PR-5 / P6 进程级 snapshot 重启与 last-good（≈3 天）
+
+**状态**：已由 PR #114 合入 `feat/plugin-v1`（merge `8f32cc4c`）。
 
 - `tianshu serve --system-snapshot <digest>`（缺省 = `generation_pointers` 中 `scope=process` 的 active）；
 - 启动时 `SystemSnapshotResolver.resolve()` 与目标 digest 不等 → 若 `TIANSHU_SNAPSHOT_STRICT=1`
@@ -268,6 +271,30 @@ snapshot 时 system snapshot/binding 零写入的兼容语义（P3 exact marker 
 - 专用 `ProcessSnapshotBootstrap` 在 run/scheduler 启动前处理 `scope=process` 的 active/last-good
   指针；executor `GenerationReconciler` 显式只处理 Pi scope，避免 process 材料进入 Pi registry；
 - 退出条件：连续 100 次重启 digest 稳定；改一个 provider profile 后 digest 变化且只有该组件变化。
+
+### P7 Skills 每 run 冻结视图（≈4 天–1 周）
+
+**状态**：Issue #115 开发完成，PR 待创建；聚焦回归已通过，完整 PR/CI
+门禁仍以待创建 PR 的实际检查为准。
+
+| 改动面 | 当前落点 |
+|---|---|
+| 不可变模型 | `FrozenSkillV1` / `FrozenSkillsViewV1` / `FrozenContentViewsV1`；当前容器仅含 Skills |
+| loader/context | 每轮通过目录 fd 捕获来源、内容与 overlay；搜索路径祖先只比较 `dev/ino/mode` identity，搜索根及捕获树内文件/目录比较 `dev/ino/mode/size/mtime_ns/ctime_ns` witness，既拒绝路径交换又不受树外 sibling churn 误伤；injected generation、按名排序的注入 Skill 均进入比较，连续两次全量 capture 一致才接受，三轮持续 churn 后 fail closed；搜索路径、成员、嵌套资源 symlink 均拒绝。requirements/max-size/load_all/metadata/injected/fallback 与 live 同义，requirements 环境 eligibility 进入 source identity。selected base absent 只显露低层，challenger/unknown absent 保留历史 hide-lower；详情、列表、index、always、all、tool 共用 task-local 视图，嵌套/异常/取消恢复外层 context |
+| router/dispatcher/scheduler | legacy、单 subject、多 subject 均覆盖，每个绑定阶段最多冻结一个已验证 view。`off` 不调工厂；`shadow` 构建、在 snapshot 身份可用时比对，但读 live；`enforce` 绑定视图，已解码 Skills 身份缺失、视图构建失败或摘要漂移归类为 `skills_view_unavailable`。prebind 仅在 audit+outbox 记录成功时登记 caller UoW post-commit failure；scheduled fire 已提交则按 durable cursor/root 收口并显式唤醒 reconciler，证据提交前失败整笔回滚且不推进 cursor/清 initial root。同-key marker 仅让 claimable attempt 重验，成功写 `skills_view_binding_recovered`，终态精确重放不重冻；默认 UoW 路径不变 |
+| 身份与审计 | frozen view 的 `source_digest` 与 run 的 SystemSnapshot `skills` 组件对账；只有真实 digest mismatch 原子持久 succeeded `skills_view_drift`；视图工厂、整体捕获、模型校验等致命失败，以及 enforce 下已解码 Skills 身份缺失，原子持久 failed `skills_view_binding_failed`。shadow 身份缺失只跳过对账；单个 SKILL.md 解析异常沿用 warning + skip。持久 snapshot/binding 结构损坏仍沿用 P6 的 `system_snapshot_unavailable`（strict）或 `generation_binding_unavailable`；不记内容/原始错误，不静默配对旧 snapshot 与新 view |
+| 失效/absence 边界 | watcher 统一使用 polling observer，避免 macOS 原子交换时的 FSEvents 崩溃；P7 callback 只 invalidate + notify，legacy 无 callback 仍 reload。promotion cache invalidator 无论 frozen flag 开关均装配，Skill 成功 activate/rollback、desired/no-op 重试及 `verify_rollback` 命中均 invalidate。新的 absent candidate 在 start-canary/promote/activate 以 `skill_absence_requires_durable_tombstone` 拒绝 |
+
+P7 无数据迁移，仅保证同进程 mid-run 稳定。prebind/重启时若旧 snapshot 不能从
+当前 Skills 字节重建，shadow 审计后读 live，enforce 失败关闭。跨重启耐久
+回放旧内容需要 artifact-backed `skills_view`；durable global Skill tombstone 也需要新的持久
+治理对象，两者因持久化、retention、配额、secret scanning 与 rollback 契约扩展而延期到
+P7b。Persona/Prompt/Provider 冻结不在本阶段。
+因 prebind 与 dispatch 可能跨进程，生产路径是“prebind 身份捕获一次 + dispatch
+执行重建一次”，每阶段最多 freeze 一次，而不是跨阶段复用同一内存 view；无 prebind 的 run
+只冻结一次。
+稳定 witness 依赖本地 POSIX 普通写者下可信的 ctime/stat 变化，不宣称抵抗特权写者或
+ctime 不可靠的文件系统。
 
 ### 之后（按报告 Phase 4–6，不在本文展开）
 

@@ -5,15 +5,22 @@ from __future__ import annotations
 import importlib
 import inspect
 from datetime import UTC, datetime
+from hashlib import sha256
 
 import pytest
 
 from tianshu.bootstrap.wiring_scheduler import wire_scheduling
+from tianshu.evolution.system_snapshot import SystemSnapshotResolver
 from tianshu.models import DAGExecution, DAGNode, DAGNodeStatus, Edict, Memorial, TaskStatus
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 from tianshu.models.events import EventEnvelope
+from tianshu.models.frozen_content import (
+    FrozenContentViewsV1,
+    FrozenSkillsViewV1,
+    frozen_skills_view_digest,
+)
 from tianshu.models.run_assignment import LegacyRunAssignmentV1
-from tianshu.universe.router import ChallengerRouter
+from tianshu.universe.router import ChallengerRouter, FrozenContentViewUnavailable
 
 _NOW = datetime(2026, 7, 16, 13, tzinfo=UTC)
 
@@ -84,6 +91,170 @@ async def test_same_request_atomically_reuses_one_root_and_attempt(storage) -> N
         ).fetchone()[0]
         == 1
     )
+
+
+async def test_enforced_prebind_failure_commits_evidence_before_ingress_fails(storage) -> None:
+    ManagedRunCommand, ManagedRunIngress = _boundary_types()
+    storage.save_edict(Edict(id="edict-1", goal="work"))
+    source_digest = sha256(b"stable-skills").hexdigest()
+    views = FrozenContentViewsV1(
+        skills=FrozenSkillsViewV1(
+            source_digest=source_digest,
+            effective_digest=frozen_skills_view_digest(skills={}, load_all_entries=()),
+            skills={},
+        )
+    )
+    failing = True
+    factory_calls = 0
+
+    def failing_view_factory() -> FrozenContentViewsV1:
+        nonlocal factory_calls
+        factory_calls += 1
+        if failing:
+            raise RuntimeError("private view failure")
+        return views
+
+    def digest(value: str) -> str:
+        return sha256(value.encode()).hexdigest()
+
+    resolver = SystemSnapshotResolver(
+        kernel_facts=lambda: {
+            "dependency_lock_hash": digest("lock"),
+            "tianshu_version": "test",
+        },
+        executor_digests=lambda: {},
+        skills_digest=lambda: source_digest,
+        personas_digest=lambda: digest("personas"),
+        policy_rules_digest=lambda: digest("policy-rules"),
+        provider_profiles_digest=lambda: digest("provider-profiles"),
+    )
+
+    reconciler = _Reconciler()
+    ingress = ManagedRunIngress(
+        storage,
+        reconciler,
+        clock=lambda: _NOW,
+        challenger_router=ChallengerRouter(
+            storage,
+            snapshot_resolver=lambda: resolver,
+            view_factory=failing_view_factory,
+            frozen_content_views=True,
+            frozen_content_views_enforced=True,
+        ),
+    )
+    command = ManagedRunCommand(
+        edict_id="edict-1",
+        idempotency_key="api:frozen-prebind-failure",
+        instruction="continue",
+        event_type="followup.submitted",
+        event_payload={"instruction": "continue"},
+    )
+
+    with pytest.raises(FrozenContentViewUnavailable, match="skills_view_unavailable"):
+        await ingress.start(command)
+    with pytest.raises(FrozenContentViewUnavailable, match="skills_view_unavailable"):
+        await ingress.start(command)
+
+    assert reconciler.calls == 0
+    assert storage._conn.execute("SELECT COUNT(*) FROM memorials").fetchone()[0] == 1  # noqa: SLF001
+    assert storage._conn.execute("SELECT COUNT(*) FROM execution_attempts").fetchone()[0] == 1  # noqa: SLF001
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM system_audit_events "
+            "WHERE action='skills_view_binding_failed' AND outcome='failed'"
+        ).fetchone()[0]
+        >= 1
+    )
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM outbox_events WHERE event_type='skills_view_binding_failed'"
+        ).fetchone()[0]
+        >= 1
+    )
+
+    failing = False
+    recovered = await ingress.start(command)
+
+    assert recovered.deduplicated is True
+    assert reconciler.calls == 1
+    assert storage._conn.execute("SELECT COUNT(*) FROM run_system_bindings").fetchone()[0] == 1  # noqa: SLF001
+
+    calls_after_recovery = factory_calls
+    failing = True
+
+    claimable_replay = await ingress.start(command)
+
+    assert claimable_replay.deduplicated is True
+    assert factory_calls == calls_after_recovery
+    assert reconciler.calls == 2
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM outbox_events WHERE event_type='skills_view_binding_recovered'"
+        ).fetchone()[0]
+        == 1
+    )
+
+    claimed = storage.attempt_repo.claim(
+        memorial_id=recovered.memorial.id,
+        owner_id="worker-1",
+        now=_NOW,
+        lease_seconds=30,
+    )
+    assert claimed is not None
+    assert storage.attempt_repo.complete(
+        attempt_id=claimed.attempt_id,
+        owner_id="worker-1",
+        fencing_token=claimed.fencing_token,
+        outcome=AttemptOutcomeV1(
+            disposition=AttemptDisposition.SUCCEEDED,
+            completed_at=_NOW,
+        ),
+    )
+    terminal_replay = await ingress.start(command)
+
+    assert terminal_replay.deduplicated is True
+    assert factory_calls == calls_after_recovery
+    assert reconciler.calls == 3
+
+
+async def test_enforced_prebind_audit_failure_rolls_back_unmarked_attempt(storage) -> None:
+    ManagedRunCommand, ManagedRunIngress = _boundary_types()
+    storage.save_edict(Edict(id="edict-1", goal="work"))
+    storage._conn.executescript(  # noqa: SLF001
+        """
+        CREATE TRIGGER reject_skills_view_failure_outbox
+        BEFORE INSERT ON outbox_events
+        WHEN NEW.event_type='skills_view_binding_failed' BEGIN
+            SELECT RAISE(ABORT, 'reject skills view failure outbox');
+        END;
+        """
+    )
+    ingress = ManagedRunIngress(
+        storage,
+        _Reconciler(),
+        clock=lambda: _NOW,
+        challenger_router=ChallengerRouter(
+            storage,
+            view_factory=lambda: (_ for _ in ()).throw(RuntimeError("private failure")),
+            frozen_content_views=True,
+            frozen_content_views_enforced=True,
+        ),
+    )
+    command = ManagedRunCommand(
+        edict_id="edict-1",
+        idempotency_key="api:unmarked-frozen-prebind-failure",
+        instruction="continue",
+        event_type="followup.submitted",
+        event_payload={"instruction": "continue"},
+    )
+
+    with pytest.raises(FrozenContentViewUnavailable, match="skills_view_unavailable"):
+        await ingress.start(command)
+
+    assert storage._conn.execute("SELECT COUNT(*) FROM memorials").fetchone()[0] == 0  # noqa: SLF001
+    assert storage._conn.execute("SELECT COUNT(*) FROM execution_attempts").fetchone()[0] == 0  # noqa: SLF001
+    assert storage._conn.execute("SELECT COUNT(*) FROM system_audit_events").fetchone()[0] == 0  # noqa: SLF001
+    assert storage._conn.execute("SELECT COUNT(*) FROM outbox_events").fetchone()[0] == 0  # noqa: SLF001
 
 
 async def test_same_request_with_different_envelope_fails_closed(storage) -> None:

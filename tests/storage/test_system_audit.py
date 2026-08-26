@@ -286,3 +286,17 @@ def test_list_rejects_invalid_or_unbounded_page_arguments(
 
     with pytest.raises(ValueError):
         storage.list_system_audit(after=after, limit=limit)
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        "skills_view_drift",
+        "skills_view_binding_failed",
+        "skills_view_binding_recovered",
+    ],
+)
+def test_skills_view_actions_allow_exactly_empty_metadata(action: str) -> None:
+    assert _request(action=action).metadata == {}
+    with pytest.raises(ValidationError, match="metadata keys are not allowed"):
+        _request(action=action, metadata={"error": "must-not-persist"})

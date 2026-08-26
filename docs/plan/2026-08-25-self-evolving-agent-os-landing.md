@@ -2,8 +2,8 @@
 
 > **文档性质**：可直接开工的重构落地方案（最终合成版）。由三份独立视角方案（风险优先 / 最小改动 / 目标纯度）经总架构师合成，合成准则按优先级为：①与当前源码相符；②每步不破坏 fail-closed 不变量、可独立合入与回退；③最少过渡债（对象边界与目标架构一致）；④篇幅完整（分歧处的取舍理由写在各阶段"决策与取舍"小节）。
 > **修订记录**：本方案经三路校验（符号核对/可行性/完备性）修订并落盘，日期 2026-08-25。
-> **基线**：集成分支 `feat/plugin-v1`（近端合并提交 `567b028e`，已含 P5 PR #111）；目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
-> **迁移编号基线**：P1 已占用 V31 `0031_system_snapshots`；P3 已冻结 V32 `0032_runtime_generations`；P4a 已冻结 V33 `0033_evolution_policies`；P4b 已冻结并由 PR #109 合入 V34 `0034_run_subject_assignments`；P5 已冻结并由 PR #111 合入 V35 `0035_executor_candidate_kind`，集成分支 live tail 为 V35。P6 不新增迁移。历史 V25 `0025_persona_allowed_paths` 与 V30 `0030_consultation_rounds` 编号保持不变。
+> **基线**：集成分支 `feat/plugin-v1`（近端已合入 P6 PR #114，merge `8f32cc4c`）；P7 Issue #115 当前为开发完成、PR 待创建的 checkout。目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
+> **迁移编号基线**：P1 已占用 V31 `0031_system_snapshots`；P3 已冻结 V32 `0032_runtime_generations`；P4a 已冻结 V33 `0033_evolution_policies`；P4b 已冻结并由 PR #109 合入 V34 `0034_run_subject_assignments`；P5 已冻结并由 PR #111 合入 V35 `0035_executor_candidate_kind`，集成分支 live tail 为 V35。P6 与 P7 都不新增迁移。历史 V25 `0025_persona_allowed_paths` 与 V30 `0030_consultation_rounds` 编号保持不变。
 > **流程约定（2026-08-25 用户授权）**：每阶段走 issue → `feat/`|`fix/` 分支 → PR（`Closes #n`），PR 目标统一为集成分支 `feat/plugin-v1`；亲验 `gh pr checks` 全绿后由执行方直接合入，不逐个等待用户确认；全部阶段完成后由用户在 `feat/plugin-v1` 做总体验证，tag 仍由用户操作。跑 Python 一律 `.venv/bin/python`；前端改动后单跑 `cd web && npm run typecheck`（vitest/eslint 不查类型）。
 
 ## 实施状态
@@ -17,8 +17,8 @@
 | P4a EvolutionPolicy 与 per-subject canary 写侧基础 | ✅ 已合入（PR #107，merge `b94d4846`） | 2026-08-26 | V33；严格 CAS、frozen 三闸、repo-level 执法、promote journal guard；目标分支 CI 6/6 全绿 |
 | P4b per-subject 运行分配与 UI | ✅ 已合入（Issue #108；PR #109，merge `a8a03071`） | 2026-08-26 | V34；assignment set 持久封存、1..64 原子批写、continuity 选择、运行时深冻结、逐 assignment provenance/digest 复验与 truthful UI；最终后端 5270 passed、2 skipped、24 slow deselected；Web 347 passed，静态检查与生产构建通过 |
 | P5 CandidateKind.EXECUTOR 全链路 | ✅ 已合入（Issue #110；PR #111，merge `567b028e`） | 2026-08-27 | V35；EXECUTOR Candidate、高危 Decision、精确 generation authority、per-subject canary、promote/rollback saga、drift scanner 与 Keqing/Evolution 投影；目标分支 CI 6/6 全绿 |
-| P6 进程级 snapshot 重启与 last-good | 🟡 当前 checkout 已实现，最终门禁与 PR 待完成（Issue #112） | 2026-08-27 | 无迁移；专用 process bootstrap、strict/非 strict 启动校验、run binding 独立错误码、Pi/process scope 隔离、Evolution Center 只读投影；最终数字以 P6 PR 为准 |
-| P7 声明式内容每 run 冻结视图 | ⬜ 未开始 | — | — |
+| P6 进程级 snapshot 重启与 last-good | ✅ 已合入（Issue #112；PR #114，merge `8f32cc4c`） | 2026-08-27 | 无迁移；专用 process bootstrap、strict/非 strict 启动校验、run binding 独立错误码、Pi/process scope 隔离、Evolution Center 只读投影；目标分支 CI 6/6 |
+| P7 声明式内容每 run 冻结视图 | 🟡 开发完成，PR 待创建（Issue #115） | 2026-08-27 | 仅 Skills；`off` / `shadow` / `enforce`；无迁移；prebind 不静默混用旧 snapshot/新 view；聚焦回归通过，完整 CI 待 PR |
 | X1 WS 出站所有权过滤 | ✅ 已合入（PR #89） | 2026-08-25 | 17 项所有权用例；32 项定向测试；全量 4746 passed、2 skipped；CI 5/5 绿 |
 | X2 重试判据收敛 | ✅ 已合入（PR #101） | 2026-08-26 | 17 个 FailureReason 值不变；5 类可重试真值表、异常类型映射、canonical failure ledger、generation_retired 与 unknown fail-closed 已覆盖；240 项聚焦回归及静态门禁通过；目标分支 CI 6/6 全绿 |
 | X3 allowed_paths 受理校验 | ✅ 已合入（PR #103） | 2026-08-26 | `_insert_edict` 首写前权威校验；内建相对 glob 精确值豁免；非法 fresh 请求五表零写；历史 replay 与 409 优先级保持；101 项聚焦回归及静态门禁通过；目标分支 CI 6/6 全绿 |
@@ -60,8 +60,8 @@ curator protection；用户可用严格 CAS 修改 evolution mode 与 max canary
 实现 enabled 或版本 pin 开关。新增 admin-only `GET /api/evolution/policies` 列表端点后，当前
 显式 scope 表为 266 条 protected、15 条 public，覆盖 280 个 route inventory refs。最终本地
 门禁为后端 5270 passed、2 skipped、24 slow deselected；Web 347 passed，Ruff、format、Mypy、
-import-linter、TypeScript、ESLint（0 error）与生产构建通过。PR 与目标分支 CI 仍待完成，不能把
-“分支实现与本地门禁完成”写成已合入。当前 PR 为 #109。
+import-linter、TypeScript、ESLint（0 error）与生产构建通过。PR #109 已合入
+`feat/plugin-v1`（merge `a8a03071`）。
 
 ---
 
@@ -102,7 +102,7 @@ import-linter、TypeScript、ESLint（0 error）与生产构建通过。PR 与�
 | **P4**（PR-4，**提前**；拆 4a/4b 两 PR）按 subject 独立灰度 + EvolutionPolicy | PR-4 | 拆全局单 canary；每插件一行 frozen/manual/canary | `evolution_policies` 表 + propose/start_canary 执法 + canary partial unique index + `save_candidate` 执法收口（Codex A3）+（4b）`run_subject_assignments` 双写 + `get_routable_candidates` + overlays dict | **V33、V34** | 1.5–2 周 + 2 天 + conftest fixture 解耦先行小 PR ≈1 天（≈34.5 天） | Evolution Center routing 按 subject 分行；policy API 可冻结单个插件的进化（enabled 与进化正交）；两插件可并行灰度 |
 | **P5**（PR-3b，**后移**）CandidateKind.EXECUTOR 全链路 | PR-3b | 漂移→候选→Gate→canary→Decision→换代/回滚闭环 | 枚举 + kind CHECK 重建 + Executor 两个 adapter + 漂移巡检 + 前端/CLI 投影 | **V35** | 1.5–2 周（含分支 A 子表连带重建 +2–3 天；≈44.5 天） | 客卿馆 Pi 版本漂移出现治理候选，可全链走到换代与回滚；"代际"列联动 |
 | **P6**（PR-5）进程级 snapshot 重启与 last-good | PR-5 | serve 启动校验 snapshot；binding 翻转 fail-closed | `serve --system-snapshot` + strict 模式 + 专用 `ProcessSnapshotBootstrap` 管理 `scope='process'` 指针；Pi reconciler 排除 process | 无 | 3–4 天（≈48.5 天） | `tianshu serve --system-snapshot`；启动漂移审计/strict 拒启提示 last-good |
-| **P7** 声明式内容每 run 冻结视图 | 评审"PR-4 之后" | SkillsWatcher 退出 active 直改；每 run 冻结 skills 视图 | `freeze_view` + watcher 只失效缓存 + `frozen_views` 入 runtime context | 无 | 4 天–1 周（≈53.5 天） | 运行中 run 不受 SKILL.md 热改/晋升影响（行为保证，UI 无显） |
+| **P7** 声明式内容每 run 冻结视图 | 评审"PR-4 之后" / Issue #115 | SkillsWatcher 开启时只 invalidate/notify；每 run 可绑定 Skills 视图 | `models/frozen_content.py` + loader ContextVar + router 身份对账 + off/shadow/enforce + 独立错误/审计 | 无 | 4 天–1 周（≈53.5 天） | enforce 下运行中 run 不受 SKILL.md 热改/晋升影响；shadow 只观测（UI 无显） |
 | **并行轨** Codex 借鉴独立项 | §8.2 | 堵现存洞 + 基建门禁，不占关键路径 | X1 WS 所有权过滤（**立即**）· X2 重试判据收敛 · X3 allowed_paths 受理校验 · X4 schema 落盘 + CI 门禁（P3 前）· X5 路由 scope 表（P4a 前） | 无 | 8–10 天（可与 P0–P2 同期由第二会话承担） | secure-remote 下 WS 不再越权可见；新契约/新路由漏登记即 CI 红 |
 
 总计 ≈ 10–12 周（并入 Codex 借鉴项后；并行轨若无第二会话再 +8–10 天）。依赖关系：P1→P3→P4→P5→P6；P2 与 P1 可并行；P4a（policy 表）与 P3 可并行开发；P7 依赖 P1（skills digest 已入 snapshot 可做影子比较）与 P4（runtime context 已是多值形态）。
@@ -126,9 +126,9 @@ import-linter、TypeScript、ESLint（0 error）与生产构建通过。PR 与�
 | `ContributionHandle` | **新增**（P2） | `src/tianshu/plugins/contribution.py`：`@dataclass(frozen=True, slots=True)`，`owner / kind / name / target / dispose: Callable[[], ContributionDisposeStatus]`；dispose 三态为 `disposed / skipped_stale / noop`，kind Literal 与 `PluginManifest.type` 六值同形（plugins/manifest.py:16） |
 | `EvolutionPolicyV1` | **新增**（P4a） | `src/tianshu/models/evolution_policy.py`：`subject_key / kind / mode ∈ {frozen,manual,canary} / max_canary_basis_points(0..1000) / version(CAS) / updated_at`；`auto` 不进枚举，类型级不可表达 |
 | `SubjectRunAssignmentV1` / `RunAssignmentSetV1` | **新增**（P4b） | `src/tianshu/models/run_assignment.py` 内追加；per-subject 分流归因；单条旧行是退化形式 |
-| `FrozenSkillsView` / `FrozenContentViews` | **新增**（P7） | `src/tianshu/skills/loader.py` / `evolution/runtime_context.py`；每 run 冻结的技能只读视图 |
+| `FrozenSkillV1` / `FrozenSkillsViewV1` / `FrozenContentViewsV1` | **新增**（P7） | `src/tianshu/models/frozen_content.py`；每 run 可绑定的严格、深度不可变 Skills 只读视图；当前容器仅有 `skills` |
 | `CandidateKind` | **修改**（P5） | 加 `EXECUTOR = "executor"`（models/evolution_candidate.py:16-21 现有五值）；DB 端 kind CHECK 冻结在 V18 DDL，须 V35 临时表重建扩枚举；同文件新增 `HIGH_RISK_PROMOTION_KINDS = frozenset({CODE, EXECUTOR})` |
-| `EvolutionRuntimeContext` | **修改** | P1 加 `system_snapshot: SystemSnapshotV1 \| None = None`；P4b 加 `overlays / payloads` dict（单数字段保留为退化访问器）；P7 加 `frozen_views`（runtime_context.py:15） |
+| `EvolutionRuntimeContext` | **修改** | P1 加 `system_snapshot: SystemSnapshotV1 \| None = None`；P4b 加 `overlays / payloads` dict（单数字段保留为退化访问器）；P7 仅加暂时 suspend 外层 governed context 的 helper，frozen content 继续使用 loader 独立 ContextVar，不塞入此模型 |
 | `PreparedExecutor` | **修改**（P3） | 加 `generation_id: str \| None = None` 与固定 delegate/bundle 引用；`bind_run` 只透传——DAG 子 run 天然继承根的代，不新增 lease |
 | `GenerationController` / `ExecutorAdapterRegistry` | **新增 / 修改**（P3） | Controller 独占 stage/warm/activate/rollback/recovery 编排；Registry 只保管 materialized bundle、同锁 selection 与 attempt_id lease。`replace` 保留为无 generation 的 native/测试 seam |
 | `GenerationReconciler` | **新增并组合**（P3/P6） | 保持 `EvolutionRollbackReconciler` 原类与锁不变；新 reconciler 使用独立锁，二者由既有 `reconcile_control_planes()` 顺序驱动，因此仍只有一个后台扫描循环，generation 故障不改变 candidate rollback fault matrix |
@@ -737,7 +737,7 @@ CREATE UNIQUE INDEX idx_evolution_candidates_subject_canary
 | 修改 | src/tianshu/application/managed_run_ingress.py（followup 分支）+ src/tianshu/universe/router.py assign_current | **continuity 固定语义**：CANARY 父 assignment 复制原选择；PROMOTED follow-up 选择 `candidate.candidate`；ROLLBACK_PENDING、ROLLED_BACK 等回滚态选择 base；ARCHIVED 复核当前 version 的 V18 lifecycle journal，from PROMOTED 时选 candidate，否则选 base，journal 缺失 fail closed。选择完成后仍按新 Memorial 写独立、封存的 assignment set；不得因新 memorial_id 重新抽桶 |
 | 修改 | src/tianshu/universe/router.py:188 bind_runtime | 读侧：新表有 governed 行 → 组装 overlays/payloads dict；否则回退旧表单行（存量 run 与回退路径）。每 subject 独立 resolve payload，任一失败仍整体 `EvolutionRuntimeUnavailable`（fail-closed 不弱化，run_dispatcher.py:253-271 语义） |
 | 修改 | src/tianshu/evolution/runtime_context.py:15 | 加 `overlays` / `payloads` 多值视图，key 固定为 `f"{kind.value}:{subject_key}"`，避免不同 kind 同名碰撞。每条 assignment 在 bind 时重验 candidate provenance 与 overlay/payload digest，随后对 map 及嵌套值深冻结；`always` 注入按确定顺序执行。单数访问器仅在 set size=1 时返回值，N>1 返回 `None`；singleton 兼容路径复用同一次 payload resolution，不重复调用 resolver |
-| 修改 | src/tianshu/skills/loader.py:32 | `_runtime_skill_overlay` 改为遍历 overlays 中 kind=='skill' 条目（按 `skill:{name}` 定向；absent 隐藏语义 :45-46 保留）；单 overlay 时行为等价；多 skill overlay 并行生效 |
+| 修改 | src/tianshu/skills/loader.py:32 | `_runtime_skill_overlay` 改为遍历 overlays 中 kind=='skill' 条目（按 `skill:{name}` 定向）；absent 按 assignment role 解释：selected challenger/unknown absent 保留历史 hide-lower tombstone，selected champion/base absent 仅表示目标层不存在并显露 builtin/lower fallback；单 overlay 时行为等价；多 skill overlay 并行生效 |
 | 修改 | src/tianshu/evolution/promotion.py rollback | rollback 断流（置零 allocation + ROLLBACK_PENDING，:1136-1214）只影响本 subject 的 routing 行——多 subject 下逐 subject 独立 |
 | 修改 | Evidence（evidence/service.py:911-928 块内） | 无 V34 set 的历史 legacy 行 → 不挂 governed assignment artifact；singleton set → 旧 assignment artifact 照旧；multi set → 只挂 `application/vnd.tianshu.evolution.assignment-set.v1+json`（payload=RunAssignmentSetV1 canonical dump）进 required，不同时挂旧 assignment artifact |
 | 修改 | src/tianshu/application/evolution_view.py:174 + models/evolution_view.py + web | `_routing_summary` 按 subject 聚合；Evolution Center 展示 routing subject 与只读 Skill availability/source/curator protection，并允许编辑 evolution mode 与 max canary basis points（严格 CAS）。`SkillInfo.pinned` 表示 curator protection，**不是版本 pin**；P4b 不提供 enabled 或版本锁定开关 |
@@ -903,6 +903,9 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 
 ### 阶段 P6（PR-5）：进程级 snapshot 重启与 last-good（≈3–4 天）
 
+> **实施状态（2026-08-27）**：已由 PR #114 合入 `feat/plugin-v1`（merge
+> `8f32cc4c`，CI 6/6）。
+
 **目标**：进程本身进入 snapshot 治理：`tianshu serve --system-snapshot <digest>` 指定启动
 对照；漂移默认记审计继续，strict 模式在任何由 P6 admission 产生的 process snapshot/release/
 generation/pointer/audit 写入前退出，并提示 actual/last-good/可得的组件差异；该拒绝早于
@@ -944,7 +947,7 @@ routing audit、plugin sync、Pi recovery 与 scheduler/run，但不承诺回滚
 - [x] strict run binding 失败使 attempt 进入 FAILED，稳定 code=`system_snapshot_unavailable` 且 runner 未调用；非 strict 保持 shadow 降级与审计
 - [x] process release/generation/pointer 与 Pi materializer/registry/authority/attempt binding/reconciler 隔离
 - [x] lifespan strict 漂移在 plugin catalog、routing-disabled audit、Pi recovery 前拒绝；相关 process/Pi/plugin/audit/outbox 表保持逐行不变。完整启动前置装配零写不在 P6 范围
-- [ ] P6 PR 最终全量 CI 与目标分支合入
+- [x] P6 PR 最终全量 CI 与目标分支合入（PR #114，merge `8f32cc4c`，CI 6/6）
 
 **回退方式**：先关 strict 可恢复宽松运行；scope-filtering/Pi-only production wiring 作为独立
 前向兼容 guard 先合入集成分支，因此之后 revert P6 主 PR 时，V32 中不可变的 process release、
@@ -957,7 +960,11 @@ generation 与 pointer 行留存也不会被 Pi 恢复链读取。不要依赖�
 
 ### 阶段 P7：声明式内容每 run 冻结视图（≈4 天–1 周）
 
-**目标**：SkillsWatcher 不再直接改 active loader；每个 run 在 bind 时冻结 skills 视图，mid-run 的 SKILL.md 变更/晋升换装对已绑定 run 不可见——消除 watcher 与 SkillPromotionAdapter 对同一 live 目录的无锁并发竞态（loader.py:879-883 vs promotion.py:530-544），顺带消除 get_skill L1 LRU 不校验 mtime 的 gotcha（loader.py:541-544）。persona/prompt 模板/provider 配置的冻结列后续轮次。
+> **实施状态（2026-08-27）**：Issue #115 开发完成，PR 待创建。当前仅 Skills，
+> 无数据迁移；聚焦测试已通过，完整 backend/frontend/E2E/release CI 以待创建
+> PR 的实际检查为准。
+
+**目标**：P7 frozen wiring 中 SkillsWatcher 退出 live active 预加载，只做缓存失效与通知；每个 run 在 bind 时冻结 skills 视图，mid-run 的 SKILL.md 变更/晋升换装对已绑定 run 不可见——消除 watcher 与 SkillPromotionAdapter 对同一 live 目录的无锁并发竞态，并顺带隔离 get_skill L1 LRU 不校验 mtime 的历史 gotcha。persona/prompt 模板/provider 配置的冻结列后续轮次。
 
 **前置依赖**：P1（skills content_digest 已入 snapshot，可做影子比较）；P4（EvolutionRuntimeContext 已是多值形态）。
 
@@ -965,27 +972,60 @@ generation 与 pointer 行留存也不会被 Pi 恢复链读取。不要依赖�
 
 | 动作 | 文件:符号 | 内容 |
 |---|---|---|
-| 修改 | src/tianshu/skills/loader.py | 新增 `class FrozenSkillsView`（frozen dataclass：`skills: Mapping[str, FrozenSkill]`，FrozenSkill=(digest, content, metadata)）与 `def freeze_view(self) -> FrozenSkillsView`——实现复用 `for_workspace_overlay` 的每-call 隔离模式（:147-164）+ `list_all_metadata` 快照 + injected 复制；`get_skill`/`load_index`/`load_always`/`load_all` 开头查 ContextVar 冻结视图（沿 `_runtime_skill_overlay` :32 同一通道泛化为 `_runtime_frozen_view()`），命中则全程只读该视图；无 view（CLI/工具面等非 run 上下文）走现行为 |
-| 修改 | src/tianshu/skills/loader.py:873-885 | `SkillsWatcher._debounced_reload`：新增可选 `on_change: Callable[[list[str]], None] | None = None`；无 on_change 保持旧行为（兼容）；有 on_change 只 `invalidate_cache()` + 回调（不再 `load_all()` 预热 active） |
-| 修改 | src/tianshu/evolution/runtime_context.py | 加 `frozen_views: FrozenContentViews | None = None`（`class FrozenContentViews: skills: FrozenSkillsView`——字段化便于后续扩 personas） |
-| 修改 | src/tianshu/universe/router.py bind_runtime | 注入 `view_factory: Callable[[], FrozenContentViews] | None`；开关开时 bind 冻结一次，断言 view 的 skills digest == snapshot.components["skills"]（不等记 `skills_view_drift` 审计；影子期只记，翻转消费后重新 resolve 收敛） |
-| 修改 | src/tianshu/bootstrap/wiring_skills.py:223 | watcher 装配传 on_change（重算 skills digest 缓存 + 失效）；SkillPromotionAdapter activate 后主动 `loader.invalidate_cache()`（替代 watchdog 竞态依赖） |
-| 修改 | src/tianshu/config.py | 加 `frozen_content_views: bool = False`（env `TIANSHU_FROZEN_CONTENT_VIEWS`） |
+| 新增 | src/tianshu/models/frozen_content.py | 严格、深度不可变的 `FrozenSkillV1` / `FrozenSkillsViewV1` / `FrozenContentViewsV1`；Skills 视图分离 `source_digest` 与 effective digest，容器预留后续声明式内容扩展，当前仅 `skills` |
+| 修改 | src/tianshu/skills/loader.py | `freeze_view()` 稳定捕获 SKILL.md/资源/injected/overlay 的实际读取面；磁盘 Skill 通过已打开目录 fd 读取，搜索路径祖先只比较 `dev/ino/mode` identity，搜索根及捕获树内文件/目录比较 `dev/ino/mode/size/mtime_ns/ctime_ns` witness，既拒绝路径交换又不受树外 sibling churn 误伤；搜索路径、Skill 目录/成员及嵌套资源 symlink 均拒绝。注入 Skill 按名称排序并连同 injected generation 进入 capture；requirements/max-size 产生的 `load-all-eligible` 判定进入 source identity。连续两次全量 capture（含 witness）相等才接受，最多三轮，持续 churn 后 fail closed；task-local ContextVar 让详情、列表、index、always、all、tool 与 workspace overlay 读同一视图，且与 live 保持 requirements/max-size/load_all/metadata/injected/fallback/优先级/预算语义；嵌套/异常/取消恢复外层 context。selected base absent 只撤目标层并显露低层，challenger/unknown absent 保留历史 hide-lower tombstone |
+| 修改 | src/tianshu/skills/loader.py `SkillsWatcher` | 所有模式统一使用 `PollingObserver`，规避 macOS FSEvents 在原子 Skill 目录交换和 observer start/stop 时的进程崩溃；P7 callback 路径只 `invalidate_cache()` + notify，不预加载 live active；`on_change=None` 保留 legacy debounce + reload，stop 后拒绝旧 generation callback |
+| 修改 | src/tianshu/evolution/runtime_context.py | 新增暂时清除外层 governed runtime 的 context manager，保证 legacy/nested run 和 view factory 不继承错误 overlay；frozen content 保持独立 ContextVar，不塞入 `EvolutionRuntimeContext` |
+| 修改 | src/tianshu/universe/router.py `bind_runtime` | `view_factory` 在每次 prebind 或执行 bind 中最多调用一次；legacy、单 subject、多 subject 均覆盖。以 view `source_digest` 对账 run 的 SystemSnapshot `skills` 组件；shadow 记漂移后继续 live，enforce 失败关闭 |
+| 修改 | src/tianshu/application/managed_run_ingress.py；src/tianshu/application/run_dispatcher.py；src/tianshu/application/scheduled_runs.py；src/tianshu/scheduler/scheduler.py；src/tianshu/models/system_audit.py；src/tianshu/storage/system_snapshot_repo.py；src/tianshu/storage/unit_of_work.py | enforce 下已解码 Skills 身份缺失、致命视图构建失败或摘要漂移以 `skills_view_unavailable` 在 runner 前独立分类；真实摘要不一致写 succeeded `skills_view_drift`；视图工厂、整体捕获、模型校验等致命失败及 enforce 身份缺失写 failed `skills_view_binding_failed`。shadow 身份缺失只跳过对账，单个 SKILL.md 解析异常仍 warning + skip；事件 audit + outbox 在同一事务原子持久且不写内容或错误细节。enforce prebind 只有 audit+outbox 成功记录才登记 UoW post-commit failure，并在 caller 事务提交后抛错；证据写失败则整笔回滚。同-key P7 marker 仅让 claimable attempt 重新 prebind，恢复成功写 `skills_view_binding_recovered`，终态精确重放不重冻。scheduled fire 的 post-commit failure 携带 durable `PreparedFire` 交给 reconciler，interval/once/run-now 按已提交 truth 收口；pre-commit 失败不推进 cursor、不清 initial root。未登记 failure 的默认 UoW 语义不变。持久 snapshot/binding 结构损坏仍沿用 P6 的 `system_snapshot_unavailable`（strict）或 `generation_binding_unavailable` |
+| 修改 | src/tianshu/bootstrap/wiring_skills.py；src/tianshu/evolution/promotion.py | 装配 view factory 与 watcher 模式；promotion cache invalidator 无论 frozen flag 是否开启均装配；Skill 成功 activate/rollback、exchange 后 desired/no-op 重试及 `verify_rollback` 命中均主动 invalidate；失败且 live 未变化的路径不制造虚假变更通知。新的 absent Skill candidate 在 start-canary、promote、activate 前统一以 `skill_absence_requires_durable_tombstone` 拒绝；durable global tombstone 延期 P7b |
+| 修改 | src/tianshu/config.py | 两开关默认 false：`frozen_content_views`（构建/比对）与 `frozen_content_views_enforced`（绑定消费）；enforce 要求前者和 SystemSnapshot 均开启 |
 
-**数据迁移**：无。
+**数据迁移**：无。P7 只保证同进程 mid-run 稳定；不持久旧 Skills 字节。
+artifact-backed `skills_view` 需要扩展持久化、retention、配额、secret scanning 和 rollback
+契约；跨来源/assignment 的 durable global Skill tombstone 也需要新的持久治理契约，两者明确
+延期到 P7b。
+稳定 capture 的威胁模型是本地 POSIX 普通写者与可靠 ctime/stat；不承诺抵抗特权写者或
+运行在 ctime 不可靠文件系统上。
 
-**兼容策略与开关**：默认关 = 现状（watcher 无 on_change 时行为与主干一致，watchdog 缺失静默不启动的现状保留 wiring_skills.py:234-238）；开后先影子（构建视图 + digest 比对，消费仍走 live）观测 `skills_view_drift` 为零，再翻消费（同一开关第二档或拆两个布尔，实现取简单者并在 PR 描述注明）。
+**兼容策略与开关**：已实现两个布尔开关：两者均 false = `off`，只开
+`frozen_content_views` = `shadow`，两者均 true = `enforce`。off 不调用 view factory；
+shadow 在每个绑定阶段构建一次，并在 SystemSnapshot 身份可用时对账，但整个 run
+明确清空任何外层 frozen
+context 并仍读 live；
+enforce 绑定内层视图。prebind/重启遇到旧 SystemSnapshot 与当前 Skills 不一致，
+shadow 审计并继续 live，enforce 在 runner 前拒绝；不静默配对旧 snapshot 与新 view。
+无 prebind 的 run 只冻结一次；生产 prebind + dispatch 分别做身份捕获和执行重建，
+不跨进程复用同一 view，且每个阶段最多调用一次 freeze，这是 P7b 前的 fail-closed 约束。
+claimable attempt 从既有 failure/drift marker 恢复时，prebind 在同一事务写
+`skills_view_binding_recovered`；恢复事件写失败仍回滚。scheduler 只在已提交
+`PreparedFire` 的 post-commit 路径推进 durable cursor/消费 initial root 并显式唤醒 reconciler；
+audit/outbox 的 pre-commit 失败保持原 cursor/root，随后重试同一 fire。
 
 #### 测试清单
 
 | 测试文件 | 断言 |
 |---|---|
-| tests/skills/test_frozen_view.py（新） | bind 后 mid-run 改 SKILL.md：冻结 run 的 get_skill/load_index/`skill_view` 工具（skill_tools.py:345 路径）读旧内容，新 run 读新内容且 snapshot.skills digest 变化；watcher 触发不改运行中视图；晋升 activate 换装期间运行中 run 不读半程树（三方并发竞态回归）；absent overlay 隐藏语义保留；digest 一致性断言 |
-| 回归 | tests/skills/test_loader_multifile.py、test_builtin_overlay.py、tests/tools/test_skill_manage_files.py 原样绿（写路径与 builtin copy-on-write 未动）；tests/universe/test_challenger_routing.py:363/461/527（overlay 改变 loader 行为/absent 隐藏/champion 重放冻结 payload）在冻结通道下断言不变 |
+| tests/skills/test_frozen_view.py（新） | 深不可变、详情/body/index/always/all/tool/workspace overlay、requirements/max-size/load_all/metadata/injected/fallback 的 live/frozen 等价、requirements 环境判定进入 source identity、selected-base/challenger/unknown absent 分层语义、搜索路径/成员/嵌套资源 symlink fail closed、PollingObserver 与 stop-generation guard、mid-run 变更、完整 stability witness、连续双 capture、三轮 churn fail closed，以及 exchange + cleanup 无 mixed view |
+| tests/universe/test_frozen_skill_binding.py；tests/application/test_managed_run_ingress.py（新/改） | off 零 factory；legacy/单/多 subject 每绑定阶段一次；prebind + dispatch 两阶段边界；shadow/enforce 漂移；已解码 Skills 身份缺失返回 `skills_view_unavailable`，持久 snapshot/binding 结构损坏保留 P6 稳定码；audit/outbox 成功才 post-commit 抛，写失败整笔回滚；claimable 同-key 重试会重冻并写 recovered 审计，终态重放不重冻；nested/error/cancel 恢复；dispatcher 错误码顺序 |
+| tests/application/test_managed_scheduler.py（改） | 真实 preparer 下 interval post-commit 保持 loop/cursor 并唤醒 reconciler；once post-commit 只消费一次 initial root；audit/outbox pre-commit 失败零 fire/attempt/cursor 推进且保留 initial root，移除故障后恢复；run-now post-commit 不移动定时 cursor；terminal replay 写 `skills_view_binding_recovered` 且不新增 fire |
+| tests/test_frozen_content_wiring.py（新） | 两开关装配、view factory、watcher 模式，以及 frozen flag 开/关两路均装配 promotion invalidator |
+| tests/storage/test_system_snapshot_repo.py；tests/storage/test_unit_of_work.py；tests/evolution/test_promotion_fail_closed.py | `skills_view_drift` / 致命捕获或 enforce 身份缺失的 `skills_view_binding_failed` outcome、脱敏和 audit/outbox 事务性；post-commit failure 只在成功记录证据并 commit 后抛且 rollback 清除；新的 absent candidate 在 canary/promote/activate 稳定拒绝；失败激活不虚假 invalidate，成功 activate/rollback、desired/no-op 重试和 `verify_rollback` 命中主动 invalidate，不影响已绑定 run |
+| 回归 | 现有 loader、overlay、skill tooling、snapshot、dispatcher 与 bootstrap 聚焦套件原样绿；完整门禁待 PR |
 
 **验收 checklist**：
-- [ ] 影子期 skills_view_drift 为零后翻转消费；竞态用例（watcher + 晋升换装 + run 执行三方并发）确定性绿
-- [ ] 开关关闭行为与 main 一致
+- [ ] 生产影子观测窗口中 `skills_view_drift` 为零后再翻转消费
+- [x] 真实三线程 barrier 与 churn 回归通过：目录 fd + 完整 stability witness + injected generation 的连续双 capture 保证新旧视图与 rollback 完整一致；注入按名稳定排序；exchange 后 cleanup 无 mixed view，三轮持续 churn fail closed
+- [x] off 不构建视图；legacy/单/多 subject 在每次 prebind 或执行 bind 中各捕获一次；嵌套/异常/取消不泄漏 context
+- [x] shadow 审计但不阻断；enforce 对 P7 Skills view 构建/身份缺失/漂移在 runner 前以 `skills_view_unavailable` 失败；持久 snapshot/binding 结构损坏保留 P6 稳定码；prebind 不混用旧 snapshot 与新 view
+- [x] enforce prebind 仅在 audit+outbox 成功时登记 post-commit failure 并于 caller 事务提交后抛稳定错误；证据写失败整笔回滚；默认 UoW commit/rollback 路径不变
+- [x] 同-key P7 marker 仅让 claimable attempt 重冻，终态精确幂等重放不重冻
+- [x] claimable 恢复原子写 `skills_view_binding_recovered`；生产 prebind/dispatch 为两个阶段且每阶段最多 freeze 一次
+- [x] scheduled post-commit fire 按 durable truth 推进 cursor/initial root 并交给 reconciler；audit/outbox pre-commit 失败整笔回滚且保持可恢复 root/cursor
+- [x] selected base absent 只显露低层，challenger/unknown absent 保留历史 tombstone；新的 absent candidate 在 canary/promote/activate 以稳定错误拒绝，durable global tombstone 延期 P7b
+- [x] promotion invalidator 不受 frozen flag 控制；desired/no-op 重试与 `verify_rollback` 命中均 invalidate，缓存最终收敛
+- [x] 开关关闭的聚焦兼容回归通过
+- [ ] P7 PR 创建后完整 backend/frontend/E2E/release CI 与目标分支合入
 
 **回退方式**：关开关即回现状；revert 无数据面。**工作量**：≈4 天–1 周。
 
@@ -1029,7 +1069,7 @@ generation 与 pointer 行留存也不会被 Pi 恢复链读取。不要依赖�
 
 ### 4.3 可观测性
 
-- **SystemAudit 新事件码**：`system_snapshot_binding_failed`（P1 影子降级，strict 下转换为 run 失败）、`system_snapshot_drift`（P1 多 attempt / P6 启动漂移）、`generation_retired`（P3 结构化错误码）、`evolution_policy_updated`（P4a 治理面配置变更）、`evolution_routing_disabled`（P4b 全局 kill switch 关闸）、`skills_view_drift`（P7）。除 P6 startup drift 只写 best-effort SystemAudit 外，其余需要投递的事件沿既有 `_append_system_audit_unlocked` + outbox 范式；generation 状态转移全量入不可变 `runtime_generation_journal`。
+- **SystemAudit 新事件码**：`system_snapshot_binding_failed`（P1 影子降级，strict 下转换为 run 失败）、`system_snapshot_drift`（P1 多 attempt / P6 启动漂移）、`generation_retired`（P3 结构化错误码）、`evolution_policy_updated`（P4a 治理面配置变更）、`evolution_routing_disabled`（P4b 全局 kill switch 关闸）、`skills_view_drift`（P7 真实摘要不一致，outcome=succeeded）与 `skills_view_binding_failed`（P7 致命视图捕获/校验失败或 enforce 身份缺失，outcome=failed；shadow 身份缺失不写）。单个 SKILL.md 解析异常沿用 warning + skip。P7 两类事件只投递 opaque id/digest，不包含 Skill 内容或原始错误。除 P6 startup drift 只写 best-effort SystemAudit 外，其余需要投递的事件沿既有 `_append_system_audit_unlocked` + outbox 范式；generation 状态转移全量入不可变 `runtime_generation_journal`。
 - **readiness_probe 聚合**：pending rollback（现有）+ Pi 未 drain 旧代（P3）由既有 diagnostics/启动探针消费。P6 process 指针/日志/release 损坏在启动 bootstrap 与 Evolution 读取边界 fail closed，不伪装成 Pi readiness 分支。
 - 漂移与换代事件不新建总线——正确性走 outbox/SystemAudit/journal，EventBus 只作 UI 通知（roadmap §2.2 既定）。
 - 部署告警补充：`evolution_routing_secret` 为空且出现 canary 时 allocation_bucket fail-closed（router.py:58-59）——P4 文档与 readiness 提示补上。

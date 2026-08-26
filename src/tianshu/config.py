@@ -74,6 +74,8 @@ class TianshuSettings(BaseSettings):
         ),
     )
     system_snapshot_target: str | None = None
+    frozen_content_views: bool = False
+    frozen_content_views_enforced: bool = False
     host: str = "127.0.0.1"
     port: int = 8000
     security_mode: Literal["trusted-local", "secure-remote"] = "trusted-local"
@@ -238,6 +240,10 @@ class TianshuSettings(BaseSettings):
             raise ValueError("system_snapshot_target requires system_snapshot_enabled")
         if self.executor_generation_enabled and not self.system_snapshot_enabled:
             raise ValueError("executor_generation_enabled requires system_snapshot_enabled")
+        if self.frozen_content_views_enforced and not self.frozen_content_views:
+            raise ValueError("frozen_content_views_enforced requires frozen_content_views")
+        if self.frozen_content_views_enforced and not self.system_snapshot_enabled:
+            raise ValueError("frozen_content_views_enforced requires system_snapshot_enabled")
         return self
 
     @model_validator(mode="after")

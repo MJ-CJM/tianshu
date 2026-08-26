@@ -229,6 +229,17 @@ def bind_evolution_runtime(context: EvolutionRuntimeContext) -> Iterator[None]:
 
 
 @contextmanager
+def suspend_evolution_runtime() -> Iterator[None]:
+    """Temporarily clear any outer governed overlay for a legacy run."""
+
+    token = _CURRENT.set(None)
+    try:
+        yield
+    finally:
+        _CURRENT.reset(token)
+
+
+@contextmanager
 def bind_run_binding(context: RunBindingContextV1) -> Iterator[None]:
     token = _CURRENT_RUN_BINDING.set(context)
     try:
@@ -245,4 +256,5 @@ __all__ = [
     "current_evolution_runtime",
     "current_run_binding",
     "runtime_subject_key",
+    "suspend_evolution_runtime",
 ]

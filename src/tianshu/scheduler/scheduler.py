@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from croniter import croniter
 from ulid import ULID
 
+from tianshu.application.scheduled_runs import ScheduledFireBindingUnavailable
 from tianshu.bus.event_bus import EventBus
 from tianshu.models.common import TaskStatus
 from tianshu.models.edict import (
@@ -26,7 +27,7 @@ from tianshu.models.edict import (
 from tianshu.models.events import EventEnvelope, make_event
 from tianshu.storage import Storage
 from tianshu.storage.outbox_repo import OutboxRepository
-from tianshu.universe.router import GenerationBindingUnavailable
+from tianshu.universe.router import FrozenContentViewUnavailable, GenerationBindingUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -743,10 +744,19 @@ class Scheduler:
         persisted = self._storage.get_scheduler_job(job_id)
         if persisted is None or persisted["edict_id"] != edict.id:
             raise RuntimeError("durable scheduler replay conflicts with job identity")
+        terminal_replay = False
         if not inserted:
-            if persisted["schedule_type"] != schedule_type or persisted["next_run"] is None:
+            if persisted["schedule_type"] != schedule_type:
                 raise RuntimeError("durable scheduler replay conflicts with timer envelope")
-            cursor = datetime.fromisoformat(str(persisted["next_run"])).astimezone(UTC)
+            if persisted["next_run"] is None:
+                terminal_replay = persisted["status"] == "completed" and (
+                    schedule_type == "once"
+                    or (schedule_type == "immediate" and scheduled_at is not None)
+                )
+                if not terminal_replay:
+                    raise RuntimeError("durable scheduler replay conflicts with timer envelope")
+            else:
+                cursor = datetime.fromisoformat(str(persisted["next_run"])).astimezone(UTC)
         job = _Job(
             job_id,
             edict.id,
@@ -755,6 +765,14 @@ class Scheduler:
             initial_memorial_id=memorial_id,
         )
         self._jobs[job_id] = job
+        if terminal_replay:
+            if not await self._admit_managed_prepare() or not await self._prepare_managed_fire(
+                job_id,
+                cursor,
+                memorial_id,
+            ):
+                raise RuntimeError("durable terminal scheduler replay is temporarily unavailable")
+            return job_id
         if schedule_type == "immediate":
             if await self._admit_managed_prepare():
                 prepared = await self._prepare_managed_fire(job_id, cursor, memorial_id)
@@ -860,9 +878,16 @@ class Scheduler:
                 scheduled_at=scheduled_at,
                 initial_memorial_id=initial_memorial_id,
             )
-        except GenerationBindingUnavailable:
+        except ScheduledFireBindingUnavailable as exc:
+            prepared = exc.prepared
             logger.warning(
-                "Managed schedule %s deferred because generation binding is unavailable",
+                "Managed schedule %s committed without an enforced frozen binding; "
+                "the durable attempt was handed to the reconciler",
+                job_id,
+            )
+        except (FrozenContentViewUnavailable, GenerationBindingUnavailable):
+            logger.warning(
+                "Managed schedule %s deferred because runtime binding is unavailable",
                 job_id,
             )
             return False
@@ -1246,7 +1271,9 @@ class Scheduler:
                     idempotency_key=idempotency_key,
                     scheduled_at=self._clock(),
                 )
-            except GenerationBindingUnavailable:
+            except ScheduledFireBindingUnavailable as exc:
+                prepared = exc.prepared
+            except (FrozenContentViewUnavailable, GenerationBindingUnavailable):
                 return False
             if prepared.attempt_id is not None and self._run_reconciler is not None:
                 await self._run_reconciler.reconcile_once()

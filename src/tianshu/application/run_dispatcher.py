@@ -25,6 +25,7 @@ from tianshu.storage.attempt_ledger import AttemptFenceLost
 from tianshu.universe.router import (
     ChallengerRouter,
     EvolutionRuntimeUnavailable,
+    FrozenContentViewUnavailable,
     GenerationBindingUnavailable,
     GenerationRetired,
     RunAssignmentUnavailable,
@@ -285,6 +286,9 @@ class RunDispatcher:
             elif isinstance(exc, SystemSnapshotUnavailable):
                 failure_code = "system_snapshot_unavailable"
                 failure_message = "system snapshot binding is unavailable"
+            elif isinstance(exc, FrozenContentViewUnavailable):
+                failure_code = "skills_view_unavailable"
+                failure_message = "frozen skills view is unavailable"
             elif isinstance(exc, (RunAssignmentUnavailable, LookupError)):
                 failure_code = "run_assignment_unavailable"
                 failure_message = "governed evolution runtime is unavailable"
