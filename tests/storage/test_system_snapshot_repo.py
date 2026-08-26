@@ -451,3 +451,120 @@ def test_snapshot_components_are_written_as_canonical_json(storage) -> None:
         assert row is not None
         assert row["components_json"] == canonical_json_bytes(snapshot.components).decode()
         unit_of_work.commit()
+
+
+def test_skills_view_drift_is_atomically_audited_and_outboxed_without_metadata(storage) -> None:
+    memorial = _seed_memorial(storage, suffix="skills-view")
+    repository = SystemSnapshotRepository()
+    current_digest = "c" * 64
+    bound_digest = "b" * 64
+
+    with storage.unit_of_work() as unit_of_work:
+        connection = unit_of_work.connection
+        assert repository.record_event(
+            connection,
+            action="skills_view_drift",
+            memorial_id=memorial.id,
+            attempt_id="attempt-skills-view",
+            snapshot_digest=current_digest,
+            previous_snapshot_digest=bound_digest,
+        )
+
+        audit = connection.execute(
+            "SELECT action, outcome, reason_code, subject_kind, subject_digest, metadata_json "
+            "FROM system_audit_events WHERE action='skills_view_drift'"
+        ).fetchone()
+        assert audit is not None
+        assert tuple(audit) == (
+            "skills_view_drift",
+            "succeeded",
+            "skills_view_drift",
+            "skills_view",
+            current_digest,
+            "{}",
+        )
+        outbox = connection.execute(
+            "SELECT payload_json FROM outbox_events WHERE event_type='skills_view_drift'"
+        ).fetchone()
+        assert outbox is not None
+        payload = json.loads(outbox["payload_json"])
+        assert set(payload) == {
+            "attempt_id",
+            "correlation_id",
+            "previous_skills_digest",
+            "skills_digest",
+        }
+        assert payload["attempt_id"] == "attempt-skills-view"
+        assert payload["skills_digest"] == current_digest
+        assert payload["previous_skills_digest"] == bound_digest
+        unit_of_work.commit()
+
+
+def test_skills_view_drift_outbox_failure_rolls_back_its_audit(storage) -> None:
+    memorial = _seed_memorial(storage, suffix="skills-view-failure")
+    repository = SystemSnapshotRepository()
+
+    with storage.unit_of_work() as unit_of_work:
+        connection = unit_of_work.connection
+        connection.execute(
+            """
+            CREATE TRIGGER reject_skills_view_drift_outbox
+            BEFORE INSERT ON outbox_events
+            WHEN NEW.event_type='skills_view_drift' BEGIN
+                SELECT RAISE(ABORT, 'redacted injected failure');
+            END
+            """
+        )
+        assert not repository.record_event(
+            connection,
+            action="skills_view_drift",
+            memorial_id=memorial.id,
+            attempt_id="attempt-skills-view",
+        )
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM system_audit_events WHERE action='skills_view_drift'"
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM outbox_events WHERE event_type='skills_view_drift'"
+            ).fetchone()[0]
+            == 0
+        )
+        unit_of_work.commit()
+
+
+def test_skills_view_binding_failure_is_failed_and_redacted(storage) -> None:
+    memorial = _seed_memorial(storage, suffix="skills-view-binding-failure")
+    repository = SystemSnapshotRepository()
+
+    with storage.unit_of_work() as unit_of_work:
+        connection = unit_of_work.connection
+        assert repository.record_event(
+            connection,
+            action="skills_view_binding_failed",
+            memorial_id=memorial.id,
+            attempt_id="attempt-skills-view-binding",
+        )
+        audit = connection.execute(
+            "SELECT outcome, reason_code, subject_kind, metadata_json "
+            "FROM system_audit_events WHERE action='skills_view_binding_failed'"
+        ).fetchone()
+        assert audit is not None
+        assert tuple(audit) == (
+            "failed",
+            "skills_view_binding_failed",
+            "skills_view",
+            "{}",
+        )
+        outbox = connection.execute(
+            "SELECT payload_json FROM outbox_events WHERE event_type='skills_view_binding_failed'"
+        ).fetchone()
+        assert outbox is not None
+        assert set(json.loads(outbox["payload_json"])) == {
+            "attempt_id",
+            "correlation_id",
+        }
+        unit_of_work.commit()

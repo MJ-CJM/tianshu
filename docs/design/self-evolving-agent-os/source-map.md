@@ -10,8 +10,10 @@
 > `storage/evolution_repo.py`、`universe/router.py`、`evolution/runtime_context.py`、
 > `evidence/service.py` 及对应 multi-subject/durable-schema/Evidence 测试。最终本地门禁为后端
 > 5270 passed、2 skipped、24 slow deselected，Web 347 passed；静态检查与生产构建通过。
-> P5 已由 PR #111 合入 `feat/plugin-v1`（merge `567b028e`）。当前 P6 checkout 的事实入口
-> 与验证路径另列于下文；最终门禁数字以 P6 PR 的实际检查为准，不从历史阶段数字外推。
+> P5 已由 PR #111 合入 `feat/plugin-v1`（merge `567b028e`）。P6 已由 PR #114
+> 合入同一集成分支（merge `8f32cc4c`，CI 6/6），事实入口与验证路径另列于下文。
+> P7 当前开发完成、PR 待创建；本地聚焦回归已通过，完整门禁只能以未来
+> PR 的实际检查为准，不从 P6 或历史阶段数字外推。
 
 ## 1. 核验时间与源码快照
 
@@ -98,6 +100,75 @@ uv 0.9.27、项目 Python 3.12.12、pytest 9.0.3，HEAD `88462b2a`。
 - [`tests/universe/test_snapshot_binding.py`](../../../tests/universe/test_snapshot_binding.py)
 - [`tests/test_bootstrap_smoke.py`](../../../tests/test_bootstrap_smoke.py)
 - [`web/src/pages/EvolutionCenterPage.test.tsx`](../../../web/src/pages/EvolutionCenterPage.test.tsx)
+
+### P7 Skills 每 run 不可变视图
+
+Issue #115 的当前实现仅覆盖 Skills，无数据迁移；`off` / `shadow` / `enforce`
+分别表示完全兼容、构建对账但读 live、绑定视图且失败关闭。开发已完成，
+PR 待创建；下列是当前 checkout 的事实入口：
+
+- [`src/tianshu/models/frozen_content.py`](../../../src/tianshu/models/frozen_content.py)
+- [`src/tianshu/skills/loader.py`](../../../src/tianshu/skills/loader.py)
+- [`src/tianshu/evolution/runtime_context.py`](../../../src/tianshu/evolution/runtime_context.py)
+- [`src/tianshu/universe/router.py`](../../../src/tianshu/universe/router.py)
+- [`src/tianshu/application/run_dispatcher.py`](../../../src/tianshu/application/run_dispatcher.py)
+- [`src/tianshu/application/managed_run_ingress.py`](../../../src/tianshu/application/managed_run_ingress.py)
+- [`src/tianshu/application/scheduled_runs.py`](../../../src/tianshu/application/scheduled_runs.py)
+- [`src/tianshu/scheduler/scheduler.py`](../../../src/tianshu/scheduler/scheduler.py)
+- [`src/tianshu/storage/unit_of_work.py`](../../../src/tianshu/storage/unit_of_work.py)
+- [`src/tianshu/models/system_audit.py`](../../../src/tianshu/models/system_audit.py)
+- [`src/tianshu/storage/system_snapshot_repo.py`](../../../src/tianshu/storage/system_snapshot_repo.py)
+- [`src/tianshu/bootstrap/wiring_skills.py`](../../../src/tianshu/bootstrap/wiring_skills.py)
+- [`src/tianshu/evolution/promotion.py`](../../../src/tianshu/evolution/promotion.py)
+- [`tests/skills/test_frozen_view.py`](../../../tests/skills/test_frozen_view.py)
+- [`tests/universe/test_frozen_skill_binding.py`](../../../tests/universe/test_frozen_skill_binding.py)
+- [`tests/test_frozen_content_wiring.py`](../../../tests/test_frozen_content_wiring.py)
+- [`tests/application/test_run_dispatcher_lifecycle.py`](../../../tests/application/test_run_dispatcher_lifecycle.py)
+- [`tests/application/test_managed_run_ingress.py`](../../../tests/application/test_managed_run_ingress.py)
+- [`tests/application/test_managed_scheduler.py`](../../../tests/application/test_managed_scheduler.py)
+- [`tests/storage/test_unit_of_work.py`](../../../tests/storage/test_unit_of_work.py)
+- [`tests/storage/test_system_snapshot_repo.py`](../../../tests/storage/test_system_snapshot_repo.py)
+- [`tests/evolution/test_promotion_fail_closed.py`](../../../tests/evolution/test_promotion_fail_closed.py)
+
+prebind/重启边界由 frozen view `source_digest` 与 run 的 SystemSnapshot `skills` 组件
+对账：shadow 漂移审计后保持 live，enforce 在 runner 前以
+`skills_view_unavailable` 失败关闭；不静默配对旧 snapshot 与新 view。跨重启
+耐久回放旧内容所需的 artifact-backed `skills_view` 属于 P7b，已明确延期。
+审计语义分开：只有真实 source digest 不一致才写 outcome=succeeded 的
+`skills_view_drift`；视图工厂、整体捕获、模型校验等致命失败，以及 enforce 下已解码
+Skills 身份缺失，写 outcome=failed 的 `skills_view_binding_failed`。shadow 身份缺失只跳过
+对账；单个 SKILL.md 解析异常沿用 loader warning + skip，不会仅因此写 failed 事件。
+两类事件都以 audit + outbox 原子持久，且只保留 opaque id/digest，不写 Skill 内容或原始错误。
+这里的“身份缺失”指已成功解码后没有可对账的 Skills snapshot 身份。持久
+SystemSnapshot/run binding 结构损坏会更早沿用 P6 稳定码：strict 为
+`system_snapshot_unavailable`，否则为 `generation_binding_unavailable`；不会被 P7
+重分类为 `skills_view_unavailable`。
+
+并发捕获由 loader 通过已打开目录 fd 读取 SKILL.md/资源；搜索路径祖先只记录
+`dev/ino/mode` identity，搜索根及捕获树内文件/目录记录
+`dev/ino/mode/size/mtime_ns/ctime_ns` stability witness，避免树外 sibling churn 误伤，并把按名称排序的 injected Skills 与
+injected generation 纳入全量 capture。只有连续两次 capture（含 witness）相等才接受；最多
+三轮，持续 churn 后 fail closed，因此不会把旧树和新树混入同一 view。捕获同时拒绝搜索路径
+组件、Skill 目录/成员及嵌套资源中的 symlink。requirements、原始字节大小上限、`load_all`、
+metadata、injected、fallback、覆盖顺序与字符预算均有 live/frozen 对照回归；requirements
+环境判定形成的 `load-all-eligible` 也进入 source identity。
+
+absent 兼容语义由 assignment 决定：selected base/champion absent 只移除目标层并显露低层，
+selected challenger 或 unknown absent 延续 tombstone 并隐藏低层。新的 absent candidate 在
+start-canary、promote、activate 前都以 `skill_absence_requires_durable_tombstone` 拒绝；durable
+global tombstone 延期 P7b。`SkillsWatcher` 当前统一使用 polling observer（包括 frozen wiring），
+避免 macOS FSEvents 在原子目录交换期间崩溃；frozen callback 只 invalidate + notify，legacy
+无 callback 的 reload 行为保留。
+
+enforce prebind 只有 audit+outbox 成功落入 caller-owned UoW 才登记 post-commit failure；证据
+失败则直接退出并回滚整笔事务。已提交的 scheduled fire 由
+`ScheduledFireBindingUnavailable.prepared` 交还 scheduler：循环/cursor/initial root 按 durable
+truth 收口并显式唤醒 reconciler；提交前失败不推进 cursor、不清 initial root、也不 dispatch。
+`requires_frozen_prebind_retry()` 只认可 claimable attempt 的同-key P7 outbox marker，恢复成功
+原子写 `skills_view_binding_recovered`，终态精确重放不重新冻结。生产 prebind 与 dispatch 是
+两个可跨进程的重建阶段，每个阶段最多 freeze 一次。promotion invalidator 与 frozen flag
+无关；exchange 后 desired/no-op 重试及 `verify_rollback` 命中都会 invalidate。上述承诺是本地
+POSIX 普通写者模型，依赖可靠 ctime/stat，不抵抗特权写者，也不覆盖 ctime 不可靠文件系统。
 
 ### 现有架构与决策
 

@@ -89,3 +89,39 @@ def test_disabled_wiring_exposes_explicit_none() -> None:
     wire_system_snapshot(app, settings)
 
     assert app.state.system_snapshot_resolver is None
+
+
+def test_frozen_content_view_switches_default_off_and_allow_shadow_mode() -> None:
+    defaults = TianshuSettings(_env_file=None)
+    shadow = TianshuSettings(_env_file=None, frozen_content_views=True)
+
+    assert defaults.frozen_content_views is False
+    assert defaults.frozen_content_views_enforced is False
+    assert shadow.frozen_content_views is True
+    assert shadow.frozen_content_views_enforced is False
+
+
+def test_frozen_content_view_enforcement_requires_view_and_snapshot_support() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="frozen_content_views_enforced requires frozen_content_views",
+    ):
+        TianshuSettings(_env_file=None, frozen_content_views_enforced=True)
+
+    with pytest.raises(
+        ValidationError,
+        match="frozen_content_views_enforced requires system_snapshot_enabled",
+    ):
+        TianshuSettings(
+            _env_file=None,
+            system_snapshot_enabled=False,
+            frozen_content_views=True,
+            frozen_content_views_enforced=True,
+        )
+
+    enforced = TianshuSettings(
+        _env_file=None,
+        frozen_content_views=True,
+        frozen_content_views_enforced=True,
+    )
+    assert enforced.frozen_content_views_enforced is True

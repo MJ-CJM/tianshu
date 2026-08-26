@@ -30,7 +30,8 @@ P5 已由 PR #111 合入 `feat/plugin-v1`（merge `567b028e`）：后台漂移�
 authority 后激活 READY 代，并可回滚到 last-good。它只覆盖 `keqing:pi`，不改变 manifest-only
 catalog 与第三方代码不加载的边界。
 
-当前 P6 checkout 又把**天枢进程本身**纳入独立 `scope=process` 的 SystemSnapshot generation：
+P6 已由 PR #114 合入 `feat/plugin-v1`（merge `8f32cc4c`），把**天枢进程本身**
+纳入独立 `scope=process` 的 SystemSnapshot generation：
 启动时解析当前典制，复用 V32 active/last-good 指针。严格模式发现目标漂移时，不写 P6
 admission 管理的 process snapshot/release/generation/pointer/audit，并在 routing audit、plugin
 sync、Pi recovery 与 scheduler/run 前拒绝；admission 前既有的迁移、Persona/Provider/目录装配
@@ -38,6 +39,11 @@ sync、Pi recovery 与 scheduler/run 前拒绝；admission 前既有的迁移、
 controller/reconciler、executor registry、authority 与 attempt binding 均显式排除 process 行。
 它不是进程内 Python 热卸载，也没有虚构 clean-shutdown receipt；last-good 只表示“上一个成功
 激活且仍保留的快照”。
+
+P7 当前已完成开发、PR 待创建。它只冻结 Skills：legacy、单 subject 或多
+subject 的受管 run 在每个绑定阶段最多构建一次不可变视图，并以
+`off` / `shadow` / `enforce`
+三档分离兼容观测与失败关闭。它不增数据迁移，也不冻结 Persona、Prompt 或 Provider。
 
 本页合并原 `docs/design/plugins/` 与 `docs/impl/plugins/` 的内容，作为本报告目录中的唯一
 插件现状说明。用户开发示例仍在 [扩展开发指南](../../usage/extension-guide.md)，但当前/目标
@@ -67,9 +73,11 @@ controller/reconciler、executor registry、authority 与 attempt binding 均显
 | EXECUTOR 高危晋升与回滚 | 已合入 | PR #111；promote 永远需要精确已决议 Decision；只激活映射代；rollback 恢复 last-good 并撤权，可从 durable pending 状态继续 |
 | EXECUTOR 前向演化开关 | 默认关闭 | 关闭只拒绝新的 start-canary/promote；adapter、existing generation recovery、rollback 和 reconcile 保留 |
 | EXECUTOR 漂移巡检 | 默认关闭 | control-plane scanner 显式启用后提案；Keqing GET 只读，不扫描或创建候选 |
-| process SystemSnapshot generation | P6 checkout 已实现 | V32 `scope=process` 直接保存 canonical `SystemSnapshotV1`；启动幂等、漂移、回滚和 active/last-good 保留由专用 bootstrap 处理 |
+| process SystemSnapshot generation | 已合入 | PR #114；V32 `scope=process` 直接保存 canonical `SystemSnapshotV1`；启动幂等、漂移、回滚和 active/last-good 保留由专用 bootstrap 处理 |
 | strict SystemSnapshot run binding | 默认关闭 | strict 时 resolver/持久化失败在 runner 前以 `system_snapshot_unavailable` 失败；非 strict 保留有审计的 shadow 行为 |
-| process generation 只读投影 | P6 checkout 已实现 | Evolution API/Web 在有候选与空候选状态都显示 active/last-good；关闭 snapshot 时两者明确为 null |
+| process generation 只读投影 | 已合入 | Evolution API/Web 在有候选与空候选状态都显示 active/last-good；关闭 snapshot 时两者明确为 null |
+| Skills 每 run 不可变视图 | 开发完成，PR 待创建 | P7 仅覆盖 Skills；`off` 不构建视图，`shadow` 构建/比对但 runner 仍读 live，`enforce` 将视图绑定到 run |
+| Skills 视图身份与 prebind 漂移 | 开发完成，PR 待创建 | 当前 Skills 源摘要必须与该 run 的 SystemSnapshot `skills` 组件一致；shadow 审计后读 live，enforce 在 runner 前以 `skills_view_unavailable` 失败关闭 |
 | 插件 enabled / version pin | 不支持 | P4b UI 不提供这两个开关；curator protection 不是版本 pin |
 
 P4b 路由顺序是 existing replay → continuity inheritance → fresh-root kill switch。关闭 routing
@@ -182,7 +190,7 @@ V31 `0031_system_snapshots` 用不可更新、不可删除、不可 replace 的�
 Evidence 中增加 `application/vnd.tianshu.system-snapshot.v1+json` required artifact；assignment
 只读 API 和 Edict 详情可以投影同一内容摘要。
 
-P1 写侧最初是 **shadow / 影子模式**。P6 当前 checkout 已让 `system_snapshot_strict=true` 真正
+P1 写侧最初是 **shadow / 影子模式**。P6 PR #114 已让 `system_snapshot_strict=true` 真正
 在 resolver 或 authoritative binding 失败时于 runner 前拒绝，并保留默认关闭的兼容路径；非严格
 模式仍尽力写 SystemAudit 与 durable outbox 后继续。它仍不等于完整运行内容已经全部可归因：dependency-lock 目前仍是零值占位，
 policy 只覆盖 id/priority，prompt key 尚未填充。P3 已让非空 generation tuple 在绑定与执行面
@@ -264,7 +272,8 @@ reconcile 继续可用。这个区别保证“停止继续进化”不会同时�
 
 ## 8. P6 进程 SystemSnapshot generation 与严格绑定
 
-P6 不新增迁移，复用 V32 五张 generation 表。`runtime_generation_releases` 的 process 行直接保存
+P6 已由 PR #114 合入 `feat/plugin-v1`（merge `8f32cc4c`）。它不新增迁移，复用
+V32 五张 generation 表。`runtime_generation_releases` 的 process 行直接保存
 canonical `SystemSnapshotV1`，且 `release_digest == snapshot.digest`；`RuntimeReleaseV1` 继续只
 表示 executor release，repository 以 `insert/get_process_release` 窄接口和 scope-aware decoder
 阻止两类材料互相解释。
@@ -282,10 +291,100 @@ readiness。`GenerationController` 与 executor `GenerationReconciler` 的生产
 稳定、脱敏的 `system_snapshot_unavailable`；默认 strict-off 保留历史 shadow 兼容。
 
 Evolution Center 仅投影 process active/last-good generation id，不提供切换按钮。关闭
-SystemSnapshot 时即使数据库留有旧 process 行也返回 null。P7 才处理 Skills 等声明式内容的
-per-run frozen view；P6 不做任意 Python 模块 reload/unload。
+SystemSnapshot 时即使数据库留有旧 process 行也返回 null。P6 不做任意 Python
+模块 reload/unload。
 
-## 9. 为什么当前不开自动加载
+## 9. P7 Skills 每 run 冻结视图
+
+P7 当前已完成开发、PR 待创建。`FrozenSkillV1` / `FrozenSkillsViewV1` /
+`FrozenContentViewsV1` 将实际 Skills 读取面深冻结；loader 的详情、列表、index、always、
+all、tool 与 workspace overlay 语义共用同一 task-local 视图。legacy、单 subject 和多
+subject governed run 都覆盖，嵌套、异常和取消后恢复外层 context。
+
+两个默认为 false 的开关构成三档：
+
+| 模式 | 配置 | 运行语义 |
+|---|---|---|
+| `off` | `frozen_content_views=false` | 不构建 frozen view，loader/run 继续读取 live；watcher 保留 legacy invalidate + reload 语义，但 observer backend 与其他模式统一为 polling |
+| `shadow` | `frozen_content_views=true` 且 `frozen_content_views_enforced=false` | 每次 bind 构建，并在 SystemSnapshot 身份可用时对比 Skills 源摘要；真实漂移原子写 `skills_view_drift` 审计/outbox，runner 继续读 live |
+| `enforce` | 两开关均为 `true` | 为整个 run 绑定该视图；已解码的 Skills 身份缺失、视图构建失败或摘要漂移在 runner 前以 `skills_view_unavailable` 失败关闭 |
+
+真实 digest mismatch 记 outcome=succeeded 的 `skills_view_drift`；视图工厂、整体捕获、
+模型校验等致命失败，以及 enforce 下已解码 Skills 身份缺失，记 outcome=failed 的
+`skills_view_binding_failed`。shadow 在身份缺失时只跳过对账，不写 failed 事件。单个
+SKILL.md 解析异常仍沿用 loader 的 warning + skip，不会仅因此产生 binding-failed 审计。
+两类审计均以 audit + outbox 在当前事务原子写入，不记 Skill 内容或原始异常。
+持久 SystemSnapshot/run binding 若结构损坏，则在进入上述 P7 对账前沿用 P6 稳定分类：
+strict 为 `system_snapshot_unavailable`，否则为 `generation_binding_unavailable`；该类错误
+不伪装成 `skills_view_unavailable`，也不写成 Skills view drift。
+
+`freeze_view()` 不复用 L1/L2/digest cache。每轮全量 capture 通过已打开目录 fd 读取
+SKILL.md 和资源；搜索路径祖先只记录 `dev/ino/mode` identity witness，搜索根与捕获树内
+文件/目录记录 `dev/ino/mode/size/mtime_ns/ctime_ns` stability witness，从而不把树外 sibling
+churn 误判为 Skill 变化。同时纳入 injected generation；注入 Skill 按名称稳定排序。只有连续两次全量
+capture（包括 witness、内容、层次与 injected generation）完全一致才接受。最多尝试三轮，
+持续 churn 后以 `skills_view_unavailable` fail closed；晋升 exchange 后即使旧目录随即
+cleanup，也不会拼出 mixed view。
+
+捕获从搜索目录的每一级路径组件开始固定身份；搜索路径、Skill 目录或成员，以及
+`scripts/`、`references/`、`assets/` 内任意层级的资源 symlink 都会失败关闭，不会跟随到
+捕获树外。live 与 frozen 还保持同一套 `requires.bins` / `requires.anyBins` /
+`requires.env` / OS、`always`、原始字节大小上限、`load_all`、metadata、injected、workspace
+fallback、覆盖优先级和字符预算语义。高优先级 Skill 即使因 requirements 或大小不进入
+`load_all`，仍按 live 语义成为详情/metadata 的有效层，较低层满足条件的 `load_all` 内容则
+继续显露。requirements 的**环境判定结果**会以 `load-all-eligible` 进入 `source_digest`；因此
+所需环境变量的存在性或二进制/OS 可用性变化并使 eligibility 判定翻转时，即使 SKILL.md
+字节未变，也会形成新的来源身份，而不是把影响执行面的环境漂移藏在同一个 snapshot
+digest 下。
+
+`state=absent` 当前是 assignment-aware 的运行时覆盖语义，不是已经落库的全局删除标记：当
+选中的是 base/champion 的 absent 时，只撤去该受治理目标层并显露更低优先级来源；当选中
+challenger，或旧兼容记录无法判定 assignment 时，继续保留历史 tombstone 语义并隐藏低层。
+新的 absent candidate 在 start-canary、promote 和 adapter activate 前统一以稳定错误
+`skill_absence_requires_durable_tombstone` 拒绝，且不产生路由或晋升副作用。可跨 assignment、
+重启和来源层稳定隐藏的 durable global tombstone 尚未实现，明确延期到 P7b；不得把当前
+历史兼容覆盖解释为已经支持新的 Skill 删除晋升。
+
+enforce 的 prebind 失败不会在 audit/outbox 尚未提交时直接逃出 caller-owned UoW。router
+只有在 `skills_view_binding_failed` / `skills_view_drift` 的 audit + outbox 成功写入后，才把
+失败登记为 UoW post-commit failure；调用方业务写入与证据在同一事务成功提交后，`commit()`
+才抛稳定错误。若审计/outbox 写入失败，则不登记 post-commit failure，原异常立即退出并使整笔
+caller 事务回滚。未登记该 failure 的默认 UoW 提交/回滚语义不变。
+
+定时触发还区分“证据已提交后的绑定失败”和“提交前证据写失败”。前者由
+`ScheduledFireBindingUnavailable` 携带已提交的 `PreparedFire` 返回给 scheduler：interval/cron
+循环保持存活并采用已经持久化的下一 cursor，once/immediate 只在提交后消费 initial root，
+`run_now` 不移动原定时 cursor；只要有 claimable attempt，scheduler 都显式唤醒 durable run
+reconciler，而不会把 job 错标为 failed 或再补一条虚假的 failed `schedule_run`。后者仍是普通
+`FrozenContentViewUnavailable`：整个 fire 事务回滚，cursor 与 initial root 原样保留，不唤醒
+reconciler，循环退避后可在同一 fire identity 上恢复。
+
+同 idempotency key 重试只有在 attempt 仍为 `claimable` 且已有 P7 failure/drift outbox marker
+时才重新 prebind/freeze；终态 attempt 的精确幂等重放直接返回既有结果，不重新冻结或拿当前
+Skills 去改写历史语义。claimable attempt 重新对账成功时会在同一事务写
+`skills_view_binding_recovered` audit/outbox，关闭该 attempt 的重试 marker；恢复审计本身写入
+失败也必须回滚，不能把“已经恢复”只留在进程内。
+
+`SkillsWatcher` 在所有模式都使用 `PollingObserver`，避免 macOS FSEvents 在 Skill 原子目录
+交换及 observer start/stop 竞态中直接终止进程；frozen-mode wiring 的回调路径只失效缓存并
+通知，不预加载 live active 视图，`on_change=None` 的 legacy 路径仍保留 debounce 后 reload。
+stop 之后排队的旧 generation callback 也会被丢弃。Skill 成功 activate/rollback 仍显式失效
+缓存。promotion 的 cache invalidator 无论 frozen flag 是否开启都
+装配；`verify_rollback()` 命中已恢复 base 时也失效缓存。若 exchange 已成功但 cleanup 等后续
+步骤让结果返回不确定，重试在 reconcile 后发现 live 已是 desired/no-op，仍主动 invalidate，
+保证缓存最终收敛。
+P7 保证同进程 mid-run 稳定，但不保存旧 Skills
+字节。无 prebind 的 run 只冻结一次；生产 prebind + dispatch 是两个独立阶段：prebind
+最多冻结一次完成身份捕获，dispatch 最多冻结一次完成执行重建，不复用同一 view。两阶段可
+跨进程，在 P7b 持久旧内容前，重建并比对是
+fail-closed 约束。prebind 或重启后若只剩旧 SystemSnapshot，shadow 会审计漂移并保持 live，
+enforce 会 fail closed；两者都不会静默把“旧 snapshot + 新 view”配成一次受管运行。
+跨进程耐久回放旧内容所需的 artifact-backed `skills_view` 属于 P7b，因会扩大
+持久化、retention、配额、secret scanning 和 rollback 契约而明确延期。
+上述稳定捕获依赖本地 POSIX 文件系统能为普通写者提供可信的 stat/ctime 变化；它不抵抗
+host administrator、同 UID 特权/恶意写者伪造 witness，也不对 ctime 不可靠的文件系统作承诺。
+
+## 10. 为什么当前不开自动加载
 
 执行第三方入口前至少需要完成：
 

@@ -23,7 +23,11 @@ from tianshu.storage.scheduler_repo import (
     load_scheduler_job,
 )
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
-from tianshu.universe.router import ChallengerRouter, GenerationBindingUnavailable
+from tianshu.universe.router import (
+    ChallengerRouter,
+    FrozenContentViewUnavailable,
+    GenerationBindingUnavailable,
+)
 
 
 class ScheduledFireConflict(RuntimeError):
@@ -43,6 +47,14 @@ class PreparedFire(BaseModel):
     attempt_id: str | None
     schedule_run_id: str
     deduplicated: bool
+
+
+class ScheduledFireBindingUnavailable(FrozenContentViewUnavailable):
+    """A fire committed durably, but its enforced frozen binding was unavailable."""
+
+    def __init__(self, prepared: PreparedFire) -> None:
+        super().__init__("skills_view_unavailable")
+        self.prepared = prepared
 
 
 def _utc(value: datetime) -> datetime:
@@ -172,8 +184,7 @@ class ScheduledRunPreparer:
                             attempt_id=result.attempt_id,
                             runtime=runtime,
                         )
-                    unit_of_work.commit()
-                    return result
+                    return self._commit_prepared(unit_of_work, result)
 
                 persisted_cursor = job["next_run"]
                 try:
@@ -281,8 +292,7 @@ class ScheduledRunPreparer:
                     status="completed" if terminal else "active",
                 ):
                     raise ScheduledFireConflict("scheduler cursor changed during preparation")
-                unit_of_work.commit()
-                return PreparedFire(
+                result = PreparedFire(
                     fire_id=fire_id,
                     job_id=job_id,
                     edict_id=str(job["edict_id"]),
@@ -294,6 +304,7 @@ class ScheduledRunPreparer:
                     schedule_run_id=schedule_run_id,
                     deduplicated=False,
                 )
+                return self._commit_prepared(unit_of_work, result)
         except sqlite3.IntegrityError as exc:
             raise ScheduledFireConflict("scheduled fire identity conflict") from exc
 
@@ -403,8 +414,7 @@ class ScheduledRunPreparer:
                             attempt_id=attempt_id,
                             runtime=runtime,
                         )
-                    unit_of_work.commit()
-                    return PreparedFire(
+                    result = PreparedFire(
                         fire_id=fire_id,
                         job_id=job_id,
                         edict_id=str(job["edict_id"]),
@@ -416,6 +426,7 @@ class ScheduledRunPreparer:
                         schedule_run_id=schedule_run_id,
                         deduplicated=True,
                     )
+                    return self._commit_prepared(unit_of_work, result)
                 insert_memorial(
                     connection,
                     Memorial(
@@ -462,8 +473,7 @@ class ScheduledRunPreparer:
                         sort_keys=True,
                     ),
                 )
-                unit_of_work.commit()
-                return PreparedFire(
+                result = PreparedFire(
                     fire_id=fire_id,
                     job_id=job_id,
                     edict_id=str(job["edict_id"]),
@@ -475,11 +485,12 @@ class ScheduledRunPreparer:
                     schedule_run_id=schedule_run_id,
                     deduplicated=False,
                 )
+                return self._commit_prepared(unit_of_work, result)
         except sqlite3.IntegrityError as exc:
             raise ScheduledFireConflict("manual fire identity conflict") from exc
 
-    @staticmethod
     def _claimable_replay_needs_binding(
+        self,
         connection: sqlite3.Connection,
         *,
         memorial_id: str,
@@ -492,6 +503,12 @@ class ScheduledRunPreparer:
         ).fetchone()
         if attempt is None or attempt["status"] != AttemptStatus.CLAIMABLE.value:
             return False
+        if self._challenger_router.requires_frozen_prebind_retry(
+            connection,
+            memorial_id=memorial_id,
+            attempt_id=attempt_id,
+        ):
+            return True
         if (
             connection.execute(
                 "SELECT 1 FROM run_system_bindings WHERE memorial_id=? AND attempt_id=? LIMIT 1",
@@ -510,6 +527,17 @@ class ScheduledRunPreparer:
             raise GenerationBindingUnavailable("generation_binding_unavailable")
         return True
 
+    @staticmethod
+    def _commit_prepared(
+        unit_of_work: SqliteUnitOfWork,
+        prepared: PreparedFire,
+    ) -> PreparedFire:
+        try:
+            unit_of_work.commit()
+        except FrozenContentViewUnavailable as exc:
+            raise ScheduledFireBindingUnavailable(prepared) from exc
+        return prepared
+
     def _prebind_runtime_required(
         self,
         unit_of_work: SqliteUnitOfWork,
@@ -524,6 +552,8 @@ class ScheduledRunPreparer:
             memorial_id=memorial_id,
             attempt_id=attempt_id,
         )
+        if unit_of_work.has_post_commit_failure:
+            return
         if binding is None and requires_generation_selection:
             raise GenerationBindingUnavailable("generation_binding_unavailable")
         if self._require_runtime_binding and (binding is None or binding.system_snapshot is None):
@@ -798,4 +828,9 @@ def _submission_job_id(event_id: str) -> str:
     return f"submitted-{digest}"
 
 
-__all__ = ["PreparedFire", "ScheduledFireConflict", "ScheduledRunPreparer"]
+__all__ = [
+    "PreparedFire",
+    "ScheduledFireBindingUnavailable",
+    "ScheduledFireConflict",
+    "ScheduledRunPreparer",
+]

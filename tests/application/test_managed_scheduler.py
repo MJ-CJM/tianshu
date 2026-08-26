@@ -4,18 +4,123 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 
 import pytest
 
-from tianshu.application.scheduled_runs import PreparedFire, ScheduledRunPreparer
+from tianshu.application.scheduled_runs import (
+    PreparedFire,
+    ScheduledFireBindingUnavailable,
+    ScheduledRunPreparer,
+)
 from tianshu.bus.event_bus import EventBus
+from tianshu.evolution.system_snapshot import SystemSnapshotResolver
 from tianshu.models import Edict, EdictSchedule, Memorial
 from tianshu.models.events import EventEnvelope
+from tianshu.models.frozen_content import (
+    FrozenContentViewsV1,
+    FrozenSkillsViewV1,
+    frozen_skills_view_digest,
+)
 from tianshu.scheduler.scheduler import Scheduler, submission_job_id
 from tianshu.storage.outbox_repo import OutboxRepository
 from tianshu.universe.router import ChallengerRouter, GenerationBindingUnavailable
 
 _NOW = datetime(2026, 7, 16, 11, tzinfo=UTC)
+
+
+def _digest(value: str) -> str:
+    return sha256(value.encode()).hexdigest()
+
+
+def _frozen_views(source_digest: str) -> FrozenContentViewsV1:
+    return FrozenContentViewsV1(
+        skills=FrozenSkillsViewV1(
+            source_digest=source_digest,
+            effective_digest=frozen_skills_view_digest(
+                skills={},
+                load_all_entries=(),
+            ),
+            skills={},
+        )
+    )
+
+
+class _ObservedViewFactory:
+    def __init__(self, source_digest: str, *, failing: bool = True) -> None:
+        self.source_digest = source_digest
+        self.failing = failing
+        self.calls = 0
+        self.called = asyncio.Event()
+
+    def __call__(self) -> FrozenContentViewsV1:
+        self.calls += 1
+        self.called.set()
+        if self.failing:
+            raise RuntimeError("private frozen view failure")
+        return _frozen_views(self.source_digest)
+
+
+class _ObservedReconciler:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.called = asyncio.Event()
+
+    async def reconcile_once(self) -> int:
+        self.calls += 1
+        self.called.set()
+        return 0
+
+
+def _enforced_preparer(storage, factory: _ObservedViewFactory) -> ScheduledRunPreparer:
+    resolver = SystemSnapshotResolver(
+        kernel_facts=lambda: {
+            "dependency_lock_hash": _digest("lock"),
+            "tianshu_version": "test",
+        },
+        executor_digests=lambda: {},
+        skills_digest=lambda: factory.source_digest,
+        personas_digest=lambda: _digest("personas"),
+        policy_rules_digest=lambda: _digest("policy-rules"),
+        provider_profiles_digest=lambda: _digest("provider-profiles"),
+    )
+    return ScheduledRunPreparer(
+        storage.unit_of_work,
+        storage.attempt_repo,
+        ChallengerRouter(
+            storage,
+            snapshot_resolver=lambda: resolver,
+            system_snapshot_strict=True,
+            view_factory=factory,
+            frozen_content_views=True,
+            frozen_content_views_enforced=True,
+        ),
+        require_runtime_binding=True,
+    )
+
+
+def _bind_submission(
+    storage,
+    *,
+    edict: Edict,
+    memorial: Memorial,
+    event_id: str,
+) -> str:
+    with storage.unit_of_work() as unit_of_work:
+        OutboxRepository().add(
+            unit_of_work.connection,
+            EventEnvelope(
+                event_id=event_id,
+                event_type="edict.submitted",
+                edict_id=edict.id,
+                memorial_id=memorial.id,
+                timestamp=_NOW,
+                producer="test",
+                payload={"goal": edict.goal},
+            ),
+        )
+        unit_of_work.commit()
+    return submission_job_id(event_id)
 
 
 class _Preparer:
@@ -314,6 +419,249 @@ async def test_future_fire_rechecks_readiness_after_timer_sleep(storage) -> None
         await asyncio.gather(task, return_exceptions=True)
 
 
+async def test_enforced_interval_post_commit_failure_keeps_loop_alive_and_reconciles(
+    storage,
+) -> None:
+    factory = _ObservedViewFactory(_digest("stable-skills"))
+    reconciler = _ObservedReconciler()
+    edict = Edict(
+        id="interval-frozen-edict",
+        goal="periodic frozen work",
+        schedule=EdictSchedule(
+            type="interval",
+            interval_seconds=60,
+            concurrency_policy="allow",
+        ),
+    )
+    storage.save_edict(edict)
+    storage.save_scheduler_job(
+        "interval-frozen-job",
+        edict.id,
+        "interval",
+        interval_seconds=60,
+        next_run=_NOW,
+    )
+    scheduler = Scheduler(
+        EventBus(),
+        storage,
+        scheduled_run_preparer=_enforced_preparer(storage, factory),
+        run_reconciler=reconciler,
+        clock=lambda: _NOW,
+    )
+    scheduler._running = True  # noqa: SLF001
+
+    await scheduler._restore_managed_jobs()  # noqa: SLF001
+    job = scheduler._jobs["interval-frozen-job"]  # noqa: SLF001
+    try:
+        await asyncio.wait_for(reconciler.called.wait(), timeout=2)
+        await asyncio.sleep(0)
+
+        durable = storage.get_scheduler_job("interval-frozen-job")
+        assert durable is not None
+        assert durable["status"] == "active"
+        assert durable["next_run"] == (_NOW + timedelta(seconds=60)).isoformat()
+        assert job.task is not None and not job.task.done()
+        assert job.next_run == _NOW + timedelta(seconds=60)
+        assert "interval-frozen-job" in scheduler._jobs  # noqa: SLF001
+        assert reconciler.calls == 1
+
+        runs = storage.list_schedule_runs(source="interval-frozen-job")
+        assert len(runs) == 1
+        assert runs[0]["status"] == "prepared"
+        attempt = storage._conn.execute(  # noqa: SLF001
+            "SELECT status FROM execution_attempts"
+        ).fetchone()
+        assert attempt is not None and attempt["status"] == "claimable"
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM system_audit_events WHERE action='skills_view_binding_failed'"
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM outbox_events WHERE event_type='skills_view_binding_failed'"
+            ).fetchone()[0]
+            == 1
+        )
+    finally:
+        scheduler._running = False  # noqa: SLF001
+        if job.task is not None and not job.task.done():
+            job.task.cancel()
+            await asyncio.gather(job.task, return_exceptions=True)
+
+
+async def test_enforced_once_post_commit_failure_consumes_initial_root_and_reconciles(
+    storage,
+) -> None:
+    factory = _ObservedViewFactory(_digest("stable-skills"))
+    reconciler = _ObservedReconciler()
+    edict = Edict(
+        id="once-frozen-edict",
+        goal="one frozen run",
+        schedule=EdictSchedule(type="once", at=_NOW),
+    )
+    root = Memorial(id="once-submitted-root", edict_id=edict.id, instruction=edict.goal)
+    storage.save_edict(edict)
+    storage.save_memorial(root)
+    job_id = _bind_submission(
+        storage,
+        edict=edict,
+        memorial=root,
+        event_id="once-frozen-submission",
+    )
+    storage.save_scheduler_job(job_id, edict.id, "once", next_run=_NOW)
+    scheduler = Scheduler(
+        EventBus(),
+        storage,
+        scheduled_run_preparer=_enforced_preparer(storage, factory),
+        run_reconciler=reconciler,
+        clock=lambda: _NOW,
+    )
+    scheduler._running = True  # noqa: SLF001
+
+    await scheduler._restore_managed_jobs()  # noqa: SLF001
+    job = scheduler._jobs[job_id]  # noqa: SLF001
+    try:
+        assert job.task is not None
+        await asyncio.wait_for(job.task, timeout=2)
+
+        durable = storage.get_scheduler_job(job_id)
+        assert durable is not None
+        assert durable["status"] == "completed"
+        assert durable["next_run"] is None
+        assert job.initial_memorial_id is None
+        assert reconciler.calls == 1
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM memorials WHERE edict_id=?", (edict.id,)
+            ).fetchone()[0]
+            == 1
+        )
+        attempt = storage._conn.execute(  # noqa: SLF001
+            "SELECT memorial_id, status FROM execution_attempts"
+        ).fetchone()
+        assert attempt is not None
+        assert tuple(attempt) == (root.id, "claimable")
+        runs = storage.list_schedule_runs(source=job_id)
+        assert len(runs) == 1
+        assert runs[0]["status"] == "prepared"
+    finally:
+        scheduler._running = False  # noqa: SLF001
+        if job.task is not None and not job.task.done():
+            job.task.cancel()
+            await asyncio.gather(job.task, return_exceptions=True)
+
+
+async def test_enforced_once_audit_failure_rolls_back_then_recovers_same_initial_root(
+    storage,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "tianshu.scheduler.scheduler.MANAGED_READINESS_BACKOFF_SECONDS",
+        0.01,
+    )
+    factory = _ObservedViewFactory(_digest("stable-skills"))
+    reconciler = _ObservedReconciler()
+    edict = Edict(
+        id="once-audit-edict",
+        goal="recover one frozen run",
+        schedule=EdictSchedule(type="once", at=_NOW),
+    )
+    root = Memorial(id="once-audit-root", edict_id=edict.id, instruction=edict.goal)
+    storage.save_edict(edict)
+    storage.save_memorial(root)
+    job_id = _bind_submission(
+        storage,
+        edict=edict,
+        memorial=root,
+        event_id="once-audit-submission",
+    )
+    storage.save_scheduler_job(job_id, edict.id, "once", next_run=_NOW)
+    storage._conn.executescript(  # noqa: SLF001
+        """
+        CREATE TRIGGER reject_scheduler_skills_view_failure_outbox
+        BEFORE INSERT ON outbox_events
+        WHEN NEW.event_type='skills_view_binding_failed' BEGIN
+            SELECT RAISE(ABORT, 'reject scheduler skills view failure outbox');
+        END;
+        """
+    )
+    scheduler = Scheduler(
+        EventBus(),
+        storage,
+        scheduled_run_preparer=_enforced_preparer(storage, factory),
+        run_reconciler=reconciler,
+        clock=lambda: _NOW,
+    )
+    scheduler._running = True  # noqa: SLF001
+
+    await scheduler._restore_managed_jobs()  # noqa: SLF001
+    job = scheduler._jobs[job_id]  # noqa: SLF001
+    try:
+        await asyncio.wait_for(factory.called.wait(), timeout=2)
+
+        durable = storage.get_scheduler_job(job_id)
+        assert durable is not None
+        assert durable["status"] == "active"
+        assert durable["next_run"] == _NOW.isoformat()
+        assert job.initial_memorial_id == root.id
+        assert job.task is not None and not job.task.done()
+        assert reconciler.calls == 0
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM execution_attempts"
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM schedule_run"
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM system_audit_events WHERE action='skills_view_binding_failed'"
+            ).fetchone()[0]
+            == 0
+        )
+
+        factory.failing = False
+        storage._conn.execute(  # noqa: SLF001
+            "DROP TRIGGER reject_scheduler_skills_view_failure_outbox"
+        )
+        storage._conn.commit()  # noqa: SLF001
+
+        await asyncio.wait_for(reconciler.called.wait(), timeout=2)
+        assert job.task is not None
+        await asyncio.wait_for(job.task, timeout=2)
+
+        durable = storage.get_scheduler_job(job_id)
+        assert durable is not None
+        assert durable["status"] == "completed"
+        assert durable["next_run"] is None
+        assert job.initial_memorial_id is None
+        assert factory.calls >= 2
+        assert reconciler.calls == 1
+        attempt = storage._conn.execute(  # noqa: SLF001
+            "SELECT memorial_id, status FROM execution_attempts"
+        ).fetchone()
+        assert attempt is not None
+        assert tuple(attempt) == (root.id, "claimable")
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM schedule_run"
+            ).fetchone()[0]
+            == 1
+        )
+    finally:
+        scheduler._running = False  # noqa: SLF001
+        if job.task is not None and not job.task.done():
+            job.task.cancel()
+            await asyncio.gather(job.task, return_exceptions=True)
+
+
 async def test_orphan_sweeper_is_diagnostic_only_in_managed_mode(storage) -> None:
     scheduler = Scheduler(
         EventBus(),
@@ -351,6 +699,124 @@ async def test_run_now_uses_explicit_stable_key_without_moving_cursor(storage) -
 
     assert order == ["prepare_manual", "dispatch"]
     assert preparer.calls[0]["idempotency_key"] == "manual-1"
+
+
+async def test_run_now_post_commit_binding_failure_still_reconciles_durable_attempt(
+    storage,
+) -> None:
+    factory = _ObservedViewFactory(_digest("stable-skills"))
+    reconciler = _ObservedReconciler()
+    next_run = _NOW + timedelta(minutes=5)
+    edict = Edict(
+        id="run-now-frozen-edict",
+        goal="manual frozen work",
+        schedule=EdictSchedule(type="interval", interval_seconds=300),
+    )
+    storage.save_edict(edict)
+    storage.save_scheduler_job(
+        "run-now-frozen-job",
+        edict.id,
+        "interval",
+        interval_seconds=300,
+        next_run=next_run,
+    )
+    scheduler = Scheduler(
+        EventBus(),
+        storage,
+        scheduled_run_preparer=_enforced_preparer(storage, factory),
+        run_reconciler=reconciler,
+        clock=lambda: _NOW,
+    )
+
+    assert await scheduler.run_now(
+        "run-now-frozen-job",
+        idempotency_key="manual-frozen-1",
+    )
+
+    durable = storage.get_scheduler_job("run-now-frozen-job")
+    assert durable is not None
+    assert durable["next_run"] == next_run.isoformat()
+    assert reconciler.calls == 1
+    attempt = storage._conn.execute(  # noqa: SLF001
+        "SELECT status FROM execution_attempts"
+    ).fetchone()
+    assert attempt is not None and attempt["status"] == "claimable"
+    runs = storage.list_schedule_runs(source="run-now-frozen-job")
+    assert len(runs) == 1
+    assert runs[0]["kind"] == "run_now"
+    assert runs[0]["status"] == "prepared"
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM system_audit_events WHERE action='skills_view_binding_failed'"
+        ).fetchone()[0]
+        == 1
+    )
+
+
+async def test_immediate_terminal_event_replay_recovers_committed_binding_without_new_fire(
+    storage,
+) -> None:
+    edict = Edict(id="terminal-replay-edict", goal="recover committed immediate fire")
+    root = Memorial(id="terminal-replay-root", edict_id=edict.id, instruction=edict.goal)
+    storage.save_edict(edict)
+    storage.save_memorial(root)
+    event_id = "terminal-replay-submission"
+    job_id = _bind_submission(
+        storage,
+        edict=edict,
+        memorial=root,
+        event_id=event_id,
+    )
+    storage.save_scheduler_job(job_id, edict.id, "immediate", next_run=_NOW)
+    factory = _ObservedViewFactory(_digest("stable-skills"))
+    preparer = _enforced_preparer(storage, factory)
+
+    with pytest.raises(ScheduledFireBindingUnavailable) as committed:
+        preparer.prepare(
+            job_id=job_id,
+            scheduled_at=_NOW,
+            initial_memorial_id=root.id,
+        )
+    assert committed.value.prepared.deduplicated is False
+    assert storage.get_scheduler_job(job_id)["status"] == "completed"
+
+    factory.failing = False
+    reconciler = _ObservedReconciler()
+    scheduler = Scheduler(
+        EventBus(),
+        storage,
+        scheduled_run_preparer=preparer,
+        run_reconciler=reconciler,
+        clock=lambda: _NOW + timedelta(hours=1),
+    )
+    event = EventEnvelope(
+        event_id=event_id,
+        event_type="edict.submitted",
+        edict_id=edict.id,
+        memorial_id=root.id,
+        timestamp=_NOW,
+        producer="test",
+        payload={"goal": edict.goal},
+    )
+
+    await scheduler.handle_submitted(event)
+
+    assert reconciler.calls == 1
+    assert scheduler._jobs[job_id].initial_memorial_id is None  # noqa: SLF001
+    assert (
+        storage._conn.execute("SELECT COUNT(*) FROM schedule_run").fetchone()[0]  # noqa: SLF001
+        == 1
+    )
+    assert (
+        storage._conn.execute("SELECT COUNT(*) FROM execution_attempts").fetchone()[0]  # noqa: SLF001
+        == 1
+    )
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM system_audit_events WHERE action='skills_view_binding_recovered'"
+        ).fetchone()[0]
+        == 1
+    )
 
 
 async def test_run_now_gate_rejects_before_manual_prepare(storage) -> None:

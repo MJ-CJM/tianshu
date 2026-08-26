@@ -25,6 +25,9 @@ from tianshu.storage.system_audit_repo import _append_system_audit_unlocked
 type SystemSnapshotEventAction = Literal[
     "system_snapshot_drift",
     "system_snapshot_binding_failed",
+    "skills_view_drift",
+    "skills_view_binding_failed",
+    "skills_view_binding_recovered",
 ]
 
 _ACTOR_DIGEST = hashlib.sha256(b"tianshu.system-snapshot-repository").hexdigest()
@@ -592,7 +595,13 @@ class SystemSnapshotRepository:
     ) -> bool:
         """Best-effort atomic audit/outbox append with no error-detail leakage."""
 
-        if action not in {"system_snapshot_drift", "system_snapshot_binding_failed"}:
+        if action not in {
+            "system_snapshot_drift",
+            "system_snapshot_binding_failed",
+            "skills_view_drift",
+            "skills_view_binding_failed",
+            "skills_view_binding_recovered",
+        }:
             return False
         if not connection.in_transaction:
             return False
@@ -609,9 +618,27 @@ class SystemSnapshotRepository:
                     correlation_id=correlation_id,
                     actor_digest=_ACTOR_DIGEST,
                     action=action,
-                    outcome=("succeeded" if action == "system_snapshot_drift" else "failed"),
+                    outcome=(
+                        "succeeded"
+                        if action
+                        in {
+                            "system_snapshot_drift",
+                            "skills_view_drift",
+                            "skills_view_binding_recovered",
+                        }
+                        else "failed"
+                    ),
                     reason_code=action,
-                    subject_kind="system_snapshot_binding",
+                    subject_kind=(
+                        "skills_view"
+                        if action
+                        in {
+                            "skills_view_drift",
+                            "skills_view_binding_failed",
+                            "skills_view_binding_recovered",
+                        }
+                        else "system_snapshot_binding"
+                    ),
                     subject_digest=subject_digest,
                 ),
             )
@@ -619,10 +646,20 @@ class SystemSnapshotRepository:
                 "attempt_id": attempt_id,
                 "correlation_id": correlation_id,
             }
-            if snapshot_digest is not None:
-                payload["snapshot_digest"] = snapshot_digest
-            if previous_snapshot_digest is not None:
-                payload["previous_snapshot_digest"] = previous_snapshot_digest
+            if action in {
+                "skills_view_drift",
+                "skills_view_binding_failed",
+                "skills_view_binding_recovered",
+            }:
+                if snapshot_digest is not None:
+                    payload["skills_digest"] = snapshot_digest
+                if previous_snapshot_digest is not None:
+                    payload["previous_skills_digest"] = previous_snapshot_digest
+            else:
+                if snapshot_digest is not None:
+                    payload["snapshot_digest"] = snapshot_digest
+                if previous_snapshot_digest is not None:
+                    payload["previous_snapshot_digest"] = previous_snapshot_digest
             OutboxRepository().add(
                 connection,
                 make_event(

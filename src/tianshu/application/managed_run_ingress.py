@@ -208,7 +208,11 @@ class ManagedRunIngress:
                 max_attempts=runtime.retry_limit + 1,
                 attempt_id=attempt_id,
             )
-            if attempt_preexisted is None:
+            if attempt_preexisted is None or self._challenger_router.requires_frozen_prebind_retry(
+                connection,
+                memorial_id=memorial_id,
+                attempt_id=attempt.attempt_id,
+            ):
                 self._challenger_router.prebind_runtime_current(
                     unit_of_work,
                     memorial_id=memorial_id,
@@ -274,7 +278,11 @@ class ManagedRunIngress:
                 max_attempts=runtime.retry_limit + 1,
                 attempt_id=requested_attempt_id,
             )
-            if existing is None:
+            if existing is None or self._challenger_router.requires_frozen_prebind_retry(
+                connection,
+                memorial_id=event.memorial_id,
+                attempt_id=attempt.attempt_id,
+            ):
                 self._challenger_router.prebind_runtime_current(
                     unit_of_work,
                     memorial_id=event.memorial_id,
@@ -485,7 +493,11 @@ class ManagedRunIngress:
                     ),
                 )
                 self._observe_boundary("after_outbox")
-            if existing_root is None:
+            if existing_root is None or self._challenger_router.requires_frozen_prebind_retry(
+                connection,
+                memorial_id=memorial_id,
+                attempt_id=attempt_id,
+            ):
                 self._challenger_router.prebind_runtime_current(
                     unit_of_work,
                     memorial_id=memorial_id,
@@ -563,7 +575,11 @@ class ManagedRunIngress:
                 if existing is None
                 else str(existing["attempt_id"]),
             )
-            if existing is None:
+            if existing is None or self._challenger_router.requires_frozen_prebind_retry(
+                connection,
+                memorial_id=memorial_id,
+                attempt_id=attempt.attempt_id,
+            ):
                 self._challenger_router.prebind_runtime_current(
                     unit_of_work,
                     memorial_id=memorial_id,

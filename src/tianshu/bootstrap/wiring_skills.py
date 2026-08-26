@@ -38,6 +38,7 @@ from tianshu.evolution.promotion import (
 from tianshu.evolution.reconciler import EvolutionRollbackReconciler
 from tianshu.models.events import make_event
 from tianshu.models.evolution_candidate import CandidateKind, EvolutionContractV1, GateName
+from tianshu.models.frozen_content import FrozenContentViewsV1
 from tianshu.models.system_audit import AppendSystemAuditRequest
 from tianshu.resources.overlay import packaged_defaults
 from tianshu.skills.curator import SkillCurator
@@ -157,6 +158,7 @@ def wire_evolution_services(
     skill_promotion = SkillPromotionAdapter(
         app.state.artifact_store,
         live_root=authorities.skill_target,
+        cache_invalidator=lambda: app.state.skills_loader.invalidate_cache(),
     )
     unavailable_promotion = UnavailablePromotionAdapter()
     promotion_adapters = {
@@ -181,6 +183,9 @@ def wire_evolution_services(
         payload_resolver=candidates.resolve_effective_payload_current,
         snapshot_resolver=lambda: getattr(app.state, "system_snapshot_resolver", None),
         system_snapshot_strict=settings.system_snapshot_strict,
+        view_factory=lambda: FrozenContentViewsV1(skills=app.state.skills_loader.freeze_view()),
+        frozen_content_views=settings.frozen_content_views,
+        frozen_content_views_enforced=settings.frozen_content_views_enforced,
         generation_controller=lambda: getattr(app.state, "generation_controller", None),
         executor_generation_authority_resolver=lambda: getattr(
             app.state,
@@ -292,7 +297,10 @@ def wire_skills_watcher(app: FastAPI, settings: TianshuSettings) -> SkillsWatche
     skills = app.state.skills_loader
 
     # --- Skills hot-reload watcher ---
-    skills_watcher = SkillsWatcher(skills)
+    if settings.frozen_content_views:
+        skills_watcher = SkillsWatcher(skills, on_change=lambda _paths: None)
+    else:
+        skills_watcher = SkillsWatcher(skills)
     try:
         skills_watcher.start()
     except Exception:

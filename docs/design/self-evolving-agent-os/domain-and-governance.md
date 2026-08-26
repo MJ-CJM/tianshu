@@ -1,6 +1,6 @@
 # 目标领域模型与治理契约
 
-> **Status: Target model；P4b PR #109 与 P5 PR #111 已合入 `feat/plugin-v1`；当前 P6 checkout 已完成 process snapshot generation 与 strict binding，P7 未完成。**
+> **Status: Target model；P4b PR #109、P5 PR #111 与 P6 PR #114 已合入 `feat/plugin-v1`；P6 merge 为 `8f32cc4c`。P7 当前开发完成、PR 待创建。**
 > `SystemSnapshot`（典制）、`RuntimeGeneration`（朝）和 `EvolutionPolicy`（进化策略）已进入
 > `CONTEXT.md` 与 ADR；下表其余状态描述代码实现成熟度，不以术语已接受反推能力已实现。
 
@@ -17,23 +17,24 @@
 | `PluginSetSpec` | 用户期望选择、版本约束、配置、权限及 EvolutionPolicy 引用 | Proposed |
 | `PluginSetSnapshot` | Resolver 产出的完整依赖闭包、Capability binding 与有效 Policy digest | Proposed |
 | `AgentDeployment` | 期望 SystemSnapshot、rollout 策略及 observed/active/last-good 状态 | Proposed |
-| `RuntimeGeneration` | SystemSnapshot 中某个受管 release 在具体 Host/scope 上 materialize 后的运行实例；ID 非内容摘要 | Current/Partial：P3/P5 已实现 `keqing:pi` 代际与治理；P6 checkout 已实现 process scope 启动代际；直接 GenerationController API 与通用 PluginHost 仍未开放 |
+| `RuntimeGeneration` | SystemSnapshot 中某个受管 release 在具体 Host/scope 上 materialize 后的运行实例；ID 非内容摘要 | Current/Partial：P3/P5 已实现 `keqing:pi` 代际与治理；P6 PR #114 已实现 process scope 启动代际；直接 GenerationController API 与通用 PluginHost 仍未开放 |
 | `PluginInstance` | RuntimeGeneration 内一个 PluginRelease 的实际实例 | Proposed |
-| `SystemSnapshot` | 完整有效运行配置的不可变身份 | Partial：P1 已实现组件摘要、内容寻址存储与 Evidence 归因；P6 checkout 已实现 process generation 与 strict binding；尚无完整依赖闭包、prompt 摘要和 P7 frozen view |
+| `SystemSnapshot` | 完整有效运行配置的不可变身份 | Partial：P1 已实现组件摘要、内容寻址存储与 Evidence 归因；P6 PR #114 已实现 process generation 与 strict binding；P7 当前把 Skills 源摘要与每 run 视图身份对账，但尚无完整依赖闭包、Prompt 摘要或可跨重启回放的 `skills_view` artifact |
 | `ExecutionAssignment` | Memorial 与 SystemSnapshot、generation、实验选择的不可变绑定 | Partial：V31/V32 分别承载 snapshot shadow 与 exact-attempt 代际；P4b V34 以封存的 `RunAssignmentSetV1` 承载 per-subject 选择 |
 | `EvolutionCandidate` | 精确基线上的候选变化、来源、Gate、Evidence 和生命周期 | Current/Partial |
 | `EvaluationCampaign` | 版本化数据集、Evaluator、对照组、预算和评测结果的组合 | Proposed |
 | `Universe` | 实验分支、谱系和评估容器，不拥有生产 active pointer | Legacy/Partial |
 
-### 1.1 第 1–3 阶段最小代码词汇
+### 1.1 落地阶段的最小代码词汇
 
-目标术语不等于需要立即建立同名代码对象。前三阶段新增五个代码级承载：
+目标术语不等于需要立即建立同名代码对象。当前实现只保留下列有直接消费者的代码级承载：
 
 | 代码承载 | 吸收的目标语义 | 首期形态 |
 |---|---|---|
 | `SystemSnapshotV1` | `SystemSnapshot`、`PluginSetSnapshot`，以及作为 components 条目的 `PluginRelease` 身份 | P1 Current/Shadow：frozen 内容摘要模型 + `system_snapshots`；当前 components 是最小语义投影，不等于完整 PluginSet 依赖锁 |
 | `RuntimeReleaseV1` | 宿主已解析、可跨重启精确物化的 executor release；不等于完整生态通用 `PluginRelease` | P3 Current：canonical material + `runtime_generation_releases`；内容寻址、不可变，可被多个朝复用 |
-| `RuntimeGenerationV1` | `RuntimeGeneration`、`PluginInstance`，以及 active/last-good 运行指针 | Current/Partial：P3 `keqing:pi` 与 P6 checkout `process` 共用七态/指针；材料 decoder 与运行路径按 scope 严格隔离 |
+| `RuntimeGenerationV1` | `RuntimeGeneration`、`PluginInstance`，以及 active/last-good 运行指针 | Current/Partial：P3 `keqing:pi` 与 P6 PR #114 `process` 共用七态/指针；材料 decoder 与运行路径按 scope 严格隔离 |
+| `FrozenContentViewsV1` | 一个 run 的声明式内容读取视图；当前容器仅有 `skills` | P7 Current checkout / PR 待创建：`FrozenSkillV1` 与 `FrozenSkillsViewV1` 深冻结 Skills 读取面；它不是 PluginSet 依赖锁，也不持久旧内容字节 |
 | `run_system_bindings` | `ExecutionAssignment` 中 SystemSnapshot 关联事实 | P1 snapshot shadow；snapshot 启用时每 `(memorial_id, attempt_id)` insert-once，P3 仅作 V31 generation fallback；现有 `RunAssignmentV1` 不改 |
 | `run_generation_bindings` | `ExecutionAssignment` 中 exact-attempt generation 关联事实 | P3 独立 insert-once 权威；`bound` 可显式为 `[]`，无法证明的历史 Pi 为 `unresolved`；与 system binding 同在必须一致 |
 | `run_subject_assignments` | `ExecutionAssignment` 中 per-subject 进化选择 | P4b V34 已合入：set hash/size 封存，1..64 原子写；不是 exact-attempt generation marker |
@@ -42,8 +43,39 @@ P1 的 `run_system_bindings` 按 `(memorial_id, attempt_id)` insert-once，并�
 Evidence artifact 保存；这是需要保留的 P1 历史语义。P3 没有把该 shadow 升格为代际权威，而是
 在 V32 新增 `run_generation_bindings`：每个新 attempt 无论 snapshot 开关状态都必须写 exact marker，
 空选择写 `bound []`，非空选择的解析、材料或 marker 写入失败都在受管副作用前拒绝。snapshot
-启用时两张表可同在且 generation ids 必须一致；P6 checkout 已为 strict run binding 增加
+启用时两张表可同在且 generation ids 必须一致；P6 PR #114 已为 strict run binding 增加
 `system_snapshot_unavailable`，默认 strict-off 仍保持影子兼容。
+
+P7 在此之上只绑定 Skills 读取视图。`off` 不触发视图工厂；`shadow` 在 run
+已有 SystemSnapshot 身份时比对
+`FrozenSkillsViewV1.source_digest` 与 run 的 SystemSnapshot `skills` 组件，漂移则审计后读
+live；`enforce` 在已解码的 Skills 身份缺失、视图构建失败或摘要漂移时以
+`skills_view_unavailable` 失败关闭。持久 SystemSnapshot/run binding 的结构损坏仍属于 P6
+绑定边界：strict 模式沿用 `system_snapshot_unavailable`，否则沿用
+`generation_binding_unavailable`，不会被 P7 重新标成 Skills 错误。
+因此 prebind/重启不会静默配对旧 snapshot 与新 view；能真正重放旧内容的持久
+artifact 属于延期的 P7b。
+
+P7 还固定以下并发/事务不变量：视图捕获通过目录 fd 读取；搜索路径祖先只见证
+`dev/ino/mode` 身份，搜索根及捕获树内文件/目录再以
+`dev/ino/mode/size/mtime_ns/ctime_ns`、injected generation 和稳定排序的注入 Skill 构成
+witness，既能拒绝路径交换又不受树外 sibling churn 误伤。连续两次全量 capture 一致才接受，
+三轮持续 churn 后拒绝；搜索路径、Skill 成员及
+嵌套资源 symlink 一律失败关闭。requirements/max-size/load_all/metadata/injected/fallback 与 live
+同义，requirements 环境 eligibility 进入来源身份。enforce prebind 只有在 audit+outbox 成功
+写入后才登记 post-commit failure，否则整笔 caller 事务回滚；scheduler 只把已经提交的 fire
+交给 reconciler 并推进 durable cursor/initial-root 状态，提交前失败不推进。同-key marker 只
+允许 claimable attempt 重试，恢复成功写 `skills_view_binding_recovered`，终态精确重放不重新
+冻结；生产 prebind 与 dispatch 是两个阶段，每阶段最多 freeze 一次。promotion invalidator 不受
+frozen flag 控制，desired/no-op 重试和 `verify_rollback` 命中也必须 invalidate。普通 UoW 未
+登记该 failure 时行为不变。这是本地 POSIX 普通写者模型，不覆盖特权写者或 ctime 不可靠
+文件系统。
+
+Skill absence 仍是 assignment-aware 的兼容边界：selected base/champion absent 只撤目标层并
+显露低层，selected challenger 或 unknown absent 保留历史 hide-lower tombstone；新的 absent
+candidate 在 start-canary、promote、activate 前以
+`skill_absence_requires_durable_tombstone` 拒绝。durable global tombstone 尚无持久治理对象，
+延期到 P7b，不能把历史 absent overlay 当成通用删除能力。
 
 `Artifact` 继续复用现有 `ArtifactRefV1`/`ArtifactStore`；`Capability`、`Contribution` 先作为注册表
 契约；`EvolutionPolicy` 到 per-subject 阶段才落表。`PluginSetSpec`、独立

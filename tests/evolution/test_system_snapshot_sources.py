@@ -93,9 +93,18 @@ async def test_skills_watcher_resource_event_invalidates_digest_cache(
             return None
 
     observer = _Observer()
-    monkeypatch.setattr("watchdog.observers.Observer", lambda: observer)
+    monkeypatch.setattr("watchdog.observers.polling.PollingObserver", lambda: observer)
     watcher = SkillsWatcher(loader)
-    monkeypatch.setattr(watcher, "_schedule_reload", loader.invalidate_cache)
+
+    def _invalidate_cache(
+        _paths: list[str],
+        *,
+        generation: int | None = None,
+    ) -> None:
+        assert generation is not None
+        loader.invalidate_cache()
+
+    monkeypatch.setattr(watcher, "_schedule_reload", _invalidate_cache)
     watcher.start()
 
     resource.write_text("after", encoding="utf-8")

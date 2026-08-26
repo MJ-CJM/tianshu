@@ -7,7 +7,7 @@ import hmac
 import logging
 import sqlite3
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
@@ -18,6 +18,7 @@ from tianshu.evolution.runtime_context import (
     bind_evolution_runtime,
     bind_run_binding,
     runtime_subject_key,
+    suspend_evolution_runtime,
 )
 from tianshu.evolution.system_snapshot import SystemSnapshotResolver
 from tianshu.models.canonical import JsonValue, canonical_json_bytes, canonical_sha256
@@ -32,6 +33,7 @@ from tianshu.models.executor_generation_authority import (
     ExecutorGenerationAuthorityStatus,
     ExecutorGenerationAuthorityV1,
 )
+from tianshu.models.frozen_content import FrozenContentViewsV1
 from tianshu.models.run_assignment import (
     EffectiveEvolutionOverlayV1,
     EvolutionRunEvidenceV1,
@@ -41,6 +43,8 @@ from tianshu.models.run_assignment import (
     SubjectRunAssignmentV1,
 )
 from tianshu.models.system_audit import AppendSystemAuditRequest
+from tianshu.models.system_snapshot import SystemSnapshotV1
+from tianshu.skills.loader import bind_frozen_content_views, suspend_frozen_content_views
 from tianshu.storage.evolution_repo import (
     EvolutionAssignmentConflict,
     EvolutionRepository,
@@ -135,6 +139,10 @@ class SystemSnapshotUnavailable(EvolutionRuntimeUnavailable):
     """A run could not establish its required immutable system snapshot."""
 
 
+class FrozenContentViewUnavailable(EvolutionRuntimeUnavailable):
+    """A run could not establish its required immutable content view."""
+
+
 class GenerationBindingUnavailable(EvolutionRuntimeUnavailable):
     """A new runtime-generation binding could not be established safely."""
 
@@ -186,6 +194,9 @@ class ChallengerRouter:
         payload_resolver: PayloadResolver | None = None,
         snapshot_resolver: Callable[[], SystemSnapshotResolver | None] | None = None,
         system_snapshot_strict: bool = False,
+        view_factory: Callable[[], FrozenContentViewsV1] | None = None,
+        frozen_content_views: bool = False,
+        frozen_content_views_enforced: bool = False,
         generation_controller: Callable[[], _GenerationController | None] | None = None,
         executor_generation_authority_resolver: Callable[
             [], _ExecutorGenerationAuthorityResolver | None
@@ -198,6 +209,12 @@ class ChallengerRouter:
             raise TypeError("routing_enabled must be a bool")
         if type(system_snapshot_strict) is not bool:
             raise TypeError("system_snapshot_strict must be a bool")
+        if type(frozen_content_views) is not bool:
+            raise TypeError("frozen_content_views must be a bool")
+        if type(frozen_content_views_enforced) is not bool:
+            raise TypeError("frozen_content_views_enforced must be a bool")
+        if frozen_content_views_enforced and not frozen_content_views:
+            raise ValueError("frozen_content_views_enforced requires frozen_content_views")
         self._storage = storage
         self._routing_enabled = routing_enabled
         self._allocation_secret = allocation_secret
@@ -205,6 +222,9 @@ class ChallengerRouter:
         self._payload_resolver = payload_resolver
         self._snapshot_resolver = snapshot_resolver
         self._system_snapshot_strict = system_snapshot_strict
+        self._view_factory = view_factory
+        self._frozen_content_views = frozen_content_views
+        self._frozen_content_views_enforced = frozen_content_views_enforced
         self._generation_controller = generation_controller
         self._executor_generation_authority_resolver = executor_generation_authority_resolver
         self._before_insert = before_insert
@@ -792,6 +812,199 @@ class ChallengerRouter:
         loaded = self._load(memorial_id)
         return loaded[1] if loaded is not None else None
 
+    @staticmethod
+    def _runtime_context(
+        *,
+        singular_assignment: RunAssignmentV1 | None,
+        singular_overlay: EffectiveEvolutionOverlayV1 | None,
+        singular_payload: dict[str, JsonValue] | None,
+        subject_assignments: tuple[SubjectRunAssignmentV1, ...],
+        overlays: Mapping[str, EffectiveEvolutionOverlayV1],
+        payloads: Mapping[str, dict[str, JsonValue]],
+        system_snapshot: SystemSnapshotV1 | None,
+    ) -> EvolutionRuntimeContext:
+        return EvolutionRuntimeContext(
+            assignment=singular_assignment,
+            overlay=singular_overlay,
+            selected_payload=singular_payload,
+            assignments=subject_assignments,
+            overlays=overlays,
+            payloads=payloads,
+            system_snapshot=system_snapshot,
+        )
+
+    def _freeze_content_views(
+        self,
+        runtime: EvolutionRuntimeContext | None,
+    ) -> FrozenContentViewsV1 | None:
+        if not self._frozen_content_views:
+            return None
+        if self._view_factory is None:
+            raise FrozenContentViewUnavailable("skills_view_unavailable")
+        try:
+            with ExitStack() as stack:
+                stack.enter_context(suspend_frozen_content_views())
+                if runtime is None:
+                    stack.enter_context(suspend_evolution_runtime())
+                else:
+                    stack.enter_context(bind_evolution_runtime(runtime))
+                views = self._view_factory()
+        except FrozenContentViewUnavailable:
+            raise
+        except Exception as exc:
+            raise FrozenContentViewUnavailable("skills_view_unavailable") from exc
+        if not isinstance(views, FrozenContentViewsV1):
+            raise FrozenContentViewUnavailable("skills_view_unavailable")
+        return views
+
+    def _record_skills_view_drift(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        memorial_id: str,
+        attempt_id: str | None,
+        current_skills_digest: str | None = None,
+        previous_skills_digest: str | None = None,
+    ) -> bool:
+        if attempt_id is None:
+            return False
+        recorded = self._snapshot_repository.record_event(
+            connection,
+            action="skills_view_drift",
+            memorial_id=memorial_id,
+            attempt_id=attempt_id,
+            snapshot_digest=current_skills_digest,
+            previous_snapshot_digest=previous_skills_digest,
+        )
+        if not recorded:
+            logger.warning("skills view drift could not be audited")
+        return recorded
+
+    def _record_skills_view_binding_failed(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        memorial_id: str,
+        attempt_id: str | None,
+    ) -> bool:
+        if attempt_id is None:
+            return False
+        recorded = self._snapshot_repository.record_event(
+            connection,
+            action="skills_view_binding_failed",
+            memorial_id=memorial_id,
+            attempt_id=attempt_id,
+        )
+        if not recorded:
+            logger.warning("skills view binding failure could not be audited")
+        return recorded
+
+    def _record_skills_view_binding_recovered(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        memorial_id: str,
+        attempt_id: str,
+        skills_digest: str,
+    ) -> bool:
+        recorded = self._snapshot_repository.record_event(
+            connection,
+            action="skills_view_binding_recovered",
+            memorial_id=memorial_id,
+            attempt_id=attempt_id,
+            snapshot_digest=skills_digest,
+        )
+        if not recorded:
+            logger.warning("skills view binding recovery could not be audited")
+        return recorded
+
+    def _skills_view_drifted(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        memorial_id: str,
+        attempt_id: str | None,
+        run_binding: RunBindingContextV1 | None,
+        frozen_views: FrozenContentViewsV1,
+    ) -> tuple[bool, bool]:
+        if attempt_id is None:
+            return False, True
+        if run_binding is None or run_binding.system_snapshot is None:
+            return False, True
+        if "skills" not in run_binding.system_snapshot.components:
+            return False, True
+        previous_skills_digest = run_binding.system_snapshot.components.get("skills")
+        current_skills_digest = frozen_views.skills.source_digest
+        if previous_skills_digest == current_skills_digest:
+            return False, True
+        recorded = self._record_skills_view_drift(
+            connection,
+            memorial_id=memorial_id,
+            attempt_id=attempt_id,
+            current_skills_digest=current_skills_digest,
+            previous_skills_digest=previous_skills_digest,
+        )
+        return True, recorded
+
+    def _resolve_provisional_runtime(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        assignment: Assignment,
+        overlay: EffectiveEvolutionOverlayV1 | None,
+        records: tuple[SubjectAssignmentRecord, ...],
+    ) -> EvolutionRuntimeContext | None:
+        singular_assignment: RunAssignmentV1 | None = None
+        singular_overlay: EffectiveEvolutionOverlayV1 | None = None
+        singular_payload: dict[str, JsonValue] | None = None
+        subject_assignments: tuple[SubjectRunAssignmentV1, ...] = ()
+        overlays: dict[str, EffectiveEvolutionOverlayV1] = {}
+        payloads: dict[str, dict[str, JsonValue]] = {}
+        if records:
+            for subject_assignment, subject_overlay in records:
+                key = runtime_subject_key(
+                    subject_assignment.kind,
+                    subject_assignment.subject_key,
+                )
+                if key in overlays:
+                    raise RunAssignmentUnavailable("run_assignment_unavailable")
+                overlays[key] = subject_overlay
+                payloads[key] = self._resolve_payload(
+                    connection,
+                    subject_assignment.selected_ref,
+                    subject_overlay,
+                )
+            subject_assignments = tuple(record[0] for record in records)
+            if len(records) == 1:
+                if not isinstance(assignment, RunAssignmentV1) or overlay is None:
+                    raise RunAssignmentUnavailable("run_assignment_unavailable")
+                key = next(iter(overlays))
+                singular_assignment = assignment
+                singular_overlay = overlay
+                singular_payload = payloads[key]
+        elif isinstance(assignment, LegacyRunAssignmentV1):
+            return None
+        else:
+            assert overlay is not None
+            singular_payload = self._resolve_payload(
+                connection,
+                assignment.selected_ref,
+                overlay,
+            )
+            if overlay.kind is None or overlay.subject_key is None:
+                raise RunAssignmentUnavailable("run_assignment_unavailable")
+            singular_assignment = assignment
+            singular_overlay = overlay
+        return self._runtime_context(
+            singular_assignment=singular_assignment,
+            singular_overlay=singular_overlay,
+            singular_payload=singular_payload,
+            subject_assignments=subject_assignments,
+            overlays=overlays,
+            payloads=payloads,
+            system_snapshot=None,
+        )
+
     def prebind_runtime_current(
         self,
         unit_of_work: SqliteUnitOfWork,
@@ -809,6 +1022,11 @@ class ChallengerRouter:
         if not memorial_id.strip() or not attempt_id.strip():
             raise ValueError("runtime binding identities must be non-blank")
         connection = unit_of_work.connection
+        recovering_frozen_prebind = self.requires_frozen_prebind_retry(
+            connection,
+            memorial_id=memorial_id,
+            attempt_id=attempt_id,
+        )
         try:
             existing = self._snapshot_repository.get_binding(
                 connection,
@@ -843,7 +1061,8 @@ class ChallengerRouter:
                 or existing_generation_binding.generation_ids != existing.generation_ids
             ):
                 raise GenerationBindingUnavailable("generation_binding_unavailable")
-            return self._binding_context(existing)
+            if not self._frozen_content_views:
+                return self._binding_context(existing)
 
         try:
             loaded, assignment_set = self._load_assignment_state(connection, memorial_id)
@@ -853,7 +1072,28 @@ class ChallengerRouter:
             raise LookupError("run assignment not found")
         assignment, overlay = loaded
         records = self._records_for_assignment_set(assignment_set)
-        if records:
+        frozen_views: FrozenContentViewsV1 | None = None
+        if self._frozen_content_views:
+            provisional_runtime = self._resolve_provisional_runtime(
+                connection,
+                assignment=assignment,
+                overlay=overlay,
+                records=records,
+            )
+            try:
+                frozen_views = self._freeze_content_views(provisional_runtime)
+            except FrozenContentViewUnavailable as exc:
+                recorded = self._record_skills_view_binding_failed(
+                    connection,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt_id,
+                )
+                if self._frozen_content_views_enforced:
+                    if not recorded:
+                        raise
+                    unit_of_work.fail_after_commit(exc)
+                    return None
+        elif records:
             for subject_assignment, subject_overlay in records:
                 self._resolve_payload(
                     connection,
@@ -866,23 +1106,106 @@ class ChallengerRouter:
 
         controller = self._get_generation_controller()
         try:
-            return self._bind_system_snapshot(
-                connection,
-                memorial_id=memorial_id,
-                attempt_id=attempt_id,
-                assignment=assignment,
-                overlay=overlay,
-                assignment_set=assignment_set,
-                subject_overlays=self._snapshot_overlay_map(
-                    assignment,
-                    overlay,
-                    records,
-                ),
-                persist_generation_selection=True,
-            )
+            with ExitStack() as stack:
+                if frozen_views is not None:
+                    stack.enter_context(bind_frozen_content_views(frozen_views))
+                run_binding = self._bind_system_snapshot(
+                    connection,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt_id,
+                    assignment=assignment,
+                    overlay=overlay,
+                    assignment_set=assignment_set,
+                    subject_overlays=self._snapshot_overlay_map(
+                        assignment,
+                        overlay,
+                        records,
+                    ),
+                    persist_generation_selection=True,
+                )
+            if (
+                self._frozen_content_views_enforced
+                and frozen_views is not None
+                and (
+                    run_binding is None
+                    or run_binding.system_snapshot is None
+                    or "skills" not in run_binding.system_snapshot.components
+                )
+            ):
+                recorded = self._record_skills_view_binding_failed(
+                    connection,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt_id,
+                )
+                if not recorded:
+                    raise FrozenContentViewUnavailable("skills_view_unavailable")
+                unit_of_work.fail_after_commit(
+                    FrozenContentViewUnavailable("skills_view_unavailable")
+                )
+                return run_binding
+            if frozen_views is not None:
+                frozen_view_drifted, drift_recorded = self._skills_view_drifted(
+                    connection,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt_id,
+                    run_binding=run_binding,
+                    frozen_views=frozen_views,
+                )
+                if frozen_view_drifted and self._frozen_content_views_enforced:
+                    if not drift_recorded:
+                        raise FrozenContentViewUnavailable("skills_view_unavailable")
+                    unit_of_work.fail_after_commit(
+                        FrozenContentViewUnavailable("skills_view_unavailable")
+                    )
+                elif recovering_frozen_prebind:
+                    recovered = self._record_skills_view_binding_recovered(
+                        connection,
+                        memorial_id=memorial_id,
+                        attempt_id=attempt_id,
+                        skills_digest=frozen_views.skills.source_digest,
+                    )
+                    if not recovered:
+                        raise FrozenContentViewUnavailable("skills_view_unavailable")
+            return run_binding
         finally:
             if controller is not None:
                 controller.release_binding(attempt_id)
+
+    def requires_frozen_prebind_retry(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        memorial_id: str,
+        attempt_id: str,
+    ) -> bool:
+        """Return whether a prior enforced P7 failure must be revalidated."""
+
+        if not self._frozen_content_views_enforced:
+            return False
+        attempt = connection.execute(
+            "SELECT status FROM execution_attempts WHERE attempt_id=? AND memorial_id=?",
+            (attempt_id, memorial_id),
+        ).fetchone()
+        if attempt is None or attempt["status"] != "claimable":
+            return False
+        row = connection.execute(
+            """
+            SELECT 1
+            FROM outbox_events
+            WHERE memorial_id=?
+              AND event_type IN ('skills_view_binding_failed', 'skills_view_drift')
+              AND json_extract(payload_json, '$.attempt_id')=?
+              AND NOT EXISTS (
+                  SELECT 1 FROM outbox_events AS recovered
+                  WHERE recovered.memorial_id=outbox_events.memorial_id
+                    AND recovered.event_type='skills_view_binding_recovered'
+                    AND json_extract(recovered.payload_json, '$.attempt_id')=?
+              )
+            LIMIT 1
+            """,
+            (memorial_id, attempt_id, attempt_id),
+        ).fetchone()
+        return row is not None
 
     def evidence_for(self, memorial_id: str) -> EvolutionRunEvidenceV1:
         loaded = self._load(memorial_id)
@@ -913,6 +1236,9 @@ class ChallengerRouter:
         subject_assignments: tuple[SubjectRunAssignmentV1, ...] = ()
         overlays: dict[str, EffectiveEvolutionOverlayV1] = {}
         payloads: dict[str, dict[str, JsonValue]] = {}
+        frozen_views: FrozenContentViewsV1 | None = None
+        frozen_view_drifted = False
+        frozen_identity_unavailable = False
         with self._storage.unit_of_work() as unit_of_work:
             try:
                 loaded, assignment_set = self._load_assignment_state(
@@ -947,26 +1273,8 @@ class ChallengerRouter:
                     singular_assignment = assignment
                     singular_overlay = overlay
                     singular_payload = payloads[key]
-                run_binding = self._bind_system_snapshot(
-                    unit_of_work.connection,
-                    memorial_id=memorial_id,
-                    attempt_id=attempt_id,
-                    assignment=assignment,
-                    overlay=overlay,
-                    assignment_set=assignment_set,
-                    subject_overlays=overlays,
-                )
-                unit_of_work.commit()
             elif isinstance(assignment, LegacyRunAssignmentV1):
                 legacy = True
-                run_binding = self._bind_system_snapshot(
-                    unit_of_work.connection,
-                    memorial_id=memorial_id,
-                    attempt_id=attempt_id,
-                    assignment=assignment,
-                    overlay=None,
-                )
-                unit_of_work.commit()
             else:
                 assert overlay is not None
                 payload = self._resolve_payload(
@@ -979,36 +1287,113 @@ class ChallengerRouter:
                 singular_assignment = assignment
                 singular_overlay = overlay
                 singular_payload = payload
+            if self._frozen_content_views:
+                provisional_runtime = (
+                    None
+                    if legacy
+                    else self._runtime_context(
+                        singular_assignment=singular_assignment,
+                        singular_overlay=singular_overlay,
+                        singular_payload=singular_payload,
+                        subject_assignments=subject_assignments,
+                        overlays=overlays,
+                        payloads=payloads,
+                        system_snapshot=None,
+                    )
+                )
+                try:
+                    frozen_views = self._freeze_content_views(provisional_runtime)
+                except FrozenContentViewUnavailable as exc:
+                    frozen_identity_unavailable = True
+                    recorded = self._record_skills_view_binding_failed(
+                        unit_of_work.connection,
+                        memorial_id=memorial_id,
+                        attempt_id=attempt_id,
+                    )
+                    if self._frozen_content_views_enforced:
+                        if not recorded:
+                            raise exc
+                        unit_of_work.commit()
+                        raise exc
+            with ExitStack() as stack:
+                if frozen_views is not None:
+                    stack.enter_context(bind_frozen_content_views(frozen_views))
                 run_binding = self._bind_system_snapshot(
                     unit_of_work.connection,
                     memorial_id=memorial_id,
                     attempt_id=attempt_id,
                     assignment=assignment,
                     overlay=overlay,
+                    assignment_set=assignment_set if records else None,
+                    subject_overlays=overlays if records else None,
                 )
-                unit_of_work.commit()
+            if (
+                self._frozen_content_views_enforced
+                and attempt_id is not None
+                and frozen_views is not None
+                and (
+                    run_binding is None
+                    or run_binding.system_snapshot is None
+                    or "skills" not in run_binding.system_snapshot.components
+                )
+            ):
+                frozen_identity_unavailable = True
+                recorded = self._record_skills_view_binding_failed(
+                    unit_of_work.connection,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt_id,
+                )
+                if self._frozen_content_views_enforced and not recorded:
+                    raise FrozenContentViewUnavailable("skills_view_unavailable")
+            if frozen_views is not None:
+                frozen_view_drifted, drift_recorded = self._skills_view_drifted(
+                    unit_of_work.connection,
+                    memorial_id=memorial_id,
+                    attempt_id=attempt_id,
+                    run_binding=run_binding,
+                    frozen_views=frozen_views,
+                )
+                if (
+                    frozen_view_drifted
+                    and self._frozen_content_views_enforced
+                    and not drift_recorded
+                ):
+                    raise FrozenContentViewUnavailable("skills_view_unavailable")
+            unit_of_work.commit()
+        if self._frozen_content_views_enforced and (
+            frozen_view_drifted or frozen_identity_unavailable
+        ):
+            raise FrozenContentViewUnavailable("skills_view_unavailable")
         if legacy:
-            if run_binding is None:
+            with ExitStack() as stack:
+                if self._frozen_content_views:
+                    stack.enter_context(suspend_evolution_runtime())
+                if run_binding is not None:
+                    stack.enter_context(bind_run_binding(run_binding))
+                if self._frozen_content_views_enforced and frozen_views is not None:
+                    stack.enter_context(bind_frozen_content_views(frozen_views))
+                elif self._frozen_content_views:
+                    stack.enter_context(suspend_frozen_content_views())
                 yield None
-            else:
-                with bind_run_binding(run_binding):
-                    yield None
             return
-        context = EvolutionRuntimeContext(
-            assignment=singular_assignment,
-            overlay=singular_overlay,
-            selected_payload=singular_payload,
-            assignments=subject_assignments,
+        context = self._runtime_context(
+            singular_assignment=singular_assignment,
+            singular_overlay=singular_overlay,
+            singular_payload=singular_payload,
+            subject_assignments=subject_assignments,
             overlays=overlays,
             payloads=payloads,
             system_snapshot=(run_binding.system_snapshot if run_binding is not None else None),
         )
-        if run_binding is None:
-            with bind_evolution_runtime(context):
-                yield context
-        else:
-            with bind_run_binding(run_binding), bind_evolution_runtime(context):
-                yield context
+        with ExitStack() as stack:
+            if run_binding is not None:
+                stack.enter_context(bind_run_binding(run_binding))
+            stack.enter_context(bind_evolution_runtime(context))
+            if self._frozen_content_views_enforced and frozen_views is not None:
+                stack.enter_context(bind_frozen_content_views(frozen_views))
+            elif self._frozen_content_views:
+                stack.enter_context(suspend_frozen_content_views())
+            yield context
 
     def _bind_system_snapshot(
         self,
@@ -1494,6 +1879,7 @@ class ChallengerRouter:
 __all__ = [
     "ChallengerRouter",
     "EvolutionRuntimeUnavailable",
+    "FrozenContentViewUnavailable",
     "GenerationBindingUnavailable",
     "GenerationRetired",
     "RunAssignmentUnavailable",

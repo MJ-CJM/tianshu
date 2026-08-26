@@ -5,8 +5,10 @@
 >
 > **进度（2026-08-27）**：P4b PR #109 与 P5 PR #111 已合入 `feat/plugin-v1`，完成
 > V34 assignment set（1..64 封存原子写）、continuity 选择、运行时深冻结、Evidence 与 truthful
-> UI 及 V35 Pi EXECUTOR 治理垂直切片。当前 P6 checkout 已完成无迁移的 process snapshot
-> generation、strict binding 与 Evolution 投影；P7 仍未开始。V34 应用后的回退必须保留
+> UI 及 V35 Pi EXECUTOR 治理垂直切片。P6 已由 PR #114 合入该分支（merge
+> `8f32cc4c`），完成无迁移的 process snapshot generation、strict binding 与
+> Evolution 投影。P7 当前开发完成、PR 待创建，仅冻结 Skills，同样无数据迁移。
+> V34 应用后的回退必须保留
 > schema/ledger 并使用兼容 reader，不能部署纯 V33 二进制；
 > 只将 active CANARY authorities 经正常 promote/rollback 收敛到至多 1 个、最好 0 个并完成
 > pending rollback，不得强退已 PROMOTED subject。
@@ -43,7 +45,7 @@
 | `RunAssignmentV1` 单 Candidate overlay | 完整 `ExecutionAssignment` + `SystemSnapshot` |
 | 单一全局 canary 权威 | 按 `(kind, subject_key)` 路由；同 subject 仍只允许一个 canary 并 fail closed，不同 subject 可并行灰度 |
 | 五种固定 `CandidateKind` | 保留兼容层，新增 `target_plugin_id + patch_surface` |
-| SkillsWatcher 直接刷新 active loader | 文件变化只产生 Candidate/新 generation，不影响活跃 continuity |
+| SkillsWatcher 直接刷新 active loader | P7 开启时只失效缓存并通知；run 冻结 Skills 视图。“文件变化只产生 Candidate/新 generation”仍是后续目标 |
 | channel anchor、follow-up、各种 Session 概念 | 按 conversation/长任务 Edict、scheduled root、DAG/retry 分别确定 continuity binding；首期不引入 AgentSession，未来出现跨 Edict 需求再另行 ADR |
 | `UniverseManager` | 保留 branch/diff/eval，保持无生产 active 所有权且不得恢复 live writer |
 | `PromotionService` 大类 | 逻辑拆分授权、Gate、分流、激活和回滚，但暂不拆服务 |
@@ -147,6 +149,26 @@ owner/disposer，再按能力形态选择最小的换代边界：
 声明式内容：晋升写不可变 artifact 并切指针；run 在 bind_runtime 冻结只读视图
 进程内实现：优雅重启进入指定 SystemSnapshot；预热失败回 last-good，不做模块 reload
 ```
+
+**当前落点**：P2 owner/disposer、P3/P5 Pi 代际和 P6 process snapshot 已合入。P7
+当前开发完成、PR 待创建；它只为 Skills 实现 `off` / `shadow` / `enforce`
+的每 run 视图。prebind/重启时旧 SystemSnapshot 不能从当前 Skills 重建，shadow
+审计后读 live，enforce 失败关闭；不会静默混用旧 snapshot 和新 view。跨重启
+耐久回放旧内容的 artifact-backed `skills_view` 与 durable global Skill tombstone 延期到
+P7b。Persona/Prompt/Provider 的
+冻结和“变化必须先进 Candidate”仍是后续阶段。当前 Skills 切片以目录 fd、文件/目录完整
+stability witness、injected generation 和连续两次全量 capture 锁定视图；三轮持续 churn 后
+fail closed，并拒绝搜索路径/成员/嵌套资源 symlink。requirements/max-size/load_all/metadata/
+injected/fallback 与 live 同义，requirements 环境 eligibility 进入 source identity；selected base
+absent 只显露低层，challenger/unknown absent 保持历史 hide-lower，新的 absent candidate 在
+canary/promote/activate 稳定拒绝。watcher 统一用 polling observer，避免 macOS 原子交换时的
+FSEvents 崩溃。enforce prebind 只有 audit+outbox 成功才在 caller UoW commit 后抛错；scheduled
+fire 已提交则按 durable cursor/root 收口并唤醒 reconciler，提交前失败整笔回滚且不推进 cursor/
+清 initial root。同-key marker 仅让 claimable attempt 重冻，成功写
+`skills_view_binding_recovered`，终态重放不重冻；生产 prebind/dispatch 是两个阶段且每阶段最多
+freeze 一次。promotion invalidator 与 frozen flag 解耦，desired/no-op 重试和
+`verify_rollback` 命中也主动失效缓存。该保证限于本地
+POSIX 普通写者与可靠 ctime，不覆盖特权写者或不可靠 ctime 文件系统。
 
 工作：
 
