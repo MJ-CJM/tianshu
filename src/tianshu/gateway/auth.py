@@ -20,6 +20,11 @@ from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from ulid import ULID
 
+from tianshu.gateway.route_policy import (
+    AUTH_AWARE_PUBLIC_SCOPES,
+    match_public_route,
+    match_route_scope,
+)
 from tianshu.models.principal import (
     AuthContext,
     AuthenticationSource,
@@ -34,47 +39,6 @@ if TYPE_CHECKING:
     from tianshu.storage import Storage
 
 ALL_AUTH_SCOPES = frozenset({"admin", "api", "mcp:read", "mcp:submit", "workspace:apply"})
-_ADMIN_ACCESS_PREFIXES = (
-    "/api/agent-config",
-    "/api/audit/network-events",
-    "/api/audit/stats",
-    "/api/config",
-    "/api/configs",
-    "/api/cost",
-    "/api/credentials",
-    "/api/memory",
-    "/api/memory-palace",
-    "/api/model-providers",
-    "/api/policy/session_rules",
-    "/api/system-prompt",
-    "/api/workers",
-)
-_ADMIN_MUTATION_PREFIXES = (
-    "/api/agent-config",
-    "/api/channels",
-    "/api/config",
-    "/api/configs",
-    "/api/cost/budget",
-    "/api/credentials",
-    "/api/departments",
-    "/api/estop",
-    "/api/evolution",
-    "/api/hongluisi/engine-preferences",
-    "/api/model-catalog",
-    "/api/model-providers",
-    "/api/personas",
-    "/api/plugins",
-    "/api/policy/session_rules",
-    "/api/providers",
-    "/api/skills",
-    "/api/system-prompt",
-    "/api/tongzheng",
-    "/api/tools",
-    "/api/universes",
-)
-# public（免认证可达）但仍需知道调用方是否已认证的路由：未认证只得摘要，
-# 已认证才拿到内部检查详情。解析失败一律当匿名处理，绝不因此拒绝请求。
-_AUTH_AWARE_PUBLIC_PATHS = frozenset({"/health/ready"})
 _LOCAL_ORIGIN = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$")
 _INTERNAL_AUDIT_ACTOR_IDENTITY = "internal-legacy-unattributed-caller"
 _current_auth_context: ContextVar[AuthContext | None] = ContextVar(
@@ -834,60 +798,6 @@ class SecurityBoundaryMiddleware:
         return ClientKind.API
 
     @staticmethod
-    def _public_route(method: str, path: str, webhook_paths: set[str]) -> bool:
-        if method == "POST" and path in webhook_paths:
-            return True
-        if (method, path) in {
-            ("GET", "/health"),
-            ("HEAD", "/health"),
-            ("GET", "/health/live"),
-            ("HEAD", "/health/live"),
-            ("GET", "/health/ready"),
-            ("HEAD", "/health/ready"),
-            ("GET", "/api/auth/mode"),
-            ("POST", "/api/auth/session"),
-            ("POST", "/api/auth/refresh"),
-        }:
-            return True
-        return method in {"GET", "HEAD"} and not path.startswith(
-            ("/api", "/mcp", "/docs", "/redoc", "/openapi.json")
-        )
-
-    @staticmethod
-    def _required_scopes(method: str, path: str) -> frozenset[str]:
-        if (
-            method in {"GET", "HEAD"}
-            and path.startswith("/api/evolution/runs/")
-            and path.endswith("/assignment")
-        ):
-            return frozenset({"api", "admin"})
-        if path == "/api/mcp" or path.startswith("/api/mcp/"):
-            if method in {"POST", "PUT", "PATCH", "DELETE"}:
-                return frozenset({"admin"})
-            return frozenset({"api", "admin"})
-        if path.startswith("/mcp"):
-            return frozenset({"mcp:read", "mcp:submit"})
-        if path.startswith(("/api/auth/tokens", "/api/audit/system")):
-            return frozenset({"admin"})
-        if any(
-            path == prefix or path.startswith(f"{prefix}/") for prefix in _ADMIN_ACCESS_PREFIXES
-        ):
-            return frozenset({"admin"})
-        if method in {"POST", "PUT", "PATCH", "DELETE"} and any(
-            path == prefix or path.startswith(f"{prefix}/") for prefix in _ADMIN_MUTATION_PREFIXES
-        ):
-            return frozenset({"admin"})
-        return frozenset({"api"})
-
-    @staticmethod
-    def _requires_workspace_apply(method: str, path: str) -> bool:
-        return (
-            method == "POST"
-            and path.startswith("/api/workspace-runs/")
-            and path.rsplit("/", 1)[-1] in {"apply-decisions", "apply"}
-        )
-
-    @staticmethod
     def _unsafe_unknown(method: str, path: str, webhook_paths: set[str]) -> bool:
         if method not in {"POST", "PUT", "PATCH", "DELETE"}:
             return False
@@ -1065,18 +975,23 @@ class SecurityBoundaryMiddleware:
             and bool(headers.get("origin"))
             and bool(headers.get("access-control-request-method"))
         )
+        transport = "websocket" if scope["type"] == "websocket" else "http"
+        is_dynamic_webhook = method == "POST" and path in webhook_paths
         if scope["type"] == "http" and (
-            is_cors_preflight or self._public_route(method, path, webhook_paths)
+            is_cors_preflight
+            or is_dynamic_webhook
+            or match_public_route(method, path, transport=transport)
         ):
             # public 路由永不拒绝；但对"认证分级"路由（readiness 详情）仍解析身份，
             # 让处理器能区分匿名与已认证调用方（解析失败只当匿名，不产生 401）。
             # scope 不足者同样按匿名处理——只发摘要，绝不 403：详情层与其他
-            # "读系统状态"的 /api GET 路由同权（_required_scopes），不做隐性放宽。
-            if not is_cors_preflight and path in _AUTH_AWARE_PUBLIC_PATHS:
+            # "读系统状态"的 /api GET 路由同权，不做隐性放宽。
+            auth_aware_scopes = AUTH_AWARE_PUBLIC_SCOPES.get((method, path))
+            if not is_cors_preflight and auth_aware_scopes is not None:
                 public_context = self._authenticate(scope, headers, correlation_id)
-                if public_context is not None and not self._required_scopes(
-                    method, path
-                ).isdisjoint(public_context.principal.scopes):
+                if public_context is not None and not auth_aware_scopes.isdisjoint(
+                    public_context.principal.scopes
+                ):
                     scope.setdefault("state", {})["auth_context"] = public_context
                     with bind_auth_context(public_context):
                         await self.app(
@@ -1099,15 +1014,15 @@ class SecurityBoundaryMiddleware:
             else:
                 await self._reject_http(send, 401, "authentication_required", correlation_id)
             return
-        required_scopes = self._required_scopes(method, path)
-        if required_scopes.isdisjoint(context.principal.scopes):
+        route_scope = match_route_scope(method, path, transport=transport)
+        if route_scope is None:
             if scope["type"] == "websocket":
-                await self._reject_websocket(send, 4403, "insufficient_scope")
+                await self._reject_websocket(send, 4403, "route_not_allowed")
             else:
-                await self._reject_http(send, 403, "insufficient_scope", correlation_id)
+                await self._reject_http(send, 404, "route_not_allowed", correlation_id)
             return
-        if self._requires_workspace_apply(method, path) and (
-            "workspace:apply" not in context.principal.scopes
+        if route_scope.any_scopes.isdisjoint(context.principal.scopes) or not (
+            route_scope.all_scopes <= context.principal.scopes
         ):
             if scope["type"] == "websocket":
                 await self._reject_websocket(send, 4403, "insufficient_scope")
