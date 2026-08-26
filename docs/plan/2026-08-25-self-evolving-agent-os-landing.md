@@ -2,7 +2,7 @@
 
 > **文档性质**：可直接开工的重构落地方案（最终合成版）。由三份独立视角方案（风险优先 / 最小改动 / 目标纯度）经总架构师合成，合成准则按优先级为：①与当前源码相符；②每步不破坏 fail-closed 不变量、可独立合入与回退；③最少过渡债（对象边界与目标架构一致）；④篇幅完整（分歧处的取舍理由写在各阶段"决策与取舍"小节）。
 > **修订记录**：本方案经三路校验（符号核对/可行性/完备性）修订并落盘，日期 2026-08-25。
-> **基线**：集成分支 `feat/plugin-v1`（近端提交 `d3a37e8b`，含 X1 PR #89、P0 PR #91、P1 PR #93、P2 PR #95、X4 PR #97、P3 PR #99 与 X2 PR #101）；目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
+> **基线**：集成分支 `feat/plugin-v1`（近端提交 `3de9aa83`，含 X1 PR #89、P0 PR #91、P1 PR #93、P2 PR #95、X4 PR #97、P3 PR #99、X2 PR #101 与 X3 PR #103）；目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
 > **迁移编号基线**：P1 已占用 V31 `0031_system_snapshots`；P3 已追加并冻结 V32 `0032_runtime_generations`，当前 live tail 为 V32。P2 无迁移，后续计划迁移从 V33 起。历史 V25 `0025_persona_allowed_paths` 与 V30 `0030_consultation_rounds` 编号保持不变。
 > **流程约定（2026-08-25 用户授权）**：每阶段走 issue → `feat/`|`fix/` 分支 → PR（`Closes #n`），PR 目标统一为集成分支 `feat/plugin-v1`；亲验 `gh pr checks` 全绿后由执行方直接合入，不逐个等待用户确认；全部阶段完成后由用户在 `feat/plugin-v1` 做总体验证，tag 仍由用户操作。跑 Python 一律 `.venv/bin/python`；前端改动后单跑 `cd web && npm run typecheck`（vitest/eslint 不查类型）。
 
@@ -21,9 +21,15 @@
 | P7 声明式内容每 run 冻结视图 | ⬜ 未开始 | — | — |
 | X1 WS 出站所有权过滤 | ✅ 已合入（PR #89） | 2026-08-25 | 17 项所有权用例；32 项定向测试；全量 4746 passed、2 skipped；CI 5/5 绿 |
 | X2 重试判据收敛 | ✅ 已合入（PR #101） | 2026-08-26 | 17 个 FailureReason 值不变；5 类可重试真值表、异常类型映射、canonical failure ledger、generation_retired 与 unknown fail-closed 已覆盖；240 项聚焦回归及静态门禁通过；目标分支 CI 6/6 全绿 |
-| X3 allowed_paths 受理校验 | 🟢 实现完成，待合入（Issue #102） | 2026-08-26 | `_insert_edict` 首写前权威校验；内建相对 glob 精确值豁免；非法 fresh 请求五表零写；历史 replay 与 409 优先级保持；101 项聚焦回归及静态门禁通过 |
+| X3 allowed_paths 受理校验 | ✅ 已合入（PR #103） | 2026-08-26 | `_insert_edict` 首写前权威校验；内建相对 glob 精确值豁免；非法 fresh 请求五表零写；历史 replay 与 409 优先级保持；101 项聚焦回归及静态门禁通过；目标分支 CI 6/6 全绿 |
 | X4 schema 落盘与 CI 门禁 | ✅ 已合入（PR #97） | 2026-08-26 | 9 个 V1 schema 统一登记；105 项聚焦测试；全量 4866 passed、2 skipped；Ruff/format/Mypy/lint-imports 与 Web typecheck/338 tests/lint/build 全绿；合并提交目标分支 CI 6/6 全绿，含严格 Required CI 汇总与 backend/frontend clean-worktree guard |
-| X5 路由 scope 表 | ⬜ 未开始 | — | — |
+| X5 路由 scope 表 | 🟢 实现完成，待合入（Issue #104；PR 待创建） | 2026-08-26 | 263 条 protected、15 条 public 显式规则覆盖 277 个 route inventory refs；移除 API/method fallback，锁定 OR/AND、docs/WS/MCP/static/readiness/webhook 语义；运行时 first-match 与两类 shadow 负例已守卫；无迁移，live tail 仍为 V32 |
+
+### X5 实施裁决（Issue #104，PR 待创建）
+
+X5 已将 scope 判定收敛为显式、不可变的路由策略表：263 条 protected 规则和 15 条 public 规则覆盖当前 277 个 HTTP、WebSocket、MCP mount 与静态兼容 route inventory refs，不再保留 `/api/**` 或按 HTTP method 猜测 scope 的 fallback。策略表明确表达 global-read 的 `api OR admin`、workspace apply 的 `api AND workspace:apply`，并分别锁定 docs/OpenAPI、`/api/ws`、MCP 六种方法、SPA/assets 静态面、auth-aware readiness 与动态 webhook 精确 POST 路径的既有语义。
+
+兼容性裁决是：已认证请求命中 protected namespace 但没有注册路由时返回 `404 route_not_allowed`，从而保留既有 router 404 行为，同时保证未知路由不再继承默认 scope；匿名请求仍先经过认证闸门，未登记 WebSocket 仍 fail-closed。覆盖门禁同时按模板与真实运行时 first-match 检查唯一归属，并用“动态 `/api/.../{id}` 抢先遮蔽后置精确 admin 路由”和“public SPA catch-all 抢先遮蔽后置精确 admin 路由”两类负例证明 shadow 能被检出。最终 X5 聚焦矩阵 216 passed，完整 timing-sensitive 切片 26 passed；独立安全复核 APPROVED，并额外完成 184 项聚焦回归、33 项 health 回归及 261 个顶层具体路由的 Starlette 首匹配零错位核对。Ruff、Mypy（141 source files）和四项 import-linter 契约通过；本阶段没有数据库迁移，PR 尚待创建。
 
 ---
 

@@ -303,8 +303,40 @@ boundary maps only that exception to a stable 422 detail containing
 `code`, `path_glob`, and `message`; no Edict, requested contract, Memorial,
 outbox event, or idempotency row is written. Direct `Storage.save_edict()` uses
 the same gate and cannot bypass it.
-Status: implementation complete on Issue #102; merge pending. Focused
+Status: merged into `feat/plugin-v1` via PR #103. Focused
 application and HTTP admission contracts: 44 passed. Idempotency, governance
 contract persistence, workspace boundary, and path sandbox regression: 57
 passed. Ruff and all four import-linter contracts passed. The live migration
-tail remains V32.
+tail remains V32. The target-branch CI matrix passed 6/6 after one unrelated
+300ms scheduler timing test was rerun; its exact parameter passed six isolated
+runs and the complete 26-test timing-sensitive slice locally without any X3
+scheduler diff.
+
+=== Agent OS X5 / explicit route scope policy (2026-08-26) ===
+Decision: replace implicit API-prefix and HTTP-method scope fallbacks with an
+immutable, first-match route policy. The current table contains 263 protected
+rules and 15 public rules, and the architecture inventory contains 277 HTTP,
+WebSocket, MCP mount, and static compatibility references. Every inventory
+reference has exactly one public-or-protected owner, every declared rule reaches
+a real route, and an unknown path or method receives no inferred scope. The
+protected table encodes global-read as `api OR admin` and workspace apply as
+`api AND workspace:apply`; docs/OpenAPI, `/api/ws`, all six MCP methods, SPA and
+assets, auth-aware `/health/ready`, and exact dynamic webhook POST paths retain
+explicitly tested behavior. Webhook publication and removal take effect in the
+same middleware instance, while near-match paths remain protected.
+Compatibility decision: an authenticated HTTP request under a protected
+namespace with no registered route returns `404 route_not_allowed`. This
+preserves the existing router-facing 404 contract without restoring a default
+scope; anonymous protected requests still stop at authentication, and unmatched
+WebSockets remain fail-closed. Coverage evaluates the actual runtime first
+match, not only template ownership. Two mutation-style negative cases prove the
+guard rejects a dynamic `/api/.../{id}` rule shadowing a later exact admin route
+and a public SPA catch-all shadowing a later exact admin route.
+Boundary: no database migration or schema change; the live migration tail
+remains V32. Status: implementation complete for Issue #104; PR pending.
+Verification: final X5 focused matrix 216 passed and the complete
+timing-sensitive slice 26 passed. Independent security review was APPROVED,
+including an additional 184-test focused pass, a 33-test health pass, and zero
+Starlette first-match mismatches across 261 top-level concrete route
+declarations. Ruff, Mypy (141 source files), and all four import-linter contracts
+passed. Target-branch CI and merge evidence remain pending until the PR exists.

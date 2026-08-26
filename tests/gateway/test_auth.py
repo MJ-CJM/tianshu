@@ -425,6 +425,30 @@ def test_secure_remote_protected_routes_reject_anonymous_requests(
     assert response.json()["error"]["correlation_id"]
 
 
+def test_dynamic_webhook_publication_is_exact_and_revoked_immediately(storage: Storage) -> None:
+    app = _boundary_app(storage, _secure_settings())
+    path = "/channels/feishu/dynamic"
+    app.state.public_webhook_paths.clear()
+
+    with TestClient(
+        app,
+        base_url="https://tianshu.example.com",
+        client=("127.0.0.1", 41000),
+    ) as client:
+        before = client.post(path)
+        app.state.public_webhook_paths.add(path)
+        published = client.post(path)
+        near_match = client.post(f"{path}/near-match")
+        app.state.public_webhook_paths.remove(path)
+        revoked = client.post(path)
+
+    assert before.status_code == 401
+    assert published.status_code == 200
+    assert published.json()["principal"] is None
+    assert near_match.status_code == 401
+    assert revoked.status_code == 401
+
+
 def test_secure_remote_bootstrap_bearer_reaches_rest_and_mcp(storage: Storage) -> None:
     headers = {
         "Authorization": "Bearer bootstrap-token-for-tests",
@@ -757,6 +781,24 @@ def test_unknown_unsafe_root_route_is_denied_even_with_credentials(storage: Stor
         )
 
     assert response.status_code == 404
+
+
+def test_unknown_api_route_has_no_implicit_api_scope(storage: Storage) -> None:
+    with TestClient(
+        _boundary_app(storage, _secure_settings()),
+        base_url="https://tianshu.example.com",
+        client=("127.0.0.1", 41000),
+    ) as client:
+        anonymous = client.get("/api/future-route")
+        authenticated = client.get(
+            "/api/future-route",
+            headers={"Authorization": "Bearer bootstrap-token-for-tests"},
+        )
+
+    assert anonymous.status_code == 401
+    assert anonymous.json()["error"]["code"] == "authentication_required"
+    assert authenticated.status_code == 404
+    assert authenticated.json()["error"]["code"] == "route_not_allowed"
 
 
 def test_auth_mode_discovery_exposes_no_secrets(storage: Storage) -> None:
