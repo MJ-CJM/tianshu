@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -19,8 +20,18 @@ from tianshu import bootstrap as bootstrap_module
 from tianshu.app import create_app, lifespan
 from tianshu.bootstrap.wiring_tools import _runtime_secret_resolver
 from tianshu.config import TianshuSettings
+from tianshu.evolution.process_snapshot import ProcessSnapshotDriftError
 from tianshu.evolution.runtime_context import current_run_binding
 from tianshu.models import Edict, EdictRuntime, EdictSchedule, Memorial
+from tianshu.models.canonical import canonical_sha256
+from tianshu.models.runtime_generation import (
+    RuntimeGenerationState,
+    RuntimeGenerationV1,
+    RuntimeReleaseV1,
+)
+from tianshu.models.system_snapshot import SystemSnapshotV1
+from tianshu.storage import Storage
+from tianshu.storage.generation_repo import GenerationRepository
 
 # 全部在 lifespan() 中被赋值、且默认测试环境下保证非 None 的 app.state 键。
 NON_NULLABLE_STATE_KEYS = [
@@ -68,6 +79,7 @@ NON_NULLABLE_STATE_KEYS = [
     "scheduler",
     "plugin_api",
     "system_snapshot_resolver",
+    "process_snapshot_report",
     "profile_synthesizer",
     "profile_trigger",
     "skill_curator",
@@ -141,6 +153,166 @@ class TestBootstrapSmoke:
         )
         assert booted_app.state.scheduled_run_preparer._require_runtime_binding is True
 
+    async def test_process_snapshot_is_active_before_evolution_projection(self, booted_app):
+        report = booted_app.state.process_snapshot_report
+        snapshot = booted_app.state.evolution_center_service.get_snapshot(
+            type("Auth", (), {"principal": type("Principal", (), {"id": "user:owner"})()})()
+        )
+
+        assert report.snapshot_digest == booted_app.state.system_snapshot_resolver.resolve().digest
+        assert snapshot.active_generation == report.active_generation_id
+        assert snapshot.last_good_generation == report.last_good_generation_id
+
+    async def test_strict_process_drift_precedes_routing_audit_and_pi_recovery(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        runtime_paths = {
+            name: tmp_path / name
+            for name in (
+                "artifacts",
+                "memory",
+                "personas",
+                "logs",
+                "plugins",
+                "universes",
+                "workspaces",
+            )
+        }
+        for path in runtime_paths.values():
+            path.mkdir()
+        plugin_dir = runtime_paths["plugins"] / "strict-ordering"
+        plugin_dir.mkdir()
+        (plugin_dir / "manifest.json").write_text(
+            '{"name":"strict-ordering","version":"1.0.0"}',
+            encoding="utf-8",
+        )
+        db_path = tmp_path / "strict-process-ordering.db"
+        monkeypatch.setenv("TIANSHU_RUNTIME_SKILLS_DIR", str(tmp_path / "runtime-skills"))
+        monkeypatch.setattr(
+            "tianshu.app.bootstrap.wire_skills_watcher",
+            lambda _app, _settings: None,
+        )
+
+        def snapshot(marker: str) -> SystemSnapshotV1:
+            components = {"kernel": marker * 64}
+            return SystemSnapshotV1(
+                components=components,
+                digest=canonical_sha256(components),
+            )
+
+        current_snapshot = {"value": snapshot("a")}
+
+        def wire_snapshot(app, _settings) -> None:
+            app.state.system_snapshot_resolver = SimpleNamespace(
+                resolve=lambda: current_snapshot["value"]
+            )
+
+        monkeypatch.setattr(
+            "tianshu.app.bootstrap.wire_system_snapshot",
+            wire_snapshot,
+        )
+
+        def settings(*, strict: bool) -> TianshuSettings:
+            return TianshuSettings(
+                _env_file=None,
+                startup_profile="demo",
+                system_snapshot_strict=strict,
+                evolution_routing_enabled=False,
+                db_path=str(db_path),
+                artifact_dir=str(runtime_paths["artifacts"]),
+                memory_dir=str(runtime_paths["memory"]),
+                runtime_personas_dir=str(runtime_paths["personas"]),
+                log_dir=str(runtime_paths["logs"]),
+                plugins_dir=str(runtime_paths["plugins"]),
+                universe_root=str(runtime_paths["universes"]),
+                workspace_staging_root=str(runtime_paths["workspaces"]),
+            )
+
+        first_app = create_app(settings(strict=False))
+        async with lifespan(first_app):
+            pass
+
+        storage = Storage(str(db_path))
+        storage.init_db()
+        repository = GenerationRepository()
+        manifest = {"schema_version": "1", "manifest_id": "ordering-test"}
+        release_material: dict[str, object] = {
+            "schema_version": 1,
+            "scope": "executor:keqing:pi",
+            "manifest": manifest,
+            "manifest_hash": canonical_sha256(manifest),
+            "cli_version": "0.83.0",
+            "cli_version_source": "package_json",
+            "binary_path": "/opt/tianshu/bin/pi",
+            "binary_digest": "b" * 64,
+            "package_name": "@earendil-works/pi-coding-agent",
+            "package_entrypoint": "dist/cli.js",
+            "package_digest": "c" * 64,
+            "single_argv_shape": "single-v1",
+            "session_argv_shape": "session-v1",
+            "pi_wire_version": 3,
+            "materializer_id": "ordering-test",
+            "materializer_version": "1",
+        }
+        release = RuntimeReleaseV1(
+            **release_material,
+            release_digest=canonical_sha256(release_material),
+        )
+        now = datetime(2026, 8, 27, tzinfo=UTC)
+        pi_generation = RuntimeGenerationV1(
+            generation_id="rg-" + "d" * 32,
+            scope=release.scope,
+            release_digest=release.release_digest,
+            state=RuntimeGenerationState.STAGED,
+            version=1,
+            created_at=now,
+            updated_at=now,
+        )
+        with storage.unit_of_work() as unit_of_work:
+            repository.insert_release(unit_of_work.connection, release, first_seen_at=now)
+            repository.insert_staged(unit_of_work.connection, pi_generation)
+            unit_of_work.commit()
+        storage.close()
+
+        tables = (
+            "system_snapshots",
+            "runtime_generation_releases",
+            "runtime_generations",
+            "runtime_generation_journal",
+            "generation_pointers",
+            "plugins",
+            "system_audit_events",
+            "outbox_events",
+        )
+
+        def durable_rows() -> dict[str, list[tuple[object, ...]]]:
+            connection = sqlite3.connect(db_path)
+            try:
+                return {
+                    table: connection.execute(
+                        f"SELECT * FROM {table} ORDER BY 1"  # noqa: S608
+                    ).fetchall()
+                    for table in tables
+                }
+            finally:
+                connection.close()
+
+        before = durable_rows()
+        current_snapshot["value"] = snapshot("b")
+        second_app = create_app(settings(strict=True))
+
+        with pytest.raises(ProcessSnapshotDriftError):
+            async with lifespan(second_app):
+                raise AssertionError("strict drift must reject startup")
+
+        assert durable_rows() == before
+        pi_row = next(
+            row for row in before["runtime_generations"] if row[0] == pi_generation.generation_id
+        )
+        assert pi_row[4] == RuntimeGenerationState.STAGED.value
+
     async def test_system_snapshot_can_be_disabled_for_the_full_lifespan(
         self,
         tmp_path,
@@ -183,6 +355,7 @@ class TestBootstrapSmoke:
 
         async with lifespan(app):
             assert app.state.system_snapshot_resolver is None
+            assert app.state.process_snapshot_report is None
             assert app.state.challenger_router._snapshot_resolver() is None
             assert app.state.scheduled_run_preparer._require_runtime_binding is False
 

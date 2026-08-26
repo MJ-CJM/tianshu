@@ -4,7 +4,10 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from tianshu.bootstrap.wiring_skills import wire_evolution_services
+from tianshu.bootstrap.wiring_skills import (
+    initialize_evolution_routing_audit,
+    wire_evolution_services,
+)
 from tianshu.config import TianshuSettings
 from tianshu.evidence.service import ArtifactStore, EvidenceService
 from tianshu.storage.facade import Storage
@@ -36,6 +39,13 @@ def test_disabled_routing_is_unready_and_emits_startup_audit(tmp_path: Path) -> 
         wire_evolution_services(app, settings, skill_target=tmp_path / "skills")
 
         assert app.state.evolution_reconciler.readiness_probe() is False
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM system_audit_events"
+            ).fetchone()[0]
+            == 0
+        )
+        initialize_evolution_routing_audit(app, settings)
         audit = storage._conn.execute(  # noqa: SLF001
             """SELECT action, outcome, reason_code FROM system_audit_events
                WHERE action='evolution_routing_disabled'"""

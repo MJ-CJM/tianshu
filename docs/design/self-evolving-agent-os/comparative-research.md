@@ -3,13 +3,14 @@
 > **文档性质：带时间和代码快照的研究结论，不是当前发布承诺。**
 > 详细来源和证据等级见 [source-map.md](source-map.md)。
 >
-> **实现进展（2026-08-26）**：上游比较仍按固定快照成立。Tianshu 已合入 P1/P3/P4a；
-> P4b 已由 PR #109 合入 `feat/plugin-v1`（merge `a8a03071`）。当前 P5 checkout 已完成 Pi
-> EXECUTOR Candidate、精确 generation authority、canary、Decision、换代与回滚垂直切片。冻结的
+> **实现进展（2026-08-27）**：上游比较仍按固定快照成立。Tianshu 已合入 P1/P3/P4a；
+> P4b PR #109 与 P5 PR #111 已合入 `feat/plugin-v1`。P5 完成 Pi EXECUTOR Candidate、
+> 精确 generation authority、canary、Decision、换代与回滚垂直切片；当前 P6 checkout
+> 完成 process snapshot 启动代际、strict run binding 与只读投影。冻结的
 > `LegacyRunAssignmentV1` / `RunAssignmentV1` 继续承载 fresh root 的 0/1 旧投影；V34
 > `RunAssignmentSetV1` 从 singleton 起承载 per-subject 选择，N>1 时旧表只留 legacy 投影。
-> 因此本文早期“仅单 assignment、缺 per-subject 归因”的描述是历史研究基线；进程级
-> process snapshot 重启与通用 PluginHost/PluginSet last-good 仍是后续阶段。
+> 因此本文早期“仅单 assignment、缺 per-subject 归因”的描述是历史研究基线；process
+> snapshot 启动代际已在 P6 checkout 落地，通用 PluginHost/完整 PluginSet last-good 仍是后续阶段。
 
 ## 1. 当前 Tianshu：治理地基强，运行时插件尚未建立
 

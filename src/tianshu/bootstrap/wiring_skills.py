@@ -99,6 +99,16 @@ def _record_routing_disabled(app: FastAPI) -> None:
         logger.warning("Evolution routing disabled state could not be audited", exc_info=True)
 
 
+def initialize_evolution_routing_audit(
+    app: FastAPI,
+    settings: TianshuSettings,
+) -> None:
+    """Record the disabled-routing state after strict snapshot admission succeeds."""
+
+    if not settings.evolution_routing_enabled:
+        _record_routing_disabled(app)
+
+
 def wire_evolution_services(
     app: FastAPI,
     settings: TianshuSettings,
@@ -170,6 +180,7 @@ def wire_evolution_services(
         bucket_calculator=_routing_bucket_calculator(settings.startup_profile),
         payload_resolver=candidates.resolve_effective_payload_current,
         snapshot_resolver=lambda: getattr(app.state, "system_snapshot_resolver", None),
+        system_snapshot_strict=settings.system_snapshot_strict,
         generation_controller=lambda: getattr(app.state, "generation_controller", None),
         executor_generation_authority_resolver=lambda: getattr(
             app.state,
@@ -178,8 +189,6 @@ def wire_evolution_services(
         ),
     )
     app.state.challenger_router = challenger_router
-    if not settings.evolution_routing_enabled:
-        _record_routing_disabled(app)
     app.state.edict_application_service = EdictApplicationService(
         app.state.storage,
         challenger_router=challenger_router,

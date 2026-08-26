@@ -1,6 +1,6 @@
 # 目标领域模型与治理契约
 
-> **Status: Target model；P4b 已由 PR #109 合入 `feat/plugin-v1`（merge `a8a03071`）；当前 P5 checkout 已完成 Pi EXECUTOR 治理垂直切片，P6/P7 未完成。**
+> **Status: Target model；P4b PR #109 与 P5 PR #111 已合入 `feat/plugin-v1`；当前 P6 checkout 已完成 process snapshot generation 与 strict binding，P7 未完成。**
 > `SystemSnapshot`（典制）、`RuntimeGeneration`（朝）和 `EvolutionPolicy`（进化策略）已进入
 > `CONTEXT.md` 与 ADR；下表其余状态描述代码实现成熟度，不以术语已接受反推能力已实现。
 
@@ -17,9 +17,9 @@
 | `PluginSetSpec` | 用户期望选择、版本约束、配置、权限及 EvolutionPolicy 引用 | Proposed |
 | `PluginSetSnapshot` | Resolver 产出的完整依赖闭包、Capability binding 与有效 Policy digest | Proposed |
 | `AgentDeployment` | 期望 SystemSnapshot、rollout 策略及 observed/active/last-good 状态 | Proposed |
-| `RuntimeGeneration` | SystemSnapshot 中某个受管 release 在具体 Host/scope 上 materialize 后的运行实例；ID 非内容摘要 | Current/Partial：P3 已实现 `keqing:pi` 代际机械；P5 已提供 Pi 的受治理 Candidate/Promotion HTTP 路径，直接 GenerationController API 与通用 PluginHost 仍未开放 |
+| `RuntimeGeneration` | SystemSnapshot 中某个受管 release 在具体 Host/scope 上 materialize 后的运行实例；ID 非内容摘要 | Current/Partial：P3/P5 已实现 `keqing:pi` 代际与治理；P6 checkout 已实现 process scope 启动代际；直接 GenerationController API 与通用 PluginHost 仍未开放 |
 | `PluginInstance` | RuntimeGeneration 内一个 PluginRelease 的实际实例 | Proposed |
-| `SystemSnapshot` | 完整有效运行配置的不可变身份 | Shadow/Partial：P1 已实现组件摘要、内容寻址存储与 Evidence 归因；尚无完整依赖闭包、prompt 摘要和 generation 激活 |
+| `SystemSnapshot` | 完整有效运行配置的不可变身份 | Partial：P1 已实现组件摘要、内容寻址存储与 Evidence 归因；P6 checkout 已实现 process generation 与 strict binding；尚无完整依赖闭包、prompt 摘要和 P7 frozen view |
 | `ExecutionAssignment` | Memorial 与 SystemSnapshot、generation、实验选择的不可变绑定 | Partial：V31/V32 分别承载 snapshot shadow 与 exact-attempt 代际；P4b V34 以封存的 `RunAssignmentSetV1` 承载 per-subject 选择 |
 | `EvolutionCandidate` | 精确基线上的候选变化、来源、Gate、Evidence 和生命周期 | Current/Partial |
 | `EvaluationCampaign` | 版本化数据集、Evaluator、对照组、预算和评测结果的组合 | Proposed |
@@ -33,7 +33,7 @@
 |---|---|---|
 | `SystemSnapshotV1` | `SystemSnapshot`、`PluginSetSnapshot`，以及作为 components 条目的 `PluginRelease` 身份 | P1 Current/Shadow：frozen 内容摘要模型 + `system_snapshots`；当前 components 是最小语义投影，不等于完整 PluginSet 依赖锁 |
 | `RuntimeReleaseV1` | 宿主已解析、可跨重启精确物化的 executor release；不等于完整生态通用 `PluginRelease` | P3 Current：canonical material + `runtime_generation_releases`；内容寻址、不可变，可被多个朝复用 |
-| `RuntimeGenerationV1` | `RuntimeGeneration`、`PluginInstance`，以及 active/last-good 运行指针 | P3 Current/Partial：`keqing:pi` executor scope 的七态记录；process scope 留待 P6 |
+| `RuntimeGenerationV1` | `RuntimeGeneration`、`PluginInstance`，以及 active/last-good 运行指针 | Current/Partial：P3 `keqing:pi` 与 P6 checkout `process` 共用七态/指针；材料 decoder 与运行路径按 scope 严格隔离 |
 | `run_system_bindings` | `ExecutionAssignment` 中 SystemSnapshot 关联事实 | P1 snapshot shadow；snapshot 启用时每 `(memorial_id, attempt_id)` insert-once，P3 仅作 V31 generation fallback；现有 `RunAssignmentV1` 不改 |
 | `run_generation_bindings` | `ExecutionAssignment` 中 exact-attempt generation 关联事实 | P3 独立 insert-once 权威；`bound` 可显式为 `[]`，无法证明的历史 Pi 为 `unresolved`；与 system binding 同在必须一致 |
 | `run_subject_assignments` | `ExecutionAssignment` 中 per-subject 进化选择 | P4b V34 已合入：set hash/size 封存，1..64 原子写；不是 exact-attempt generation marker |
@@ -42,7 +42,8 @@ P1 的 `run_system_bindings` 按 `(memorial_id, attempt_id)` insert-once，并�
 Evidence artifact 保存；这是需要保留的 P1 历史语义。P3 没有把该 shadow 升格为代际权威，而是
 在 V32 新增 `run_generation_bindings`：每个新 attempt 无论 snapshot 开关状态都必须写 exact marker，
 空选择写 `bound []`，非空选择的解析、材料或 marker 写入失败都在受管副作用前拒绝。snapshot
-启用时两张表可同在且 generation ids 必须一致；典制整体严格翻转仍留到 P6。
+启用时两张表可同在且 generation ids 必须一致；P6 checkout 已为 strict run binding 增加
+`system_snapshot_unavailable`，默认 strict-off 仍保持影子兼容。
 
 `Artifact` 继续复用现有 `ArtifactRefV1`/`ArtifactStore`；`Capability`、`Contribution` 先作为注册表
 契约；`EvolutionPolicy` 到 per-subject 阶段才落表。`PluginSetSpec`、独立

@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 _SHA256_PATTERN = r"^[0-9a-f]{64}$"
 _EVIDENCE_BUNDLE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$"
+_GENERATION_ID_PATTERN = r"^rg-[0-9a-f]{32}$"
 
 
 class _StrictModel(BaseModel):
@@ -83,14 +84,22 @@ class EvolutionCenterSnapshotV1(_StrictModel):
     status: Literal["not_enabled", "enabled", "degraded"]
     reason_code: str = Field(min_length=1, max_length=128, pattern=r"^[a-z0-9_]+$")
     routing_enabled: bool = True
+    active_generation: str | None = Field(pattern=_GENERATION_ID_PATTERN)
+    last_good_generation: str | None = Field(pattern=_GENERATION_ID_PATTERN)
     candidates: tuple[EvolutionCandidateSummaryV1, ...] = Field(default=(), max_length=100)
     routing: tuple[EvolutionRoutingSummaryV1, ...] = Field(default=(), max_length=100)
     last_gate_hash: str | None = Field(default=None, pattern=_SHA256_PATTERN)
 
     @model_validator(mode="after")
     def validate_snapshot_truth(self) -> Self:
+        if (self.active_generation is None) != (self.last_good_generation is None):
+            raise ValueError("active and last-good generations must be present together")
         if self.status == "not_enabled" and (
-            self.candidates or self.routing or self.last_gate_hash is not None
+            self.active_generation is not None
+            or self.last_good_generation is not None
+            or self.candidates
+            or self.routing
+            or self.last_gate_hash is not None
         ):
             raise ValueError("not_enabled snapshot cannot contain evolution data")
         candidate_ids = [candidate.candidate_id for candidate in self.candidates]

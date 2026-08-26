@@ -72,10 +72,12 @@
 [`CONTEXT.md`](../../../CONTEXT.md) 接受为 canonical 术语；这只冻结命名与不变量，不表示目标
 运行能力已经完整实现。当前源码已落地 P1 的 SystemSnapshot 影子归因、P3 的
 `keqing:pi` RuntimeGeneration 内部机械与 P4a 的 per-subject EvolutionPolicy；P4b 已由
-PR #109 合入 `feat/plugin-v1`（merge `a8a03071`），完成 assignment-set 路由和 truthful UI。
-当前 P5 checkout 又完成 Pi EXECUTOR Candidate、精确 generation authority、canary、高危
-Decision、换代与回滚垂直切片；覆盖全部 PluginSet/第三方插件的通用 Promotion Authority 和
-PluginHost 仍在后续阶段。P3 的 attempt 代际权威是独立
+PR #109 合入 `feat/plugin-v1`（merge `a8a03071`）。P5 已由 PR #111 合入同一集成分支
+（merge `567b028e`），完成 Pi EXECUTOR Candidate、精确 generation authority、canary、高危
+Decision、换代与回滚垂直切片。当前 P6 checkout 又实现 process scope 的 SystemSnapshot
+generation、启动漂移校验、strict run binding 与 Evolution Center 只读 active/last-good 投影；
+P7 每 run 声明式内容冻结和覆盖全部 PluginSet/第三方插件的通用 Promotion Authority、PluginHost
+仍未完成。P3 的 attempt 代际权威是独立
 `run_generation_bindings`；V31 `run_system_bindings` 仍只是 snapshot-on shadow 与历史 fallback，
 两者同在必须一致。`PluginSetSpec`、`PluginSetSnapshot` 和
 `ExecutionAssignment` 仍是目标态设计词汇；P4b 以 `SubjectRunAssignmentV1` / `RunAssignmentSetV1`

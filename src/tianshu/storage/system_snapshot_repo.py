@@ -186,6 +186,15 @@ def _rollback_savepoint(connection: sqlite3.Connection, name: str) -> None:
 class SystemSnapshotRepository:
     """Stateless primitives whose caller owns the SQLite transaction."""
 
+    def get_snapshot(
+        self,
+        connection: sqlite3.Connection,
+        snapshot_digest: str,
+    ) -> SystemSnapshotV1 | None:
+        """Read one immutable snapshot by its content digest."""
+
+        return self._get_snapshot(connection, snapshot_digest)
+
     def insert_snapshot(
         self,
         connection: sqlite3.Connection,

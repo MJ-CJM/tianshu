@@ -33,6 +33,8 @@ describe("Evolution Center API", () => {
       status: "not_enabled",
       reason_code: "s5_governed_evolution_not_enabled",
       routing_enabled: true,
+      active_generation: null,
+      last_good_generation: null,
       candidates: [],
       routing: [],
       last_gate_hash: null,

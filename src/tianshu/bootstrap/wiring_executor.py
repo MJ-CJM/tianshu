@@ -36,7 +36,11 @@ from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.dag_scheduler import DAGScheduler
 from tianshu.executor.executor import Executor
 from tianshu.executor.generation_controller import GenerationController
-from tianshu.executor.keqing.generation import PiGenerationBundle, PiReleaseMaterializer
+from tianshu.executor.keqing.generation import (
+    PI_GENERATION_SCOPE,
+    PiGenerationBundle,
+    PiReleaseMaterializer,
+)
 from tianshu.executor.keqing.pi_probe import verify_pi_rpc_contract
 from tianshu.executor.lanes import LaneManager
 from tianshu.executor.policy_hook import PolicyHook
@@ -142,6 +146,7 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
         return frozenset(
             authority.generation_id
             for authority in authority_repository.list_recovery_roots(connection)
+            if authority.scope == PI_GENERATION_SCOPE
         )
 
     generation_controller = GenerationController(
@@ -151,6 +156,8 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
         executor.adapter_registry,
         warm_probe=warm_generation,
         recovery_root_provider=authority_recovery_roots,
+        managed_scopes=(PI_GENERATION_SCOPE,),
+        recovery_scopes=(PI_GENERATION_SCOPE,),
     )
     app.state.pi_release_materializer = materializer
     app.state.generation_repository = generation_repository
@@ -168,6 +175,7 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
         executor.adapter_registry,
         snapshot_binding_available=lambda: _snapshot_binding_available(app),
         authority_repository=authority_repository,
+        scope=PI_GENERATION_SCOPE,
     )
     app.state.executor_drift_scanner = ExecutorDriftScanner(
         unit_of_work_factory=storage.unit_of_work,

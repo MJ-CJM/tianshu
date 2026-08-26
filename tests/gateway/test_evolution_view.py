@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from tianshu.app import create_app
 from tianshu.config import TianshuSettings
+from tianshu.evolution.process_snapshot import ProcessSnapshotBootstrap
 from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
 from tianshu.gateway.evolution_api import (
     EvolutionCenterResponseV1,
@@ -40,6 +41,8 @@ BASE_URL = "https://tianshu.example.com"
 HASH_A = "a" * 64
 HASH_B = "b" * 64
 HASH_C = "c" * 64
+GENERATION_A = "rg-" + "a" * 32
+GENERATION_B = "rg-" + "b" * 32
 NOT_ENABLED_REASON = "s5_governed_evolution_not_enabled"
 S5_CANDIDATE_LIFECYCLES = (
     "proposed",
@@ -110,6 +113,8 @@ def _future_fixture(
     return symbols["Snapshot"](
         status=status,
         reason_code="minimum_samples_blocking",
+        active_generation=GENERATION_B,
+        last_good_generation=GENERATION_A,
         candidates=(candidate,),
         routing=(routing,),
         last_gate_hash=HASH_C,
@@ -142,6 +147,8 @@ def test_contract_forbids_fabricated_pre_s5_data() -> None:
     snapshot = symbols["Snapshot"](
         status="not_enabled",
         reason_code=NOT_ENABLED_REASON,
+        active_generation=None,
+        last_good_generation=None,
         candidates=(),
         routing=(),
         last_gate_hash=None,
@@ -152,6 +159,8 @@ def test_contract_forbids_fabricated_pre_s5_data() -> None:
         "status": "not_enabled",
         "reason_code": NOT_ENABLED_REASON,
         "routing_enabled": True,
+        "active_generation": None,
+        "last_good_generation": None,
         "candidates": [],
         "routing": [],
         "last_gate_hash": None,
@@ -160,6 +169,8 @@ def test_contract_forbids_fabricated_pre_s5_data() -> None:
         symbols["Snapshot"](
             status="not_enabled",
             reason_code=NOT_ENABLED_REASON,
+            active_generation=None,
+            last_good_generation=None,
             candidates=_future_fixture(symbols).candidates,
             routing=(),
             last_gate_hash=None,
@@ -168,6 +179,8 @@ def test_contract_forbids_fabricated_pre_s5_data() -> None:
         symbols["Snapshot"](
             status="not_enabled",
             reason_code=NOT_ENABLED_REASON,
+            active_generation=None,
+            last_good_generation=None,
             candidates=(),
             routing=_future_fixture(symbols).routing,
             last_gate_hash=HASH_C,
@@ -304,6 +317,8 @@ class SnapshotService:
         return self._symbols["Snapshot"](
             status="not_enabled",
             reason_code=NOT_ENABLED_REASON,
+            active_generation=None,
+            last_good_generation=None,
             candidates=(),
             routing=(),
             last_gate_hash=None,
@@ -349,6 +364,8 @@ def test_endpoint_is_authenticated_principal_scoped_and_correlated(tmp_path) -> 
             "status": "not_enabled",
             "reason_code": NOT_ENABLED_REASON,
             "routing_enabled": True,
+            "active_generation": None,
+            "last_good_generation": None,
             "candidates": [],
             "routing": [],
             "last_gate_hash": None,
@@ -621,6 +638,103 @@ def test_production_service_is_truthfully_disabled_and_has_no_s5_data_dependency
     assert snapshot.routing_enabled is True
     assert snapshot.candidates == snapshot.routing == ()
     assert snapshot.last_gate_hash is None
+    assert snapshot.active_generation is None
+    assert snapshot.last_good_generation is None
+
+
+def test_production_service_projects_process_generation_roots_and_honors_disable(
+    tmp_path,
+) -> None:
+    symbols = _symbols()
+    storage = Storage(str(tmp_path / "evolution-process-generation.db"))
+    storage.init_db()
+    components = {"kernel": HASH_A}
+    system_snapshot = SystemSnapshotV1(
+        components=components,
+        digest=canonical_sha256(components),
+    )
+    try:
+        ProcessSnapshotBootstrap(
+            unit_of_work_factory=storage.unit_of_work,
+            resolver=SimpleNamespace(resolve=lambda: system_snapshot),
+            strict=False,
+            target_digest=None,
+            generation_id_factory=lambda: GENERATION_A,
+        ).initialize()
+        auth = type(
+            "Auth",
+            (),
+            {"principal": type("Principal", (), {"id": "user:owner"})()},
+        )()
+
+        enabled = symbols["Service"](
+            storage,
+            SimpleNamespace(),
+            system_snapshot_enabled=True,
+        ).get_snapshot(auth)
+        disabled = symbols["Service"](
+            storage,
+            SimpleNamespace(),
+            system_snapshot_enabled=False,
+        ).get_snapshot(auth)
+
+        assert enabled.active_generation == GENERATION_A
+        assert enabled.last_good_generation == GENERATION_A
+        assert disabled.active_generation is None
+        assert disabled.last_good_generation is None
+    finally:
+        storage.close()
+
+
+def test_process_projection_fails_closed_on_corrupt_journal_but_disable_ignores_rows(
+    tmp_path,
+) -> None:
+    symbols = _symbols()
+    storage = Storage(str(tmp_path / "evolution-process-journal-corrupt.db"))
+    storage.init_db()
+    components = {"kernel": HASH_A}
+    system_snapshot = SystemSnapshotV1(
+        components=components,
+        digest=canonical_sha256(components),
+    )
+    auth = type(
+        "Auth",
+        (),
+        {"principal": type("Principal", (), {"id": "user:owner"})()},
+    )()
+    try:
+        report = ProcessSnapshotBootstrap(
+            unit_of_work_factory=storage.unit_of_work,
+            resolver=SimpleNamespace(resolve=lambda: system_snapshot),
+            strict=False,
+            target_digest=None,
+            generation_id_factory=lambda: GENERATION_A,
+        ).initialize()
+        with storage.unit_of_work() as unit_of_work:
+            unit_of_work.connection.execute("DROP TRIGGER runtime_generation_journal_no_delete")
+            unit_of_work.connection.execute(
+                "DELETE FROM runtime_generation_journal WHERE generation_id = ?",
+                (report.active_generation_id,),
+            )
+            unit_of_work.commit()
+
+        enabled = symbols["Service"](
+            storage,
+            SimpleNamespace(),
+            system_snapshot_enabled=True,
+        )
+        disabled = symbols["Service"](
+            storage,
+            SimpleNamespace(),
+            system_snapshot_enabled=False,
+        ).get_snapshot(auth)
+
+        with pytest.raises(symbols["Unavailable"], match="governed evolution read failed"):
+            enabled.get_snapshot(auth)
+        assert disabled.active_generation is None
+        assert disabled.last_good_generation is None
+    finally:
+        storage.close()
 
 
 def test_routing_summary_prefers_subject_rows_and_only_falls_back_for_old_memorials() -> None:

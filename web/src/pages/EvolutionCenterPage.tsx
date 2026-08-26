@@ -69,6 +69,36 @@ function EnabledEmptySnapshot() {
   );
 }
 
+function ProcessGenerationSnapshot({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 }) {
+  const t = useT();
+  const generationValue = (value: string | null) =>
+    value ? <MonoText>{value}</MonoText> : <Typography.Text>{t("page.evolutionCenter.generationUnavailable")}</Typography.Text>;
+  return (
+    <section aria-labelledby="process-generation-title" style={panelStyle}>
+      <Typography.Title id="process-generation-title" level={4} style={{ margin: 0 }}>
+        {t("page.evolutionCenter.processGenerationTitle")}
+      </Typography.Title>
+      <Typography.Paragraph type="secondary" style={{ margin: "8px 0 12px" }}>
+        {t("page.evolutionCenter.processGenerationDescription")}
+      </Typography.Paragraph>
+      <div style={{ display: "grid", gap: 8 }}>
+        <div>
+          <Typography.Text type="secondary">
+            {t("page.evolutionCenter.activeGeneration")}: {" "}
+          </Typography.Text>
+          {generationValue(snapshot.active_generation)}
+        </div>
+        <div>
+          <Typography.Text type="secondary">
+            {t("page.evolutionCenter.lastGoodGeneration")}: {" "}
+          </Typography.Text>
+          {generationValue(snapshot.last_good_generation)}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function SnapshotContent({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 }) {
   const t = useT();
   const routingByCandidate = new Map(
@@ -138,6 +168,7 @@ function GovernedSnapshotContent({ snapshot }: { snapshot: EvolutionCenterSnapsh
           description={t("page.evolutionCenter.routingDisabledDescription")}
         />
       ) : null}
+      <ProcessGenerationSnapshot snapshot={snapshot} />
       {isEvolutionSnapshotEmpty(snapshot) ? (
         <EnabledEmptySnapshot />
       ) : (

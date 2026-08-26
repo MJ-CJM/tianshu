@@ -213,6 +213,8 @@ class GenerationController:
         warm_probe: WarmProbe,
         required_scope_provider: RequiredScopeProvider = requested_executor_scopes,
         recovery_root_provider: RecoveryRootProvider | None = None,
+        managed_scopes: tuple[str, ...] | None = None,
+        recovery_scopes: tuple[str, ...] | None = None,
         generation_id_factory: Callable[[], str] | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -223,6 +225,17 @@ class GenerationController:
         self._warm_probe = warm_probe
         self._required_scope_provider = required_scope_provider
         self._recovery_root_provider = recovery_root_provider or (lambda _connection: frozenset())
+        self._managed_scopes = self._scope_set(managed_scopes, field="managed_scopes")
+        self._recovery_scopes = self._scope_set(
+            recovery_scopes if recovery_scopes is not None else managed_scopes,
+            field="recovery_scopes",
+        )
+        if (
+            self._managed_scopes is not None
+            and self._recovery_scopes is not None
+            and not self._recovery_scopes.issubset(self._managed_scopes)
+        ):
+            raise ValueError("recovery_scopes must be a subset of managed_scopes")
         self._generation_id_factory = generation_id_factory or (lambda: f"rg-{uuid4().hex}")
         self._clock = clock or (lambda: datetime.now(UTC))
 
@@ -245,6 +258,7 @@ class GenerationController:
         connection and must not commit it.
         """
 
+        self._require_managed_scope(release.scope)
         bundle = self._materializer.materialize(release)
         self._validate_bundle(release, bundle)
         now = self._now()
@@ -559,6 +573,7 @@ class GenerationController:
                 raise GenerationMaterializationError(
                     f"generation bundle is not materialized: {generation_id}"
                 )
+            self._require_managed_scope(retained.scope)
             target = self._repository.get_generation(
                 unit_of_work.connection,
                 scope=retained.scope,
@@ -614,6 +629,7 @@ class GenerationController:
     ) -> RuntimeGenerationV1:
         """Fail one exact pre-active generation and atomically withdraw its authority."""
 
+        self._require_managed_scope(scope)
         with (
             self._unit_of_work_factory() as unit_of_work,
             self._registry.generation_guard(),
@@ -663,6 +679,7 @@ class GenerationController:
 
         if not scope.strip():
             raise ValueError("scope must be non-blank")
+        self._require_managed_scope(scope)
         with (
             self._unit_of_work_factory() as unit_of_work,
             self._registry.generation_guard(),
@@ -756,6 +773,9 @@ class GenerationController:
     ) -> GenerationRollbackResult:
         """Rollback an exact authority pair or accept its completed replay."""
 
+        if not scope.strip():
+            raise ValueError("scope must be non-blank")
+        self._require_managed_scope(scope)
         with (
             self._unit_of_work_factory() as unit_of_work,
             self._registry.generation_guard(),
@@ -813,6 +833,8 @@ class GenerationController:
                 raise GenerationRecoveryError("recovery requires an empty attempt lease map")
             terminal: list[RuntimeGenerationV1] = []
             for record in self._registry.generation_records():
+                if not self._recovers_scope(record.scope):
+                    continue
                 generation = self._repository.get_generation(
                     unit_of_work.connection,
                     scope=record.scope,
@@ -834,7 +856,7 @@ class GenerationController:
                         include_state=False,
                     )
                     terminal.append(generation)
-            candidates = self._repository.list_recovery_candidates(unit_of_work.connection)
+            candidates = self._recovery_candidates(unit_of_work.connection)
             authority_root_ids = self._recovery_root_provider(unit_of_work.connection)
             candidate_ids = frozenset(item.generation_id for item in candidates)
             if not authority_root_ids.issubset(candidate_ids):
@@ -842,10 +864,21 @@ class GenerationController:
                     "executor generation authority references an unavailable generation"
                 )
             recovery_root_ids = authority_root_ids | pre_active_root_ids
-            retained_ids = (
-                self._repository.retained_generation_ids(unit_of_work.connection)
-                | authority_root_ids
-            )
+            if self._recovery_scopes is None:
+                durable_retained_ids = self._repository.retained_generation_ids(
+                    unit_of_work.connection
+                )
+            else:
+                durable_retained_ids = frozenset().union(
+                    *(
+                        self._repository.retained_generation_ids(
+                            unit_of_work.connection,
+                            scope=scope,
+                        )
+                        for scope in sorted(self._recovery_scopes)
+                    )
+                )
+            retained_ids = durable_retained_ids | authority_root_ids
             failed: list[RuntimeGenerationV1] = []
             retained: list[tuple[RuntimeGenerationV1, RuntimeReleaseV1]] = []
             for generation in candidates:
@@ -978,6 +1011,8 @@ class GenerationController:
             required_scopes = self._canonical_required_scopes(
                 self._required_scope_provider(connection, memorial_id)
             )
+            for scope in required_scopes:
+                self._require_managed_scope(scope)
             # Continuity pins apply only while the child/retry still requires a
             # generated scope.  An explicit executor override to a legacy/static
             # backend must not turn the parent's Pi generation into a false
@@ -1011,6 +1046,8 @@ class GenerationController:
         """Validate durable and materialized identities without live fallback."""
 
         scopes = self._canonical_required_scopes(required_scopes)
+        for scope in scopes:
+            self._require_managed_scope(scope)
         if not generation_ids:
             return ()
         generations = self._repository.validate_generation_ids(
@@ -1046,6 +1083,7 @@ class GenerationController:
 
         if not isinstance(scope, str) or not scope.strip():
             raise ValueError("scope must be non-blank")
+        self._require_managed_scope(scope)
         with (
             self._unit_of_work_factory() as unit_of_work,
             self._registry.generation_guard(),
@@ -1076,6 +1114,8 @@ class GenerationController:
         connection: sqlite3.Connection,
         required_scopes: tuple[str, ...],
     ) -> tuple[str, ...]:
+        for scope in required_scopes:
+            self._require_managed_scope(scope)
         pointers = tuple(
             self._repository.get_pointer(connection, scope=scope) for scope in required_scopes
         )
@@ -1099,6 +1139,7 @@ class GenerationController:
             raise GenerationMaterializationError(
                 f"generation bundle is not materialized: {generation_id}"
             )
+        self._require_managed_scope(retained.scope)
         generation = self._repository.get_generation(
             connection,
             scope=retained.scope,
@@ -1136,6 +1177,7 @@ class GenerationController:
         durable: RuntimeGenerationV1 | None = None,
         include_state: bool = True,
     ) -> RuntimeGenerationV1:
+        self._require_managed_scope(scope)
         generation = durable or self._repository.get_generation(
             connection,
             scope=scope,
@@ -1411,6 +1453,44 @@ class GenerationController:
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("clock must return a timezone-aware timestamp")
         return value.astimezone(UTC)
+
+    @staticmethod
+    def _scope_set(
+        scopes: tuple[str, ...] | None,
+        *,
+        field: str,
+    ) -> frozenset[str] | None:
+        if scopes is None:
+            return None
+        if not isinstance(scopes, tuple) or any(not isinstance(scope, str) for scope in scopes):
+            raise TypeError(f"{field} must be a tuple of strings")
+        if any(not scope.strip() for scope in scopes):
+            raise ValueError(f"{field} must contain only non-blank scopes")
+        if len(scopes) != len(set(scopes)):
+            raise ValueError(f"{field} must contain unique scopes")
+        return frozenset(scopes)
+
+    def _require_managed_scope(self, scope: str) -> None:
+        if self._managed_scopes is not None and scope not in self._managed_scopes:
+            raise GenerationControllerError(f"generation scope is not managed: {scope}")
+
+    def _recovers_scope(self, scope: str) -> bool:
+        return self._recovery_scopes is None or scope in self._recovery_scopes
+
+    def _recovery_candidates(
+        self,
+        connection: sqlite3.Connection,
+    ) -> tuple[RuntimeGenerationV1, ...]:
+        if self._recovery_scopes is None:
+            return self._repository.list_recovery_candidates(connection)
+        return tuple(
+            generation
+            for scope in sorted(self._recovery_scopes)
+            for generation in self._repository.list_recovery_candidates(
+                connection,
+                scope=scope,
+            )
+        )
 
     @staticmethod
     def _canonical_required_scopes(scopes: tuple[str, ...]) -> tuple[str, ...]:

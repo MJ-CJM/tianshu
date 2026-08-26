@@ -109,13 +109,17 @@ class GenerationReconciler:
         clock: Callable[[], datetime] | None = None,
         snapshot_binding_available: Callable[[], bool] | None = None,
         authority_repository: ExecutorGenerationAuthorityRepository | None = None,
+        scope: str | None = None,
     ) -> None:
+        if scope is not None and not scope.strip():
+            raise ValueError("scope must be non-blank")
         self._repository = repository
         self._unit_of_work_factory = unit_of_work_factory
         self._registry = registry
         self._clock = clock or (lambda: datetime.now(UTC))
         self._snapshot_binding_available = snapshot_binding_available or (lambda: True)
         self._authority_repository = authority_repository
+        self._scope = scope
         self._lock = Lock()
         self._last_error_code: str | None = None
         self._readiness_error_codes: tuple[str, ...] = ()
@@ -144,13 +148,17 @@ class GenerationReconciler:
                     terminal = self._terminal_registry_generations(
                         unit_of_work.connection,
                     )
-                    candidates = self._repository.list_recovery_candidates(unit_of_work.connection)
+                    candidates = self._repository.list_recovery_candidates(
+                        unit_of_work.connection,
+                        scope=self._scope,
+                    )
                     self._repair_nonterminal_registry_states(
                         unit_of_work.connection,
                         candidates,
                     )
                     durable_retained_ids = self._repository.retained_generation_ids(
-                        unit_of_work.connection
+                        unit_of_work.connection,
+                        scope=self._scope,
                     )
                     authority_roots = self._authority_roots(unit_of_work.connection)
                     authority_retained_ids = frozenset(
@@ -275,9 +283,13 @@ class GenerationReconciler:
                     self._unit_of_work_factory() as unit_of_work,
                     self._registry.generation_guard(),
                 ):
-                    candidates = self._repository.list_recovery_candidates(unit_of_work.connection)
+                    candidates = self._repository.list_recovery_candidates(
+                        unit_of_work.connection,
+                        scope=self._scope,
+                    )
                     retained_ids = self._repository.retained_generation_ids(
-                        unit_of_work.connection
+                        unit_of_work.connection,
+                        scope=self._scope,
                     ) | frozenset(
                         authority.generation_id
                         for authority in self._authority_roots(unit_of_work.connection)
@@ -317,7 +329,11 @@ class GenerationReconciler:
             for generation in candidates
         ):
             codes.add("generation_binding_resolver_unavailable")
-        records = {record.generation_id: record for record in self._registry.generation_records()}
+        records = {
+            record.generation_id: record
+            for record in self._registry.generation_records()
+            if self._scope is None or record.scope == self._scope
+        }
         for generation in candidates:
             record = records.pop(generation.generation_id, None)
             if generation.state is RuntimeGenerationState.ACTIVE:
@@ -397,6 +413,8 @@ class GenerationReconciler:
     ) -> tuple[RuntimeGenerationV1, ...]:
         terminal: list[RuntimeGenerationV1] = []
         for record in self._registry.generation_records():
+            if self._scope is not None and record.scope != self._scope:
+                continue
             durable = self._repository.get_generation(
                 connection,
                 scope=record.scope,
@@ -527,7 +545,11 @@ class GenerationReconciler:
     def _authority_roots(self, connection: sqlite3.Connection):
         if self._authority_repository is None:
             return ()
-        return self._authority_repository.list_retention_roots(connection)
+        return tuple(
+            authority
+            for authority in self._authority_repository.list_retention_roots(connection)
+            if self._scope is None or authority.scope == self._scope
+        )
 
     def _revoke_drained_authority(self, connection: sqlite3.Connection, authority) -> None:
         if self._authority_repository is None:

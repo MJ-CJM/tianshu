@@ -10,8 +10,8 @@
 > `storage/evolution_repo.py`、`universe/router.py`、`evolution/runtime_context.py`、
 > `evidence/service.py` 及对应 multi-subject/durable-schema/Evidence 测试。最终本地门禁为后端
 > 5270 passed、2 skipped、24 slow deselected，Web 347 passed；静态检查与生产构建通过。
-> 当前 P5 checkout 的事实入口与验证路径另列于下文；最终门禁数字暂以
-> `PROGRESS.md` 的 P5 本地验证记录为准，不从历史 P4b 数字外推。
+> P5 已由 PR #111 合入 `feat/plugin-v1`（merge `567b028e`）。当前 P6 checkout 的事实入口
+> 与验证路径另列于下文；最终门禁数字以 P6 PR 的实际检查为准，不从历史阶段数字外推。
 
 ## 1. 核验时间与源码快照
 
@@ -83,6 +83,21 @@ uv 0.9.27、项目 Python 3.12.12、pytest 9.0.3，HEAD `88462b2a`。
 - [`tests/universe/test_executor_generation_routing.py`](../../../tests/universe/test_executor_generation_routing.py)
 - [`tests/storage/test_executor_generation_authority_repo.py`](../../../tests/storage/test_executor_generation_authority_repo.py)
 - [`tests/architecture/test_executor_evolution_boundaries.py`](../../../tests/architecture/test_executor_evolution_boundaries.py)
+
+### P6 process snapshot generation 与 strict binding
+
+- [`src/tianshu/evolution/process_snapshot.py`](../../../src/tianshu/evolution/process_snapshot.py)
+- [`src/tianshu/models/runtime_generation.py`](../../../src/tianshu/models/runtime_generation.py)
+- [`src/tianshu/storage/generation_repo.py`](../../../src/tianshu/storage/generation_repo.py)
+- [`src/tianshu/bootstrap/wiring_snapshot.py`](../../../src/tianshu/bootstrap/wiring_snapshot.py)
+- [`src/tianshu/universe/router.py`](../../../src/tianshu/universe/router.py)
+- [`src/tianshu/application/evolution_view.py`](../../../src/tianshu/application/evolution_view.py)
+- [`tests/evolution/test_process_snapshot.py`](../../../tests/evolution/test_process_snapshot.py)
+- [`tests/storage/test_process_generation_repo.py`](../../../tests/storage/test_process_generation_repo.py)
+- [`tests/executor/test_generation_scope_isolation.py`](../../../tests/executor/test_generation_scope_isolation.py)
+- [`tests/universe/test_snapshot_binding.py`](../../../tests/universe/test_snapshot_binding.py)
+- [`tests/test_bootstrap_smoke.py`](../../../tests/test_bootstrap_smoke.py)
+- [`web/src/pages/EvolutionCenterPage.test.tsx`](../../../web/src/pages/EvolutionCenterPage.test.tsx)
 
 ### 现有架构与决策
 
