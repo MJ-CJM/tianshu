@@ -347,7 +347,7 @@ export async function seedClosedEvidence(
     "now = datetime.now(UTC)",
     "completed_memorial = memorial.model_copy(update={'status': TaskStatus.COMPLETED, 'review_status': 'not_required', 'completed_at': now, 'audit': AuditResult(verdict='pass', rules_checked=1)})",
     "artifacts = ArtifactStore(artifact_dir, storage.artifact_repo, storage.unit_of_work, max_object_bytes=104857600, max_total_bytes=5368709120)",
-    "service = EvidenceService(storage, artifacts)",
+    "service = EvidenceService(storage, artifacts, executor_manifest_provider=get_executor_manifest)",
     "with storage.unit_of_work() as unit_of_work:",
     "    if decision_id:",
     "        record = storage.decision_repo.get(unit_of_work.connection, decision_id)",
