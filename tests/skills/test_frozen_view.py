@@ -1176,7 +1176,7 @@ async def test_watcher_invalidates_only_and_reports_debounced_paths(
     assert loader.content_digest() != old_digest
 
 
-def test_watcher_uses_polling_observer_in_every_mode(
+async def test_watcher_uses_polling_observer_in_every_mode(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1227,7 +1227,7 @@ def test_watcher_uses_polling_observer_in_every_mode(
         assert observer.joined is True
 
 
-def test_watcher_start_failure_cleans_up_and_allows_retry(
+async def test_watcher_start_failure_cleans_up_and_allows_retry(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
