@@ -390,8 +390,8 @@ references with exact coverage.
 
 === Agent OS P4b / per-subject assignment sets (2026-08-26) ===
 
-Issue #108 implementation is complete on its feature branch; PR and target-branch CI
-have not yet been created. V34 `0034_run_subject_assignments` freezes a complete
+Issue #108 implementation is complete on its feature branch; PR #109 has been created
+and target-branch CI is pending. V34 `0034_run_subject_assignments` freezes a complete
 per-Memorial assignment set rather than independent loose rows. Each row persists the
 same canonical set hash and set size; owned objects are the table plus
 `run_subject_assignments_sealed_insert`, `run_subject_assignments_no_update`, and
@@ -427,7 +427,7 @@ Final local verification is 5270 backend tests passed, 2 skipped and 24 slow tes
 deselected; all 77 Web test files and 347 tests passed. Ruff, format, Mypy,
 import-linter, TypeScript, ESLint (0 errors) and the production build also passed. The
 admin-only policy list route brings the explicit scope table to 266 protected rules,
-15 public rules and 280 route inventory references. PR and target-branch CI remain
+15 public rules and 280 route inventory references. PR #109 target-branch CI remains
 pending.
 
 Routing order is existing replay, then continuity inheritance, then the fresh-root kill

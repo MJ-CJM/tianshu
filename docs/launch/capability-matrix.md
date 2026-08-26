@@ -15,7 +15,7 @@ Ubuntu + Python 3.12 是首个正式目标，历史保留批次实际在
 Checkpoint（2026-08-26）：P4a 已由 PR #107 合入 `feat/plugin-v1`（merge `b94d4846`，CI
 6/6），目标分支 live migration tail 为 V33。P4b Issue #108 已在当前实现分支完成 V34，
 本地最终门禁已通过（后端 5270 passed / 2 skipped / 24 slow deselected，Web 347 passed，
-静态检查与生产构建通过），但 PR 与目标分支 CI 待完成；表中明确标为“P4b 分支”的保证不能视为目标
+静态检查与生产构建通过）；PR #109 已创建，目标分支 CI 待完成；表中明确标为“P4b 分支”的保证不能视为目标
 分支已上线。
 
 成熟度定义：Stable (limited) 表示命名边界有自动化；Beta 表示主路径或只读预览可用，

@@ -1,6 +1,6 @@
 # 目标领域模型与治理契约
 
-> **Status: Target model；P1/P3/P4a 已合入，P4b Issue #108 已在实现分支完成但 PR/CI 待创建。**
+> **Status: Target model；P1/P3/P4a 已合入，P4b Issue #108 已在实现分支完成，PR #109 已创建、CI 待完成。**
 > `SystemSnapshot`（典制）、`RuntimeGeneration`（朝）和 `EvolutionPolicy`（进化策略）已进入
 > `CONTEXT.md` 与 ADR；下表其余状态描述代码实现成熟度，不以术语已接受反推能力已实现。
 

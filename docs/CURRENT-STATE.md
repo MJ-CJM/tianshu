@@ -6,7 +6,7 @@
 > 分支 checkpoint：P4a 已由 PR #107 合入 `feat/plugin-v1`（merge `b94d4846`，目标分支
 > CI 6/6），该集成分支 live migration tail 为 V33；当前 P4b Issue #108 实现分支已追加
 > V34；本地最终门禁已通过（后端 5270 passed / 2 skipped / 24 slow deselected，Web
-> 347 passed，静态检查与生产构建通过），但 PR 与目标分支 CI 尚待完成。下文凡标注“P4b 分支”的能力均不是
+> 347 passed，静态检查与生产构建通过）；PR #109 已创建，目标分支 CI 尚待完成。下文凡标注“P4b 分支”的能力均不是
 > `feat/plugin-v1` 已合入能力。
 
 这份文档是 `docs/` 的当前状态入口。它用于回答“现在能不能用、支持到哪里、哪些

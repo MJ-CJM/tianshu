@@ -212,7 +212,7 @@
 - **明确边界**：availability、source 和 curator protection 只读，`pinned` 不是版本 pin；
   不提供 enabled、版本 pin、晋升或回滚按钮，policy 列表/详情/写入均只允许管理员。P4a 已由
   PR #107 合入；上述 per-subject 路由和策略面板属于 P4b Issue #108 当前实现分支，本地最终
-  门禁已通过，PR/目标分支 CI 尚待完成。系统不会自行晋升候选，非 Skill 的生产激活仍关闭，
+  门禁已通过，PR #109 已创建、目标分支 CI 尚待完成。系统不会自行晋升候选，非 Skill 的生产激活仍关闭，
   完整 G4 仍未完成。
 - **相关文档**：[Skills 当前边界](../design/skills/README.md)、
   [技能学习](../design/skills/learning.md)、[能力事实矩阵](../launch/capability-matrix.md)。

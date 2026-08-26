@@ -47,7 +47,7 @@ max canary basis points 的严格 CAS 编辑，availability/source/curator prote
 | Pi 不可变 release / runtime generation | 内部可用 | 单发与 session adapter 同代物化；stage/warm/activate/rollback/recover 仅由内部组合根调用 |
 | attempt 代际固定与 continuity | 内部可用 | exact attempt 租约、follow-up/基础设施重试/DAG root 继承；周期任务每次 fresh root 取当时 active |
 | 代际生产写入口 | 不支持 | P3 不提供 HTTP/CLI，也不接 Candidate/Promotion；P5 才引入治理授权入口 |
-| per-subject Skill canary | P4b 分支实现与本地门禁完成 | V34 封存 1..64 条 assignment；后端 5270 passed、Web 347 passed；PR/目标分支 CI 待完成 |
+| per-subject Skill canary | P4b 分支实现与本地门禁完成 | V34 封存 1..64 条 assignment；后端 5270 passed、Web 347 passed；PR #109 已创建、目标分支 CI 待完成 |
 | 插件 enabled / version pin | 不支持 | P4b UI 不提供这两个开关；curator protection 不是版本 pin |
 
 P4b 路由顺序是 existing replay → continuity inheritance → fresh-root kill switch。关闭 routing

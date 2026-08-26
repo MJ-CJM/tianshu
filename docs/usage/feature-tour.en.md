@@ -244,7 +244,7 @@ approval.
   not a version pin. There is no enabled switch, version pin, promotion button, or rollback button,
   and all policy list/detail/write APIs are administrator-only. P4a merged in PR #107; the
   per-subject routing and policy panel described here are implemented on the current P4b Issue
-  #108 branch. Local final gates passed; its PR and target-branch CI are still pending. The system does not auto-promote
+  #108 branch. Local final gates passed; PR #109 is open and target-branch CI is pending. The system does not auto-promote
   candidates; non-Skill production activation remains closed, and full G4 is not complete.
 - **Related docs**: [Current Skills Boundary](../design/skills/README.md),
   [Skill Learning](../design/skills/learning.md),

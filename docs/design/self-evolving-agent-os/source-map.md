@@ -9,7 +9,7 @@
 > `storage/evolution_repo.py`、`universe/router.py`、`evolution/runtime_context.py`、
 > `evidence/service.py` 及对应 multi-subject/durable-schema/Evidence 测试。最终本地门禁为后端
 > 5270 passed、2 skipped、24 slow deselected，Web 347 passed；静态检查与生产构建通过，
-> PR 与目标分支 CI 待完成。
+> PR #109 已创建，目标分支 CI 待完成。
 
 ## 1. 核验时间与源码快照
 

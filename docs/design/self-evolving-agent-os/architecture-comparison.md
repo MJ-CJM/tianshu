@@ -14,7 +14,7 @@
 
 > 这是实施前的 as-is，不代表 2026-08-26 实现分支。当前 checkpoint：P1/P3/P4a 已合入；
 > P4b Issue #108 已完成 V34 per-subject assignment set、continuity sticky、深冻结与 truthful
-> UI，PR/CI 待创建；P5–P7 仍未完成。
+> UI；PR #109 已创建、目标分支 CI 待完成；P5–P7 仍未完成。
 
 ![当前架构：运行只绑定单个 candidate overlay，执行器 replace 原地替换，注册表无 owner，SkillsWatcher 直接 reload，只有 Skill 有晋升适配器](../../assets/design/self-evolving-agent-os/as-is.svg)
 

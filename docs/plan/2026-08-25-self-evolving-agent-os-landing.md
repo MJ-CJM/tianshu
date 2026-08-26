@@ -15,7 +15,7 @@
 | P2 ContributionHandle | ✅ 已合入（PR #95） | 2026-08-25 | 82 项 P2 聚焦测试；全量 4830 passed、2 skipped；六类 owned handle、逆序释放、stale 身份保护及 MCP 重新发现/断连/shutdown 回收；原生 live/demo 冒烟、插件面 fail-closed 与 CI 5/5 均绿 |
 | P3 Pi 执行器代际与 continuity 固定 | ✅ 已合入（PR #99） | 2026-08-26 | V32、materializer、registry binding、continuity、reconciler、readiness、可观测性与 Web 投影；backend 5096 passed、2 skipped；Web typecheck/339 tests/lint/build 与全部静态门禁通过 |
 | P4a EvolutionPolicy 与 per-subject canary 写侧基础 | ✅ 已合入（PR #107，merge `b94d4846`） | 2026-08-26 | V33；严格 CAS、frozen 三闸、repo-level 执法、promote journal guard；目标分支 CI 6/6 全绿 |
-| P4b per-subject 运行分配与 UI | 🟢 分支实现与本地门禁完成（Issue #108；PR/CI 待创建） | 2026-08-26 | V34；assignment set 持久封存、1..64 原子批写、continuity 选择、运行时深冻结、逐 assignment provenance/digest 复验与 truthful UI；最终后端 5270 passed、2 skipped、24 slow deselected；Web 347 passed，静态检查与生产构建通过 |
+| P4b per-subject 运行分配与 UI | 🟢 分支实现与本地门禁完成（Issue #108；PR #109，CI pending） | 2026-08-26 | V34；assignment set 持久封存、1..64 原子批写、continuity 选择、运行时深冻结、逐 assignment provenance/digest 复验与 truthful UI；最终后端 5270 passed、2 skipped、24 slow deselected；Web 347 passed，静态检查与生产构建通过 |
 | P5 CandidateKind.EXECUTOR 全链路 | ⬜ 未开始 | — | — |
 | P6 进程级 snapshot 重启与 last-good | ⬜ 未开始 | — | — |
 | P7 声明式内容每 run 冻结视图 | ⬜ 未开始 | — | — |
@@ -39,7 +39,7 @@ P4a 将每个 subject 的进化授权落成显式 `EvolutionPolicyV1` 与 V33 `e
 
 安全裁决是：policy upsert 在同 subject 存在未由相同 command-key completed 行收口的 promote intended/applied journal 时返回冲突。由此 policy 无法在 `intended → adapter.activate → applied/final commit` 窗口中翻转，避免外部已经激活而 durable candidate 因 frozen 防线停留在 CANARY。V33 migration checksum 为 `725e801902e3e8e321a369164d3a5728adb40f96a8c77f2644820a6f69671fc7`，upgrade callback source fingerprint 为 `15aa3bd9527ca0c12be760c8213d029ac554e9ca5b6c7e117ad03c0fd4030d3c`。P4a 已由 PR #107 合入 `feat/plugin-v1`（merge `b94d4846`），目标分支 CI 6/6 全绿。
 
-### P4b 实施裁决（Issue #108，PR/CI 待创建）
+### P4b 实施裁决（Issue #108，PR #109，CI pending）
 
 P4b 已在实现分支完成 per-subject 多值路由。V34 不是可逐行追加的松散集合：每个 Memorial
 的完整 assignment set 以 canonical hash 和 size 持久封存，1..64 条通过 batch + SAVEPOINT
@@ -61,7 +61,7 @@ curator protection；用户可用严格 CAS 修改 evolution mode 与 max canary
 显式 scope 表为 266 条 protected、15 条 public，覆盖 280 个 route inventory refs。最终本地
 门禁为后端 5270 passed、2 skipped、24 slow deselected；Web 347 passed，Ruff、format、Mypy、
 import-linter、TypeScript、ESLint（0 error）与生产构建通过。PR 与目标分支 CI 仍待完成，不能把
-“分支实现与本地门禁完成”写成已合入。
+“分支实现与本地门禁完成”写成已合入。当前 PR 为 #109。
 
 ---
 
