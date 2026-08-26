@@ -376,7 +376,7 @@ from V32 to V33 only. V33 migration checksum is
 the frozen upgrade callback fingerprint is
 `15aa3bd9527ca0c12be760c8213d029ac554e9ca5b6c7e117ad03c0fd4030d3c`.
 
-Status: implementation complete for Issue #106; PR pending. Verification:
+Status: implementation complete for Issue #106 in PR #107; CI pending. Verification:
 515 P4a policy/CAS/API/migration/route and affected candidate, promotion,
 rollback, gate, routing, schema, audit, Skills API and auth tests passed in
 isolated groups. One initial multi-file process exited with the known macOS

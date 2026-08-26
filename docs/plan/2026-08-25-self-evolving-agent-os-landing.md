@@ -14,7 +14,7 @@
 | P1 SystemSnapshotV1 影子双写 | ✅ 已合入（PR #93） | 2026-08-25 | V31 `0031_system_snapshots`；202 项 P1 聚焦测试；全量 4806 passed、2 skipped；Web typecheck/338 tests/lint/build 全绿；真实 Demo 开启态三面摘要对账、关闭态零 binding/artifact |
 | P2 ContributionHandle | ✅ 已合入（PR #95） | 2026-08-25 | 82 项 P2 聚焦测试；全量 4830 passed、2 skipped；六类 owned handle、逆序释放、stale 身份保护及 MCP 重新发现/断连/shutdown 回收；原生 live/demo 冒烟、插件面 fail-closed 与 CI 5/5 均绿 |
 | P3 Pi 执行器代际与 continuity 固定 | ✅ 已合入（PR #99） | 2026-08-26 | V32、materializer、registry binding、continuity、reconciler、readiness、可观测性与 Web 投影；backend 5096 passed、2 skipped；Web typecheck/339 tests/lint/build 与全部静态门禁通过 |
-| P4a EvolutionPolicy 与 per-subject canary 写侧基础 | 🟢 实现完成，待合入（Issue #106；PR 待创建） | 2026-08-26 | V33；严格 CAS、frozen 三闸、repo-level 执法、临时全局单 canary backstop、promote journal guard；515 项分组聚焦/回归测试与静态门禁通过 |
+| P4a EvolutionPolicy 与 per-subject canary 写侧基础 | 🟢 实现完成，待合入（Issue #106；PR #107，CI pending） | 2026-08-26 | V33；严格 CAS、frozen 三闸、repo-level 执法、临时全局单 canary backstop、promote journal guard；515 项分组聚焦/回归测试与静态门禁通过 |
 | P4b per-subject 运行分配与 UI | ⬜ 未开始 | — | — |
 | P5 CandidateKind.EXECUTOR 全链路 | ⬜ 未开始 | — | — |
 | P6 进程级 snapshot 重启与 last-good | ⬜ 未开始 | — | — |
@@ -31,13 +31,13 @@ X5 已将 scope 判定收敛为显式、不可变的路由策略表：263 条 pr
 
 兼容性裁决是：已认证请求命中 protected namespace 但没有注册路由时返回 `404 route_not_allowed`，从而保留既有 router 404 行为，同时保证未知路由不再继承默认 scope；匿名请求仍先经过认证闸门，未登记 WebSocket 仍 fail-closed。覆盖门禁同时按模板与真实运行时 first-match 检查唯一归属，并用“动态 `/api/.../{id}` 抢先遮蔽后置精确 admin 路由”和“public SPA catch-all 抢先遮蔽后置精确 admin 路由”两类负例证明 shadow 能被检出。最终 X5 聚焦矩阵 216 passed，完整 timing-sensitive 切片 26 passed；独立安全复核 APPROVED，并额外完成 184 项聚焦回归、33 项 health 回归及 261 个顶层具体路由的 Starlette 首匹配零错位核对。Ruff、Mypy（141 source files）和四项 import-linter 契约通过；本阶段无数据库迁移，并已通过 PR #105 合入 `feat/plugin-v1`，目标分支 CI 6/6 全绿。
 
-### P4a 实施裁决（Issue #106，PR 待创建）
+### P4a 实施裁决（Issue #106，PR #107）
 
 P4a 将每个 subject 的进化授权落成显式 `EvolutionPolicyV1` 与 V33 `evolution_policies` 表。可表达 mode 仅为 frozen、manual、canary，`auto` 在类型与数据库 CHECK 两层均不可表达；无行仍按 skill=canary、其余当前 kind=manual 祖父化，但 GET API 对缺行返回 404，不制造 durable 假事实。PUT 使用严格 missing-row CAS：只有“无行 + `expected_version=null`”能首插 version 1，已有行必须精确匹配版本，陈旧的相同内容重试仍冲突，kind 不可变。成功响应固定为 `{data, correlation_id}`，策略行、SystemAudit `evolution_policy_updated` 与同名 outbox event 在同一 UoW 原子提交。
 
 兼容性裁决是：V33 虽已建立 `(kind, subject_key) WHERE lifecycle='canary'` partial unique index，P4a 仍不开放多 subject 并行 canary。旧 `get_routable_candidate()` 在 P4b 前只能解释一个全局 authority，因此 `start_canary` 早拒与 `save_candidate` 唯一 UPDATE 权威共同保留临时全局单 canary backstop；P4b 切换多值读路径时再收窄为 subject 级排他。frozen 在第一笔 artifact 前阻止 propose、在 routing 写入前阻止 start_canary、在 intended journal 前阻止 promote；stage/evaluate 可收口，rollback 始终放行。repo 层同时守住模式、合约 allocation 上限与显式 policy 上限，不能靠绕过服务层规避。
 
-安全裁决是：policy upsert 在同 subject 存在未由相同 command-key completed 行收口的 promote intended/applied journal 时返回冲突。由此 policy 无法在 `intended → adapter.activate → applied/final commit` 窗口中翻转，避免外部已经激活而 durable candidate 因 frozen 防线停留在 CANARY。V33 migration checksum 为 `725e801902e3e8e321a369164d3a5728adb40f96a8c77f2644820a6f69671fc7`，upgrade callback source fingerprint 为 `15aa3bd9527ca0c12be760c8213d029ac554e9ca5b6c7e117ad03c0fd4030d3c`。分组运行的 P4a 新增与影响面回归共 515 passed；Ruff check/format、Mypy（143 source files）与四项 import-linter 契约通过。两条新 admin-only policy 路由使当前显式表达到 265 条 protected、15 条 public，覆盖 279 个 route inventory refs；目标分支 CI 与合并证据待 PR 创建后补齐。
+安全裁决是：policy upsert 在同 subject 存在未由相同 command-key completed 行收口的 promote intended/applied journal 时返回冲突。由此 policy 无法在 `intended → adapter.activate → applied/final commit` 窗口中翻转，避免外部已经激活而 durable candidate 因 frozen 防线停留在 CANARY。V33 migration checksum 为 `725e801902e3e8e321a369164d3a5728adb40f96a8c77f2644820a6f69671fc7`，upgrade callback source fingerprint 为 `15aa3bd9527ca0c12be760c8213d029ac554e9ca5b6c7e117ad03c0fd4030d3c`。分组运行的 P4a 新增与影响面回归共 515 passed；Ruff check/format、Mypy（143 source files）与四项 import-linter 契约通过。两条新 admin-only policy 路由使当前显式表达到 265 条 protected、15 条 public，覆盖 279 个 route inventory refs；实现已进入 PR #107，目标分支 CI 与合并证据待补齐。
 
 ---
 
