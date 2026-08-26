@@ -14,8 +14,8 @@
 > `UnavailablePromotionAdapter`”是 `88462b2a` 的历史事实；P5 后 EXECUTOR 始终映射
 > `ExecutorPromotionAdapter`，`executor_generation_enabled` 只关闭新的前向演化，保留 recovery、
 > rollback 与 reconcile。P6 已由 PR #114 合入 `feat/plugin-v1`（merge `8f32cc4c`），
-> 实现 process snapshot generation 与 strict binding。P7 当前开发完成、PR 待创建；
-> 实现仅限 Skills，且无数据迁移。
+> 实现 process snapshot generation 与 strict binding。P7 已由 PR #116 合入
+> `feat/plugin-v1`（merge `feba5a91`，CI 6/6）；实现仅限 Skills，且无数据迁移。
 
 ## 1. 总评
 
@@ -274,8 +274,8 @@ snapshot 时 system snapshot/binding 零写入的兼容语义（P3 exact marker 
 
 ### P7 Skills 每 run 冻结视图（≈4 天–1 周）
 
-**状态**：Issue #115 开发完成，PR 待创建；聚焦回归已通过，完整 PR/CI
-门禁仍以待创建 PR 的实际检查为准。
+**状态**：Issue #115 已由 PR #116 合入 `feat/plugin-v1`（merge `feba5a91`）；
+聚焦回归与完整 PR backend/frontend/E2E/release/Required CI 6/6 均已通过。
 
 | 改动面 | 当前落点 |
 |---|---|

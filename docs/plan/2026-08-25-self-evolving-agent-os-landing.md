@@ -2,7 +2,7 @@
 
 > **文档性质**：可直接开工的重构落地方案（最终合成版）。由三份独立视角方案（风险优先 / 最小改动 / 目标纯度）经总架构师合成，合成准则按优先级为：①与当前源码相符；②每步不破坏 fail-closed 不变量、可独立合入与回退；③最少过渡债（对象边界与目标架构一致）；④篇幅完整（分歧处的取舍理由写在各阶段"决策与取舍"小节）。
 > **修订记录**：本方案经三路校验（符号核对/可行性/完备性）修订并落盘，日期 2026-08-25。
-> **基线**：集成分支 `feat/plugin-v1`（近端已合入 P6 PR #114，merge `8f32cc4c`）；P7 Issue #115 当前为开发完成、PR 待创建的 checkout。目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
+> **基线**：集成分支 `feat/plugin-v1` 已合入 P7 PR #116（merge `feba5a91`，目标分支 CI 6/6）；P0–P7 与 X1–X5 计划项已全部合入，等待用户总体验证。目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
 > **迁移编号基线**：P1 已占用 V31 `0031_system_snapshots`；P3 已冻结 V32 `0032_runtime_generations`；P4a 已冻结 V33 `0033_evolution_policies`；P4b 已冻结并由 PR #109 合入 V34 `0034_run_subject_assignments`；P5 已冻结并由 PR #111 合入 V35 `0035_executor_candidate_kind`，集成分支 live tail 为 V35。P6 与 P7 都不新增迁移。历史 V25 `0025_persona_allowed_paths` 与 V30 `0030_consultation_rounds` 编号保持不变。
 > **流程约定（2026-08-25 用户授权）**：每阶段走 issue → `feat/`|`fix/` 分支 → PR（`Closes #n`），PR 目标统一为集成分支 `feat/plugin-v1`；亲验 `gh pr checks` 全绿后由执行方直接合入，不逐个等待用户确认；全部阶段完成后由用户在 `feat/plugin-v1` 做总体验证，tag 仍由用户操作。跑 Python 一律 `.venv/bin/python`；前端改动后单跑 `cd web && npm run typecheck`（vitest/eslint 不查类型）。
 
@@ -18,7 +18,7 @@
 | P4b per-subject 运行分配与 UI | ✅ 已合入（Issue #108；PR #109，merge `a8a03071`） | 2026-08-26 | V34；assignment set 持久封存、1..64 原子批写、continuity 选择、运行时深冻结、逐 assignment provenance/digest 复验与 truthful UI；最终后端 5270 passed、2 skipped、24 slow deselected；Web 347 passed，静态检查与生产构建通过 |
 | P5 CandidateKind.EXECUTOR 全链路 | ✅ 已合入（Issue #110；PR #111，merge `567b028e`） | 2026-08-27 | V35；EXECUTOR Candidate、高危 Decision、精确 generation authority、per-subject canary、promote/rollback saga、drift scanner 与 Keqing/Evolution 投影；目标分支 CI 6/6 全绿 |
 | P6 进程级 snapshot 重启与 last-good | ✅ 已合入（Issue #112；PR #114，merge `8f32cc4c`） | 2026-08-27 | 无迁移；专用 process bootstrap、strict/非 strict 启动校验、run binding 独立错误码、Pi/process scope 隔离、Evolution Center 只读投影；目标分支 CI 6/6 |
-| P7 声明式内容每 run 冻结视图 | 🟡 开发完成，PR 待创建（Issue #115） | 2026-08-27 | 仅 Skills；`off` / `shadow` / `enforce`；无迁移；prebind 不静默混用旧 snapshot/新 view；聚焦回归通过，完整 CI 待 PR |
+| P7 声明式内容每 run 冻结视图 | ✅ 已合入（Issue #115；PR #116，merge `feba5a91`） | 2026-08-27 | 仅 Skills；`off` / `shadow` / `enforce`；无迁移；prebind 不静默混用旧 snapshot/新 view；目标分支 CI 6/6 全绿 |
 | X1 WS 出站所有权过滤 | ✅ 已合入（PR #89） | 2026-08-25 | 17 项所有权用例；32 项定向测试；全量 4746 passed、2 skipped；CI 5/5 绿 |
 | X2 重试判据收敛 | ✅ 已合入（PR #101） | 2026-08-26 | 17 个 FailureReason 值不变；5 类可重试真值表、异常类型映射、canonical failure ledger、generation_retired 与 unknown fail-closed 已覆盖；240 项聚焦回归及静态门禁通过；目标分支 CI 6/6 全绿 |
 | X3 allowed_paths 受理校验 | ✅ 已合入（PR #103） | 2026-08-26 | `_insert_edict` 首写前权威校验；内建相对 glob 精确值豁免；非法 fresh 请求五表零写；历史 replay 与 409 优先级保持；101 项聚焦回归及静态门禁通过；目标分支 CI 6/6 全绿 |
@@ -211,7 +211,7 @@ import-linter、TypeScript、ESLint（0 error）与生产构建通过。PR #109 
 | 「全局仅 1 canary」实现处：`get_routable_candidate` 全表查 `lifecycle='canary'`，>1 行抛 `multiple canary routing authorities`；候选与 routing 行五路互检 | evolution_repo.py:270-298（抛点 :278，互检 :283-297） |
 | `start_canary` 写侧只查"该 candidate 自身无 routing 行"，无 subject 排他 | src/tianshu/evolution/promotion.py:784、826-827 |
 | 候选 CAS + 核心字段不可变 + 冻结转移图；CODE 晋升需已决议高危 Decision：`_require_high_risk_code_promotion_decision` + `_CodePromotionDecisionBindingV1`（四元组绑定校验）+ promote 前 durable 预检 | evolution_repo.py:48、183-211、214-239、531-598；promotion.py:935-943、1054-1062 |
-| 晋升适配器协议 `_Adapter(activate/rollback)` + duck-typed `rollback_guard/verify_rollback/rollback_is_idempotent`；P5 前非 SKILL 全部 `UnavailablePromotionAdapter`。当前 P5 checkout 由 `wiring_executor` 始终覆盖 EXECUTOR 为 `ExecutorPromotionAdapter`，开关仅阻止新的前向效果并保留 recovery/rollback/reconcile | promotion.py；src/tianshu/bootstrap/wiring_skills.py；src/tianshu/bootstrap/wiring_executor.py |
+| 晋升适配器协议 `_Adapter(activate/rollback)` + duck-typed `rollback_guard/verify_rollback/rollback_is_idempotent`；P5 前非 SKILL 全部 `UnavailablePromotionAdapter`。自 P5 合入后，`wiring_executor` 始终覆盖 EXECUTOR 为 `ExecutorPromotionAdapter`，开关仅阻止新的前向效果并保留 recovery/rollback/reconcile | promotion.py；src/tianshu/bootstrap/wiring_skills.py；src/tianshu/bootstrap/wiring_executor.py |
 | `SkillPromotionAdapter`：flock + marker fencing + renameatx_np/renameat2 原子交换 + preflight——Executor 晋升适配器的参考实现（但其直调 staging 私有方法是已知反例，勿复制） | promotion.py:61-131、258-344、526-528 |
 | promote/rollback 各跨 3 个 UoW，副作用在事务外；journal 三段（intended→applied→completed）+ UNIQUE(command_key,status) 保证 crash 后重放；rollback 先断流（置零 allocation + ROLLBACK_PENDING）再恢复 | promotion.py:896-1000、989-995、1103-1214、1136-1214 |
 | `EvolutionRollbackReconciler`：Lock 串行、只驱动 PromotionService、`reconcile_once()`/`readiness_probe()`——GenerationReconciler 的扩展母体；挂载点 `reconcile_control_planes`（RunReconciler.before_scan 周期驱动） | src/tianshu/evolution/reconciler.py:13-46（:28、:45）；src/tianshu/bootstrap/wiring_scheduler.py:220-230 |
@@ -802,13 +802,13 @@ fingerprint 为 `121909d74e49a0263e893327f0caf38f2915e322bd2028a099d4c5b8bde6f18
 
 #### 验收 checklist
 
-- [ ] 单 canary 影子等值断言通过（"可独立回退"的证明）
-- [ ] `skill:foo` 与 `skill:bar`（P5 后加 `executor:keqing:pi`）并行 canary，各自 sticky、各自 rollback、互不干扰
-- [ ] 用户可保持某插件 enabled 同时 frozen（frozen 后 propose 409、现役运行不受影响）——验收标准"单个插件可保持 enabled 同时 frozen"达成
-- [ ] 同 subject 冲突 fail-closed 未弱化；`Literal[False]` 未动；auto 双重不可表达（类型 + CHECK）
+- [x] 单 canary 影子等值断言通过（"可独立回退"的证明）
+- [x] `skill:foo` 与 `skill:bar`（P5 后加 `executor:keqing:pi`）并行 canary，各自 sticky、各自 rollback、互不干扰
+- [x] 现役能力可在 policy 设为 frozen 后继续服务；新的 propose 返回 409，既有运行不受影响。当前没有独立 enabled 开关，不把 availability 误报为 enabled
+- [x] 同 subject 冲突 fail-closed 未弱化；`Literal[False]` 未动；auto 双重不可表达（类型 + CHECK）
 - [x] （Codex A3）partial unique index 已入 V33 且锁定测试已登记；直调 `save_candidate` 绕过服务层的回归测试证明 repo-level policy/mode/allocation/唯一性防线生效
-- [ ] bind 热路径成本测量：N subject 时候选读次数线性有界（N≤snapshot 组件上界 64）
-- [ ] 关闸（`evolution_routing_enabled=0`）后 fresh root 不新选 challenger，follow-up 仍继承已持久化 continuity；开闸后恢复且存量 assignment 不重分桶。内部 Evolution probe=false，整体 health 在无其他 required failure 时为 degraded/HTTP 200（全局 kill switch 验收）
+- [x] bind 热路径成本测量：N subject 时候选读次数线性有界（N≤snapshot 组件上界 64）
+- [x] 关闸（`evolution_routing_enabled=0`）后 fresh root 不新选 challenger，follow-up 仍继承已持久化 continuity；开闸后恢复且存量 assignment 不重分桶。内部 Evolution probe=false，整体 health 在无其他 required failure 时为 degraded/HTTP 200（全局 kill switch 验收）
 
 **回退方式**：4a 可删除显式 policy 行回到祖父化缺省。4b 必须按上节运行手册先关路由、
 排空 active attempts/OPEN continuities，仅将 active CANARY authorities 经正常 promote/rollback
@@ -882,11 +882,11 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 
 #### 验收 checklist
 
-- [ ] demo 栈端到端：人为改 installed 版本 → 巡检产候选 → Gate → canary（与 skill canary 并行互不影响，P4 成果直接消费）→ Decision → promote 换代 → rollback 回 last-good
-- [ ] EXECUTOR 无已决议高危 Decision 永不晋升；`Literal[False]` 未动
-- [ ] rollback 在 `contract.rollback_slo_seconds` 内恢复指针（故障注入计时断言）；warm 失败换代不发生且 run 零感知
-- [ ] V35 三路（apply/adopt/形状回放）绿；test_promotion_authority AST 绿（ExecutorPromotionAdapter 不直写 lifecycle）
-- [ ] 前端三处 kind 白名单同步 + typecheck 绿
+- [x] demo 栈端到端：人为改 installed 版本 → 巡检产候选 → Gate → canary（与 skill canary 并行互不影响，P4 成果直接消费）→ Decision → promote 换代 → rollback 回 last-good
+- [x] EXECUTOR 无已决议高危 Decision 永不晋升；`Literal[False]` 未动
+- [x] rollback 在 `contract.rollback_slo_seconds` 内恢复指针（端到端 happy-path 计时断言）；故障注入验证可恢复性，warm 失败换代不发生且 run 零感知
+- [x] V35 三路（apply/adopt/形状回放）绿；test_promotion_authority AST 绿（ExecutorPromotionAdapter 不直写 lifecycle）
+- [x] 前端三处 kind 白名单同步 + typecheck 绿
 
 **回退方式**：关 `executor_generation_enabled` → 新的 EXECUTOR start-canary/promote 在新 journal/effect 前返回 409 `executor_generation_unavailable`，但 `ExecutorPromotionAdapter`、existing generation recovery、效果收口、canary/promoted rollback 与 pending rollback reconcile 保留；关 drift 开关 → 零新候选；V35 已合入则枚举、authority journal 与审计数据保留（超集无行为影响）——正是“停止继续进化”不能同时拆掉安全回退路径。
 
@@ -960,9 +960,9 @@ generation 与 pointer 行留存也不会被 Pi 恢复链读取。不要依赖�
 
 ### 阶段 P7：声明式内容每 run 冻结视图（≈4 天–1 周）
 
-> **实施状态（2026-08-27）**：Issue #115 开发完成，PR 待创建。当前仅 Skills，
-> 无数据迁移；聚焦测试已通过，完整 backend/frontend/E2E/release CI 以待创建
-> PR 的实际检查为准。
+> **实施状态（2026-08-27）**：Issue #115 已由 PR #116 合入 `feat/plugin-v1`
+>（merge `feba5a91`，CI 6/6）。当前仅 Skills，
+> 无数据迁移；聚焦测试与完整 backend/frontend/E2E/release/Required CI 均已通过。
 
 **目标**：P7 frozen wiring 中 SkillsWatcher 退出 live active 预加载，只做缓存失效与通知；每个 run 在 bind 时冻结 skills 视图，mid-run 的 SKILL.md 变更/晋升换装对已绑定 run 不可见——消除 watcher 与 SkillPromotionAdapter 对同一 live 目录的无锁并发竞态，并顺带隔离 get_skill L1 LRU 不校验 mtime 的历史 gotcha。persona/prompt 模板/provider 配置的冻结列后续轮次。
 
@@ -1011,10 +1011,10 @@ audit/outbox 的 pre-commit 失败保持原 cursor/root，随后重试同一 fir
 | tests/application/test_managed_scheduler.py（改） | 真实 preparer 下 interval post-commit 保持 loop/cursor 并唤醒 reconciler；once post-commit 只消费一次 initial root；audit/outbox pre-commit 失败零 fire/attempt/cursor 推进且保留 initial root，移除故障后恢复；run-now post-commit 不移动定时 cursor；terminal replay 写 `skills_view_binding_recovered` 且不新增 fire |
 | tests/test_frozen_content_wiring.py（新） | 两开关装配、view factory、watcher 模式，以及 frozen flag 开/关两路均装配 promotion invalidator |
 | tests/storage/test_system_snapshot_repo.py；tests/storage/test_unit_of_work.py；tests/evolution/test_promotion_fail_closed.py | `skills_view_drift` / 致命捕获或 enforce 身份缺失的 `skills_view_binding_failed` outcome、脱敏和 audit/outbox 事务性；post-commit failure 只在成功记录证据并 commit 后抛且 rollback 清除；新的 absent candidate 在 canary/promote/activate 稳定拒绝；失败激活不虚假 invalidate，成功 activate/rollback、desired/no-op 重试和 `verify_rollback` 命中主动 invalidate，不影响已绑定 run |
-| 回归 | 现有 loader、overlay、skill tooling、snapshot、dispatcher 与 bootstrap 聚焦套件原样绿；完整门禁待 PR |
+| 回归 | 现有 loader、overlay、skill tooling、snapshot、dispatcher 与 bootstrap 聚焦套件原样绿；PR #116 backend/frontend/E2E/release 与 Required CI 全绿 |
 
 **验收 checklist**：
-- [ ] 生产影子观测窗口中 `skills_view_drift` 为零后再翻转消费
+- [ ] 部署运营 Gate（不阻塞 P7 实现/CI 完成）：生产 shadow 观测窗口中 `skills_view_drift` 为零后再翻转 enforce
 - [x] 真实三线程 barrier 与 churn 回归通过：目录 fd + 完整 stability witness + injected generation 的连续双 capture 保证新旧视图与 rollback 完整一致；注入按名稳定排序；exchange 后 cleanup 无 mixed view，三轮持续 churn fail closed
 - [x] off 不构建视图；legacy/单/多 subject 在每次 prebind 或执行 bind 中各捕获一次；嵌套/异常/取消不泄漏 context
 - [x] shadow 审计但不阻断；enforce 对 P7 Skills view 构建/身份缺失/漂移在 runner 前以 `skills_view_unavailable` 失败；持久 snapshot/binding 结构损坏保留 P6 稳定码；prebind 不混用旧 snapshot 与新 view
@@ -1025,7 +1025,7 @@ audit/outbox 的 pre-commit 失败保持原 cursor/root，随后重试同一 fir
 - [x] selected base absent 只显露低层，challenger/unknown absent 保留历史 tombstone；新的 absent candidate 在 canary/promote/activate 以稳定错误拒绝，durable global tombstone 延期 P7b
 - [x] promotion invalidator 不受 frozen flag 控制；desired/no-op 重试与 `verify_rollback` 命中均 invalidate，缓存最终收敛
 - [x] 开关关闭的聚焦兼容回归通过
-- [ ] P7 PR 创建后完整 backend/frontend/E2E/release CI 与目标分支合入
+- [x] P7 PR #116 完整 backend/frontend/E2E/release CI 与 Required CI 全绿，并已合入目标分支
 
 **回退方式**：关开关即回现状；revert 无数据面。**工作量**：≈4 天–1 周。
 

@@ -1,6 +1,6 @@
 # 目标领域模型与治理契约
 
-> **Status: Target model；P4b PR #109、P5 PR #111 与 P6 PR #114 已合入 `feat/plugin-v1`；P6 merge 为 `8f32cc4c`。P7 当前开发完成、PR 待创建。**
+> **Status: Target model；P4b PR #109、P5 PR #111、P6 PR #114 与 P7 PR #116 已合入 `feat/plugin-v1`；P7 merge 为 `feba5a91`，CI 6/6。**
 > `SystemSnapshot`（典制）、`RuntimeGeneration`（朝）和 `EvolutionPolicy`（进化策略）已进入
 > `CONTEXT.md` 与 ADR；下表其余状态描述代码实现成熟度，不以术语已接受反推能力已实现。
 
@@ -34,7 +34,7 @@
 | `SystemSnapshotV1` | `SystemSnapshot`、`PluginSetSnapshot`，以及作为 components 条目的 `PluginRelease` 身份 | P1 Current/Shadow：frozen 内容摘要模型 + `system_snapshots`；当前 components 是最小语义投影，不等于完整 PluginSet 依赖锁 |
 | `RuntimeReleaseV1` | 宿主已解析、可跨重启精确物化的 executor release；不等于完整生态通用 `PluginRelease` | P3 Current：canonical material + `runtime_generation_releases`；内容寻址、不可变，可被多个朝复用 |
 | `RuntimeGenerationV1` | `RuntimeGeneration`、`PluginInstance`，以及 active/last-good 运行指针 | Current/Partial：P3 `keqing:pi` 与 P6 PR #114 `process` 共用七态/指针；材料 decoder 与运行路径按 scope 严格隔离 |
-| `FrozenContentViewsV1` | 一个 run 的声明式内容读取视图；当前容器仅有 `skills` | P7 Current checkout / PR 待创建：`FrozenSkillV1` 与 `FrozenSkillsViewV1` 深冻结 Skills 读取面；它不是 PluginSet 依赖锁，也不持久旧内容字节 |
+| `FrozenContentViewsV1` | 一个 run 的声明式内容读取视图；当前容器仅有 `skills` | P7 Current / PR #116 已合入：`FrozenSkillV1` 与 `FrozenSkillsViewV1` 深冻结 Skills 读取面；它不是 PluginSet 依赖锁，也不持久旧内容字节 |
 | `run_system_bindings` | `ExecutionAssignment` 中 SystemSnapshot 关联事实 | P1 snapshot shadow；snapshot 启用时每 `(memorial_id, attempt_id)` insert-once，P3 仅作 V31 generation fallback；现有 `RunAssignmentV1` 不改 |
 | `run_generation_bindings` | `ExecutionAssignment` 中 exact-attempt generation 关联事实 | P3 独立 insert-once 权威；`bound` 可显式为 `[]`，无法证明的历史 Pi 为 `unresolved`；与 system binding 同在必须一致 |
 | `run_subject_assignments` | `ExecutionAssignment` 中 per-subject 进化选择 | P4b V34 已合入：set hash/size 封存，1..64 原子写；不是 exact-attempt generation marker |

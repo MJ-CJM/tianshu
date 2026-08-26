@@ -40,7 +40,7 @@ controller/reconciler、executor registry、authority 与 attempt binding 均显
 它不是进程内 Python 热卸载，也没有虚构 clean-shutdown receipt；last-good 只表示“上一个成功
 激活且仍保留的快照”。
 
-P7 当前已完成开发、PR 待创建。它只冻结 Skills：legacy、单 subject 或多
+P7 已由 PR #116 合入 `feat/plugin-v1`（merge `feba5a91`，CI 6/6）。它只冻结 Skills：legacy、单 subject 或多
 subject 的受管 run 在每个绑定阶段最多构建一次不可变视图，并以
 `off` / `shadow` / `enforce`
 三档分离兼容观测与失败关闭。它不增数据迁移，也不冻结 Persona、Prompt 或 Provider。
@@ -76,8 +76,8 @@ subject 的受管 run 在每个绑定阶段最多构建一次不可变视图，�
 | process SystemSnapshot generation | 已合入 | PR #114；V32 `scope=process` 直接保存 canonical `SystemSnapshotV1`；启动幂等、漂移、回滚和 active/last-good 保留由专用 bootstrap 处理 |
 | strict SystemSnapshot run binding | 默认关闭 | strict 时 resolver/持久化失败在 runner 前以 `system_snapshot_unavailable` 失败；非 strict 保留有审计的 shadow 行为 |
 | process generation 只读投影 | 已合入 | Evolution API/Web 在有候选与空候选状态都显示 active/last-good；关闭 snapshot 时两者明确为 null |
-| Skills 每 run 不可变视图 | 开发完成，PR 待创建 | P7 仅覆盖 Skills；`off` 不构建视图，`shadow` 构建/比对但 runner 仍读 live，`enforce` 将视图绑定到 run |
-| Skills 视图身份与 prebind 漂移 | 开发完成，PR 待创建 | 当前 Skills 源摘要必须与该 run 的 SystemSnapshot `skills` 组件一致；shadow 审计后读 live，enforce 在 runner 前以 `skills_view_unavailable` 失败关闭 |
+| Skills 每 run 不可变视图 | 已合入 | P7 PR #116 仅覆盖 Skills；`off` 不构建视图，`shadow` 构建/比对但 runner 仍读 live，`enforce` 将视图绑定到 run |
+| Skills 视图身份与 prebind 漂移 | 已合入 | 当前 Skills 源摘要必须与该 run 的 SystemSnapshot `skills` 组件一致；shadow 审计后读 live，enforce 在 runner 前以 `skills_view_unavailable` 失败关闭 |
 | 插件 enabled / version pin | 不支持 | P4b UI 不提供这两个开关；curator protection 不是版本 pin |
 
 P4b 路由顺序是 existing replay → continuity inheritance → fresh-root kill switch。关闭 routing
@@ -296,7 +296,7 @@ SystemSnapshot 时即使数据库留有旧 process 行也返回 null。P6 不做
 
 ## 9. P7 Skills 每 run 冻结视图
 
-P7 当前已完成开发、PR 待创建。`FrozenSkillV1` / `FrozenSkillsViewV1` /
+P7 已由 PR #116 合入 `feat/plugin-v1`。`FrozenSkillV1` / `FrozenSkillsViewV1` /
 `FrozenContentViewsV1` 将实际 Skills 读取面深冻结；loader 的详情、列表、index、always、
 all、tool 与 workspace overlay 语义共用同一 task-local 视图。legacy、单 subject 和多
 subject governed run 都覆盖，嵌套、异常和取消后恢复外层 context。

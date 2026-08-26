@@ -7,7 +7,8 @@
 > V34 assignment set（1..64 封存原子写）、continuity 选择、运行时深冻结、Evidence 与 truthful
 > UI 及 V35 Pi EXECUTOR 治理垂直切片。P6 已由 PR #114 合入该分支（merge
 > `8f32cc4c`），完成无迁移的 process snapshot generation、strict binding 与
-> Evolution 投影。P7 当前开发完成、PR 待创建，仅冻结 Skills，同样无数据迁移。
+> Evolution 投影。P7 已由 PR #116 合入（merge `feba5a91`，CI 6/6），仅冻结 Skills，
+> 同样无数据迁移。P0–P7 与 X1–X5 计划项已全部合入，等待用户总体验证。
 > V34 应用后的回退必须保留
 > schema/ledger 并使用兼容 reader，不能部署纯 V33 二进制；
 > 只将 active CANARY authorities 经正常 promote/rollback 收敛到至多 1 个、最好 0 个并完成
@@ -151,7 +152,7 @@ owner/disposer，再按能力形态选择最小的换代边界：
 ```
 
 **当前落点**：P2 owner/disposer、P3/P5 Pi 代际和 P6 process snapshot 已合入。P7
-当前开发完成、PR 待创建；它只为 Skills 实现 `off` / `shadow` / `enforce`
+也已由 PR #116 合入；它只为 Skills 实现 `off` / `shadow` / `enforce`
 的每 run 视图。prebind/重启时旧 SystemSnapshot 不能从当前 Skills 重建，shadow
 审计后读 live，enforce 失败关闭；不会静默混用旧 snapshot 和新 view。跨重启
 耐久回放旧内容的 artifact-backed `skills_view` 与 durable global Skill tombstone 延期到

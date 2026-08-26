@@ -8,7 +8,8 @@
 > `feat/plugin-v1`（merge `567b028e`），集成分支 live migration tail 为 V35。P6 已由
 > PR #114 合入该分支（merge `8f32cc4c`，CI 6/6），实现 process scope 的 SystemSnapshot
 > 启动代际、strict fail-closed binding 与 Evolution Center 只读 active/last-good 投影。
-> P7 当前开发完成、PR 待创建；仅冻结 Skills，无数据迁移。
+> P7 已由 PR #116 合入该分支（merge `feba5a91`，CI 6/6）；仅冻结 Skills，
+> 无数据迁移。P0–P7 与 X1–X5 计划项已全部合入，等待用户在集成分支总体验证。
 
 这份文档是 `docs/` 的当前状态入口。它用于回答“现在能不能用、支持到哪里、哪些
 还不能对外承诺”。详细能力和证据见
@@ -45,9 +46,9 @@
 | 通知 | 可用（有限边界） | 多通道投递、失败重试、保留各通道已成功进度 | 外部通道最终送达仍取决于第三方服务；不把本地 outbox 当外部送达证明 |
 | 记忆 | 可用（有限边界） | 写入、召回、同步、删除并使用稳定标识 | 以当前支持的本地 Markdown/SQLite 路径为准；不宣称跨节点一致性 |
 | 成本与用量 | 可用 | 记录多模型/多 Provider token、缓存读取和取消任务成本 | 结果取决于 Provider 返回的用量与价格配置，不等于账单系统 |
-| Skills | 读取可用、变更受治理；P7 frozen view 开发完成/PR 待创建 | 在统一目录查看 live Skill、读取详情、为 Agent Skill Pin；API 可创建候选。P7 显式开启后可先 shadow 观测，再 enforce 每 run 不可变视图 | P7 两开关默认关；仅 Skills，不冻结 Persona/Prompt/Provider。Web 不直接新建/编辑/delete/archive live；Persona 外部导入只预览 Skill、不安装；自动 reviewer/curator 默认关闭并在 LLM 前 fail fast |
+| Skills | 读取可用、变更受治理；P7 frozen view 已合入 | 在统一目录查看 live Skill、读取详情、为 Agent Skill Pin；API 可创建候选。P7 显式开启后可先 shadow 观测，再 enforce 每 run 不可变视图 | P7 两开关默认关；仅 Skills，不冻结 Persona/Prompt/Provider。Web 不直接新建/编辑/delete/archive live；Persona 外部导入只预览 Skill、不安装；自动 reviewer/curator 默认关闭并在 LLM 前 fail fast |
 | 插件清单 / 受信任源码贡献 | 清单实验只读；内部生命周期可用 | 查看本地 manifest 元数据；内建装配可让 Tool/Hook/Channel/Provider/Skill/Command 按 owner 登记、逆序释放；MCP session 工具随重新发现、断连与 shutdown 清理 | 用户仍不能安装、加载、激活或执行第三方插件代码，相关 API 仍返回 501；ContributionHandle 只覆盖受信任进程内对象，不是动态 PluginHost |
-| 自进化（Evolution） | 实验；P4/P5/P6 已合入，P7 开发完成/PR 待创建 | 从演化司查看 Skill/EXECUTOR 候选、Gate、逐 subject 分流、回滚证据，以及当前进程 active/last-good generation；管理员可用严格 CAS 修改 evolution mode 与 max canary basis points。Pi 候选可经 Gate、canary、高危 Decision、精确 generation authority、promote 与 rollback 闭环；P7 可把 Skills 视图与 run SystemSnapshot 对账 | P7 默认 off；shadow 漂移审计后读 live，enforce 以 `skills_view_unavailable` 在 runner 前失败，不静默混用旧 snapshot/新 view。持久旧 Skills 字节并跨重启回放延期到 P7b。process 投影只读；没有 per-plugin enabled/version pin、Web 晋升/回滚、完整 dependency lock、allowed surfaces/approval/budget、通用 PluginSet/第三方插件 Promotion Authority 或自动晋升 |
+| 自进化（Evolution） | 实验；P4/P5/P6/P7 已合入 | 从演化司查看 Skill/EXECUTOR 候选、Gate、逐 subject 分流、回滚证据，以及当前进程 active/last-good generation；管理员可用严格 CAS 修改 evolution mode 与 max canary basis points。Pi 候选可经 Gate、canary、高危 Decision、精确 generation authority、promote 与 rollback 闭环；P7 可把 Skills 视图与 run SystemSnapshot 对账 | P7 默认 off；shadow 漂移审计后读 live，enforce 以 `skills_view_unavailable` 在 runner 前失败，不静默混用旧 snapshot/新 view。持久旧 Skills 字节并跨重启回放延期到 P7b。process 投影只读；没有 per-plugin enabled/version pin、Web 晋升/回滚、完整 dependency lock、allowed surfaces/approval/budget、通用 PluginSet/第三方插件 Promotion Authority 或自动晋升 |
 | 平行位面（Universes / Code variant） | 实验、可发现 | 从天工院的诸界台创建快照/分支、diff、评估、归档和恢复 | switch、rollback、promote-code 固定 fail closed；代码候选只到 evaluated/recommended |
 | 评测（Evals） | Beta、导航标记“试行”、可发现 | 从天工院的考功司查看真实评测集、运行、分数、失败分布和历史差异 | 数据为空时展示真实启动方式，不生成示例成绩 |
 | Keqing 外部执行器 | 实验、可发现且默认关闭 | 从客卿馆查看安装/验证版本及 Pi 的 generation id、状态、活跃 run 数、last-good 和已存在的治理候选，并跳转演化中心 | 不自动升级外部 CLI；状态 GET 不扫描漂移或创建候选，页面没有直接 generation stage/activate 控件；P5 只覆盖 Pi，Claude Code/Codex/OpenCode 尚未进入 RuntimeGeneration，且无 Provider 侧硬成本上限 |
@@ -113,7 +114,7 @@
   scheduler/run 前拒启；非 strict 记审计后按实际 snapshot 推进。未知显式目标始终以稳定错误
   拒绝，不能伪造组件 diff。迁移、Persona/Provider/目录等 snapshot resolver 前置装配可能已经
   写入，不在 P6 零写承诺内。
-- P7 当前开发完成、PR 待创建，同样无迁移。两个默认 false 的开关构成
+- P7 已由 PR #116 合入 `feat/plugin-v1`（merge `feba5a91`，CI 6/6），同样无迁移。两个默认 false 的开关构成
   `off` / `shadow` / `enforce`；当前仅 Skills。prebind/重启时旧 snapshot 与当前 Skills
   不一致，shadow 审计后读 live，enforce 失败关闭。artifact-backed `skills_view`
   持久回放与 durable global Skill tombstone 延期到 P7b。freeze 以目录 fd、完整 stat witness、
