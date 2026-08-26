@@ -1,0 +1,8 @@
+.scrollRegion {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.table :global(.ant-table-content) {
+  overflow: visible !important;
+}

@@ -1,6 +1,6 @@
 # 目标领域模型与治理契约
 
-> **Status: Target model；P1/P3/P4a 已合入，P4b Issue #108 已在实现分支完成，PR #109 已创建、CI 待完成。**
+> **Status: Target model；P4b 已由 PR #109 合入 `feat/plugin-v1`（merge `a8a03071`）；当前 P5 checkout 已完成 Pi EXECUTOR 治理垂直切片，P6/P7 未完成。**
 > `SystemSnapshot`（典制）、`RuntimeGeneration`（朝）和 `EvolutionPolicy`（进化策略）已进入
 > `CONTEXT.md` 与 ADR；下表其余状态描述代码实现成熟度，不以术语已接受反推能力已实现。
 
@@ -17,7 +17,7 @@
 | `PluginSetSpec` | 用户期望选择、版本约束、配置、权限及 EvolutionPolicy 引用 | Proposed |
 | `PluginSetSnapshot` | Resolver 产出的完整依赖闭包、Capability binding 与有效 Policy digest | Proposed |
 | `AgentDeployment` | 期望 SystemSnapshot、rollout 策略及 observed/active/last-good 状态 | Proposed |
-| `RuntimeGeneration` | SystemSnapshot 中某个受管 release 在具体 Host/scope 上 materialize 后的运行实例；ID 非内容摘要 | Current/Partial：P3 已实现 `keqing:pi` 内部代际机械；尚无公开晋升入口与通用 PluginHost |
+| `RuntimeGeneration` | SystemSnapshot 中某个受管 release 在具体 Host/scope 上 materialize 后的运行实例；ID 非内容摘要 | Current/Partial：P3 已实现 `keqing:pi` 代际机械；P5 已提供 Pi 的受治理 Candidate/Promotion HTTP 路径，直接 GenerationController API 与通用 PluginHost 仍未开放 |
 | `PluginInstance` | RuntimeGeneration 内一个 PluginRelease 的实际实例 | Proposed |
 | `SystemSnapshot` | 完整有效运行配置的不可变身份 | Shadow/Partial：P1 已实现组件摘要、内容寻址存储与 Evidence 归因；尚无完整依赖闭包、prompt 摘要和 generation 激活 |
 | `ExecutionAssignment` | Memorial 与 SystemSnapshot、generation、实验选择的不可变绑定 | Partial：V31/V32 分别承载 snapshot shadow 与 exact-attempt 代际；P4b V34 以封存的 `RunAssignmentSetV1` 承载 per-subject 选择 |
@@ -36,7 +36,7 @@
 | `RuntimeGenerationV1` | `RuntimeGeneration`、`PluginInstance`，以及 active/last-good 运行指针 | P3 Current/Partial：`keqing:pi` executor scope 的七态记录；process scope 留待 P6 |
 | `run_system_bindings` | `ExecutionAssignment` 中 SystemSnapshot 关联事实 | P1 snapshot shadow；snapshot 启用时每 `(memorial_id, attempt_id)` insert-once，P3 仅作 V31 generation fallback；现有 `RunAssignmentV1` 不改 |
 | `run_generation_bindings` | `ExecutionAssignment` 中 exact-attempt generation 关联事实 | P3 独立 insert-once 权威；`bound` 可显式为 `[]`，无法证明的历史 Pi 为 `unresolved`；与 system binding 同在必须一致 |
-| `run_subject_assignments` | `ExecutionAssignment` 中 per-subject 进化选择 | P4b V34 分支实现：set hash/size 封存，1..64 原子写；不是 exact-attempt generation marker |
+| `run_subject_assignments` | `ExecutionAssignment` 中 per-subject 进化选择 | P4b V34 已合入：set hash/size 封存，1..64 原子写；不是 exact-attempt generation marker |
 
 P1 的 `run_system_bindings` 按 `(memorial_id, attempt_id)` insert-once，并把同一典制作为 required
 Evidence artifact 保存；这是需要保留的 P1 历史语义。P3 没有把该 shadow 升格为代际权威，而是
@@ -181,7 +181,7 @@ STAGED ─→ WARMING ─→ READY ─→ ACTIVE ─→ DRAINING ─→ DISPOSED
 
 `Verified` 不等于 `Ready`，Candidate `PROMOTED` 也不意味着旧 generation 可以立刻销毁。
 同一个 SystemSnapshot 在重启、不同 Host 或并行预热时可以产生多个 RuntimeGeneration。
-P3 启动恢复会把没有生产 binding authority 的遗留 STAGED/WARMING/READY 失败化；P5 引入
+P3 启动恢复会把没有生产 binding authority 的遗留 STAGED/WARMING/READY 失败化；P5 已引入
 executor canary 后，以每次 canary epoch 的精确 candidate-version/release/generation 映射作为
 READY 的 recovery 与 retention authority。只有映射仍有效且与 pending/active Candidate 生命周期
 相符的 READY 才能重建；无映射、摘要不符、歧义或已撤销的 READY 仍失败化，不能直接放宽所有 READY。

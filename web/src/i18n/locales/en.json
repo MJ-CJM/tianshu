@@ -2707,7 +2707,13 @@
       "installed": "Install / Version",
       "capabilities": "Capabilities",
       "generation": "Runtime generation",
+      "evolutionCandidate": "Evolution candidate",
       "credential": "Credential"
+    },
+    "candidate": {
+      "none": "No governed candidate",
+      "open": "View evolution candidate {id}",
+      "openFromDrift": "View candidate {id} from version drift"
     },
     "generation": {
       "none": "No generation",

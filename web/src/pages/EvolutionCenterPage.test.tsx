@@ -5,7 +5,7 @@ import "@testing-library/jest-dom/vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -141,6 +141,10 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+afterEach(() => {
+  window.history.replaceState(null, "", "/");
+});
+
 describe("authoritative Evolution Center snapshot", () => {
   it("shows loading while the single snapshot request is pending", () => {
     renderPage();
@@ -255,6 +259,30 @@ describe("authoritative Evolution Center snapshot", () => {
     await user.tab();
     expect(document.activeElement).toBe(evidence);
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("scrolls to and highlights a candidate card addressed by the URL hash", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    window.history.replaceState(
+      null,
+      "",
+      "/evolution#candidate-candidate-skill-7",
+    );
+    evolutionSource.result = FIXTURE;
+    renderPage();
+
+    const candidateTitle = await screen.findByText("candidate-skill-7");
+    const candidateCard = candidateTitle.closest("article");
+    expect(candidateCard).toHaveAttribute("id", "candidate-candidate-skill-7");
+    expect(candidateCard).toHaveAttribute("data-hash-targeted", "true");
+    expect(candidateCard).toHaveStyle({
+      boxShadow: "0 0 0 2px var(--ts-color-accent)",
+    });
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" }));
   });
 
   it("keeps cached fixture data visible when refresh becomes stale", async () => {

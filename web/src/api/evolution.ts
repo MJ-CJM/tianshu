@@ -13,7 +13,7 @@ export interface EvolutionGateSummaryV1 {
 
 export interface EvolutionCandidateSummaryV1 {
   candidate_id: string;
-  kind: "memory" | "skill" | "policy" | "persona" | "code";
+  kind: "memory" | "skill" | "policy" | "persona" | "code" | "executor";
   version: number;
   lifecycle:
     | "proposed"
@@ -61,7 +61,7 @@ export type EvolutionPolicyMode = "frozen" | "manual" | "canary";
 
 export interface EvolutionPolicyV1 {
   subject_key: string;
-  kind: "memory" | "skill" | "policy" | "persona" | "code";
+  kind: "memory" | "skill" | "policy" | "persona" | "code" | "executor";
   mode: EvolutionPolicyMode;
   max_canary_basis_points: number;
   version: number;

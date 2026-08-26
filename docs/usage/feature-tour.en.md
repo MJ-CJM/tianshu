@@ -235,17 +235,16 @@ approval.
 **Feature 14 of 20 · page title: Evolution Center**
 
 - **Entry**: **Frontier Lab [Experimental] → Evolution [Experimental]** → `/evolution`.
-- **What users can do**: inspect authoritative enablement status, Skill candidates, gates,
-  canary routing, promotion, and rollback evidence. On the current P4b implementation branch,
-  administrators can also inspect per-subject routing and update each Skill's evolution mode and
-  maximum canary basis points through strict CAS.
+- **What users can do**: inspect authoritative enablement status, Skill and EXECUTOR candidates,
+  gates, canary routing, promotion, and rollback evidence. Administrators can also inspect
+  per-subject routing and update evolution mode and maximum canary basis points through strict CAS.
 - **Maturity**: experimental.
 - **Explicit boundary**: availability, source, and curator protection are read-only; `pinned` is
-  not a version pin. There is no enabled switch, version pin, promotion button, or rollback button,
-  and all policy list/detail/write APIs are administrator-only. P4a merged in PR #107; the
-  per-subject routing and policy panel described here are implemented on the current P4b Issue
-  #108 branch. Local final gates passed; PR #109 is open and target-branch CI is pending. The system does not auto-promote
-  candidates; non-Skill production activation remains closed, and full G4 is not complete.
+  not a version pin. There is no per-plugin enabled switch, version pin, promotion button, or
+  rollback button, and all policy list/detail/write APIs are administrator-only. P4b merged into
+  `feat/plugin-v1` through PR #109. The current P5 checkout connects only the governed Pi EXECUTOR
+  Candidate/Gate/canary/Decision/promotion/rollback vertical slice. The system does not auto-promote
+  candidates; production activation for other non-Skill kinds remains closed, and full G4 is not complete.
 - **Related docs**: [Current Skills Boundary](../design/skills/README.md),
   [Skill Learning](../design/skills/learning.md),
   [Capability Matrix](../launch/capability-matrix.md).
@@ -295,13 +294,15 @@ approval.
 - **What users can do**: inspect the installed and verified versions, capabilities, and governance
   state of Claude Code, Codex, Pi, and OpenCode, and configure default model and per-run budget.
   When Pi is governed by the internal generation runtime, the page also shows its current
-  generation, state, active-run count, and last-good generation.
+  generation, state, active-run count, last-good generation, and any already-durable governance
+  candidate, with a link to the Evolution Center.
 - **Maturity**: experimental.
 - **Explicit boundary**: Tianshu does not auto-upgrade external CLIs, manage their credentials, or
-  execute, stage, or activate them from this page. Pi generations currently expose internal
-  mechanics only; Candidate/Canary/Promotion authority is not connected. Reliable pre-action
-  interception and provider-side hard cost limits are unavailable. Installed version and verified
-  compatibility baseline remain separate facts.
+  directly execute, stage, or activate a generation from this page. Refreshing the page never scans
+  for drift or creates a candidate; the deny-by-default control-plane scanner owns proposals. P5
+  covers only Pi, while Claude Code, Codex, and OpenCode remain outside RuntimeGeneration. Reliable
+  pre-action interception and provider-side hard cost limits are unavailable. Installed version and
+  verified compatibility baseline remain separate facts.
 - **Related docs**: [Guest-agent Management Boundary](../design/keqing/management-page.md),
   [Current State](../CURRENT-STATE.md), [Capability Matrix](../launch/capability-matrix.md).
 

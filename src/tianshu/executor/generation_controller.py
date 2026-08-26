@@ -25,6 +25,7 @@ from tianshu.executor.adapters import (
 from tianshu.executor.adapters.protocol import ExecutorAdapter
 from tianshu.models.governance_contract import RequestedGovernanceContractV1
 from tianshu.models.runtime_generation import (
+    GenerationPointerV1,
     RuntimeGenerationState,
     RuntimeGenerationV1,
     RuntimeReleaseV1,
@@ -109,6 +110,12 @@ class ReleaseMaterializer(Protocol):
 type UnitOfWorkFactory = Callable[[], SqliteUnitOfWork]
 type WarmProbe = Callable[[MaterializedGenerationBundle], Awaitable[tuple[bool, str | None]]]
 type RequiredScopeProvider = Callable[[sqlite3.Connection, str], tuple[str, ...]]
+type RecoveryRootProvider = Callable[[sqlite3.Connection], frozenset[str]]
+type StageCommitHook = Callable[[sqlite3.Connection, RuntimeGenerationV1], None]
+type ActivationCommitHook = Callable[
+    [sqlite3.Connection, RuntimeGenerationV1, GenerationPointerV1 | None], None
+]
+type PreActivationFailureCommitHook = Callable[[sqlite3.Connection, RuntimeGenerationV1], None]
 
 
 class GenerationControllerError(RuntimeError):
@@ -205,6 +212,7 @@ class GenerationController:
         *,
         warm_probe: WarmProbe,
         required_scope_provider: RequiredScopeProvider = requested_executor_scopes,
+        recovery_root_provider: RecoveryRootProvider | None = None,
         generation_id_factory: Callable[[], str] | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -214,30 +222,78 @@ class GenerationController:
         self._registry = registry
         self._warm_probe = warm_probe
         self._required_scope_provider = required_scope_provider
+        self._recovery_root_provider = recovery_root_provider or (lambda _connection: frozenset())
         self._generation_id_factory = generation_id_factory or (lambda: f"rg-{uuid4().hex}")
         self._clock = clock or (lambda: datetime.now(UTC))
 
     def stage(self, release: RuntimeReleaseV1) -> RuntimeGenerationV1:
         """Materialize outside SQLite, then durably stage and publish the bundle."""
 
+        return self.stage_exact(release, generation_id=self._generation_id_factory())
+
+    def stage_exact(
+        self,
+        release: RuntimeReleaseV1,
+        *,
+        generation_id: str,
+        stage_commit_hook: StageCommitHook | None = None,
+    ) -> RuntimeGenerationV1:
+        """Stage one deterministic generation, accepting only an exact replay.
+
+        ``stage_commit_hook`` lets a caller persist an external authority in the
+        same transaction as the STAGED row.  The hook must use the supplied
+        connection and must not commit it.
+        """
+
         bundle = self._materializer.materialize(release)
         self._validate_bundle(release, bundle)
         now = self._now()
-        generation = RuntimeGenerationV1(
-            generation_id=self._generation_id_factory(),
-            scope=release.scope,
-            release_digest=release.release_digest,
-            state=RuntimeGenerationState.STAGED,
-            version=1,
-            created_at=now,
-            updated_at=now,
-        )
         committed = False
+        inserted = False
         try:
             with (
                 self._unit_of_work_factory() as unit_of_work,
                 self._registry.generation_guard(),
             ):
+                existing = self._repository.get_generation(
+                    unit_of_work.connection,
+                    scope=release.scope,
+                    generation_id=generation_id,
+                )
+                if existing is not None:
+                    durable_release = self._repository.get_release(
+                        unit_of_work.connection,
+                        scope=release.scope,
+                        release_digest=existing.release_digest,
+                    )
+                    if (
+                        durable_release != release
+                        or existing.release_digest != release.release_digest
+                        or existing.state
+                        not in {
+                            RuntimeGenerationState.STAGED,
+                            RuntimeGenerationState.WARMING,
+                            RuntimeGenerationState.READY,
+                        }
+                    ):
+                        raise GenerationControllerError(
+                            "deterministic generation identity conflicts with durable state"
+                        )
+                    if stage_commit_hook is not None:
+                        stage_commit_hook(unit_of_work.connection, existing)
+                    unit_of_work.commit()
+                    committed = True
+                    self._reconcile_bundle(existing, bundle)
+                    return existing
+                generation = RuntimeGenerationV1(
+                    generation_id=generation_id,
+                    scope=release.scope,
+                    release_digest=release.release_digest,
+                    state=RuntimeGenerationState.STAGED,
+                    version=1,
+                    created_at=now,
+                    updated_at=now,
+                )
                 self._repository.insert_release(
                     unit_of_work.connection,
                     release,
@@ -247,14 +303,65 @@ class GenerationController:
                     unit_of_work.connection,
                     generation,
                 )
+                if stage_commit_hook is not None:
+                    stage_commit_hook(unit_of_work.connection, durable)
                 unit_of_work.commit()
                 committed = True
+                inserted = True
                 self._install_bundle(durable, bundle)
         except Exception:
-            if committed:
+            if committed and inserted:
                 self._fail_unpublished_stage(durable)
             raise
         return durable
+
+    async def warm_or_resume(self, generation_id: str) -> RuntimeGenerationV1:
+        """Warm a staged generation or resume an exact interrupted preparation."""
+
+        with (
+            self._unit_of_work_factory() as unit_of_work,
+            self._registry.generation_guard(),
+        ):
+            current = self._require_materialized_generation_current(
+                unit_of_work.connection,
+                generation_id,
+                expected_states={
+                    RuntimeGenerationState.STAGED,
+                    RuntimeGenerationState.WARMING,
+                    RuntimeGenerationState.READY,
+                },
+            )
+            release = self._repository.get_release(
+                unit_of_work.connection,
+                scope=current.scope,
+                release_digest=current.release_digest,
+            )
+            if release is None:
+                raise GenerationMaterializationError(
+                    f"warm release does not exist: {current.generation_id}"
+                )
+            unit_of_work.commit()
+
+        if current.state is RuntimeGenerationState.STAGED:
+            return await self.warm(generation_id)
+
+        try:
+            bundle = await asyncio.to_thread(self._materializer.materialize, release)
+            self._validate_bundle(release, bundle)
+        except asyncio.CancelledError:
+            if current.state is RuntimeGenerationState.WARMING:
+                self._fail_interrupted_warm(current)
+            raise
+        except Exception as exc:
+            if current.state is RuntimeGenerationState.WARMING:
+                self._fail_interrupted_warm(current)
+            raise GenerationWarmError(generation_id, "material_verification_failed") from exc
+
+        if current.state is RuntimeGenerationState.READY:
+            with self._registry.generation_guard():
+                self._reconcile_bundle(current, bundle)
+            return current
+        return await self._probe_warming(current, bundle)
 
     async def warm(self, generation_id: str) -> RuntimeGenerationV1:
         """Reverify one staged release, then probe and publish it as ready."""
@@ -313,54 +420,16 @@ class GenerationController:
             unit_of_work.commit()
             self._publish_committed_state(unit_of_work.connection, warming)
 
-        probe_error: BaseException | None = None
-        try:
-            ok, reason = await self._warm_probe(bundle)
-        except asyncio.CancelledError as exc:
-            ok = False
-            reason = "probe_cancelled"
-            probe_error = exc
-        except Exception as exc:  # probe failures are durable lifecycle failures
-            ok = False
-            reason = f"probe_error:{type(exc).__name__}"
-            probe_error = exc
+        return await self._probe_warming(warming, bundle)
 
-        target = RuntimeGenerationState.READY if ok else RuntimeGenerationState.FAILED
-        with (
-            self._unit_of_work_factory() as unit_of_work,
-            self._registry.generation_guard(),
-        ):
-            current = self._require_materialized_generation_current(
-                unit_of_work.connection,
-                generation_id,
-                expected_states={RuntimeGenerationState.WARMING},
-            )
-            if current != warming:
-                raise GenerationControllerError(
-                    f"generation changed while warming: {generation_id}"
-                )
-            completed = self._repository.transition_pre_activation(
-                unit_of_work.connection,
-                scope=warming.scope,
-                generation_id=warming.generation_id,
-                target_state=target,
-                expected_version=warming.version,
-                updated_at=self._now(),
-            )
-            unit_of_work.commit()
-            self._publish_committed_state(unit_of_work.connection, completed)
-            if target is RuntimeGenerationState.FAILED:
-                self._remove_terminal_bundle(unit_of_work.connection, completed)
-        if target is RuntimeGenerationState.FAILED:
-            if isinstance(probe_error, asyncio.CancelledError):
-                raise probe_error
-            error = GenerationWarmError(generation_id, reason or "probe_rejected")
-            if probe_error is not None:
-                raise error from probe_error
-            raise error
-        return completed
-
-    def activate(self, generation_id: str) -> GenerationActivationResult:
+    def activate(
+        self,
+        generation_id: str,
+        *,
+        expected_active_generation_id: str | None = None,
+        expected_active_release_digest: str | None = None,
+        activation_commit_hook: ActivationCommitHook | None = None,
+    ) -> GenerationActivationResult:
         """Revalidate release bytes, atomically switch, then publish committed states."""
 
         with (
@@ -376,6 +445,26 @@ class GenerationController:
                 unit_of_work.connection,
                 scope=target.scope,
             )
+            if expected_active_generation_id is not None and (
+                pointer is None or pointer.active_generation_id != expected_active_generation_id
+            ):
+                raise GenerationControllerError(
+                    "generation active pointer does not match activation authority"
+                )
+            if expected_active_release_digest is not None:
+                if pointer is None:
+                    raise GenerationControllerError(
+                        "generation active pointer does not match activation authority"
+                    )
+                active = self._repository.get_generation(
+                    unit_of_work.connection,
+                    scope=target.scope,
+                    generation_id=pointer.active_generation_id,
+                )
+                if active is None or active.release_digest != expected_active_release_digest:
+                    raise GenerationControllerError(
+                        "generation active release does not match activation authority"
+                    )
             if pointer is not None:
                 self._require_registry_identity(
                     unit_of_work.connection,
@@ -433,6 +522,8 @@ class GenerationController:
                     scope=target.scope,
                     generation_id=current_pointer.active_generation_id,
                 )
+            if activation_commit_hook is not None:
+                activation_commit_hook(unit_of_work.connection, target, current_pointer)
             result = self._repository.activate(
                 unit_of_work.connection,
                 scope=target.scope,
@@ -449,7 +540,125 @@ class GenerationController:
             self._publish_committed_state(unit_of_work.connection, result.activated)
             return result
 
-    def rollback(self, scope: str) -> GenerationRollbackResult:
+    def activate_exact(
+        self,
+        generation_id: str,
+        *,
+        expected_active_generation_id: str,
+        expected_active_release_digest: str,
+        activation_commit_hook: ActivationCommitHook | None = None,
+    ) -> GenerationActivationResult:
+        """Activate one authorized READY generation or accept its exact replay."""
+
+        with (
+            self._unit_of_work_factory() as unit_of_work,
+            self._registry.generation_guard(),
+        ):
+            retained = self._registry.generation_record(generation_id)
+            if retained is None:
+                raise GenerationMaterializationError(
+                    f"generation bundle is not materialized: {generation_id}"
+                )
+            target = self._repository.get_generation(
+                unit_of_work.connection,
+                scope=retained.scope,
+                generation_id=generation_id,
+            )
+            pointer = self._repository.get_pointer(
+                unit_of_work.connection,
+                scope=retained.scope,
+            )
+            if (
+                target is not None
+                and target.state is RuntimeGenerationState.ACTIVE
+                and pointer is not None
+                and pointer.active_generation_id == generation_id
+                and pointer.last_good_generation_id == expected_active_generation_id
+            ):
+                draining = self._repository.get_generation(
+                    unit_of_work.connection,
+                    scope=retained.scope,
+                    generation_id=expected_active_generation_id,
+                )
+                if (
+                    draining is None
+                    or draining.state is not RuntimeGenerationState.DRAINING
+                    or draining.release_digest != expected_active_release_digest
+                ):
+                    raise GenerationControllerError(
+                        "completed activation does not match activation authority"
+                    )
+                if activation_commit_hook is not None:
+                    activation_commit_hook(unit_of_work.connection, target, pointer)
+                unit_of_work.commit()
+                return GenerationActivationResult(
+                    pointer=pointer,
+                    activated=target,
+                    draining=draining,
+                )
+            unit_of_work.commit()
+        return self.activate(
+            generation_id,
+            expected_active_generation_id=expected_active_generation_id,
+            expected_active_release_digest=expected_active_release_digest,
+            activation_commit_hook=activation_commit_hook,
+        )
+
+    def fail_pre_active_exact(
+        self,
+        scope: str,
+        *,
+        generation_id: str,
+        expected_release_digest: str,
+        failure_commit_hook: PreActivationFailureCommitHook | None = None,
+    ) -> RuntimeGenerationV1:
+        """Fail one exact pre-active generation and atomically withdraw its authority."""
+
+        with (
+            self._unit_of_work_factory() as unit_of_work,
+            self._registry.generation_guard(),
+        ):
+            current = self._repository.get_generation(
+                unit_of_work.connection,
+                scope=scope,
+                generation_id=generation_id,
+            )
+            if current is None or current.release_digest != expected_release_digest:
+                raise GenerationControllerError(
+                    "pre-active generation does not match failure authority"
+                )
+            if current.state is RuntimeGenerationState.FAILED:
+                failed = current
+            elif current.state in {
+                RuntimeGenerationState.STAGED,
+                RuntimeGenerationState.WARMING,
+                RuntimeGenerationState.READY,
+            }:
+                failed = self._repository.transition_pre_activation(
+                    unit_of_work.connection,
+                    scope=scope,
+                    generation_id=generation_id,
+                    target_state=RuntimeGenerationState.FAILED,
+                    expected_version=current.version,
+                    updated_at=self._now(),
+                )
+            else:
+                raise GenerationControllerError(
+                    "only a pre-active generation can be failed by preparation compensation"
+                )
+            if failure_commit_hook is not None:
+                failure_commit_hook(unit_of_work.connection, failed)
+            unit_of_work.commit()
+            self._remove_terminal_bundle(unit_of_work.connection, failed)
+            return failed
+
+    def rollback(
+        self,
+        scope: str,
+        *,
+        expected_active_generation_id: str | None = None,
+        expected_last_good_generation_id: str | None = None,
+    ) -> GenerationRollbackResult:
         """Atomically reactivate the CAS-protected last-good generation."""
 
         if not scope.strip():
@@ -464,6 +673,20 @@ class GenerationController:
             )
             if expected_pointer is None:
                 raise GenerationControllerError(f"generation pointer does not exist for {scope}")
+            if (
+                expected_active_generation_id is not None
+                and expected_pointer.active_generation_id != expected_active_generation_id
+            ):
+                raise GenerationControllerError(
+                    "generation active pointer does not match rollback authority"
+                )
+            if (
+                expected_last_good_generation_id is not None
+                and expected_pointer.last_good_generation_id != expected_last_good_generation_id
+            ):
+                raise GenerationControllerError(
+                    "generation last-good pointer does not match rollback authority"
+                )
             last_good = self._require_registry_identity(
                 unit_of_work.connection,
                 scope=scope,
@@ -524,7 +747,62 @@ class GenerationController:
             self._publish_committed_state(unit_of_work.connection, result.activated)
             return result
 
-    def recover(self) -> GenerationRecoveryReport:
+    def rollback_exact(
+        self,
+        scope: str,
+        *,
+        expected_active_generation_id: str,
+        expected_last_good_generation_id: str,
+    ) -> GenerationRollbackResult:
+        """Rollback an exact authority pair or accept its completed replay."""
+
+        with (
+            self._unit_of_work_factory() as unit_of_work,
+            self._registry.generation_guard(),
+        ):
+            pointer = self._repository.get_pointer(unit_of_work.connection, scope=scope)
+            if (
+                pointer is not None
+                and pointer.active_generation_id == expected_last_good_generation_id
+                and pointer.last_good_generation_id == expected_last_good_generation_id
+            ):
+                activated = self._repository.get_generation(
+                    unit_of_work.connection,
+                    scope=scope,
+                    generation_id=expected_last_good_generation_id,
+                )
+                draining = self._repository.get_generation(
+                    unit_of_work.connection,
+                    scope=scope,
+                    generation_id=expected_active_generation_id,
+                )
+                if (
+                    activated is None
+                    or activated.state is not RuntimeGenerationState.ACTIVE
+                    or draining is None
+                    or draining.state is not RuntimeGenerationState.DRAINING
+                ):
+                    raise GenerationControllerError(
+                        "completed rollback does not match rollback authority"
+                    )
+                unit_of_work.commit()
+                return GenerationRollbackResult(
+                    pointer=pointer,
+                    activated=activated,
+                    draining=draining,
+                )
+            unit_of_work.commit()
+        return self.rollback(
+            scope,
+            expected_active_generation_id=expected_active_generation_id,
+            expected_last_good_generation_id=expected_last_good_generation_id,
+        )
+
+    def recover(
+        self,
+        *,
+        pre_active_root_ids: frozenset[str] = frozenset(),
+    ) -> GenerationRecoveryReport:
         """Fail abandoned pre-active rows and rehydrate every retained bundle."""
 
         with (
@@ -557,7 +835,17 @@ class GenerationController:
                     )
                     terminal.append(generation)
             candidates = self._repository.list_recovery_candidates(unit_of_work.connection)
-            retained_ids = self._repository.retained_generation_ids(unit_of_work.connection)
+            authority_root_ids = self._recovery_root_provider(unit_of_work.connection)
+            candidate_ids = frozenset(item.generation_id for item in candidates)
+            if not authority_root_ids.issubset(candidate_ids):
+                raise GenerationRecoveryError(
+                    "executor generation authority references an unavailable generation"
+                )
+            recovery_root_ids = authority_root_ids | pre_active_root_ids
+            retained_ids = (
+                self._repository.retained_generation_ids(unit_of_work.connection)
+                | authority_root_ids
+            )
             failed: list[RuntimeGenerationV1] = []
             retained: list[tuple[RuntimeGenerationV1, RuntimeReleaseV1]] = []
             for generation in candidates:
@@ -566,16 +854,28 @@ class GenerationController:
                     RuntimeGenerationState.WARMING,
                     RuntimeGenerationState.READY,
                 }:
-                    failed.append(
-                        self._repository.transition_pre_activation(
+                    if generation.generation_id in recovery_root_ids:
+                        release = self._repository.get_release(
                             unit_of_work.connection,
                             scope=generation.scope,
-                            generation_id=generation.generation_id,
-                            target_state=RuntimeGenerationState.FAILED,
-                            expected_version=generation.version,
-                            updated_at=self._now(),
+                            release_digest=generation.release_digest,
                         )
-                    )
+                        if release is None:
+                            raise GenerationRecoveryError(
+                                f"release missing for generation {generation.generation_id}"
+                            )
+                        retained.append((generation, release))
+                    else:
+                        failed.append(
+                            self._repository.transition_pre_activation(
+                                unit_of_work.connection,
+                                scope=generation.scope,
+                                generation_id=generation.generation_id,
+                                target_state=RuntimeGenerationState.FAILED,
+                                expected_version=generation.version,
+                                updated_at=self._now(),
+                            )
+                        )
                     continue
                 if generation.generation_id not in retained_ids:
                     if generation.state is RuntimeGenerationState.ACTIVE:
@@ -1028,6 +1328,83 @@ class GenerationController:
             )
             unit_of_work.commit()
             self._remove_terminal_bundle(unit_of_work.connection, failed)
+
+    def _fail_interrupted_warm(self, warming: RuntimeGenerationV1) -> None:
+        with (
+            self._unit_of_work_factory() as unit_of_work,
+            self._registry.generation_guard(),
+        ):
+            current = self._require_materialized_generation_current(
+                unit_of_work.connection,
+                warming.generation_id,
+                expected_states={RuntimeGenerationState.WARMING},
+            )
+            if current != warming:
+                raise GenerationControllerError(
+                    f"generation changed while resuming warm: {warming.generation_id}"
+                )
+            failed = self._repository.transition_pre_activation(
+                unit_of_work.connection,
+                scope=warming.scope,
+                generation_id=warming.generation_id,
+                target_state=RuntimeGenerationState.FAILED,
+                expected_version=warming.version,
+                updated_at=self._now(),
+            )
+            unit_of_work.commit()
+            self._remove_terminal_bundle(unit_of_work.connection, failed)
+
+    async def _probe_warming(
+        self,
+        warming: RuntimeGenerationV1,
+        bundle: MaterializedGenerationBundle,
+    ) -> RuntimeGenerationV1:
+        probe_error: BaseException | None = None
+        try:
+            ok, reason = await self._warm_probe(bundle)
+        except asyncio.CancelledError as exc:
+            ok = False
+            reason = "probe_cancelled"
+            probe_error = exc
+        except Exception as exc:  # probe failures are durable lifecycle failures
+            ok = False
+            reason = f"probe_error:{type(exc).__name__}"
+            probe_error = exc
+
+        target = RuntimeGenerationState.READY if ok else RuntimeGenerationState.FAILED
+        with (
+            self._unit_of_work_factory() as unit_of_work,
+            self._registry.generation_guard(),
+        ):
+            current = self._require_materialized_generation_current(
+                unit_of_work.connection,
+                warming.generation_id,
+                expected_states={RuntimeGenerationState.WARMING},
+            )
+            if current != warming:
+                raise GenerationControllerError(
+                    f"generation changed while warming: {warming.generation_id}"
+                )
+            completed = self._repository.transition_pre_activation(
+                unit_of_work.connection,
+                scope=warming.scope,
+                generation_id=warming.generation_id,
+                target_state=target,
+                expected_version=warming.version,
+                updated_at=self._now(),
+            )
+            unit_of_work.commit()
+            self._publish_committed_state(unit_of_work.connection, completed)
+            if target is RuntimeGenerationState.FAILED:
+                self._remove_terminal_bundle(unit_of_work.connection, completed)
+        if target is RuntimeGenerationState.FAILED:
+            if isinstance(probe_error, asyncio.CancelledError):
+                raise probe_error
+            error = GenerationWarmError(warming.generation_id, reason or "probe_rejected")
+            if probe_error is not None:
+                raise error from probe_error
+            raise error
+        return completed
 
     def _now(self) -> datetime:
         value = self._clock()

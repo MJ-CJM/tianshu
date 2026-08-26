@@ -144,6 +144,7 @@ def install_service(tmp_path: Path, storage: Storage) -> SkillInstallService:
         policy_root=tmp_path / "live-policy",
         persona_root=tmp_path / "live-persona",
         code_worktree=tmp_path / "live-code",
+        executor_root=tmp_path / "runtime-releases",
     )
     candidates = CandidateService(
         storage,

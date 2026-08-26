@@ -16,13 +16,19 @@ P3 又新增一条窄的运行面切片：`keqing:pi` 可以由内部 controller
 stage → warm → activate → drain，并让运行中的 attempt 固定到同一代。它验证了代际机械，
 但没有开放 stage/activate API 或 CLI，也没有把这一能力泛化成第三方 PluginHost。
 
-P4a 已把每个 subject 的 EvolutionPolicy 合入集成分支。P4b Issue #108 则已在实现分支完成
-per-subject Skill canary：完整 assignment set 持久封存，运行时深冻结且 continuity sticky；
+P4a 已把每个 subject 的 EvolutionPolicy 合入集成分支。P4b 已由 PR #109 合入
+`feat/plugin-v1`（merge `a8a03071`），完成 per-subject Skill canary：完整 assignment set
+持久封存，运行时深冻结且 continuity sticky；
 SystemSnapshot 的 `evolution_overlay_set` 只保存 canonical overlay 列表的 digest。fresh root
 零 canary 不挂 governed assignment artifact，singleton 保留旧 artifact，N>1 只挂多值
 assignment-set artifact。它仍不是第三方动态 PluginHost；Web 也只提供 evolution mode 与
 max canary basis points 的严格 CAS 编辑，availability/source/curator protection 只读，
 `pinned` 不表示版本锁定。
+
+当前 P5 checkout 又完成一条受治理的 Pi executor 垂直切片：后台漂移巡检可产生
+`CandidateKind.EXECUTOR`，候选经 Gate、per-subject canary、高危 Decision 和精确 generation
+authority 后激活 READY 代，并可回滚到 last-good。它只覆盖 `keqing:pi`，不改变 manifest-only
+catalog 与第三方代码不加载的边界。
 
 本页合并原 `docs/design/plugins/` 与 `docs/impl/plugins/` 的内容，作为本报告目录中的唯一
 插件现状说明。用户开发示例仍在 [扩展开发指南](../../usage/extension-guide.md)，但当前/目标
@@ -46,8 +52,12 @@ max canary basis points 的严格 CAS 编辑，availability/source/curator prote
 | MCP session 工具清理 | 可用 | 重新发现、断连、重连与 shutdown 都撤回当前 session 的旧工具集合 |
 | Pi 不可变 release / runtime generation | 内部可用 | 单发与 session adapter 同代物化；stage/warm/activate/rollback/recover 仅由内部组合根调用 |
 | attempt 代际固定与 continuity | 内部可用 | exact attempt 租约、follow-up/基础设施重试/DAG root 继承；周期任务每次 fresh root 取当时 active |
-| 代际生产写入口 | 不支持 | P3 不提供 HTTP/CLI，也不接 Candidate/Promotion；P5 才引入治理授权入口 |
-| per-subject Skill canary | P4b 分支实现与本地门禁完成 | V34 封存 1..64 条 assignment；后端 5270 passed、Web 347 passed；PR #109 已创建、目标分支 CI 待完成 |
+| 代际生产写入口 | 受治理窄入口可用 | 无直接 GenerationController HTTP/CLI；EXECUTOR candidate 的 canary/promote 经 PromotionService 间接驱动 exact stage/warm/activate |
+| per-subject Skill canary | 已合入 | V34 封存 1..64 条 assignment；PR #109 已合入 `feat/plugin-v1` |
+| per-subject Pi EXECUTOR canary | P5 checkout 已实现 | Challenger 绑定获授权 READY 代，champion 保持 active；缺失、错配、歧义或撤销 authority 失败关闭 |
+| EXECUTOR 高危晋升与回滚 | P5 checkout 已实现 | promote 永远需要精确已决议 Decision；只激活映射代；rollback 恢复 last-good 并撤权，可从 durable pending 状态继续 |
+| EXECUTOR 前向演化开关 | 默认关闭 | 关闭只拒绝新的 start-canary/promote；adapter、existing generation recovery、rollback 和 reconcile 保留 |
+| EXECUTOR 漂移巡检 | 默认关闭 | control-plane scanner 显式启用后提案；Keqing GET 只读，不扫描或创建候选 |
 | 插件 enabled / version pin | 不支持 | P4b UI 不提供这两个开关；curator protection 不是版本 pin |
 
 P4b 路由顺序是 existing replay → continuity inheritance → fresh-root kill switch。关闭 routing
@@ -207,13 +217,40 @@ V32 升级对既有 attempt 做三分回填：已有 `run_system_bindings` 就�
 governance contract/runtime override 证明为非 Pi 就写 `bound []`；无法可靠还原历史 Pi 选择则写
 `unresolved`。后者不会猜测 active，也不会静默退回 static；continuity/retention 读取会失败关闭。
 
-这套能力当前**不包含**：自动下载/升级 Pi、公开 stage/activate 接口、Candidate/Canary/Promotion、
+这套能力当前**不包含**：自动下载/升级 Pi、直接公开 GenerationController stage/activate 接口、
 任意第三方 package、进程内 Python contribution 热替换，以及 Tool/Hook/Provider 等 built-in
-对象的多代并存。P5 引入 canary READY 代后，还必须持久化精确
-`candidate_id → generation_id` 授权映射并把有效映射纳入 retention root；只有带合法 canary
-authority 的 READY 才能在重启后重建，无映射、映射歧义或候选已终止的 READY 仍应失败化。
+对象的多代并存。P5 已为 Pi canary READY 代持久化精确 candidate/version/release/generation
+授权并纳入 routing、recovery 与 retention root；无映射、映射歧义、摘要不符或已撤销的 READY
+仍失败关闭。
 
-## 7. 为什么当前不开自动加载
+## 7. P5 Pi executor 治理垂直切片
+
+V35 `0035_executor_candidate_kind` 把 `executor` 加入候选 kind，并在 `foreign_keys=ON` 下按依赖序
+连带重建候选表与六张子表。`executor_generation_authorities` 保存每个候选当前 epoch 的精确
+授权，append-only journal 保存全部状态变化；二者都不能替代 Candidate、Decision 或 Promotion
+journal 的权威。
+
+`ExecutorDriftScanner` 由 control-plane tick 低频驱动，比较当前 active release 与重新物化的
+本机 Pi release。它有独立默认关闭开关、确定性提案身份与进程内限流；相同 base/challenger
+不会重复产生候选，frozen policy 在 artifact 写入前拒绝。`GET /api/keqing/status` 只投影最近一条
+durable executor candidate，页面只负责链接到演化中心。
+
+EXECUTOR `start_canary` 是异步 saga：先持久 intent，再 stage、warm 和 authorize exact READY
+generation，最后才让 challenger routing 可见。Canary 期间 challenger run 只能绑定该 READY 代，
+champion run 继续取 active pointer；promote 要求高危 Decision，并只激活既有映射，不二次 stage。
+Canary rollback 先撤流量和 authority，promoted rollback 恢复 exact last-good pointer。未收口的
+start/promote/rollback 形成 subject fence，避免新代越过旧代的外部效果窗口。
+
+`executor_generation_enabled` 是**前向演化 kill switch**。关闭时，新的 start-canary/promote 在
+新 journal/effect 前返回 `executor_generation_unavailable`，但 `ExecutorPromotionAdapter` 始终装配；
+既有 generation recovery、已发生效果的幂等收口、canary/promoted rollback 与 pending rollback
+reconcile 继续可用。这个区别保证“停止继续进化”不会同时拆掉安全回退路径。
+
+同命令 executor canary 的 single-flight 锁是进程内边界；durable journal 和 CAS 仍负责重启重放与
+冲突拒绝。当前正式运行模型本来就是 single-host、single-node、single-process SQLite，不由此
+扩展为多进程或分布式编排承诺。
+
+## 8. 为什么当前不开自动加载
 
 执行第三方入口前至少需要完成：
 

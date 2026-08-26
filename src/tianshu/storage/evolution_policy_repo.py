@@ -109,13 +109,14 @@ def _require_no_promote_in_progress(
         JOIN evolution_candidates AS candidate
           ON candidate.candidate_id = journal.candidate_id
         WHERE candidate.subject_key = ?
-          AND journal.action = 'promote'
+          AND journal.action IN ('start_canary', 'promote')
           AND journal.status IN ('intended', 'applied')
           AND NOT EXISTS (
               SELECT 1
-              FROM evolution_promotion_journal AS completed
-              WHERE completed.command_key = journal.command_key
-                AND completed.status = 'completed'
+              FROM evolution_promotion_journal AS terminal
+              WHERE terminal.command_key = journal.command_key
+                AND terminal.action = journal.action
+                AND terminal.status IN ('completed', 'failed')
           )
         LIMIT 1
         """,

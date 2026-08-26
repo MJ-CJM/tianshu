@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from tianshu.models.canonical import canonical_json_bytes, canonical_sha256
 from tianshu.models.decision import DecisionKind, DecisionStatus
 from tianshu.models.evolution_candidate import (
+    HIGH_RISK_PROMOTION_KINDS,
     CandidateKind,
     CandidateLifecycle,
     EvolutionCandidateV1,
@@ -55,7 +56,7 @@ class EvolutionAssignmentConflict(EvolutionRepositoryConflict):
     """A Memorial already has a different immutable assignment."""
 
 
-class _CodePromotionDecisionBindingV1(BaseModel):
+class PromotionDecisionBindingV1(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     schema_version: Literal[1]
@@ -65,6 +66,9 @@ class _CodePromotionDecisionBindingV1(BaseModel):
     gate_snapshot_version: int = Field(ge=0)
     action: Literal["promote"]
     risk_tier: Literal["high"]
+
+
+_CodePromotionDecisionBindingV1 = PromotionDecisionBindingV1
 
 
 _SELECT_CANDIDATE = """
@@ -267,7 +271,7 @@ def _decode_lifecycle_journal_transition(
     return from_lifecycle, to_lifecycle
 
 
-def _require_high_risk_code_promotion_decision(
+def _require_high_risk_promotion_decision(
     connection: sqlite3.Connection,
     *,
     candidate: EvolutionCandidateV1,
@@ -275,13 +279,13 @@ def _require_high_risk_code_promotion_decision(
 ) -> None:
     if decision_request_id is None or not decision_request_id.strip():
         raise EvolutionRepositoryConflict(
-            "code promotion requires an explicit resolved high-risk Decision"
+            "high-risk promotion requires an explicit resolved high-risk Decision"
         )
     try:
         record = DecisionRepository().get(connection, decision_request_id)
         if record is None or record.resolution is None:
             raise ValueError("decision is missing or unresolved")
-        binding = _CodePromotionDecisionBindingV1.model_validate(record.request.payload)
+        binding = PromotionDecisionBindingV1.model_validate(record.request.payload)
         if (
             record.request.kind is not DecisionKind.GOVERNED_APPLY
             or record.request.status is not DecisionStatus.RESOLVED
@@ -294,7 +298,7 @@ def _require_high_risk_code_promotion_decision(
             raise ValueError("decision is not bound to the current candidate")
     except (DecisionDecodeError, ValidationError, TypeError, ValueError) as exc:
         raise EvolutionRepositoryConflict(
-            "code promotion requires an explicit resolved high-risk Decision"
+            "high-risk promotion requires an explicit resolved high-risk Decision"
         ) from exc
 
 
@@ -336,6 +340,23 @@ def _is_subject_canary_unique_conflict(error: sqlite3.IntegrityError) -> bool:
 class EvolutionRepository:
     """Stateless primitives whose caller owns the SQLite transaction."""
 
+    def require_high_risk_promotion_decision(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        candidate: EvolutionCandidateV1,
+        decision_request_id: str | None,
+    ) -> None:
+        """Preflight an exact Decision for a code-level high-risk candidate."""
+
+        if candidate.kind not in HIGH_RISK_PROMOTION_KINDS:
+            raise ValueError("promotion Decision validation requires a high-risk candidate")
+        _require_high_risk_promotion_decision(
+            connection,
+            candidate=candidate,
+            decision_request_id=decision_request_id,
+        )
+
     def require_code_promotion_decision(
         self,
         connection: sqlite3.Connection,
@@ -343,11 +364,9 @@ class EvolutionRepository:
         candidate: EvolutionCandidateV1,
         decision_request_id: str | None,
     ) -> None:
-        """Preflight an exact, resolved high-risk code promotion Decision."""
+        """Compatibility alias for the original CODE-only public method."""
 
-        if candidate.kind is not CandidateKind.CODE:
-            raise ValueError("code promotion Decision validation requires a code candidate")
-        _require_high_risk_code_promotion_decision(
+        self.require_high_risk_promotion_decision(
             connection,
             candidate=candidate,
             decision_request_id=decision_request_id,
@@ -1000,10 +1019,10 @@ class EvolutionRepository:
 
         if (
             candidate.lifecycle is not current.lifecycle
-            and candidate.kind is CandidateKind.CODE
+            and candidate.kind in HIGH_RISK_PROMOTION_KINDS
             and candidate.lifecycle is CandidateLifecycle.PROMOTED
         ):
-            self.require_code_promotion_decision(
+            self.require_high_risk_promotion_decision(
                 connection,
                 candidate=current,
                 decision_request_id=high_risk_decision_request_id,

@@ -4,11 +4,12 @@
 > 详细来源和证据等级见 [source-map.md](source-map.md)。
 >
 > **实现进展（2026-08-26）**：上游比较仍按固定快照成立。Tianshu 已合入 P1/P3/P4a；
-> P4b Issue #108 已在分支完成 per-subject assignment set，PR #109 已创建、CI 待完成。冻结的
+> P4b 已由 PR #109 合入 `feat/plugin-v1`（merge `a8a03071`）。当前 P5 checkout 已完成 Pi
+> EXECUTOR Candidate、精确 generation authority、canary、Decision、换代与回滚垂直切片。冻结的
 > `LegacyRunAssignmentV1` / `RunAssignmentV1` 继续承载 fresh root 的 0/1 旧投影；V34
 > `RunAssignmentSetV1` 从 singleton 起承载 per-subject 选择，N>1 时旧表只留 legacy 投影。
 > 因此本文早期“仅单 assignment、缺 per-subject 归因”的描述是历史研究基线；进程级
-> snapshot 重启与通用 last-good 仍是后续阶段。
+> process snapshot 重启与通用 PluginHost/PluginSet last-good 仍是后续阶段。
 
 ## 1. 当前 Tianshu：治理地基强，运行时插件尚未建立
 
@@ -59,8 +60,10 @@ Tianshu 当前已经具备以下治理资产：
 当前 `RunAssignmentV1` 已能不可变绑定一次候选分流与 effective overlay，但还不能描述完整
 运行环境。[契约源码](../../../src/tianshu/models/run_assignment.py#L35-L100)
 
-当前只有 Skill Candidate 具备真实 activation/rollback adapter，其他 CandidateKind 仍不能
-证明可生产上线。[装配源码](../../../src/tianshu/bootstrap/wiring_skills.py#L108-L121)
+当前 Skill Candidate 与 Pi EXECUTOR Candidate 具备真实 activation/rollback adapter；Pi 仅是
+`keqing:pi` 治理垂直切片，其他 CandidateKind 与通用 PluginSet 仍不能证明可生产上线。
+[Skill 装配源码](../../../src/tianshu/bootstrap/wiring_skills.py#L108-L121)；
+[Pi 装配源码](../../../src/tianshu/bootstrap/wiring_executor.py)
 
 ## 2. DeepSeek Harness
 

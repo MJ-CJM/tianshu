@@ -216,6 +216,7 @@ _ADMIN_ROUTES = (
     ("POST", "/api/credentials"),
     ("PATCH", "/api/credentials/{cred_id}"),
     ("DELETE", "/api/credentials/{cred_id}"),
+    ("POST", "/api/evolution/candidates/{candidate_id}/stage"),
     ("POST", "/api/evolution/candidates/{candidate_id}/gate/evaluate"),
     ("POST", "/api/evolution/candidates/{candidate_id}/canary"),
     ("POST", "/api/evolution/candidates/{candidate_id}/promote"),

@@ -113,6 +113,9 @@ def wire_evolution_services(
         policy_root=(Path(settings.workspace_dir).expanduser().resolve() / ".tianshu/policies"),
         persona_root=Path(settings.runtime_personas_dir).expanduser().resolve(),
         code_worktree=Path(settings.workspace_dir).expanduser().resolve(),
+        executor_root=(
+            Path(settings.artifact_dir).expanduser().resolve().parent / "runtime-releases"
+        ),
     )
     candidates = CandidateService(
         app.state.storage,
@@ -150,6 +153,7 @@ def wire_evolution_services(
         kind: (skill_promotion if kind is CandidateKind.SKILL else unavailable_promotion)
         for kind in CandidateKind
     }
+    app.state.promotion_adapters = promotion_adapters
     app.state.promotion_service = PromotionService(
         app.state.storage,
         gate_evaluator,
@@ -167,6 +171,11 @@ def wire_evolution_services(
         payload_resolver=candidates.resolve_effective_payload_current,
         snapshot_resolver=lambda: getattr(app.state, "system_snapshot_resolver", None),
         generation_controller=lambda: getattr(app.state, "generation_controller", None),
+        executor_generation_authority_resolver=lambda: getattr(
+            app.state,
+            "executor_generation_authority_repository",
+            None,
+        ),
     )
     app.state.challenger_router = challenger_router
     if not settings.evolution_routing_enabled:

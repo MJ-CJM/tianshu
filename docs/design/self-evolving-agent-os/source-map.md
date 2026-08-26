@@ -4,12 +4,14 @@
 > 当前能力证明。
 >
 > **实现补充（2026-08-26）**：下列 commit 与环境信息保留为原始调研快照，不覆盖历史证据。
-> 当前 checkpoint 另以 P4a PR #107（merge `b94d4846`，CI 6/6）和 P4b Issue #108 分支为准。
+> 当前 checkpoint 另以 P4a PR #107（merge `b94d4846`，CI 6/6）和已合入的 P4b PR #109
+>（merge `a8a03071`）为准。
 > P4b 事实入口为 `models/run_assignment.py`、`storage/migrations.py`、
 > `storage/evolution_repo.py`、`universe/router.py`、`evolution/runtime_context.py`、
 > `evidence/service.py` 及对应 multi-subject/durable-schema/Evidence 测试。最终本地门禁为后端
-> 5270 passed、2 skipped、24 slow deselected，Web 347 passed；静态检查与生产构建通过，
-> PR #109 已创建，目标分支 CI 待完成。
+> 5270 passed、2 skipped、24 slow deselected，Web 347 passed；静态检查与生产构建通过。
+> 当前 P5 checkout 的事实入口与验证路径另列于下文；最终门禁数字暂以
+> `PROGRESS.md` 的 P5 本地验证记录为准，不从历史 P4b 数字外推。
 
 ## 1. 核验时间与源码快照
 
@@ -66,6 +68,21 @@ uv 0.9.27、项目 Python 3.12.12、pytest 9.0.3，HEAD `88462b2a`。
 - [`src/tianshu/evolution/promotion.py`](../../../src/tianshu/evolution/promotion.py)
 - [`src/tianshu/storage/evolution_repo.py`](../../../src/tianshu/storage/evolution_repo.py)
 - [`src/tianshu/bootstrap/wiring_skills.py`](../../../src/tianshu/bootstrap/wiring_skills.py)
+
+### P5 Pi EXECUTOR 治理垂直切片
+
+- [`src/tianshu/evolution/adapters/executor.py`](../../../src/tianshu/evolution/adapters/executor.py)
+- [`src/tianshu/evolution/adapters/executor_promotion.py`](../../../src/tianshu/evolution/adapters/executor_promotion.py)
+- [`src/tianshu/evolution/executor_drift.py`](../../../src/tianshu/evolution/executor_drift.py)
+- [`src/tianshu/storage/executor_generation_authority_repo.py`](../../../src/tianshu/storage/executor_generation_authority_repo.py)
+- [`src/tianshu/bootstrap/wiring_executor.py`](../../../src/tianshu/bootstrap/wiring_executor.py)
+- [`tests/integration/test_executor_evolution_demo.py`](../../../tests/integration/test_executor_evolution_demo.py)
+- [`tests/evolution/test_executor_promotion_service.py`](../../../tests/evolution/test_executor_promotion_service.py)
+- [`tests/evolution/test_executor_authority_recovery.py`](../../../tests/evolution/test_executor_authority_recovery.py)
+- [`tests/evolution/test_executor_drift_scanner.py`](../../../tests/evolution/test_executor_drift_scanner.py)
+- [`tests/universe/test_executor_generation_routing.py`](../../../tests/universe/test_executor_generation_routing.py)
+- [`tests/storage/test_executor_generation_authority_repo.py`](../../../tests/storage/test_executor_generation_authority_repo.py)
+- [`tests/architecture/test_executor_evolution_boundaries.py`](../../../tests/architecture/test_executor_evolution_boundaries.py)
 
 ### 现有架构与决策
 
@@ -146,8 +163,8 @@ uv 0.9.27、项目 Python 3.12.12、pytest 9.0.3，HEAD `88462b2a`。
 - Universe 不再描述为可“人工切换” live：snapshot/branch/diff/archive/restore/eval 保留，
   switch/rollback/promote-code 继续 fail closed，Legacy champion 不是生产 active pointer；
 - `domain-model.md` 与 `persona/prompt-builder.md` 不再把“运行时 SOUL 演化”写成当前已接通能力；
-  Persona/SOUL 当前只有编辑或实验性变异/推荐，只有 Skill Candidate 已有真实
-  activation/rollback adapter。
+  Persona/SOUL 当前只有编辑或实验性变异/推荐。P5 后真实 activation/rollback adapter
+  覆盖 Skill Candidate 与 `keqing:pi` EXECUTOR Candidate；后者不是通用 PluginSet 能力。
 
 这些修订只校正文档事实，不把目标设计反向声明为当前实现；后续仍按下一节规则复核。
 

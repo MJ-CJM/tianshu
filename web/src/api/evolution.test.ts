@@ -6,6 +6,8 @@ const put = vi.hoisted(() => vi.fn());
 vi.mock("./client", () => ({ default: { get, put } }));
 
 import {
+  type EvolutionCandidateSummaryV1,
+  type EvolutionPolicyV1,
   getEvolutionCenterSnapshot,
   listEvolutionPolicies,
   putEvolutionPolicy,
@@ -15,6 +17,14 @@ describe("Evolution Center API", () => {
   beforeEach(() => {
     get.mockReset();
     put.mockReset();
+  });
+
+  it("accepts executor in candidate and policy kind contracts", () => {
+    const candidateKind: EvolutionCandidateSummaryV1["kind"] = "executor";
+    const policyKind: EvolutionPolicyV1["kind"] = "executor";
+
+    expect(candidateKind).toBe("executor");
+    expect(policyKind).toBe("executor");
   });
 
   it("reads the single authenticated snapshot endpoint", async () => {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ctypes
 import errno
 import hashlib
@@ -25,6 +26,7 @@ from tianshu.evolution.adapters.base import (
     ActivationReceiptV1,
     AdapterError,
     AdapterOperationUnavailable,
+    CanaryPreparationReceiptV1,
 )
 from tianshu.evolution.adapters.base import (
     RollbackReceiptV1 as AdapterRollbackReceiptV1,
@@ -34,6 +36,7 @@ from tianshu.evolution.gates import EvolutionGateReportV1
 from tianshu.models.canonical import canonical_json_bytes, canonical_sha256
 from tianshu.models.events import make_event
 from tianshu.models.evolution_candidate import (
+    HIGH_RISK_PROMOTION_KINDS,
     CandidateKind,
     CandidateLifecycle,
     EvolutionCandidateV1,
@@ -196,6 +199,8 @@ class PromotionReceiptV1(_StrictModel):
     routing_version: int = Field(ge=1)
     allocation_basis_points: int = Field(ge=0, le=10_000)
     effect_artifact_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    generation_id: str | None = None
+    release_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     completed_at: datetime
 
 
@@ -239,6 +244,33 @@ class _Adapter(Protocol):
     def activate(self, candidate: EvolutionCandidateV1) -> ActivationReceiptV1: ...
 
     def rollback(self, candidate: EvolutionCandidateV1) -> AdapterRollbackReceiptV1: ...
+
+
+class _CanaryPreparationAdapter(Protocol):
+    async def prepare_canary(
+        self,
+        candidate: EvolutionCandidateV1,
+        *,
+        command_key: str,
+        generation_id: str,
+        promotion_journal_id: str,
+    ) -> CanaryPreparationReceiptV1: ...
+
+    def validate_canary_preparation_current(
+        self,
+        connection: sqlite3.Connection,
+        candidate: EvolutionCandidateV1,
+        receipt: CanaryPreparationReceiptV1,
+    ) -> None: ...
+
+    def abort_canary_preparation(
+        self,
+        candidate: EvolutionCandidateV1,
+        *,
+        command_key: str,
+        generation_id: str,
+        promotion_journal_id: str,
+    ) -> None: ...
 
 
 class UnavailablePromotionAdapter:
@@ -720,7 +752,7 @@ class _JournalEntry(_StrictModel):
     idempotency_key: str | None = None
     candidate_id: str
     action: Literal["start_canary", "promote", "rollback"]
-    status: Literal["intended", "applied", "rollback_pending", "completed"]
+    status: Literal["intended", "applied", "rollback_pending", "completed", "failed"]
     decision_request_id: str | None
     request_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     principal_id: str
@@ -756,6 +788,22 @@ def _journal_id(command_key: str, status: str) -> str:
     return hashlib.sha256(f"{command_key}\0{status}".encode()).hexdigest()
 
 
+def _executor_generation_id(
+    command_key: str,
+    candidate: EvolutionCandidateV1,
+) -> str:
+    identity = canonical_sha256(
+        {
+            "candidate_artifact_digest": candidate.candidate.artifact_digest,
+            "candidate_id": candidate.candidate_id,
+            "candidate_version": candidate.version,
+            "command_key": command_key,
+            "schema_version": 1,
+        }
+    )
+    return f"rg-{identity[:32]}"
+
+
 _JOURNAL_COLUMNS = """
 promotion_journal_id, command_key, candidate_id, candidate_version,
 gate_snapshot_version, action, status, decision_request_id, entry_json, entry_hash
@@ -781,6 +829,8 @@ class PromotionService:
         self._policy_repository = EvolutionPolicyRepository()
         self._outbox = OutboxRepository()
         self._reconciliation_error_codes: tuple[str, ...] = ()
+        self._executor_canary_locks: dict[str, asyncio.Lock] = {}
+        self._executor_canary_lock_users: dict[str, int] = {}
 
     @property
     def reconciliation_error_codes(self) -> tuple[str, ...]:
@@ -808,6 +858,8 @@ class PromotionService:
             if existing is not None:
                 unit_of_work.commit()
                 return cast(PromotionReceiptV1, existing)
+            if candidate.kind is CandidateKind.EXECUTOR:
+                raise PromotionConflict("executor_canary_requires_async_path")
             self._require_expected_version(candidate, command.expected_version)
             if candidate.lifecycle is not CandidateLifecycle.READY:
                 raise PromotionConflict("promotion_preconditions_not_met")
@@ -826,6 +878,11 @@ class PromotionService:
                 and command.allocation_basis_points > policy.max_canary_basis_points
             ):
                 raise PromotionConflict("allocation_exceeds_policy")
+            self._require_no_inflight_subject_transition(
+                connection,
+                candidate,
+                command_key=command_key,
+            )
             self._require_canary_slot(connection, candidate)
             try:
                 report = self._gates.get_current_report_current(connection, candidate_id)
@@ -893,7 +950,7 @@ class PromotionService:
                 gate_report_hash=report.report_hash,
                 routing_version=routing.routing_version,
                 allocation_basis_points=routing.allocation_basis_points,
-                receipt=receipt.model_dump(mode="json"),
+                receipt=receipt.model_dump(mode="json", exclude_none=True),
             )
             self._append_journal(
                 connection,
@@ -913,12 +970,398 @@ class PromotionService:
             unit_of_work.commit()
             return receipt
 
+    async def start_canary_async(
+        self,
+        candidate_id: str,
+        command: StartCanaryCommand,
+        *,
+        auth: AuthContext,
+    ) -> PromotionReceiptV1:
+        """Serialize one executor command while retaining durable crash replay."""
+
+        command_key = _command_key(auth, command.idempotency_key)
+        lock = self._executor_canary_locks.setdefault(command_key, asyncio.Lock())
+        self._executor_canary_lock_users[command_key] = (
+            self._executor_canary_lock_users.get(command_key, 0) + 1
+        )
+        try:
+            async with lock:
+                return await self._start_canary_async_serialized(
+                    candidate_id,
+                    command,
+                    auth=auth,
+                )
+        finally:
+            remaining = self._executor_canary_lock_users[command_key] - 1
+            if remaining == 0:
+                self._executor_canary_lock_users.pop(command_key, None)
+                if self._executor_canary_locks.get(command_key) is lock:
+                    self._executor_canary_locks.pop(command_key, None)
+            else:
+                self._executor_canary_lock_users[command_key] = remaining
+
+    async def _start_canary_async_serialized(
+        self,
+        candidate_id: str,
+        command: StartCanaryCommand,
+        *,
+        auth: AuthContext,
+    ) -> PromotionReceiptV1:
+        """Prepare executor generations before making challenger routing visible."""
+
+        self._authorize(auth)
+        request_hash = _request_hash(candidate_id, "start_canary", command)
+        command_key = _command_key(auth, command.idempotency_key)
+        with self._storage.unit_of_work() as unit_of_work:
+            candidate_kind = self._get_authorized_candidate(
+                unit_of_work.connection,
+                candidate_id,
+                auth=auth,
+            ).kind
+            unit_of_work.commit()
+        if candidate_kind is not CandidateKind.EXECUTOR:
+            return self.start_canary(candidate_id, command, auth=auth)
+        adapter = cast(_CanaryPreparationAdapter, self._adapter_resolver(candidate_kind))
+        prepare = getattr(adapter, "prepare_canary", None)
+        abort = getattr(adapter, "abort_canary_preparation", None)
+        if not callable(prepare) or not callable(abort):
+            raise PromotionConflict("executor_generation_unavailable")
+
+        with self._storage.unit_of_work() as unit_of_work:
+            connection = unit_of_work.connection
+            candidate = self._get_authorized_candidate(connection, candidate_id, auth=auth)
+            existing = self._completed_receipt(
+                connection,
+                command_key=command_key,
+                request_hash=request_hash,
+                receipt_type=PromotionReceiptV1,
+                candidate=candidate,
+                action="start_canary",
+                command=command,
+                auth=auth,
+            )
+            if existing is not None:
+                unit_of_work.commit()
+                return cast(PromotionReceiptV1, existing)
+            failed_entry = self._load_journal(connection, command_key, "failed")
+            if failed_entry is not None:
+                self._require_command_binding(
+                    failed_entry,
+                    candidate=candidate,
+                    command_key=command_key,
+                    action="start_canary",
+                    command=command,
+                    request_hash=request_hash,
+                    auth=auth,
+                )
+                raise PromotionConflict("executor_canary_preparation_failed")
+            applied_entry = self._load_journal(connection, command_key, "applied")
+            intended = self._load_journal(connection, command_key, "intended")
+            for entry in (intended, applied_entry):
+                if entry is not None:
+                    self._require_command_binding(
+                        entry,
+                        candidate=candidate,
+                        command_key=command_key,
+                        action="start_canary",
+                        command=command,
+                        request_hash=request_hash,
+                        auth=auth,
+                    )
+            if intended is None and getattr(adapter, "new_evolution_enabled", False) is not True:
+                raise PromotionConflict("executor_generation_unavailable")
+            self._require_expected_version(candidate, command.expected_version)
+            if candidate.lifecycle is not CandidateLifecycle.READY:
+                raise PromotionConflict("promotion_preconditions_not_met")
+            policy = self._policy_repository.get_policy(connection, candidate.subject_key)
+            if policy is not None and policy.kind is not candidate.kind:
+                raise PromotionConflict("evolution_policy_kind_conflict")
+            mode = policy.mode if policy is not None else default_mode_for(candidate.kind)
+            if mode != "canary":
+                raise PromotionConflict("policy_forbids_canary")
+            if command.allocation_basis_points > (
+                candidate.evolution_contract.max_canary_allocation_basis_points
+            ):
+                raise PromotionConflict("allocation_exceeds_contract")
+            if (
+                policy is not None
+                and command.allocation_basis_points > policy.max_canary_basis_points
+            ):
+                raise PromotionConflict("allocation_exceeds_policy")
+            self._require_no_inflight_subject_transition(
+                connection,
+                candidate,
+                command_key=command_key,
+            )
+            self._require_canary_slot(connection, candidate)
+            try:
+                report = self._gates.get_current_report_current(connection, candidate_id)
+            except EvolutionRepositoryConflict as exc:
+                raise PromotionConflict("gate_snapshot_conflict") from exc
+            if (
+                report is None
+                or not report.promotion_allowed
+                or report.candidate_id != candidate.candidate_id
+                or report.candidate_version != candidate.version
+                or report.candidate_digest != candidate.candidate.artifact_digest
+                or report.gate_snapshot_version != candidate.gate_snapshot_version
+            ):
+                raise PromotionConflict("gate_snapshot_conflict")
+            if self._routing_row(connection, candidate_id) is not None:
+                raise PromotionConflict("promotion_preconditions_not_met")
+            if intended is None:
+                intended = _JournalEntry(
+                    command_key=command_key,
+                    idempotency_key=command.idempotency_key,
+                    candidate_id=candidate_id,
+                    action="start_canary",
+                    status="intended",
+                    decision_request_id=command.decision_request_id,
+                    request_hash=request_hash,
+                    principal_id=auth.principal.id,
+                    reason=command.reason,
+                    pre_transition_candidate_version=candidate.version,
+                    candidate_digest=candidate.candidate.artifact_digest,
+                    base_digest=candidate.base.artifact_digest,
+                    gate_snapshot_version=report.gate_snapshot_version,
+                    gate_report_hash=report.report_hash,
+                    routing_version=1,
+                    allocation_basis_points=command.allocation_basis_points,
+                )
+                self._append_journal(
+                    connection,
+                    command_key=command_key,
+                    candidate=candidate,
+                    decision_request_id=command.decision_request_id,
+                    entry=intended,
+                    now=self._now(),
+                )
+            unit_of_work.commit()
+
+        generation_id = _executor_generation_id(command_key, candidate)
+        try:
+            if applied_entry is None:
+                effect = await prepare(
+                    candidate,
+                    command_key=command_key,
+                    generation_id=generation_id,
+                    promotion_journal_id=_journal_id(command_key, "intended"),
+                )
+                self._validate_canary_effect(
+                    effect,
+                    candidate=candidate,
+                    generation_id=generation_id,
+                    promotion_journal_id=_journal_id(command_key, "intended"),
+                )
+                with self._storage.unit_of_work() as unit_of_work:
+                    applied = intended.model_copy(
+                        update={"status": "applied", "receipt": effect.model_dump(mode="json")}
+                    )
+                    self._append_journal(
+                        unit_of_work.connection,
+                        command_key=command_key,
+                        candidate=candidate,
+                        decision_request_id=command.decision_request_id,
+                        entry=applied,
+                        now=self._now(),
+                    )
+                    unit_of_work.commit()
+            else:
+                effect = self._canary_preparation_effect(applied_entry, candidate=candidate)
+                self._validate_canary_effect(
+                    effect,
+                    candidate=candidate,
+                    generation_id=generation_id,
+                    promotion_journal_id=_journal_id(command_key, "intended"),
+                )
+            return self._complete_executor_canary(
+                candidate_id=candidate_id,
+                command=command,
+                auth=auth,
+                command_key=command_key,
+                candidate=candidate,
+                intended=intended,
+                effect=effect,
+                adapter=adapter,
+            )
+        except asyncio.CancelledError:
+            self._fail_executor_canary_command(
+                adapter=adapter,
+                candidate=candidate,
+                command=command,
+                command_key=command_key,
+                generation_id=generation_id,
+                intended=intended,
+            )
+            raise
+        except Exception as exc:
+            self._fail_executor_canary_command(
+                adapter=adapter,
+                candidate=candidate,
+                command=command,
+                command_key=command_key,
+                generation_id=generation_id,
+                intended=intended,
+            )
+            if isinstance(exc, PromotionConflict):
+                raise
+            raise PromotionConflict("executor_canary_preparation_failed") from exc
+
+    def _complete_executor_canary(
+        self,
+        *,
+        candidate_id: str,
+        command: StartCanaryCommand,
+        auth: AuthContext,
+        command_key: str,
+        candidate: EvolutionCandidateV1,
+        intended: _JournalEntry,
+        effect: CanaryPreparationReceiptV1,
+        adapter: _CanaryPreparationAdapter,
+    ) -> PromotionReceiptV1:
+        with self._storage.unit_of_work() as unit_of_work:
+            connection = unit_of_work.connection
+            current = self._get_authorized_candidate(connection, candidate_id, auth=auth)
+            self._require_expected_version(current, command.expected_version)
+            if current.lifecycle is not CandidateLifecycle.READY:
+                raise PromotionConflict("promotion_preconditions_not_met")
+            policy = self._policy_repository.get_policy(connection, current.subject_key)
+            mode = policy.mode if policy is not None else default_mode_for(current.kind)
+            if policy is not None and policy.kind is not current.kind:
+                raise PromotionConflict("evolution_policy_kind_conflict")
+            if mode != "canary":
+                raise PromotionConflict("policy_forbids_canary")
+            self._require_canary_slot(connection, current)
+            try:
+                report = self._gates.get_current_report_current(connection, candidate_id)
+            except EvolutionRepositoryConflict as exc:
+                raise PromotionConflict("gate_snapshot_conflict") from exc
+            if (
+                report is None
+                or not report.promotion_allowed
+                or report.candidate_version != current.version
+                or report.candidate_digest != current.candidate.artifact_digest
+                or report.gate_snapshot_version != current.gate_snapshot_version
+            ):
+                raise PromotionConflict("gate_snapshot_conflict")
+            if self._routing_row(connection, candidate_id) is not None:
+                raise PromotionConflict("promotion_preconditions_not_met")
+            validate = getattr(adapter, "validate_canary_preparation_current", None)
+            if not callable(validate):
+                raise PromotionConflict("executor_generation_unavailable")
+            try:
+                validate(connection, current, effect)
+            except Exception as exc:
+                raise PromotionConflict("executor_generation_authority_invalid") from exc
+            now = self._now()
+            routing = RoutingPolicyV1(
+                allocation_basis_points=command.allocation_basis_points,
+                allocation_seed_id=command.allocation_seed_id,
+                routing_version=1,
+            )
+            self._insert_routing(connection, candidate_id, routing, now=now)
+            try:
+                durable = self._repository.save_candidate(
+                    connection,
+                    current.model_copy(
+                        update={
+                            "routing": routing,
+                            "lifecycle": CandidateLifecycle.CANARY,
+                            "updated_at": now,
+                        }
+                    ),
+                    expected_version=current.version,
+                )
+            except EvolutionRepositoryConflict as exc:
+                self._raise_repository_conflict(exc)
+            receipt = PromotionReceiptV1(
+                action="start_canary",
+                idempotency_key=command.idempotency_key,
+                journal_id=_journal_id(command_key, "completed"),
+                candidate_id=candidate_id,
+                candidate_version=durable.version,
+                gate_snapshot_version=report.gate_snapshot_version,
+                gate_report_hash=report.report_hash,
+                lifecycle=durable.lifecycle,
+                routing_version=routing.routing_version,
+                allocation_basis_points=routing.allocation_basis_points,
+                generation_id=effect.generation_id,
+                release_digest=effect.release_digest,
+                completed_at=now,
+            )
+            completed = intended.model_copy(
+                update={
+                    "status": "completed",
+                    "routing_version": routing.routing_version,
+                    "allocation_basis_points": routing.allocation_basis_points,
+                    "receipt": receipt.model_dump(mode="json", exclude_none=True),
+                }
+            )
+            self._append_journal(
+                connection,
+                command_key=command_key,
+                candidate=current,
+                decision_request_id=command.decision_request_id,
+                entry=completed,
+                now=now,
+            )
+            self._record(
+                connection,
+                candidate=durable,
+                auth=auth,
+                action="start_canary",
+                routing=routing,
+            )
+            unit_of_work.commit()
+            return receipt
+
+    def _fail_executor_canary_command(
+        self,
+        *,
+        adapter: _CanaryPreparationAdapter,
+        candidate: EvolutionCandidateV1,
+        command: StartCanaryCommand,
+        command_key: str,
+        generation_id: str,
+        intended: _JournalEntry,
+    ) -> None:
+        abort = getattr(adapter, "abort_canary_preparation", None)
+        if not callable(abort):
+            raise PromotionConflict("executor_canary_compensation_failed")
+        try:
+            abort(
+                candidate,
+                command_key=command_key,
+                generation_id=generation_id,
+                promotion_journal_id=_journal_id(command_key, "intended"),
+            )
+            with self._storage.unit_of_work() as unit_of_work:
+                existing = self._load_journal(
+                    unit_of_work.connection,
+                    command_key,
+                    "failed",
+                )
+                if existing is None:
+                    failed = intended.model_copy(update={"status": "failed", "receipt": None})
+                    self._append_journal(
+                        unit_of_work.connection,
+                        command_key=command_key,
+                        candidate=candidate,
+                        decision_request_id=command.decision_request_id,
+                        entry=failed,
+                        now=self._now(),
+                    )
+                unit_of_work.commit()
+        except Exception as exc:
+            raise PromotionConflict("executor_canary_compensation_failed") from exc
+
     def promote(
         self, candidate_id: str, command: PromoteCommand, *, auth: AuthContext
     ) -> PromotionReceiptV1:
         self._authorize(auth)
         request_hash = _request_hash(candidate_id, "promote", command)
         command_key = _command_key(auth, command.idempotency_key)
+        executor_preparation: CanaryPreparationReceiptV1 | None = None
         with self._storage.unit_of_work() as unit_of_work:
             connection = unit_of_work.connection
             candidate = self._get_authorized_candidate(connection, candidate_id, auth=auth)
@@ -935,6 +1378,18 @@ class PromotionService:
             if existing is not None:
                 unit_of_work.commit()
                 return cast(PromotionReceiptV1, existing)
+            failed_entry = self._load_journal(connection, command_key, "failed")
+            if failed_entry is not None:
+                self._require_command_binding(
+                    failed_entry,
+                    candidate=candidate,
+                    command_key=command_key,
+                    action="promote",
+                    command=command,
+                    request_hash=request_hash,
+                    auth=auth,
+                )
+                raise PromotionConflict("promotion_command_failed")
             applied_entry = self._load_journal(connection, command_key, "applied")
             if applied_entry is not None:
                 self._require_command_binding(
@@ -949,8 +1404,23 @@ class PromotionService:
             self._require_expected_version(candidate, command.expected_version)
             if candidate.lifecycle is not CandidateLifecycle.CANARY:
                 raise PromotionConflict("promotion_preconditions_not_met")
+            self._require_no_inflight_subject_transition(
+                connection,
+                candidate,
+                command_key=command_key,
+            )
             intended = self._load_journal(connection, command_key, "intended")
             if intended is None:
+                if (
+                    candidate.kind is CandidateKind.EXECUTOR
+                    and getattr(
+                        self._adapter_resolver(candidate.kind),
+                        "new_evolution_enabled",
+                        False,
+                    )
+                    is not True
+                ):
+                    raise PromotionConflict("executor_generation_unavailable")
                 policy = self._policy_repository.get_policy(connection, candidate.subject_key)
                 if policy is not None and policy.kind is not candidate.kind:
                     raise PromotionConflict("evolution_policy_kind_conflict")
@@ -958,11 +1428,19 @@ class PromotionService:
                 if mode == "frozen":
                     raise PromotionConflict("subject_frozen")
             start = self._require_start_binding(connection, candidate)
+            if candidate.kind is CandidateKind.EXECUTOR:
+                start_applied = self._load_journal(connection, start.command_key, "applied")
+                if start_applied is None:
+                    raise PromotionConflict("promotion_journal_conflict")
+                executor_preparation = self._canary_preparation_effect(
+                    start_applied,
+                    candidate=candidate,
+                )
             self._validate_bound_report(connection, candidate, start)
             self._require_routing_matches(connection, candidate, start)
-            if candidate.kind is CandidateKind.CODE:
+            if candidate.kind in HIGH_RISK_PROMOTION_KINDS:
                 try:
-                    self._repository.require_code_promotion_decision(
+                    self._repository.require_high_risk_promotion_decision(
                         connection,
                         candidate=candidate,
                         decision_request_id=command.decision_request_id,
@@ -1023,6 +1501,13 @@ class PromotionService:
         if (
             effect.candidate_id != candidate_id
             or effect.artifact_digest != candidate.candidate.artifact_digest
+            or (
+                executor_preparation is not None
+                and (
+                    effect.generation_id != executor_preparation.generation_id
+                    or effect.release_digest != executor_preparation.release_digest
+                )
+            )
         ):
             raise PromotionConflict("promotion_activation_receipt_invalid")
         if applied_entry is None:
@@ -1030,7 +1515,7 @@ class PromotionService:
                 applied = intended.model_copy(
                     update={
                         "status": "applied",
-                        "receipt": effect.model_dump(mode="json"),
+                        "receipt": effect.model_dump(mode="json", exclude_none=True),
                     }
                 )
                 self._append_journal(
@@ -1085,7 +1570,7 @@ class PromotionService:
                     exc,
                     default=(
                         "promotion_decision_required"
-                        if current.kind is CandidateKind.CODE
+                        if current.kind in HIGH_RISK_PROMOTION_KINDS
                         else "candidate_version_conflict"
                     ),
                 )
@@ -1101,6 +1586,8 @@ class PromotionService:
                 routing_version=routing.routing_version,
                 allocation_basis_points=0,
                 effect_artifact_digest=effect.artifact_digest,
+                generation_id=effect.generation_id,
+                release_digest=effect.release_digest,
                 completed_at=now,
             )
             completed = intended.model_copy(
@@ -1108,7 +1595,7 @@ class PromotionService:
                     "status": "completed",
                     "routing_version": routing.routing_version,
                     "allocation_basis_points": 0,
-                    "receipt": receipt.model_dump(mode="json"),
+                    "receipt": receipt.model_dump(mode="json", exclude_none=True),
                 }
             )
             self._append_journal(
@@ -1171,6 +1658,26 @@ class PromotionService:
                     CandidateLifecycle.PROMOTED,
                 }:
                     raise PromotionConflict("promotion_preconditions_not_met")
+                self._require_no_inflight_subject_transition(
+                    connection,
+                    current,
+                    command_key=command_key,
+                    allow_same_candidate_promote=True,
+                )
+                self._require_no_dependent_live_candidate(connection, current)
+                if current.kind is CandidateKind.EXECUTOR:
+                    rollback_adapter = self._adapter_resolver(current.kind)
+                    validate_rollback = getattr(
+                        rollback_adapter,
+                        "validate_rollback_current",
+                        None,
+                    )
+                    if not callable(validate_rollback):
+                        raise PromotionConflict("executor_generation_unavailable")
+                    try:
+                        validate_rollback(connection, current)
+                    except Exception as exc:
+                        raise PromotionConflict("rollback_preconditions_not_met") from exc
                 row = self._require_routing_matches(connection, current)
                 now = self._now()
                 routing = self._zero_routing(connection, current, row=row, now=now)
@@ -1353,6 +1860,11 @@ class PromotionService:
             ):
                 raise PromotionConflict("candidate_version_conflict")
             now = self._now()
+            self._terminalize_superseded_promotions(
+                connection,
+                current,
+                now=now,
+            )
             durable = self._repository.save_candidate(
                 connection,
                 current.model_copy(update={"lifecycle": final_lifecycle, "updated_at": now}),
@@ -1587,6 +2099,73 @@ class PromotionService:
             raise PromotionConflict("subject_canary_exists")
 
     @staticmethod
+    def _require_no_inflight_subject_transition(
+        connection: sqlite3.Connection,
+        candidate: EvolutionCandidateV1,
+        *,
+        command_key: str,
+        allow_same_candidate_promote: bool = False,
+    ) -> None:
+        conflict = connection.execute(
+            """SELECT 1
+               FROM evolution_promotion_journal AS pending
+               JOIN evolution_candidates AS owner
+                 ON owner.candidate_id = pending.candidate_id
+               WHERE owner.kind=? AND owner.subject_key=?
+                 AND (
+                     (
+                         pending.action IN ('start_canary', 'promote')
+                         AND pending.status IN ('intended', 'applied')
+                     )
+                     OR (
+                         pending.action='rollback'
+                         AND pending.status IN ('rollback_pending', 'applied')
+                     )
+                 )
+                 AND pending.command_key<>?
+                 AND NOT (
+                     ?=1
+                     AND owner.candidate_id=?
+                     AND pending.action='promote'
+                 )
+                 AND NOT EXISTS (
+                     SELECT 1 FROM evolution_promotion_journal AS terminal
+                     WHERE terminal.command_key=pending.command_key
+                       AND terminal.action=pending.action
+                       AND terminal.status IN ('completed', 'failed')
+                 )
+               LIMIT 1""",
+            (
+                candidate.kind.value,
+                candidate.subject_key,
+                command_key,
+                int(allow_same_candidate_promote),
+                candidate.candidate_id,
+            ),
+        ).fetchone()
+        if conflict is not None:
+            raise PromotionConflict("subject_transition_in_progress")
+
+    @staticmethod
+    def _require_no_dependent_live_candidate(
+        connection: sqlite3.Connection,
+        candidate: EvolutionCandidateV1,
+    ) -> None:
+        conflict = connection.execute(
+            """SELECT lifecycle FROM evolution_candidates
+               WHERE kind=? AND subject_key=? AND candidate_id<>?
+                 AND lifecycle IN ('canary', 'rollback_pending')
+               ORDER BY candidate_id
+               LIMIT 1""",
+            (candidate.kind.value, candidate.subject_key, candidate.candidate_id),
+        ).fetchone()
+        if conflict is None:
+            return
+        if conflict["lifecycle"] == CandidateLifecycle.CANARY.value:
+            raise PromotionConflict("subject_canary_exists")
+        raise PromotionConflict("subject_transition_in_progress")
+
+    @staticmethod
     def _routing_row(connection: sqlite3.Connection, candidate_id: str) -> sqlite3.Row | None:
         return connection.execute(
             "SELECT * FROM evolution_routing_allocations WHERE candidate_id=?",
@@ -1789,6 +2368,60 @@ class PromotionService:
         ).fetchone()
         return self._decode_entry(row) if row is not None else None
 
+    def _terminalize_superseded_promotions(
+        self,
+        connection: sqlite3.Connection,
+        candidate: EvolutionCandidateV1,
+        *,
+        now: datetime,
+    ) -> None:
+        rows = connection.execute(
+            f"""SELECT {_JOURNAL_COLUMNS}
+                FROM evolution_promotion_journal AS intended
+                WHERE intended.candidate_id=?
+                  AND intended.action='promote'
+                  AND intended.status='intended'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM evolution_promotion_journal AS terminal
+                      WHERE terminal.command_key=intended.command_key
+                        AND terminal.action='promote'
+                        AND terminal.status IN ('completed', 'failed')
+                  )
+                ORDER BY intended.command_key""",
+            (candidate.candidate_id,),
+        ).fetchall()
+        for row in rows:
+            intended = self._decode_entry(row)
+            if (
+                intended.action != "promote"
+                or intended.status != "intended"
+                or intended.candidate_id != candidate.candidate_id
+                or candidate.version
+                not in {
+                    intended.pre_transition_candidate_version + 1,
+                    intended.pre_transition_candidate_version + 2,
+                }
+                or intended.candidate_digest != candidate.candidate.artifact_digest
+                or intended.base_digest != candidate.base.artifact_digest
+                or intended.gate_snapshot_version != candidate.gate_snapshot_version
+            ):
+                raise PromotionConflict("promotion_journal_conflict")
+            applied = self._load_journal(connection, intended.command_key, "applied")
+            if (
+                applied is not None
+                and applied.model_copy(update={"status": "intended", "receipt": None}) != intended
+            ):
+                raise PromotionConflict("promotion_journal_conflict")
+            failed = intended.model_copy(update={"status": "failed", "receipt": None})
+            self._append_journal(
+                connection,
+                command_key=intended.command_key,
+                candidate=candidate,
+                decision_request_id=intended.decision_request_id,
+                entry=failed,
+                now=now,
+            )
+
     @staticmethod
     def _decode_entry(row: sqlite3.Row) -> _JournalEntry:
         raw = row["entry_json"]
@@ -1807,8 +2440,8 @@ class PromotionService:
             if canonical_json_bytes(legacy).decode("utf-8") != raw:
                 raise PromotionConflict("promotion_journal_conflict")
         valid_statuses = {
-            "start_canary": {"completed"},
-            "promote": {"intended", "applied", "completed"},
+            "start_canary": {"intended", "applied", "completed", "failed"},
+            "promote": {"intended", "applied", "completed", "failed"},
             "rollback": {"rollback_pending", "applied", "completed"},
         }
         if (
@@ -1822,6 +2455,7 @@ class PromotionService:
             or row["decision_request_id"] != entry.decision_request_id
             or entry.status not in valid_statuses[entry.action]
             or ((entry.status in {"applied", "completed"}) != (entry.receipt is not None))
+            or (entry.status in {"intended", "rollback_pending"} and entry.receipt is not None)
         ):
             raise PromotionConflict("promotion_journal_conflict")
         return entry
@@ -1898,6 +2532,18 @@ class PromotionService:
         )
         if isinstance(receipt, PromotionReceiptV1):
             effect_digest = candidate.candidate.artifact_digest if action == "promote" else None
+            executor_effect: ActivationReceiptV1 | CanaryPreparationReceiptV1 | None = None
+            if candidate.kind is CandidateKind.EXECUTOR:
+                applied = self._load_journal(connection, command_key, "applied")
+                if applied is None:
+                    raise PromotionConflict("promotion_journal_conflict")
+                if action == "promote":
+                    executor_effect = self._activation_effect(applied, candidate=candidate)
+                else:
+                    executor_effect = self._canary_preparation_effect(
+                        applied,
+                        candidate=candidate,
+                    )
             invalid = (
                 common_invalid
                 or receipt.action != action
@@ -1907,6 +2553,17 @@ class PromotionService:
                 or receipt.routing_version != entry.routing_version
                 or receipt.allocation_basis_points != entry.allocation_basis_points
                 or receipt.effect_artifact_digest != effect_digest
+                or (
+                    executor_effect is not None
+                    and (
+                        receipt.generation_id != executor_effect.generation_id
+                        or receipt.release_digest != executor_effect.release_digest
+                    )
+                )
+                or (
+                    executor_effect is None
+                    and (receipt.generation_id is not None or receipt.release_digest is not None)
+                )
                 or (action == "start_canary" and receipt.lifecycle is not CandidateLifecycle.CANARY)
                 or (action == "promote" and receipt.lifecycle is not CandidateLifecycle.PROMOTED)
             )
@@ -1943,6 +2600,48 @@ class PromotionService:
         ):
             raise PromotionConflict("promotion_journal_conflict")
         return receipt
+
+    @staticmethod
+    def _canary_preparation_effect(
+        entry: _JournalEntry,
+        *,
+        candidate: EvolutionCandidateV1,
+    ) -> CanaryPreparationReceiptV1:
+        if entry.receipt is None:
+            raise PromotionConflict("promotion_journal_conflict")
+        try:
+            receipt = CanaryPreparationReceiptV1.model_validate(entry.receipt)
+        except ValidationError as exc:
+            raise PromotionConflict("promotion_journal_conflict") from exc
+        if (
+            entry.action != "start_canary"
+            or entry.status != "applied"
+            or entry.candidate_id != candidate.candidate_id
+            or receipt.candidate_id != entry.candidate_id
+            or receipt.candidate_version != entry.pre_transition_candidate_version
+            or receipt.candidate_artifact_digest != entry.candidate_digest
+        ):
+            raise PromotionConflict("promotion_journal_conflict")
+        return receipt
+
+    @staticmethod
+    def _validate_canary_effect(
+        receipt: CanaryPreparationReceiptV1,
+        *,
+        candidate: EvolutionCandidateV1,
+        generation_id: str,
+        promotion_journal_id: str,
+    ) -> None:
+        if (
+            receipt.candidate_id != candidate.candidate_id
+            or receipt.candidate_version != candidate.version
+            or receipt.candidate_artifact_digest != candidate.candidate.artifact_digest
+            or receipt.candidate_canonical_digest != candidate.candidate.canonical_digest
+            or receipt.scope != candidate.subject_key
+            or receipt.generation_id != generation_id
+            or receipt.promotion_journal_id != promotion_journal_id
+        ):
+            raise PromotionConflict("executor_generation_authority_invalid")
 
     @staticmethod
     def _rollback_effect(

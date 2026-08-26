@@ -149,6 +149,42 @@ def _code_candidate_at_canary(
     return repository, current
 
 
+def _executor_candidate_at_canary(
+    connection: sqlite3.Connection,
+) -> tuple[EvolutionRepository, EvolutionCandidateV1]:
+    repository = EvolutionRepository()
+    current = repository.insert_candidate(connection, _candidate(kind=CandidateKind.EXECUTOR))
+    EvolutionPolicyRepository().upsert_policy(
+        connection,
+        EvolutionPolicyV1(
+            subject_key=current.subject_key,
+            kind=current.kind,
+            mode="canary",
+            max_canary_basis_points=(current.evolution_contract.max_canary_allocation_basis_points),
+            version=1,
+            updated_at=NOW,
+        ),
+        expected_version=None,
+    )
+    for lifecycle in (
+        CandidateLifecycle.STAGED,
+        CandidateLifecycle.EVALUATING,
+        CandidateLifecycle.READY,
+        CandidateLifecycle.CANARY,
+    ):
+        current = repository.save_candidate(
+            connection,
+            current.model_copy(
+                update={
+                    "lifecycle": lifecycle,
+                    "updated_at": current.updated_at + timedelta(seconds=1),
+                }
+            ),
+            expected_version=current.version,
+        )
+    return repository, current
+
+
 def _insert_decision_roots(connection: sqlite3.Connection) -> None:
     connection.execute(
         "INSERT INTO edicts (id, goal, created_at) VALUES (?, ?, ?)",
@@ -354,6 +390,51 @@ def test_code_promote_accepts_only_a_current_canonical_high_risk_decision(
     repository, current = _code_candidate_at_canary(connection)
     decision_request_id = _persist_promotion_decision(connection, current)
 
+    saved = repository.save_candidate(
+        connection,
+        current.model_copy(
+            update={
+                "lifecycle": CandidateLifecycle.PROMOTED,
+                "updated_at": current.updated_at + timedelta(seconds=2),
+            }
+        ),
+        expected_version=current.version,
+        high_risk_decision_request_id=decision_request_id,
+    )
+
+    assert saved.lifecycle is CandidateLifecycle.PROMOTED
+    assert saved.version == current.version + 1
+
+
+def test_executor_promote_requires_a_bound_resolved_high_risk_decision(
+    connection: sqlite3.Connection,
+) -> None:
+    repository, current = _executor_candidate_at_canary(connection)
+
+    with pytest.raises(EvolutionRepositoryConflict, match="high-risk Decision"):
+        repository.save_candidate(
+            connection,
+            current.model_copy(
+                update={
+                    "lifecycle": CandidateLifecycle.PROMOTED,
+                    "updated_at": current.updated_at + timedelta(seconds=1),
+                }
+            ),
+            expected_version=current.version,
+        )
+
+
+def test_executor_promote_accepts_only_a_current_canonical_high_risk_decision(
+    connection: sqlite3.Connection,
+) -> None:
+    repository, current = _executor_candidate_at_canary(connection)
+    decision_request_id = _persist_promotion_decision(connection, current)
+
+    repository.require_code_promotion_decision(
+        connection,
+        candidate=current,
+        decision_request_id=decision_request_id,
+    )
     saved = repository.save_candidate(
         connection,
         current.model_copy(

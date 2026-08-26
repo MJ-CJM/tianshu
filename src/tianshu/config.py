@@ -62,6 +62,8 @@ class TianshuSettings(BaseSettings):
     evolution_routing_secret: str = ""
     evolution_routing_enabled: bool = True
     system_snapshot_enabled: bool = True
+    executor_generation_enabled: bool = False
+    executor_drift_scan_enabled: bool = False
     system_snapshot_strict: bool = Field(
         default=False,
         validation_alias=AliasChoices(
@@ -221,6 +223,8 @@ class TianshuSettings(BaseSettings):
     def validate_system_snapshot_switches(self) -> Self:
         if self.system_snapshot_strict and not self.system_snapshot_enabled:
             raise ValueError("system_snapshot_strict requires system_snapshot_enabled")
+        if self.executor_generation_enabled and not self.system_snapshot_enabled:
+            raise ValueError("executor_generation_enabled requires system_snapshot_enabled")
         return self
 
     @model_validator(mode="after")
