@@ -262,7 +262,7 @@ def test_explicit_policy_cap_is_stricter_than_candidate_contract(
         )
 
 
-def test_p4a_temporarily_rejects_a_second_canary_for_a_different_subject(
+def test_p4b_allows_canaries_for_different_subjects(
     storage: Storage,
     auth: AuthContext,
 ) -> None:
@@ -279,33 +279,31 @@ def test_p4a_temporarily_rejects_a_second_canary_for_a_different_subject(
     first_service, _first_gates, _first_adapter = promotion_service(storage, first)
     second_service, _second_gates, _second_adapter = promotion_service(storage, second)
 
-    first_service.start_canary(first.candidate_id, start_command(first), auth=auth)
-    with pytest.raises(PromotionConflict, match="^global_canary_exists$"):
-        second_service.start_canary(
-            second.candidate_id,
-            start_command(second, key="start-second-subject"),
-            auth=auth,
-        )
-    with (
-        storage.unit_of_work() as unit_of_work,
-        pytest.raises(EvolutionRepositoryConflict, match="^global_canary_exists$"),
-    ):
-        EvolutionRepository().save_candidate(
-            unit_of_work.connection,
-            second.model_copy(
-                update={
-                    "lifecycle": CandidateLifecycle.CANARY,
-                    "routing": _routing(),
-                    "updated_at": second.updated_at + timedelta(seconds=1),
-                }
-            ),
-            expected_version=second.version,
-        )
+    first_canary = first_service.start_canary(
+        first.candidate_id,
+        start_command(first),
+        auth=auth,
+    )
+    second_canary = second_service.start_canary(
+        second.candidate_id,
+        start_command(second, key="start-second-subject"),
+        auth=auth,
+    )
+    assert first_canary.lifecycle is CandidateLifecycle.CANARY
+    assert second_canary.lifecycle is CandidateLifecycle.CANARY
 
     with storage.unit_of_work() as unit_of_work:
-        routable = EvolutionRepository().get_routable_candidate(unit_of_work.connection)
+        routable = EvolutionRepository().get_routable_candidates(unit_of_work.connection)
+        with pytest.raises(
+            EvolutionRepositoryConflict,
+            match="^multiple canary routing authorities$",
+        ):
+            EvolutionRepository().get_routable_candidate(unit_of_work.connection)
         unit_of_work.commit()
-    assert routable is not None and routable.candidate_id == first.candidate_id
+    assert {candidate.candidate_id for candidate in routable} == {
+        first.candidate_id,
+        second.candidate_id,
+    }
 
 
 def test_repository_is_policy_authority_for_canary_and_promoted_transitions(

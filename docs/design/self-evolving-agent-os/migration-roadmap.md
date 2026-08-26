@@ -2,6 +2,12 @@
 
 > **Status: Proposed migration plan。**
 > 每一阶段都必须保持当前受管主链、Evidence 和 fail-closed 边界，不采用大爆炸重写。
+>
+> **进度（2026-08-26）**：P1/P3/P4a 已合入；P4b Issue #108 已在分支完成 V34 assignment
+> set（1..64 封存原子写）、continuity 选择、运行时深冻结、Evidence 与 truthful UI，PR/CI
+> 待创建。V34 应用后的回退必须保留 schema/ledger 并使用兼容 reader，不能部署纯 V33 二进制；
+> 只将 active CANARY authorities 经正常 promote/rollback 收敛到至多 1 个、最好 0 个并完成
+> pending rollback，不得强退已 PROMOTED subject。
 
 ## 1. 总体判断
 
@@ -171,7 +177,7 @@ Provider / Channel / Notifier
 Evidence 和 rollback。Agent Loop 可以作为满足稳定 Memorial/Attempt 执行契约的实现插件，
 但不能直接获得运行账本和 Promotion Authority。
 
-### Phase 5：Evolution 收敛到 PluginSet patch
+### Phase 5：Evolution 在 P4 policy/assignment 基础上收敛到 PluginSet patch
 
 工作：
 

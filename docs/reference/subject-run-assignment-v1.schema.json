@@ -1,0 +1,112 @@
+{
+  "$defs": {
+    "CandidateKind": {
+      "enum": [
+        "memory",
+        "skill",
+        "policy",
+        "persona",
+        "code"
+      ],
+      "title": "CandidateKind",
+      "type": "string"
+    },
+    "CandidateVersionRefV1": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "title": "Version",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "canonical_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Canonical Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "artifact_digest",
+        "canonical_digest"
+      ],
+      "title": "CandidateVersionRefV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One immutable routing decision for a governed evolution subject.",
+  "properties": {
+    "assignment_id": {
+      "title": "Assignment Id",
+      "type": "string"
+    },
+    "memorial_id": {
+      "title": "Memorial Id",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/CandidateKind"
+    },
+    "subject_key": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Subject Key",
+      "type": "string"
+    },
+    "candidate_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Candidate Id"
+    },
+    "champion_ref": {
+      "$ref": "#/$defs/CandidateVersionRefV1"
+    },
+    "selected_ref": {
+      "$ref": "#/$defs/CandidateVersionRefV1"
+    },
+    "routing_version": {
+      "minimum": 1,
+      "title": "Routing Version",
+      "type": "integer"
+    },
+    "bucket": {
+      "maximum": 9999,
+      "minimum": 0,
+      "title": "Bucket",
+      "type": "integer"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "assignment_id",
+    "memorial_id",
+    "kind",
+    "subject_key",
+    "candidate_id",
+    "champion_ref",
+    "selected_ref",
+    "routing_version",
+    "bucket",
+    "created_at"
+  ],
+  "title": "SubjectRunAssignmentV1",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tianshu.dev/schemas/subject-run-assignment-v1.schema.json",
+  "x-pydantic-version": "2.13.0"
+}

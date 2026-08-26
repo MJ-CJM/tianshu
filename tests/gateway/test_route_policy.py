@@ -124,6 +124,14 @@ def test_evolution_policy_routes_are_explicitly_admin_only(method: str) -> None:
     assert rule.all_scopes == frozenset()
 
 
+def test_evolution_policy_list_route_is_explicitly_admin_only() -> None:
+    rule = match_route_scope("GET", "/api/evolution/policies")
+
+    assert rule is not None
+    assert rule.any_scopes == frozenset({"admin"})
+    assert rule.all_scopes == frozenset()
+
+
 def test_matches_template_compares_declarations_not_concrete_paths() -> None:
     rule = next(
         rule for rule in ROUTE_SCOPE_RULES if rule.matches_template("GET", "/api/edicts/{edict_id}")

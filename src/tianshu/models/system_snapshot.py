@@ -19,6 +19,7 @@ _FIXED_COMPONENTS = frozenset(
         "policy_rules",
         "provider_profiles",
         "evolution_overlay",
+        "evolution_overlay_set",
         "prompts",
     }
 )

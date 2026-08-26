@@ -27,9 +27,11 @@ from tianshu.gateway.auth import get_auth_context
 from tianshu.models.events import make_event
 from tianshu.models.evolution_candidate import CandidateKind
 from tianshu.models.evolution_policy import EvolutionPolicyMode, EvolutionPolicyV1
+from tianshu.models.evolution_view import EvolutionCenterSnapshotV1
 from tianshu.models.run_assignment import (
     EffectiveEvolutionOverlayV1,
     LegacyRunAssignmentV1,
+    RunAssignmentSetV1,
     RunAssignmentV1,
 )
 from tianshu.models.system_audit import AppendSystemAuditRequest
@@ -38,7 +40,11 @@ from tianshu.storage.evolution_policy_repo import (
     EvolutionPolicyRepository,
     EvolutionPolicyRepositoryError,
 )
-from tianshu.storage.evolution_repo import EvolutionRepository, EvolutionRepositoryConflict
+from tianshu.storage.evolution_repo import (
+    EvolutionRepository,
+    EvolutionRepositoryConflict,
+    EvolutionRepositoryDecodeError,
+)
 from tianshu.storage.outbox_repo import OutboxRepository
 from tianshu.storage.system_audit_repo import _append_system_audit_unlocked
 from tianshu.storage.system_snapshot_repo import SystemSnapshotRepository
@@ -65,6 +71,7 @@ class RunEvolutionAssignmentViewV1(BaseModel):
 
     assignment: RunAssignmentV1 | LegacyRunAssignmentV1
     effective_overlay: EffectiveEvolutionOverlayV1 | None
+    assignment_set: RunAssignmentSetV1 | None
     system_snapshot: RunSystemSnapshotViewV1 | None
 
 
@@ -72,6 +79,13 @@ class RunEvolutionAssignmentResponseV1(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     data: RunEvolutionAssignmentViewV1
+    correlation_id: str
+
+
+class EvolutionCenterResponseV1(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    data: EvolutionCenterSnapshotV1
     correlation_id: str
 
 
@@ -99,6 +113,13 @@ class EvolutionPolicyResponseV1(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     data: EvolutionPolicyV1
+    correlation_id: str
+
+
+class EvolutionPolicyListResponseV1(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    data: tuple[EvolutionPolicyV1, ...]
     correlation_id: str
 
 
@@ -174,8 +195,8 @@ def _record_evolution_policy_update(
     )
 
 
-@evolution_router.get("")
-def get_evolution_center(request: Request) -> dict[str, object]:
+@evolution_router.get("", response_model=EvolutionCenterResponseV1)
+def get_evolution_center(request: Request) -> EvolutionCenterResponseV1:
     context = get_auth_context(request)
     service: EvolutionCenterQueryService = request.app.state.evolution_center_service
     try:
@@ -189,10 +210,11 @@ def get_evolution_center(request: Request) -> dict[str, object]:
                 "correlation_id": context.correlation_id,
             },
         ) from exc
-    return {
-        "data": snapshot.model_dump(mode="json"),
-        "correlation_id": context.correlation_id,
-    }
+    routing_enabled = bool(getattr(request.app.state.settings, "evolution_routing_enabled", True))
+    return EvolutionCenterResponseV1(
+        data=snapshot.model_copy(update={"routing_enabled": routing_enabled}),
+        correlation_id=context.correlation_id,
+    )
 
 
 @evolution_router.get(
@@ -223,7 +245,19 @@ def get_run_evolution_assignment(
                     "correlation_id": context.correlation_id,
                 },
             )
-        loaded = EvolutionRepository().get_assignment(connection, memorial_id)
+        repository = EvolutionRepository()
+        try:
+            loaded = repository.get_assignment(connection, memorial_id)
+            assignment_set = repository.get_assignment_set(connection, memorial_id)
+            repository.validate_assignment_projection(loaded, assignment_set)
+        except (EvolutionRepositoryConflict, EvolutionRepositoryDecodeError) as exc:
+            raise HTTPException(
+                503,
+                {
+                    "code": "run_assignment_unavailable",
+                    "correlation_id": context.correlation_id,
+                },
+            ) from exc
         if loaded is None:
             raise HTTPException(
                 404,
@@ -239,6 +273,7 @@ def get_run_evolution_assignment(
         data=RunEvolutionAssignmentViewV1(
             assignment=assignment,
             effective_overlay=overlay,
+            assignment_set=assignment_set,
             system_snapshot=(
                 RunSystemSnapshotViewV1(
                     digest=binding.snapshot.digest,
@@ -249,6 +284,33 @@ def get_run_evolution_assignment(
                 else None
             ),
         ),
+        correlation_id=context.correlation_id,
+    )
+
+
+@evolution_router.get(
+    "/policies",
+    response_model=EvolutionPolicyListResponseV1,
+)
+def list_evolution_policies(request: Request) -> EvolutionPolicyListResponseV1:
+    context = get_auth_context(request)
+    repository = EvolutionPolicyRepository()
+    try:
+        with request.app.state.storage.unit_of_work() as unit_of_work:
+            rows = unit_of_work.connection.execute(
+                "SELECT subject_key FROM evolution_policies ORDER BY subject_key"
+            ).fetchall()
+            loaded_policies: list[EvolutionPolicyV1] = []
+            for row in rows:
+                policy = repository.get_policy(unit_of_work.connection, row["subject_key"])
+                if policy is None:  # pragma: no cover - same transaction read preserves the row
+                    raise EvolutionPolicyRepositoryError("evolution policy row disappeared")
+                loaded_policies.append(policy)
+            unit_of_work.commit()
+    except EvolutionPolicyRepositoryError as exc:
+        _raise_evolution_policy_error(exc, context.correlation_id)
+    return EvolutionPolicyListResponseV1(
+        data=tuple(loaded_policies),
         correlation_id=context.correlation_id,
     )
 

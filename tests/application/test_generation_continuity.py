@@ -6,15 +6,18 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+from unittest.mock import patch
 
 import pytest
 from tests.universe.test_challenger_routing import _seed_memorial
+from tests.universe.test_multi_subject_routing import _assignment_set, _seed_canaries
 from tests.universe.test_snapshot_binding import _snapshot_resolver
 
+from tianshu.application.managed_run_ingress import ManagedRunCommand, ManagedRunIngress
 from tianshu.application.scheduled_runs import ScheduledRunPreparer
 from tianshu.evolution.runtime_context import current_run_binding
 from tianshu.evolution.system_snapshot import SystemSnapshotResolver
-from tianshu.models import Edict, EdictSchedule, Memorial
+from tianshu.models import Edict, EdictSchedule, Memorial, TaskStatus
 from tianshu.models.edict import EdictRuntime
 from tianshu.storage.generation_repo import GenerationRepository
 from tianshu.storage.system_snapshot_repo import SystemSnapshotRepository
@@ -79,6 +82,11 @@ class _Controller:
     def release_binding(self, attempt_id: str) -> bool:
         self.releases.append(attempt_id)
         return True
+
+
+class _Reconciler:
+    async def reconcile_once(self) -> int:
+        return 1
 
 
 def _router(storage, controller: _Controller) -> ChallengerRouter:
@@ -771,6 +779,89 @@ def test_followup_inherits_parent_generation_while_new_root_takes_active(storage
         root = current_run_binding()
         assert root is not None
         assert root.generation_ids == (_GENERATION_TWO,)
+
+
+async def test_managed_followup_inherits_each_parent_subject_assignment(storage) -> None:
+    edict = Edict(id="edict-subject-continuity", goal="continue", submitter="principal-1")
+    parent = Memorial(
+        id="parent-subject-root",
+        edict_id=edict.id,
+        status=TaskStatus.COMPLETED,
+        created_at=_NOW,
+        completed_at=_NOW + timedelta(minutes=1),
+    )
+    storage.save_edict(edict)
+    storage.save_memorial(parent)
+    payloads = _seed_canaries(
+        storage,
+        ("candidate-followup-foo", "skill:foo", "seed-followup-foo"),
+        ("candidate-followup-bar", "skill:bar", "seed-followup-bar"),
+    )
+    bucket_calls: list[tuple[str, str]] = []
+
+    def bucket(memorial_id: str, seed_id: str, _secret: bytes) -> int:
+        bucket_calls.append((memorial_id, seed_id))
+        parent_buckets = {"seed-followup-foo": 999, "seed-followup-bar": 1_000}
+        child_buckets = {"seed-followup-foo": 1_000, "seed-followup-bar": 999}
+        return (parent_buckets if memorial_id == parent.id else child_buckets)[seed_id]
+
+    router = ChallengerRouter(
+        storage,
+        allocation_secret=b"continuity-test-secret",
+        bucket_calculator=bucket,
+        payload_resolver=lambda _connection, selected_ref, _overlay: payloads[
+            selected_ref.artifact_digest
+        ],
+        clock=lambda: _NOW,
+    )
+    router.assign(parent.id)
+    parent_set = _assignment_set(storage, parent.id)
+    assert parent_set is not None
+    bucket_calls.clear()
+    ingress = ManagedRunIngress(
+        storage,
+        _Reconciler(),
+        clock=lambda: _NOW + timedelta(minutes=2),
+        challenger_router=router,
+    )
+
+    with patch.object(router, "assign_current", wraps=router.assign_current) as assign_current:
+        result = await ingress.start(
+            ManagedRunCommand(
+                edict_id=edict.id,
+                idempotency_key="followup:multi-subject",
+                instruction="continue",
+                event_type="followup.submitted",
+                event_payload={"instruction": "continue"},
+                parent_memorial_id=parent.id,
+            )
+        )
+
+    assert assign_current.call_count == 1
+    assert assign_current.call_args.kwargs["inherit_from_memorial_id"] == parent.id
+    assert result.memorial.parent_memorial_id == parent.id
+    assert bucket_calls == []
+    child_set = _assignment_set(storage, result.memorial.id)
+    assert child_set is not None
+    parent_by_subject = {item.subject_key: item for item in parent_set.assignments}
+    child_by_subject = {item.subject_key: item for item in child_set.assignments}
+    assert set(parent_by_subject) == set(child_by_subject) == {"skill:foo", "skill:bar"}
+    for subject_key, parent_assignment in parent_by_subject.items():
+        child_assignment = child_by_subject[subject_key]
+        assert child_assignment.assignment_id != parent_assignment.assignment_id
+        assert (
+            child_assignment.candidate_id,
+            child_assignment.champion_ref,
+            child_assignment.selected_ref,
+            child_assignment.routing_version,
+            child_assignment.bucket,
+        ) == (
+            parent_assignment.candidate_id,
+            parent_assignment.champion_ref,
+            parent_assignment.selected_ref,
+            parent_assignment.routing_version,
+            parent_assignment.bucket,
+        )
 
 
 def test_followup_skips_unbound_parent_and_inherits_nearest_bound_ancestor(storage) -> None:

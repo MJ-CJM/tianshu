@@ -184,18 +184,61 @@ class EvolutionCenterQueryService:
         ).fetchone()
         if row is None:
             return None
-        counts = connection.execute(
-            """SELECT
-                   COALESCE(SUM(CASE WHEN selected_ref_json=champion_ref_json THEN 1 ELSE 0 END), 0)
-                       AS champion_count,
-                   COALESCE(SUM(CASE WHEN selected_ref_json<>champion_ref_json THEN 1 ELSE 0 END), 0)
-                       AS challenger_count
-               FROM run_evolution_assignments
-               WHERE candidate_id=? AND routing_version=?""",
-            (candidate.candidate_id, row["routing_version"]),
+        has_subject_assignments = connection.execute(
+            """SELECT 1
+               FROM sqlite_master
+               WHERE type='table' AND name='run_subject_assignments'"""
         ).fetchone()
+        if has_subject_assignments is None:
+            counts = connection.execute(
+                """SELECT
+                       COALESCE(SUM(
+                           CASE WHEN selected_ref_json=champion_ref_json THEN 1 ELSE 0 END
+                       ), 0) AS champion_count,
+                       COALESCE(SUM(
+                           CASE WHEN selected_ref_json<>champion_ref_json THEN 1 ELSE 0 END
+                       ), 0) AS challenger_count
+                   FROM run_evolution_assignments
+                   WHERE candidate_id=? AND routing_version=?""",
+                (candidate.candidate_id, row["routing_version"]),
+            ).fetchone()
+        else:
+            counts = connection.execute(
+                """WITH authoritative_assignments AS (
+                       SELECT memorial_id, selected_ref_json, champion_ref_json
+                       FROM run_subject_assignments
+                       WHERE candidate_id=? AND routing_version=?
+                       UNION ALL
+                       SELECT legacy.memorial_id,
+                              legacy.selected_ref_json,
+                              legacy.champion_ref_json
+                       FROM run_evolution_assignments AS legacy
+                       WHERE legacy.candidate_id=?
+                         AND legacy.routing_version=?
+                         AND NOT EXISTS (
+                             SELECT 1
+                             FROM run_subject_assignments AS subject_assignment
+                             WHERE subject_assignment.memorial_id=legacy.memorial_id
+                         )
+                   )
+                   SELECT
+                       COALESCE(SUM(
+                           CASE WHEN selected_ref_json=champion_ref_json THEN 1 ELSE 0 END
+                       ), 0) AS champion_count,
+                       COALESCE(SUM(
+                           CASE WHEN selected_ref_json<>champion_ref_json THEN 1 ELSE 0 END
+                       ), 0) AS challenger_count
+                   FROM authoritative_assignments""",
+                (
+                    candidate.candidate_id,
+                    row["routing_version"],
+                    candidate.candidate_id,
+                    row["routing_version"],
+                ),
+            ).fetchone()
         return EvolutionRoutingSummaryV1(
             candidate_id=candidate.candidate_id,
+            subject_key=candidate.subject_key,
             routing_version=row["routing_version"],
             allocation_percent=row["allocation_basis_points"] / 100,
             champion_assignment_count=counts["champion_count"],

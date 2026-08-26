@@ -4793,6 +4793,119 @@ def _evolution_policies_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+# --- V34: immutable per-subject run assignments ---
+
+_RUN_SUBJECT_ASSIGNMENTS_VERSION = _EVOLUTION_POLICIES_VERSION + 1
+_RUN_SUBJECT_ASSIGNMENTS_NAME = f"{_RUN_SUBJECT_ASSIGNMENTS_VERSION:04d}_run_subject_assignments"
+_RUN_SUBJECT_ASSIGNMENTS_STATEMENTS = (
+    """
+    CREATE TABLE run_subject_assignments (
+        assignment_id TEXT PRIMARY KEY,
+        memorial_id TEXT NOT NULL REFERENCES memorials(id) ON DELETE RESTRICT,
+        kind TEXT NOT NULL CHECK (
+            kind IN ('memory','skill','policy','persona','code','executor')
+        ),
+        subject_key TEXT NOT NULL CHECK (
+            length(trim(subject_key)) BETWEEN 1 AND 512
+        ),
+        candidate_id TEXT REFERENCES evolution_candidates(candidate_id) ON DELETE RESTRICT,
+        routing_version INTEGER NOT NULL CHECK (routing_version > 0),
+        bucket INTEGER NOT NULL CHECK (bucket BETWEEN 0 AND 9999),
+        champion_ref_json TEXT NOT NULL,
+        selected_ref_json TEXT NOT NULL,
+        overlay_digest TEXT NOT NULL CHECK (length(overlay_digest) = 64),
+        assignment_json TEXT NOT NULL,
+        assignment_hash TEXT NOT NULL CHECK (length(assignment_hash) = 64),
+        assignment_set_hash TEXT NOT NULL CHECK (
+            length(assignment_set_hash) = 64
+            AND assignment_set_hash NOT GLOB '*[^0-9a-f]*'
+        ),
+        assignment_set_size INTEGER NOT NULL CHECK (
+            assignment_set_size BETWEEN 1 AND 64
+        ),
+        created_at TEXT NOT NULL,
+        UNIQUE (memorial_id, kind, subject_key)
+    )
+    """,
+    """
+    CREATE TRIGGER run_subject_assignments_sealed_insert
+    BEFORE INSERT ON run_subject_assignments
+    WHEN EXISTS (
+        SELECT 1 FROM run_subject_assignments
+        WHERE memorial_id = NEW.memorial_id
+    ) AND (
+        EXISTS (
+            SELECT 1 FROM run_subject_assignments
+            WHERE memorial_id = NEW.memorial_id
+              AND (
+                  assignment_set_hash <> NEW.assignment_set_hash
+                  OR assignment_set_size <> NEW.assignment_set_size
+              )
+        )
+        OR (
+            SELECT COUNT(*) FROM run_subject_assignments
+            WHERE memorial_id = NEW.memorial_id
+        ) >= NEW.assignment_set_size
+    ) BEGIN
+        SELECT RAISE(ABORT, 'run subject assignment set is sealed');
+    END
+    """,
+    """
+    CREATE TRIGGER run_subject_assignments_no_update
+    BEFORE UPDATE ON run_subject_assignments BEGIN
+        SELECT RAISE(ABORT, 'run subject assignment is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER run_subject_assignments_no_delete
+    BEFORE DELETE ON run_subject_assignments
+    WHEN OLD.candidate_id IS NOT NULL BEGIN
+        SELECT RAISE(ABORT, 'governed run subject assignment is immutable');
+    END
+    """,
+)
+_RUN_SUBJECT_ASSIGNMENTS_CHECKSUM = hashlib.sha256(
+    (
+        _RUN_SUBJECT_ASSIGNMENTS_NAME
+        + "\n"
+        + "\n".join(
+            " ".join(statement.split()) for statement in _RUN_SUBJECT_ASSIGNMENTS_STATEMENTS
+        )
+    ).encode("utf-8")
+).hexdigest()
+_RUN_SUBJECT_ASSIGNMENTS_OBJECT_NAMES = (
+    "run_subject_assignments",
+    "run_subject_assignments_sealed_insert",
+    "run_subject_assignments_no_update",
+    "run_subject_assignments_no_delete",
+)
+
+
+def _run_subject_assignments_upgrade(conn: MigrationConnection) -> None:
+    placeholders = ",".join("?" for _ in _RUN_SUBJECT_ASSIGNMENTS_OBJECT_NAMES)
+    rows = conn.execute(
+        f"SELECT name, sql FROM sqlite_master WHERE name IN ({placeholders})",
+        _RUN_SUBJECT_ASSIGNMENTS_OBJECT_NAMES,
+    ).fetchall()
+    if rows:
+        actual = {str(row[0]): " ".join(str(row[1]).split()) for row in rows}
+        expected = {
+            name: " ".join(statement.split())
+            for name, statement in zip(
+                _RUN_SUBJECT_ASSIGNMENTS_OBJECT_NAMES,
+                _RUN_SUBJECT_ASSIGNMENTS_STATEMENTS,
+                strict=True,
+            )
+        }
+        if actual != expected:
+            raise SchemaCompatibilityError(
+                "existing run subject assignment schema does not match the live migration"
+            )
+        return
+    for statement in _RUN_SUBJECT_ASSIGNMENTS_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
     Migration(
         version=_EVOLUTION_CANDIDATE_MIGRATION_VERSION,
@@ -4889,6 +5002,12 @@ MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
         name=_EVOLUTION_POLICIES_NAME,
         checksum=_EVOLUTION_POLICIES_CHECKSUM,
         upgrade=_evolution_policies_upgrade,
+    ),
+    Migration(
+        version=_RUN_SUBJECT_ASSIGNMENTS_VERSION,
+        name=_RUN_SUBJECT_ASSIGNMENTS_NAME,
+        checksum=_RUN_SUBJECT_ASSIGNMENTS_CHECKSUM,
+        upgrade=_run_subject_assignments_upgrade,
     ),
 )
 

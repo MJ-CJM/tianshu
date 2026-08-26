@@ -30,44 +30,65 @@ class _RuntimeSkillMember(TypedDict):
     content: str | None
 
 
-def _runtime_skill_overlay() -> tuple[str, dict | None] | None:
+def _runtime_skill_overlays() -> dict[str, dict | None]:
     from tianshu.evolution.runtime_context import current_evolution_runtime
+    from tianshu.models.canonical import canonical_sha256
 
     runtime = current_evolution_runtime()
-    if (
-        runtime is None
-        or runtime.overlay.kind is None
-        or runtime.overlay.kind.value != "skill"
-        or runtime.overlay.subject_key is None
-    ):
-        return None
-    name = runtime.overlay.subject_key.removeprefix("skill:")
-    package = runtime.selected_payload
-    if package.get("state") == "absent":
-        return name, None
-    members = cast(list[_RuntimeSkillMember], package["members"])
-    skill_member = next(
-        (
-            member
-            for member in members
-            if member.get("path") == "SKILL.md" and member.get("kind") == "file"
-        ),
-        None,
+    if runtime is None:
+        return {}
+    try:
+        runtime.validate_subject_views()
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("runtime evolution provenance mismatch") from exc
+    entries = tuple(
+        (key, overlay, runtime.payloads[key]) for key, overlay in sorted(runtime.overlays.items())
     )
-    assert skill_member is not None
-    post = frontmatter.loads(cast(str, skill_member["content"]))
-    metadata = post.metadata or {}
-    openclaw = metadata.get("metadata", {}).get("openclaw", {})
-    return name, {
-        "name": name,
-        "description": metadata.get("description", ""),
-        "source": "evolution-overlay",
-        "always": openclaw.get("always", False),
-        "tool_tier": openclaw.get("toolTier"),
-        "path": "",
-        "content_length": len(post.content),
-        "content": post.content,
-    }
+    if not entries and runtime.overlay is not None and runtime.selected_payload is not None:
+        entries = (("compatibility", runtime.overlay, runtime.selected_payload),)
+
+    skills: dict[str, dict | None] = {}
+    for _key, overlay, package in entries:
+        if canonical_sha256(package) != overlay.canonical_digest:
+            raise RuntimeError("runtime skill overlay payload digest mismatch")
+        if (
+            overlay.kind is None
+            or overlay.kind.value != "skill"
+            or overlay.subject_key is None
+            or not overlay.subject_key.startswith("skill:")
+        ):
+            continue
+        name = overlay.subject_key.removeprefix("skill:")
+        validate_skill_name(name)
+        if name in skills:
+            raise RuntimeError("multiple runtime overlays target the same skill")
+        if package.get("state") == "absent":
+            skills[name] = None
+            continue
+        members = cast(list[_RuntimeSkillMember], package["members"])
+        skill_member = next(
+            (
+                member
+                for member in members
+                if member.get("path") == "SKILL.md" and member.get("kind") == "file"
+            ),
+            None,
+        )
+        assert skill_member is not None
+        post = frontmatter.loads(cast(str, skill_member["content"]))
+        metadata = post.metadata or {}
+        openclaw = metadata.get("metadata", {}).get("openclaw", {})
+        skills[name] = {
+            "name": name,
+            "description": metadata.get("description", ""),
+            "source": "evolution-overlay",
+            "always": openclaw.get("always", False),
+            "tool_tier": openclaw.get("toolTier"),
+            "path": "",
+            "content_length": len(post.content),
+            "content": post.content,
+        }
+    return skills
 
 
 def validate_skill_name(name: str) -> str:
@@ -294,7 +315,7 @@ class SkillsLoader:
         # Load full content only for always-on skills
         parts: list[str] = []
         total = 0
-        for name in always_names:
+        for name in sorted(always_names):
             skill = self.get_skill(name)
             if not skill:
                 continue
@@ -366,9 +387,7 @@ class SkillsLoader:
         if hasattr(self, "_injected_skills"):
             skills.update(self._injected_skills)
 
-        runtime_overlay = _runtime_skill_overlay()
-        if runtime_overlay is not None:
-            runtime_name, runtime_skill = runtime_overlay
+        for runtime_name, runtime_skill in _runtime_skill_overlays().items():
             if runtime_skill is None:
                 skills.pop(runtime_name, None)
             else:
@@ -496,13 +515,11 @@ class SkillsLoader:
 
     @staticmethod
     def _with_runtime_metadata(metadata: list[dict]) -> list[dict]:
-        runtime_overlay = _runtime_skill_overlay()
-        if runtime_overlay is None:
-            return list(metadata)
-        name, skill = runtime_overlay
-        visible = [item for item in metadata if item["name"] != name]
-        if skill is not None:
-            visible.append({key: value for key, value in skill.items() if key != "content"})
+        runtime_overlays = _runtime_skill_overlays()
+        visible = [item for item in metadata if item["name"] not in runtime_overlays]
+        for skill in runtime_overlays.values():
+            if skill is not None:
+                visible.append({key: value for key, value in skill.items() if key != "content"})
         return visible
 
     def _list_overlay_metadata(self) -> list[dict]:
@@ -587,9 +604,9 @@ class SkillsLoader:
     def get_skill(self, name: str) -> dict | None:
         """Return full content + metadata for a single skill."""
         validate_skill_name(name)
-        runtime_overlay = _runtime_skill_overlay()
-        if runtime_overlay is not None and runtime_overlay[0] == name:
-            return runtime_overlay[1]
+        runtime_overlays = _runtime_skill_overlays()
+        if name in runtime_overlays:
+            return runtime_overlays[name]
         # Check injected first
         if hasattr(self, "_injected_skills") and name in self._injected_skills:
             return {

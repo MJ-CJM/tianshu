@@ -138,6 +138,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     ),
     # v33 appends per-subject evolution policy and the subject-canary DB wall.
     "0033_evolution_policies": ("15aa3bd9527ca0c12be760c8213d029ac554e9ca5b6c7e117ad03c0fd4030d3c"),
+    # v34 appends immutable per-subject run assignments.
+    "0034_run_subject_assignments": (
+        "121909d74e49a0263e893327f0caf38f2915e322bd2028a099d4c5b8bde6f180"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

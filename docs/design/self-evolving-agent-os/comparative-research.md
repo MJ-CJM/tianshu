@@ -2,6 +2,13 @@
 
 > **文档性质：带时间和代码快照的研究结论，不是当前发布承诺。**
 > 详细来源和证据等级见 [source-map.md](source-map.md)。
+>
+> **实现进展（2026-08-26）**：上游比较仍按固定快照成立。Tianshu 已合入 P1/P3/P4a；
+> P4b Issue #108 已在分支完成 per-subject assignment set，PR/CI 待创建。冻结的
+> `LegacyRunAssignmentV1` / `RunAssignmentV1` 继续承载 fresh root 的 0/1 旧投影；V34
+> `RunAssignmentSetV1` 从 singleton 起承载 per-subject 选择，N>1 时旧表只留 legacy 投影。
+> 因此本文早期“仅单 assignment、缺 per-subject 归因”的描述是历史研究基线；进程级
+> snapshot 重启与通用 last-good 仍是后续阶段。
 
 ## 1. 当前 Tianshu：治理地基强，运行时插件尚未建立
 

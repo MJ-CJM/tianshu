@@ -28,6 +28,9 @@ vi.mock("../api/evolution", async (importOriginal) => ({
     return new Promise(() => undefined);
   },
 }));
+vi.mock("../components/evolution/EvolutionPolicyPanel", () => ({
+  default: () => <section aria-label="policy-panel">policy-panel</section>,
+}));
 
 import EvolutionCenterPage from "./EvolutionCenterPage";
 
@@ -39,6 +42,7 @@ const NOT_ENABLED: EvolutionCenterSnapshotV1 = {
   schema_version: 1,
   status: "not_enabled",
   reason_code: "s5_governed_evolution_not_enabled",
+  routing_enabled: true,
   candidates: [],
   routing: [],
   last_gate_hash: null,
@@ -60,6 +64,7 @@ const FIXTURE: EvolutionCenterSnapshotV1 = {
   schema_version: 1,
   status: "enabled",
   reason_code: "minimum_samples_blocking",
+  routing_enabled: true,
   candidates: [
     {
       candidate_id: "candidate-skill-7",
@@ -85,6 +90,7 @@ const FIXTURE: EvolutionCenterSnapshotV1 = {
   routing: [
     {
       candidate_id: "candidate-skill-7",
+      subject_key: "skill:reviewer",
       routing_version: 3,
       allocation_percent: 10,
       champion_assignment_count: 82,
@@ -187,6 +193,17 @@ describe("authoritative Evolution Center snapshot", () => {
     expect(screen.getByText("降级")).toBeInTheDocument();
     expect(screen.getByText("evolution_source_degraded")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "暂无数据" })).not.toBeInTheDocument();
+  });
+
+  it("shows an explicit routing-disabled boundary without hiding governed data", async () => {
+    evolutionSource.result = { ...FIXTURE, routing_enabled: false };
+    renderPage();
+
+    expect(await screen.findByText("candidate-skill-7")).toBeInTheDocument();
+    expect(screen.getByText("新试行分流已闭")).toBeInTheDocument();
+    expect(
+      screen.getByText("新行皆守正本；旧有成案仍循原分配，不复分桶。"),
+    ).toBeInTheDocument();
   });
 
   it("keeps degraded status and reason visible beside candidate data", async () => {

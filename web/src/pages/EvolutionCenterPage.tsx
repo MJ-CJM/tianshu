@@ -1,4 +1,4 @@
-import { Tag, Typography } from "antd";
+import { Alert, Tag, Typography } from "antd";
 
 import type { EvolutionCenterSnapshotV1 } from "../api/evolution";
 import {
@@ -8,6 +8,7 @@ import {
 import PageContainer from "../components/common/PageContainer";
 import MonoText from "../components/common/MonoText";
 import EvolutionGate from "../components/evolution/EvolutionGate";
+import EvolutionPolicyPanel from "../components/evolution/EvolutionPolicyPanel";
 import PageDataState from "../components/states/PageDataState";
 import { useT } from "../i18n";
 import {
@@ -64,7 +65,6 @@ function EnabledEmptySnapshot() {
 
 function SnapshotContent({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 }) {
   const t = useT();
-  if (snapshot.status === "not_enabled") return <DisabledSnapshot snapshot={snapshot} />;
   const routingByCandidate = new Map(
     snapshot.routing.map((item) => [item.candidate_id, item] as const),
   );
@@ -111,6 +111,29 @@ function SnapshotContent({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 }) 
   );
 }
 
+function GovernedSnapshotContent({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 }) {
+  const t = useT();
+  if (snapshot.status === "not_enabled") return <DisabledSnapshot snapshot={snapshot} />;
+  return (
+    <div style={{ display: "grid", gap: 16 }}>
+      {!snapshot.routing_enabled ? (
+        <Alert
+          type="warning"
+          showIcon
+          message={t("page.evolutionCenter.routingDisabled")}
+          description={t("page.evolutionCenter.routingDisabledDescription")}
+        />
+      ) : null}
+      {isEvolutionSnapshotEmpty(snapshot) ? (
+        <EnabledEmptySnapshot />
+      ) : (
+        <SnapshotContent snapshot={snapshot} />
+      )}
+      <EvolutionPolicyPanel />
+    </div>
+  );
+}
+
 export default function EvolutionCenterPage() {
   const t = useT();
   const { data, status, problem, refetch } = useEvolutionCenter();
@@ -126,7 +149,7 @@ export default function EvolutionCenterPage() {
         boundary={t("page.evolutionCenter.capabilityBoundary")}
       />
       {isEnabledEmpty ? (
-        <EnabledEmptySnapshot />
+        <GovernedSnapshotContent snapshot={data} />
       ) : (
         <PageDataState
           status={status}
@@ -135,7 +158,7 @@ export default function EvolutionCenterPage() {
           isEmpty={isEvolutionSnapshotEmpty}
           onRetry={refetch}
         >
-          {(snapshot) => <SnapshotContent snapshot={snapshot} />}
+          {(snapshot) => <GovernedSnapshotContent snapshot={snapshot} />}
         </PageDataState>
       )}
     </PageContainer>

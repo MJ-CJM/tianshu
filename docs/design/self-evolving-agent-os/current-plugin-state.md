@@ -16,6 +16,14 @@ P3 又新增一条窄的运行面切片：`keqing:pi` 可以由内部 controller
 stage → warm → activate → drain，并让运行中的 attempt 固定到同一代。它验证了代际机械，
 但没有开放 stage/activate API 或 CLI，也没有把这一能力泛化成第三方 PluginHost。
 
+P4a 已把每个 subject 的 EvolutionPolicy 合入集成分支。P4b Issue #108 则已在实现分支完成
+per-subject Skill canary：完整 assignment set 持久封存，运行时深冻结且 continuity sticky；
+SystemSnapshot 的 `evolution_overlay_set` 只保存 canonical overlay 列表的 digest。fresh root
+零 canary 不挂 governed assignment artifact，singleton 保留旧 artifact，N>1 只挂多值
+assignment-set artifact。它仍不是第三方动态 PluginHost；Web 也只提供 evolution mode 与
+max canary basis points 的严格 CAS 编辑，availability/source/curator protection 只读，
+`pinned` 不表示版本锁定。
+
 本页合并原 `docs/design/plugins/` 与 `docs/impl/plugins/` 的内容，作为本报告目录中的唯一
 插件现状说明。用户开发示例仍在 [扩展开发指南](../../usage/extension-guide.md)，但当前/目标
 能力边界以本目录为准。
@@ -39,6 +47,13 @@ stage → warm → activate → drain，并让运行中的 attempt 固定到同�
 | Pi 不可变 release / runtime generation | 内部可用 | 单发与 session adapter 同代物化；stage/warm/activate/rollback/recover 仅由内部组合根调用 |
 | attempt 代际固定与 continuity | 内部可用 | exact attempt 租约、follow-up/基础设施重试/DAG root 继承；周期任务每次 fresh root 取当时 active |
 | 代际生产写入口 | 不支持 | P3 不提供 HTTP/CLI，也不接 Candidate/Promotion；P5 才引入治理授权入口 |
+| per-subject Skill canary | P4b 分支实现与本地门禁完成 | V34 封存 1..64 条 assignment；后端 5270 passed、Web 347 passed；PR/目标分支 CI 待完成 |
+| 插件 enabled / version pin | 不支持 | P4b UI 不提供这两个开关；curator protection 不是版本 pin |
+
+P4b 路由顺序是 existing replay → continuity inheritance → fresh-root kill switch。关闭 routing
+只阻止 fresh root 新选 challenger，不切断已持久化 follow-up continuity。此时内部 Evolution
+probe=false，但 `evolution.rollback` 是 optional readiness check；若没有其他 required failure，
+整体 health 为 degraded，`/health/ready` 仍返回 HTTP 200，避免关闭可选自进化时摘除业务实例。
 
 单个清单解析失败只记录 WARNING 并跳过，不影响主服务启动。这里的 fail-soft 仅适用于无副
 作用的元数据发现；代码加载继续 fail closed。

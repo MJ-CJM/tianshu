@@ -376,7 +376,8 @@ from V32 to V33 only. V33 migration checksum is
 the frozen upgrade callback fingerprint is
 `15aa3bd9527ca0c12be760c8213d029ac554e9ca5b6c7e117ad03c0fd4030d3c`.
 
-Status: implementation complete for Issue #106 in PR #107; CI pending. Verification:
+Status: merged to feat/plugin-v1 by PR #107 at merge commit b94d4846; target-branch
+CI 6/6 passed. Verification before merge:
 515 P4a policy/CAS/API/migration/route and affected candidate, promotion,
 rollback, gate, routing, schema, audit, Skills API and auth tests passed in
 isolated groups. One initial multi-file process exited with the known macOS
@@ -385,5 +386,61 @@ then passed in a fresh process, so the native teardown is recorded rather than
 misreported as a Python assertion. Ruff check/format, Mypy (143 source files),
 and all four import-linter contracts passed. The two new admin-only policy
 routes produce 265 protected rules, 15 public rules and 279 route inventory
-references with exact coverage. Target-branch CI and merge evidence remain
-pending until the PR exists.
+references with exact coverage.
+
+=== Agent OS P4b / per-subject assignment sets (2026-08-26) ===
+
+Issue #108 implementation is complete on its feature branch; PR and target-branch CI
+have not yet been created. V34 `0034_run_subject_assignments` freezes a complete
+per-Memorial assignment set rather than independent loose rows. Each row persists the
+same canonical set hash and set size; owned objects are the table plus
+`run_subject_assignments_sealed_insert`, `run_subject_assignments_no_update`, and
+`run_subject_assignments_no_delete`. The repository writes 1..64 members as one batch
+under a SAVEPOINT; 65 members fail before any assignment row is written. Readers
+recompute the canonical set hash and size, so an incomplete or altered set fails closed.
+
+The plural candidate reader is authoritative. For a fresh root, zero canaries keep only
+the legacy projection, one canary keeps the exact legacy projection plus a V34 singleton,
+and multiple canaries keep the legacy marker plus the complete V34 set. A follow-up first
+inherits its parent's set instead of being reshaped from the current canary count. While
+CANARY it keeps the parent selection, after PROMOTED it selects `candidate.candidate`,
+rollback states select base, and ARCHIVED consults the current-version lifecycle journal
+(missing provenance fails closed). Runtime maps use kind-prefixed keys, revalidate
+provenance and digests per assignment, deeply freeze nested values, and apply `always`
+overlays in a deterministic order. Singleton compatibility does not call the payload
+resolver twice; the old and V34 JSON rows are still decoded independently.
+
+Evidence emits no governed assignment artifact for a fresh zero-canary root, keeps the
+old assignment artifact for a singleton, and emits only the assignment-set media type
+for N>1. SystemSnapshot stores in `evolution_overlay_set` the digest of the canonical
+overlay list, not the assignment set or its set hash. The Web policy surface is
+truthful: availability/source/curator protection are read-only, while evolution mode
+and max canary basis points use strict CAS. `SkillInfo.pinned` is curator protection,
+not a version pin, and P4b does not add an enabled switch.
+
+Frozen V34 migration checksum:
+`2ef0237b22f47310bf1f5d48d20c0262998bba960f1c9418687e54860dd2172f`.
+Frozen upgrade callback fingerprint:
+`121909d74e49a0263e893327f0caf38f2915e322bd2028a099d4c5b8bde6f180`.
+
+Final local verification is 5270 backend tests passed, 2 skipped and 24 slow tests
+deselected; all 77 Web test files and 347 tests passed. Ruff, format, Mypy,
+import-linter, TypeScript, ESLint (0 errors) and the production build also passed. The
+admin-only policy list route brings the explicit scope table to 266 protected rules,
+15 public rules and 280 route inventory references. PR and target-branch CI remain
+pending.
+
+Routing order is existing replay, then continuity inheritance, then the fresh-root kill
+switch. Disabling routing therefore stops fresh roots from newly selecting challengers
+but does not break persisted follow-up continuity. The internal Evolution readiness probe
+returns false; `evolution.rollback` is optional, so with no other required failure the
+overall health is degraded and `/health/ready` remains HTTP 200. This deliberately keeps
+a business-serving instance in service when optional self-evolution is disabled.
+
+Rollback is behavioral, not schema erasure: disable routing and restart, drain active
+attempts and OPEN continuities, use the normal promote/rollback path only for active
+CANARY authorities until the global active-canary count is at most one and preferably
+zero, and complete pending rollbacks. Do not force an already PROMOTED subject back to
+base merely to revert code. Then deploy only a behavior-compatible build that understands V34.
+Never deploy a pure V33/P4a binary onto a V34 database; preserve the migration
+declaration/checksum/callback, table, triggers, ledger, and assignment rows for audit.

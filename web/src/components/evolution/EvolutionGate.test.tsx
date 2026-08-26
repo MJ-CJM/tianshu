@@ -34,6 +34,7 @@ describe("EvolutionGate", () => {
         }}
         routing={{
           candidate_id: "candidate-skill-7",
+          subject_key: "skill:reviewer",
           routing_version: 3,
           allocation_percent: 10,
           champion_assignment_count: 82,
@@ -45,6 +46,7 @@ describe("EvolutionGate", () => {
     expect(screen.getByText("18 / 50")).toBeInTheDocument();
     expect(screen.getByText("b".repeat(64))).toBeInTheDocument();
     expect(screen.getByText("82")).toBeInTheDocument();
+    expect(screen.getByText("skill:reviewer")).toBeInTheDocument();
     expect(screen.getAllByText("18")).toHaveLength(1);
     const evidence = screen.getByRole("link", { name: "查看门禁证据" });
     expect(evidence).toHaveAttribute(

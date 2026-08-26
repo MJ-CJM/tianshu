@@ -235,12 +235,17 @@ approval.
 **Feature 14 of 20 · page title: Evolution Center**
 
 - **Entry**: **Frontier Lab [Experimental] → Evolution [Experimental]** → `/evolution`.
-- **What users can do**: inspect authoritative enablement status, Skill candidates, gates, canary
-  routing, promotion, and rollback evidence.
+- **What users can do**: inspect authoritative enablement status, Skill candidates, gates,
+  canary routing, promotion, and rollback evidence. On the current P4b implementation branch,
+  administrators can also inspect per-subject routing and update each Skill's evolution mode and
+  maximum canary basis points through strict CAS.
 - **Maturity**: experimental.
-- **Explicit boundary**: the current Web page is a read-only projection with no promotion or
-  rollback controls. The system does not auto-promote candidates; non-Skill production activation
-  remains closed, and full G4 is not complete.
+- **Explicit boundary**: availability, source, and curator protection are read-only; `pinned` is
+  not a version pin. There is no enabled switch, version pin, promotion button, or rollback button,
+  and all policy list/detail/write APIs are administrator-only. P4a merged in PR #107; the
+  per-subject routing and policy panel described here are implemented on the current P4b Issue
+  #108 branch. Local final gates passed; its PR and target-branch CI are still pending. The system does not auto-promote
+  candidates; non-Skill production activation remains closed, and full G4 is not complete.
 - **Related docs**: [Current Skills Boundary](../design/skills/README.md),
   [Skill Learning](../design/skills/learning.md),
   [Capability Matrix](../launch/capability-matrix.md).

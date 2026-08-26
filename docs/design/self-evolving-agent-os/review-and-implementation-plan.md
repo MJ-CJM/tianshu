@@ -3,6 +3,13 @@
 > **文档性质：对本目录 codex 报告的独立评审 + 可直接开工的 PR 级实现计划。**
 > 评审基线：本目录 9 篇文档 + 工作树 `88462b2a`（`feat/plugin-v1` 未提交状态）。
 > 所有"当前源码事实"均在本轮重新读代码核对，不转引报告结论。
+>
+> **后续勘误（2026-08-26）**：以上是历史评审基线。P4a 已由 PR #107 合入（merge
+> `b94d4846`，CI 6/6）；P4b Issue #108 已在实现分支完成，PR/CI 待创建。P4b 权威 reader
+> 为无 subject 参数的 plural `get_routable_candidates()`；V33 policy 当前字段不包含
+> allowed_surfaces/approval/budget；runtime key 为 `kind.value:subject_key`。Web 只读展示
+> availability/source/curator protection，只编辑 mode 与 max canary basis points；`pinned`
+> 不是版本 pin。sticky 必须来自持久 assignment set；manual 的 Decision override 尚未实现。
 
 ## 1. 总评
 
@@ -223,13 +230,13 @@ snapshot、在 Memorial/RunState/Evidence 三处双写"。实际：
 
 | 文件 | 内容 |
 |---|---|
-| `storage/evolution_repo.py` | `get_routable_candidate(connection, subject_key)`；不同 `subject_key` 允许并存 canary，同 subject 仍 fail closed |
-| `storage/migrations.py` V34 `0034_run_subject_assignments` | 新增不可变 per-subject assignment 表；现有 `RunAssignmentV1` 与旧表不改，先双写并保持单 canary 路径逐字节兼容 |
+| `storage/evolution_repo.py` | 无 subject 参数的 `get_routable_candidates(connection)` 返回权威多值集合；不同 `(kind, subject_key)` 允许并存 canary，同 pair 仍 fail closed |
+| `storage/migrations.py` V34 `0034_run_subject_assignments` | 新增不可变 per-subject assignment 表；现有 `RunAssignmentV1` 与旧表不改。fresh root singleton 保持旧表投影与旧 Evidence artifact 逐字节兼容，同时有意新增 V34 set 与 assignment API 字段 |
 | `universe/router.py` | `assign_current` 对每个有 canary 的 subject 独立分桶（`allocation_seed_id` 已按 candidate 区分，bucket 天然不同） |
-| `evolution/runtime_context.py` | `overlays: dict[subject_key, payload]` |
-| `storage/migrations.py` V33 `0033_evolution_policies` | `evolution_policies(subject_key PK, kind, mode ∈ {frozen,manual,canary}, allowed_surfaces_json, max_canary_basis_points, approval, budget_json, version)`；无行时 Skill 祖父化为 `canary`，其余 kind 为 `manual` |
+| `evolution/runtime_context.py` | `overlays` / `payloads` 以 `kind.value:subject_key` 为 key 并深冻结；N>1 时 singular accessor 返回 `None` |
+| `storage/migrations.py` V33 `0033_evolution_policies` | 实际冻结列为 `subject_key PK, kind, mode ∈ {frozen,manual,canary}, max_canary_basis_points, version, created_at, updated_at`；无行时 Skill 祖父化为 `canary`，其余 kind 为 `manual`；allowed surfaces / approval / budget 留在目标态 |
 | `candidate_service.py` / `promotion.py` | `propose`：`frozen` → 拒绝；`start_canary`：mode≠`canary` → 拒绝，bp 取 `min(contract, policy)`；`promote` 已要求 Decision，不变 |
-| Web 天工院 | 每插件一行：enabled / pinned digest / evolution mode 三个独立开关（报告 §8 的 YAML 只在 API 层） |
+| Web 天工院 | P4b 实际交付：availability/source/curator protection 只读；mode 与 max canary basis points 严格 CAS。无 enabled/version-pin 开关 |
 
 `auto` 模式不实现，`Literal[False]` 保持。
 

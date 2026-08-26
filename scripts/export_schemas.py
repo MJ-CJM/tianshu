@@ -17,7 +17,11 @@ from tianshu.models.lean_preview import (
     lean_preview_candidate_report_schema,
     lean_preview_demo_report_schema,
 )
-from tianshu.models.run_assignment import RunAssignmentV1
+from tianshu.models.run_assignment import (
+    RunAssignmentSetV1,
+    RunAssignmentV1,
+    SubjectRunAssignmentV1,
+)
 from tianshu.models.run_state import AgentContinuationV1, OuterLoopContinuationV1
 from tianshu.models.runtime_generation import RuntimeGenerationV1, RuntimeReleaseV1
 from tianshu.models.schema_export import schema_for
@@ -51,6 +55,8 @@ SCHEMA_EXPORTS: tuple[tuple[str, SchemaExporter], ...] = (
     _model_export("agent-continuation-v1.schema.json", AgentContinuationV1),
     _model_export("outer-loop-continuation-v1.schema.json", OuterLoopContinuationV1),
     _model_export("run-assignment-v1.schema.json", RunAssignmentV1),
+    _model_export("subject-run-assignment-v1.schema.json", SubjectRunAssignmentV1),
+    _model_export("run-assignment-set-v1.schema.json", RunAssignmentSetV1),
     _model_export("system-snapshot-v1.schema.json", SystemSnapshotV1),
     _model_export("runtime-release-v1.schema.json", RuntimeReleaseV1),
     _model_export("runtime-generation-v1.schema.json", RuntimeGenerationV1),

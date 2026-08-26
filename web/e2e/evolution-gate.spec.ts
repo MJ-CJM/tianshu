@@ -16,6 +16,10 @@ test("Evolution renders a blocked candidate from only the named read contract", 
   await installBlockedEvolutionContract(page);
   await page.goto(`${stack.baseURL}/evolution`);
   await expect(page.getByText("candidate:s4-blocked")).toBeVisible();
-  await expect(page.getByText("Promotion blocked")).toBeVisible();
+  await expect(
+    page.getByLabel("candidate:s4-blocked").getByText("Promotion blocked"),
+  ).toBeVisible();
   await expect(page.getByText("gate:evidence")).toBeVisible();
+  await expect(page.getByText("policy:guardrails")).toBeVisible();
+  await expect(page.getByText("skill:reviewer")).toBeVisible();
 });

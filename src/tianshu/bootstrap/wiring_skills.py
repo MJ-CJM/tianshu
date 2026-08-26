@@ -36,12 +36,16 @@ from tianshu.evolution.promotion import (
     UnavailablePromotionAdapter,
 )
 from tianshu.evolution.reconciler import EvolutionRollbackReconciler
+from tianshu.models.events import make_event
 from tianshu.models.evolution_candidate import CandidateKind, EvolutionContractV1, GateName
+from tianshu.models.system_audit import AppendSystemAuditRequest
 from tianshu.resources.overlay import packaged_defaults
 from tianshu.skills.curator import SkillCurator
 from tianshu.skills.install_service import SkillInstallService
 from tianshu.skills.loader import SkillsLoader, SkillsWatcher
 from tianshu.skills.metrics import SkillMetricsStore
+from tianshu.storage.outbox_repo import OutboxRepository
+from tianshu.storage.system_audit_repo import _append_system_audit_unlocked
 from tianshu.tools.registry import ToolRegistry
 from tianshu.tools.skill_tools import register_skill_tools
 from tianshu.universe.router import ChallengerRouter, allocation_bucket
@@ -61,6 +65,38 @@ def _demo_challenger_bucket(_memorial_id: str, _seed_id: str, _secret: bytes) ->
 
 def _routing_bucket_calculator(startup_profile: str):
     return _demo_challenger_bucket if startup_profile == "demo" else allocation_bucket
+
+
+def _record_routing_disabled(app: FastAPI) -> None:
+    correlation_id = "evolution-routing-disabled-startup"
+    try:
+        with app.state.storage.unit_of_work() as unit_of_work:
+            _append_system_audit_unlocked(
+                unit_of_work.connection,
+                AppendSystemAuditRequest(
+                    correlation_id=correlation_id,
+                    actor_digest=hashlib.sha256(b"system:evolution-router").hexdigest(),
+                    action="evolution_routing_disabled",
+                    outcome="succeeded",
+                    reason_code="evolution_routing_disabled",
+                    subject_kind="evolution_routing",
+                    subject_digest=hashlib.sha256(b"evolution:routing").hexdigest(),
+                ),
+            )
+            OutboxRepository().add(
+                unit_of_work.connection,
+                make_event(
+                    event_type="evolution_routing_disabled",
+                    producer="evolution_router",
+                    payload={
+                        "routing_enabled": False,
+                        "correlation_id": correlation_id,
+                    },
+                ),
+            )
+            unit_of_work.commit()
+    except Exception:  # noqa: BLE001 - startup audit is best effort by contract
+        logger.warning("Evolution routing disabled state could not be audited", exc_info=True)
 
 
 def wire_evolution_services(
@@ -119,9 +155,13 @@ def wire_evolution_services(
         gate_evaluator,
         adapter_resolver=promotion_adapters.__getitem__,
     )
-    app.state.evolution_reconciler = EvolutionRollbackReconciler(app.state.promotion_service)
+    app.state.evolution_reconciler = EvolutionRollbackReconciler(
+        app.state.promotion_service,
+        routing_enabled=settings.evolution_routing_enabled,
+    )
     challenger_router = ChallengerRouter(
         app.state.storage,
+        routing_enabled=settings.evolution_routing_enabled,
         allocation_secret=settings.evolution_routing_secret.encode() or None,
         bucket_calculator=_routing_bucket_calculator(settings.startup_profile),
         payload_resolver=candidates.resolve_effective_payload_current,
@@ -129,6 +169,8 @@ def wire_evolution_services(
         generation_controller=lambda: getattr(app.state, "generation_controller", None),
     )
     app.state.challenger_router = challenger_router
+    if not settings.evolution_routing_enabled:
+        _record_routing_disabled(app)
     app.state.edict_application_service = EdictApplicationService(
         app.state.storage,
         challenger_router=challenger_router,

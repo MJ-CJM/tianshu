@@ -7,6 +7,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from tianshu.models.canonical import canonical_sha256
 from tianshu.models.evolution_candidate import CandidateKind, CandidateVersionRefV1
 
 _DIGEST = r"^[0-9a-f]{64}$"
@@ -101,9 +102,56 @@ class EvolutionRunEvidenceV1(_StrictModel):
         return self
 
 
+class SubjectRunAssignmentV1(_StrictModel):
+    """One immutable routing decision for a governed evolution subject."""
+
+    assignment_id: str
+    memorial_id: str
+    kind: CandidateKind
+    subject_key: str = Field(min_length=1, max_length=512)
+    candidate_id: str | None
+    champion_ref: CandidateVersionRefV1
+    selected_ref: CandidateVersionRefV1
+    routing_version: int = Field(ge=1)
+    bucket: int = Field(ge=0, le=9_999)
+    created_at: datetime
+
+    _validate_ids = field_validator("assignment_id", "memorial_id", "subject_key")(_non_blank)
+    _validate_candidate_id = field_validator("candidate_id")(_optional_non_blank)
+    _normalize_created_at = field_validator("created_at")(_utc)
+
+
+class RunAssignmentSetV1(_StrictModel):
+    """Canonical per-subject assignments pinned to one Memorial."""
+
+    memorial_id: str
+    assignments: tuple[SubjectRunAssignmentV1, ...] = Field(min_length=1, max_length=64)
+    set_hash: str = Field(pattern=_DIGEST)
+
+    _validate_memorial_id = field_validator("memorial_id")(_non_blank)
+
+    @model_validator(mode="after")
+    def validate_assignment_set(self) -> Self:
+        if any(assignment.memorial_id != self.memorial_id for assignment in self.assignments):
+            raise ValueError("assignment set entries must belong to the same Memorial")
+        keys = tuple(
+            (assignment.kind.value, assignment.subject_key) for assignment in self.assignments
+        )
+        if len(set(keys)) != len(keys):
+            raise ValueError("assignment set kind and subject_key pairs must be unique")
+        if keys != tuple(sorted(keys)):
+            raise ValueError("assignment set entries must be canonically sorted")
+        material = self.model_dump(mode="json", exclude={"set_hash"})
+        if self.set_hash != canonical_sha256(material):
+            raise ValueError("assignment set hash does not match assignments")
+        return self
+
+
 __all__ = [
     "EffectiveEvolutionOverlayV1",
     "EvolutionRunEvidenceV1",
     "LegacyRunAssignmentV1",
+    "RunAssignmentSetV1",
     "RunAssignmentV1",
+    "SubjectRunAssignmentV1",
 ]

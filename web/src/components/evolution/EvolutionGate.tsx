@@ -69,6 +69,7 @@ export default function EvolutionGate({ candidate, routing }: EvolutionGateProps
 
       {routing ? (
         <section aria-label={t("evolutionUi.routingTitle")} style={{ ...factStyle, marginTop: 16 }}>
+          <Fact label={t("evolutionUi.subject")}>{routing.subject_key}</Fact>
           <Fact label={t("evolutionUi.allocation")}>{routing.allocation_percent}%</Fact>
           <Fact label={t("evolutionUi.championAssignments")}>
             {routing.champion_assignment_count}

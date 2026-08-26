@@ -1,7 +1,7 @@
 # 架构对照图：现在 → 目标
 
 > **文档性质：目标架构的图示，不是当前能力承诺。**
-> 左（现在）以工作树 `88462b2a` 为准；右（目标）对应
+> 左图是历史研究基线，以工作树 `88462b2a` 为准；右（目标）对应
 > [评审与实现计划](review-and-implementation-plan.md) 中 PR-1、PR-2、PR-3a、PR-4、
 > PR-3b/P5、PR-5 全部落地后的形态。
 
@@ -11,6 +11,10 @@
 图例：实线黑框 = 不变或保留；蓝色实框 = 新增或改变；赭色虚框 = 当前痛点；灰框 = 弱化但保留。
 
 ## 1. 现在（as-is，`88462b2a`）
+
+> 这是实施前的 as-is，不代表 2026-08-26 实现分支。当前 checkpoint：P1/P3/P4a 已合入；
+> P4b Issue #108 已完成 V34 per-subject assignment set、continuity sticky、深冻结与 truthful
+> UI，PR/CI 待创建；P5–P7 仍未完成。
 
 ![当前架构：运行只绑定单个 candidate overlay，执行器 replace 原地替换，注册表无 owner，SkillsWatcher 直接 reload，只有 Skill 有晋升适配器](../../assets/design/self-evolving-agent-os/as-is.svg)
 
@@ -31,7 +35,7 @@
 | 运行归因 | `RunAssignmentV1` 只记一个 candidate overlay；Evidence 有 effective contract、executor manifest、环境指纹，但没有 skills / persona / policy / provider 版本 | 每个 attempt 在第一个受管副作用前写独立 `run_generation_bindings`；snapshot 启用时另写 `run_system_bindings` 并挂 system-snapshot Evidence artifact。两者同在必须一致；snapshot 关闭时 system=0 行、marker 仍为精确 `bound []` 或代 id | PR-1 + PR-3a |
 | 注册表所有权 | `register_*` 直写全局注册表；Tool / Channel 没有 unregister；`register_command` 靠 `hasattr` 临时挂属性 | `ContributionHandle(owner, dispose)`；`dispose_owner()` 逆序卸载一个插件的全部贡献 | PR-2 |
 | 执行器换代 | `replace()` 原地换；没有 warm、没有 last-good；运行中的 run 与新 run 不分代 | stage → warm → activate；新 run 取新代，运行中的 run 固定旧代，exact-attempt lease 与 durable continuity roots 都释放后才 dispose；warm 失败指针不动 | PR-3a |
-| 分流粒度 | 全局同一时刻只允许 1 个 canary（多于 1 个直接抛错），每插件独立灰度在路由层不成立 | 按 `subject_key` 各自 canary、各自 sticky；每插件一行 `EvolutionPolicy`：frozen / manual / canary | PR-4 |
+| 分流粒度 | 历史基线全局只允许 1 个 canary；P4b 分支已按 `(kind, subject_key)` 独立灰度并持久封存 assignment set | 按 subject 各自 canary、sticky 与 rollback；每插件一行 `EvolutionPolicy`：frozen / manual / canary | PR-4 |
 | 版本漂移 | 客卿馆显示"待兼容验证"，人工确认后更新基线 | 漂移 → `CandidateKind.EXECUTOR` 候选 → Gates → per-subject canary → Decision → Executor adapter 换代 / 回 last-good | PR-3b / P5（PR-4 后） |
 | 内容变更 | SkillsWatcher 直接 reload active loader，运行中的 run 会看到新内容 | run 在 bind_runtime 冻结内容视图；watcher 只失效缓存，变化走 Candidate | PR-4 之后 |
 | 进程级发布 | 重启即当前代码，没有 snapshot 校验 | `tianshu serve --system-snapshot`；漂移记录，严格模式回 last-good | PR-5 |
