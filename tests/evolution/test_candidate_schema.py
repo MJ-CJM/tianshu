@@ -29,7 +29,9 @@ from tianshu.models.evolution_candidate import (
     RoutingPolicyV1,
     validate_lifecycle_transition,
 )
+from tianshu.models.evolution_policy import EvolutionPolicyV1
 from tianshu.storage.decision_repo import DecisionRepository
+from tianshu.storage.evolution_policy_repo import EvolutionPolicyRepository
 from tianshu.storage.evolution_repo import (
     EvolutionRepository,
     EvolutionRepositoryConflict,
@@ -116,6 +118,18 @@ def _code_candidate_at_canary(
 ) -> tuple[EvolutionRepository, EvolutionCandidateV1]:
     repository = EvolutionRepository()
     current = repository.insert_candidate(connection, _candidate(kind=CandidateKind.CODE))
+    EvolutionPolicyRepository().upsert_policy(
+        connection,
+        EvolutionPolicyV1(
+            subject_key=current.subject_key,
+            kind=current.kind,
+            mode="canary",
+            max_canary_basis_points=(current.evolution_contract.max_canary_allocation_basis_points),
+            version=1,
+            updated_at=NOW,
+        ),
+        expected_version=None,
+    )
     for lifecycle in (
         CandidateLifecycle.STAGED,
         CandidateLifecycle.EVALUATING,

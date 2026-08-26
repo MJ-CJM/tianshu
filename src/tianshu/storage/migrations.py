@@ -4709,6 +4709,90 @@ def _runtime_generations_upgrade(conn: MigrationConnection) -> None:
         )
 
 
+# --- V33: per-subject evolution policy + canary uniqueness ---
+
+_EVOLUTION_POLICIES_VERSION = _RUNTIME_GENERATIONS_VERSION + 1
+_EVOLUTION_POLICIES_NAME = f"{_EVOLUTION_POLICIES_VERSION:04d}_evolution_policies"
+_EVOLUTION_POLICIES_STATEMENTS = (
+    """
+    CREATE TABLE evolution_policies (
+        subject_key TEXT NOT NULL PRIMARY KEY CHECK (
+            length(trim(subject_key)) BETWEEN 1 AND 512
+        ),
+        kind TEXT NOT NULL CHECK (
+            kind IN ('memory','skill','policy','persona','code','executor')
+        ),
+        mode TEXT NOT NULL CHECK (mode IN ('frozen','manual','canary')),
+        max_canary_basis_points INTEGER NOT NULL CHECK (
+            max_canary_basis_points BETWEEN 0 AND 1000
+            AND (
+                mode <> 'canary'
+                OR max_canary_basis_points BETWEEN 1 AND 1000
+            )
+        ),
+        version INTEGER NOT NULL CHECK (version > 0),
+        updated_at TEXT NOT NULL CHECK (length(trim(updated_at)) > 0)
+    )
+    """,
+    """
+    CREATE UNIQUE INDEX idx_evolution_candidates_subject_canary
+    ON evolution_candidates(kind, subject_key) WHERE lifecycle = 'canary'
+    """,
+)
+_EVOLUTION_POLICIES_DUPLICATE_PREFLIGHT = """
+SELECT kind, subject_key, COUNT(*)
+FROM evolution_candidates
+WHERE lifecycle = 'canary'
+GROUP BY kind, subject_key
+HAVING COUNT(*) > 1
+LIMIT 1
+"""
+_EVOLUTION_POLICIES_CHECKSUM = hashlib.sha256(
+    (
+        _EVOLUTION_POLICIES_NAME
+        + "\n"
+        + "\n".join(" ".join(statement.split()) for statement in _EVOLUTION_POLICIES_STATEMENTS)
+        + "\n"
+        + " ".join(_EVOLUTION_POLICIES_DUPLICATE_PREFLIGHT.split())
+    ).encode("utf-8")
+).hexdigest()
+_EVOLUTION_POLICIES_OBJECT_NAMES = (
+    "evolution_policies",
+    "idx_evolution_candidates_subject_canary",
+)
+
+
+def _evolution_policies_upgrade(conn: MigrationConnection) -> None:
+    duplicate = conn.execute(_EVOLUTION_POLICIES_DUPLICATE_PREFLIGHT).fetchone()
+    if duplicate is not None:
+        raise SchemaCompatibilityError(
+            "existing evolution candidates contain duplicate subject canaries"
+        )
+
+    placeholders = ",".join("?" for _ in _EVOLUTION_POLICIES_OBJECT_NAMES)
+    rows = conn.execute(
+        f"SELECT name, sql FROM sqlite_master WHERE name IN ({placeholders})",
+        _EVOLUTION_POLICIES_OBJECT_NAMES,
+    ).fetchall()
+    if rows:
+        actual = {str(row[0]): " ".join(str(row[1]).split()) for row in rows}
+        expected = {
+            name: " ".join(statement.split())
+            for name, statement in zip(
+                _EVOLUTION_POLICIES_OBJECT_NAMES,
+                _EVOLUTION_POLICIES_STATEMENTS,
+                strict=True,
+            )
+        }
+        if actual != expected:
+            raise SchemaCompatibilityError(
+                "existing evolution policy schema does not match the live migration"
+            )
+        return
+    for statement in _EVOLUTION_POLICIES_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
     Migration(
         version=_EVOLUTION_CANDIDATE_MIGRATION_VERSION,
@@ -4799,6 +4883,12 @@ MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
         name=_RUNTIME_GENERATIONS_NAME,
         checksum=_RUNTIME_GENERATIONS_CHECKSUM,
         upgrade=_runtime_generations_upgrade,
+    ),
+    Migration(
+        version=_EVOLUTION_POLICIES_VERSION,
+        name=_EVOLUTION_POLICIES_NAME,
+        checksum=_EVOLUTION_POLICIES_CHECKSUM,
+        upgrade=_evolution_policies_upgrade,
     ),
 )
 

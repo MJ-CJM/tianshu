@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from tianshu.evidence.models import ClosedEvidenceBundleV1
 from tianshu.executor.capabilities import ExecutorCapabilityManifestV1
+from tianshu.models.evolution_policy import EvolutionPolicyV1
 from tianshu.models.governance_contract import EffectiveGovernanceContractV1
 from tianshu.models.lean_preview import (
     lean_preview_candidate_report_schema,
@@ -53,6 +54,7 @@ SCHEMA_EXPORTS: tuple[tuple[str, SchemaExporter], ...] = (
     _model_export("system-snapshot-v1.schema.json", SystemSnapshotV1),
     _model_export("runtime-release-v1.schema.json", RuntimeReleaseV1),
     _model_export("runtime-generation-v1.schema.json", RuntimeGenerationV1),
+    _model_export("evolution-policy-v1.schema.json", EvolutionPolicyV1),
 )
 
 

@@ -1,0 +1,68 @@
+{
+  "$defs": {
+    "CandidateKind": {
+      "enum": [
+        "memory",
+        "skill",
+        "policy",
+        "persona",
+        "code"
+      ],
+      "title": "CandidateKind",
+      "type": "string"
+    },
+    "EvolutionPolicyMode": {
+      "enum": [
+        "frozen",
+        "manual",
+        "canary"
+      ],
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One mutable policy row represented as an immutable CAS value.",
+  "properties": {
+    "subject_key": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Subject Key",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/CandidateKind"
+    },
+    "mode": {
+      "$ref": "#/$defs/EvolutionPolicyMode"
+    },
+    "max_canary_basis_points": {
+      "maximum": 1000,
+      "minimum": 0,
+      "title": "Max Canary Basis Points",
+      "type": "integer"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "subject_key",
+    "kind",
+    "mode",
+    "max_canary_basis_points",
+    "version",
+    "updated_at"
+  ],
+  "title": "EvolutionPolicyV1",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tianshu.dev/schemas/evolution-policy-v1.schema.json",
+  "x-pydantic-version": "2.13.0"
+}

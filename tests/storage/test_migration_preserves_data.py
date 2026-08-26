@@ -64,6 +64,7 @@ _COMPLETE_MIGRATION_LEDGER = [
     (30, "0030_consultation_rounds"),
     (31, "0031_system_snapshots"),
     (32, "0032_runtime_generations"),
+    (33, "0033_evolution_policies"),
 ]
 _POST_BASELINE_TABLES = {
     "auth_tokens",
@@ -111,6 +112,8 @@ _POST_BASELINE_TABLES = {
     "runtime_generation_journal",
     "generation_pointers",
     "run_generation_bindings",
+    # v33 per-subject evolution governance (no row backfill)
+    "evolution_policies",
 }
 _POST_BASELINE_INDEXES = {
     "idx_auth_tokens_principal",
@@ -146,6 +149,7 @@ _POST_BASELINE_INDEXES = {
     "idx_consultations_status",
     "idx_consultation_rounds_consultation",
     "idx_runtime_generations_active",
+    "idx_evolution_candidates_subject_canary",
 }
 _EVOLUTION_IMMUTABLE_TRIGGERS = {
     "evolution_gate_snapshots_no_update",

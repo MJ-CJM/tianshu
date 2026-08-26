@@ -220,6 +220,8 @@ _ADMIN_ROUTES = (
     ("POST", "/api/evolution/candidates/{candidate_id}/canary"),
     ("POST", "/api/evolution/candidates/{candidate_id}/promote"),
     ("POST", "/api/evolution/candidates/{candidate_id}/rollback"),
+    ("GET", "/api/evolution/policies/{subject_key}"),
+    ("PUT", "/api/evolution/policies/{subject_key}"),
     ("POST", "/api/estop/engage"),
     ("POST", "/api/estop/resume"),
     ("GET", "/api/workers"),

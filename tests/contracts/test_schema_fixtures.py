@@ -23,6 +23,7 @@ _EXPECTED_FILENAMES = (
     "system-snapshot-v1.schema.json",
     "runtime-release-v1.schema.json",
     "runtime-generation-v1.schema.json",
+    "evolution-policy-v1.schema.json",
 )
 
 

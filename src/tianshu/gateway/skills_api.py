@@ -9,6 +9,7 @@ from typing import NoReturn
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from tianshu.evolution.candidate_service import CandidateServiceError
 from tianshu.gateway.auth import get_auth_context
 from tianshu.models import ApiResponse
 from tianshu.models.canonical import canonical_sha256
@@ -65,7 +66,10 @@ class _EvaluateSkillGateRequest(BaseModel):
 def _raise_skill_evidence_error(exc: Exception) -> NoReturn:
     if isinstance(exc, SkillEvidenceNotFound):
         raise HTTPException(404, {"code": "evidence_bundle_not_found"}) from exc
-    if isinstance(exc, (SkillEvidenceInvalid, EvolutionRepositoryConflict)):
+    if isinstance(
+        exc,
+        (CandidateServiceError, SkillEvidenceInvalid, EvolutionRepositoryConflict),
+    ):
         raise HTTPException(409, {"code": str(exc)}) from exc
     raise exc
 
@@ -160,16 +164,19 @@ async def update_skill(name: str, request: Request):
         raise HTTPException(status_code=409, detail="skill_package_render_invalid") from None
     service: SkillInstallService = request.app.state.skill_install_service
     auth = get_auth_context(request)
-    candidate = service.propose(
-        _inline_command(
-            name=name,
-            base_members=base_members,
-            content=candidate_document,
-            source_channel=CandidateSourceChannel.API,
-            correlation_id=auth.correlation_id,
-        ),
-        auth=auth,
-    )
+    try:
+        candidate = service.propose(
+            _inline_command(
+                name=name,
+                base_members=base_members,
+                content=candidate_document,
+                source_channel=CandidateSourceChannel.API,
+                correlation_id=auth.correlation_id,
+            ),
+            auth=auth,
+        )
+    except CandidateServiceError as exc:
+        _raise_skill_evidence_error(exc)
     return ApiResponse(
         success=True,
         data={"candidate_id": candidate.candidate_id, "lifecycle": candidate.lifecycle},
@@ -227,7 +234,7 @@ def create_skill(body: _CreateSkillRequest, request: Request):
             ),
             auth=auth,
         )
-    except (SkillEvidenceInvalid, SkillEvidenceNotFound) as exc:
+    except (CandidateServiceError, SkillEvidenceInvalid, SkillEvidenceNotFound) as exc:
         _raise_skill_evidence_error(exc)
     return ApiResponse(
         success=True,

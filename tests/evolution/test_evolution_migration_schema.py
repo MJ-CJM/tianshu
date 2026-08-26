@@ -26,6 +26,7 @@ from tianshu.storage.migration_ledger import MigrationExecutionError, apply_migr
 from tianshu.storage.migrations import (
     _EVOLUTION_CANDIDATE_OBJECT_NAMES,
     _EVOLUTION_CANDIDATE_STATEMENTS,
+    _EVOLUTION_POLICIES_STATEMENTS,
     _LEGACY_ASSIGNMENT_CLEANUP_STATEMENTS,
     _SYSTEM_SNAPSHOTS_OBJECT_NAMES,
     _SYSTEM_SNAPSHOTS_STATEMENTS,
@@ -213,6 +214,7 @@ _V18_DEFAULTS = {("evolution_candidates", "gate_snapshot_version"): "0"}
 _V18_UNIQUE_COLUMN_SETS = {
     "evolution_candidates": {
         ("candidate_id",),
+        ("kind", "subject_key"),
         ("kind", "subject_key", "candidate_id"),
     },
     "evolution_gate_snapshots": {
@@ -335,6 +337,9 @@ def _declared_v18_objects() -> dict[str, str]:
     # v22 重建了 no_delete 触发器（legacy 占位可清理）；完整重放后的实况以 v22 为准
     declared["run_evolution_assignments_no_delete"] = " ".join(
         _LEGACY_ASSIGNMENT_CLEANUP_STATEMENTS[1].split()
+    )
+    declared["idx_evolution_candidates_subject_canary"] = " ".join(
+        _EVOLUTION_POLICIES_STATEMENTS[1].split()
     )
     return declared
 

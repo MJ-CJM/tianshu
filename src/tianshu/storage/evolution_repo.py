@@ -23,10 +23,17 @@ from tianshu.models.run_assignment import (
     RunAssignmentV1,
 )
 from tianshu.storage.decision_repo import DecisionDecodeError, DecisionRepository
+from tianshu.storage.evolution_policy_repo import (
+    EvolutionPolicyRepository,
+    default_mode_for,
+)
 
 _LEGACY_ASSIGNMENT_MARKER = {"mode": "legacy_unmanaged"}
 _LEGACY_ASSIGNMENT_MARKER_JSON = canonical_json_bytes(_LEGACY_ASSIGNMENT_MARKER).decode("utf-8")
 _LEGACY_ASSIGNMENT_MARKER_DIGEST = canonical_sha256(_LEGACY_ASSIGNMENT_MARKER)
+_SUBJECT_CANARY_UNIQUE_MESSAGE = (
+    "UNIQUE constraint failed: evolution_candidates.kind, evolution_candidates.subject_key"
+)
 
 
 class EvolutionRepositoryError(RuntimeError):
@@ -237,6 +244,13 @@ def _require_immutable_core(current: EvolutionCandidateV1, candidate: EvolutionC
         raise EvolutionRepositoryConflict("candidate gate snapshot version cannot move backwards")
     if candidate.updated_at < current.updated_at:
         raise EvolutionRepositoryConflict("candidate updated_at cannot move backwards")
+
+
+def _is_subject_canary_unique_conflict(error: sqlite3.IntegrityError) -> bool:
+    return getattr(error, "sqlite_errorcode", None) == sqlite3.SQLITE_CONSTRAINT_UNIQUE and (
+        str(error) == _SUBJECT_CANARY_UNIQUE_MESSAGE
+        or "idx_evolution_candidates_subject_canary" in str(error)
+    )
 
 
 class EvolutionRepository:
@@ -548,38 +562,87 @@ class EvolutionRepository:
             except ValueError as exc:
                 raise EvolutionRepositoryConflict("illegal lifecycle transition") from exc
 
-            if (
-                candidate.kind is CandidateKind.CODE
-                and candidate.lifecycle is CandidateLifecycle.PROMOTED
-            ):
-                self.require_code_promotion_decision(
-                    connection,
-                    candidate=current,
-                    decision_request_id=high_risk_decision_request_id,
-                )
+        if candidate.lifecycle in {
+            CandidateLifecycle.CANARY,
+            CandidateLifecycle.PROMOTED,
+        }:
+            policy = EvolutionPolicyRepository().get_policy(connection, candidate.subject_key)
+            if policy is not None and policy.kind is not candidate.kind:
+                raise EvolutionRepositoryConflict("evolution_policy_kind_conflict")
+            mode = policy.mode if policy is not None else default_mode_for(candidate.kind)
+            if mode == "frozen":
+                raise EvolutionRepositoryConflict("subject_frozen")
+            if candidate.lifecycle is CandidateLifecycle.CANARY:
+                if mode != "canary":
+                    raise EvolutionRepositoryConflict("policy_forbids_canary")
+                if (
+                    candidate.routing is not None
+                    and candidate.routing.allocation_basis_points
+                    > candidate.evolution_contract.max_canary_allocation_basis_points
+                ):
+                    raise EvolutionRepositoryConflict("allocation_exceeds_contract")
+                if (
+                    policy is not None
+                    and candidate.routing is not None
+                    and candidate.routing.allocation_basis_points > policy.max_canary_basis_points
+                ):
+                    raise EvolutionRepositoryConflict("allocation_exceeds_policy")
+                subject_conflict = connection.execute(
+                    """SELECT 1 FROM evolution_candidates
+                       WHERE lifecycle='canary' AND kind=? AND subject_key=?
+                         AND candidate_id<>?
+                       LIMIT 1""",
+                    (candidate.kind.value, candidate.subject_key, candidate.candidate_id),
+                ).fetchone()
+                if subject_conflict is not None:
+                    raise EvolutionRepositoryConflict("subject_canary_exists")
+                global_conflict = connection.execute(
+                    """SELECT 1 FROM evolution_candidates
+                       WHERE lifecycle='canary' AND candidate_id<>?
+                       LIMIT 1""",
+                    (candidate.candidate_id,),
+                ).fetchone()
+                if global_conflict is not None:
+                    raise EvolutionRepositoryConflict("global_canary_exists")
+
+        if (
+            candidate.lifecycle is not current.lifecycle
+            and candidate.kind is CandidateKind.CODE
+            and candidate.lifecycle is CandidateLifecycle.PROMOTED
+        ):
+            self.require_code_promotion_decision(
+                connection,
+                candidate=current,
+                decision_request_id=high_risk_decision_request_id,
+            )
         saved = candidate.model_copy(update={"version": expected_version + 1})
-        cursor = connection.execute(
-            """
-            UPDATE evolution_candidates
-            SET gate_snapshot_version = ?, evidence_bundle_ids_json = ?,
-                routing_json = ?, lifecycle = ?, version = ?, updated_at = ?
-            WHERE candidate_id = ? AND version = ?
-            """,
-            (
-                saved.gate_snapshot_version,
-                _json_text(saved.evidence_bundle_ids),
+        try:
+            cursor = connection.execute(
+                """
+                UPDATE evolution_candidates
+                SET gate_snapshot_version = ?, evidence_bundle_ids_json = ?,
+                    routing_json = ?, lifecycle = ?, version = ?, updated_at = ?
+                WHERE candidate_id = ? AND version = ?
+                """,
                 (
-                    canonical_json_bytes(saved.routing).decode("utf-8")
-                    if saved.routing is not None
-                    else None
+                    saved.gate_snapshot_version,
+                    _json_text(saved.evidence_bundle_ids),
+                    (
+                        canonical_json_bytes(saved.routing).decode("utf-8")
+                        if saved.routing is not None
+                        else None
+                    ),
+                    saved.lifecycle.value,
+                    saved.version,
+                    saved.updated_at.isoformat(),
+                    saved.candidate_id,
+                    expected_version,
                 ),
-                saved.lifecycle.value,
-                saved.version,
-                saved.updated_at.isoformat(),
-                saved.candidate_id,
-                expected_version,
-            ),
-        )
+            )
+        except sqlite3.IntegrityError as exc:
+            if _is_subject_canary_unique_conflict(exc):
+                raise EvolutionRepositoryConflict("subject_canary_exists") from exc
+            raise
         if cursor.rowcount != 1:
             raise EvolutionRepositoryConflict("evolution candidate compare-and-swap conflict")
         if saved.lifecycle is not current.lifecycle:
