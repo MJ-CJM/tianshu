@@ -5,11 +5,15 @@
 > 所有"当前源码事实"均在本轮重新读代码核对，不转引报告结论。
 >
 > **后续勘误（2026-08-26）**：以上是历史评审基线。P4a 已由 PR #107 合入（merge
-> `b94d4846`，CI 6/6）；P4b Issue #108 已在实现分支完成，PR #109 已创建、CI 待完成。P4b 权威 reader
+> `b94d4846`，CI 6/6）；P4b 已由 PR #109 合入 `feat/plugin-v1`（merge `a8a03071`）。P4b 权威 reader
 > 为无 subject 参数的 plural `get_routable_candidates()`；V33 policy 当前字段不包含
 > allowed_surfaces/approval/budget；runtime key 为 `kind.value:subject_key`。Web 只读展示
 > availability/source/curator protection，只编辑 mode 与 max canary basis points；`pinned`
 > 不是版本 pin。sticky 必须来自持久 assignment set；manual 的 Decision override 尚未实现。
+> 当前 P5 checkout 又完成 Pi EXECUTOR 治理垂直切片。下文“只有 Skill adapter、其余映射
+> `UnavailablePromotionAdapter`”是 `88462b2a` 的历史事实；P5 后 EXECUTOR 始终映射
+> `ExecutorPromotionAdapter`，`executor_generation_enabled` 只关闭新的前向演化，保留 recovery、
+> rollback 与 reconcile。P6/P7 尚未完成。
 
 ## 1. 总评
 

@@ -142,6 +142,11 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0034_run_subject_assignments": (
         "121909d74e49a0263e893327f0caf38f2915e322bd2028a099d4c5b8bde6f180"
     ),
+    # v35 safely rebuilds the governed candidate FK graph for executor candidates
+    # and appends generation-scoped authority plus its immutable journal.
+    "0035_executor_candidate_kind": (
+        "2d6b9cea990835204a889ad2c65dadc9f34c3025cc4568df78d8087dee7f0f73"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

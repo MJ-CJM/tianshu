@@ -98,7 +98,17 @@ def _governed_lifecycle_write_sites(source: str, *, path: str) -> list[str]:
                 lifecycle = next(
                     (item.value for item in node.keywords if item.arg == "lifecycle"), None
                 )
-                if lifecycle is not None and governed_value(lifecycle, value_aliases):
+                is_candidate_constructor = (
+                    isinstance(node.func, ast.Name) and node.func.id == "EvolutionCandidateV1"
+                ) or (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "EvolutionCandidateV1"
+                )
+                if (
+                    is_candidate_constructor
+                    and lifecycle is not None
+                    and governed_value(lifecycle, value_aliases)
+                ):
                     sites.append(f"{path}:{qualifier}:{node.lineno}")
     return sites
 
@@ -161,6 +171,14 @@ def qualified_constructor(models):
     ]
 
 
+def test_lifecycle_writer_scanner_ignores_read_only_precondition_keywords() -> None:
+    source = """
+def validate(candidate):
+    return require_candidate(candidate, lifecycle=CandidateLifecycle.CANARY)
+"""
+    assert _governed_lifecycle_write_sites(source, path="precondition.py") == []
+
+
 def test_sql_writer_scanner_normalizes_tokens_and_whitespace() -> None:
     bypass = '''connection.execute("""UPDATE
         evolution_candidates
@@ -202,6 +220,7 @@ def test_only_promotion_service_builds_governed_lifecycle_transitions() -> None:
     authorities = {":".join(site.split(":")[:2]) for site in sites}
     assert authorities == {
         "src/tianshu/evolution/promotion.py:PromotionService.start_canary",
+        "src/tianshu/evolution/promotion.py:PromotionService._complete_executor_canary",
         "src/tianshu/evolution/promotion.py:PromotionService.promote",
         "src/tianshu/evolution/promotion.py:PromotionService.rollback",
     }

@@ -24,6 +24,8 @@ import {
 } from "../components/capabilities/CapabilityMaturity";
 import PageContainer from "../components/common/PageContainer";
 import PageQueryError from "../components/states/PageQueryError";
+import { evolutionCandidateHref } from "../utils/evolutionCandidateNavigation";
+import styles from "./KeqingManagementPage.module.css";
 
 const { Paragraph, Text } = Typography;
 
@@ -118,19 +120,35 @@ export default function KeqingManagementPage() {
     {
       title: t("keqing.col.installed"),
       dataIndex: "installed",
-      render: (installed: boolean, row) =>
-        installed ? (
+      render: (installed: boolean, row) => {
+        const candidate = row.evolution_candidate;
+        const driftStatus = row.version_drift ? (
+          candidate ? (
+            <a
+              href={evolutionCandidateHref(candidate.candidate_id)}
+              aria-label={t("keqing.candidate.openFromDrift", {
+                id: candidate.candidate_id,
+              })}
+            >
+              <Tag color="red">{t("keqing.drift")}</Tag>
+            </a>
+          ) : (
+            <Tag color="red">{t("keqing.drift")}</Tag>
+          )
+        ) : null;
+        return installed ? (
           <Space direction="vertical" size={0}>
             <Tag color="green">{t("keqing.installedYes")}</Tag>
             <Text type="secondary" style={{ fontSize: 12 }}>
               {row.installed_version ?? "?"}
               {row.pinned_version ? ` / ${t("keqing.pinned")} ${row.pinned_version}` : ""}
             </Text>
-            {row.version_drift && <Tag color="red">{t("keqing.drift")}</Tag>}
+            {driftStatus}
           </Space>
         ) : (
           <Tag color="default">{t("keqing.installedNo")}</Tag>
-        ),
+        );
+      },
     },
     {
       title: t("keqing.col.capabilities"),
@@ -174,6 +192,26 @@ export default function KeqingManagementPage() {
         ),
     },
     {
+      title: t("keqing.col.evolutionCandidate"),
+      dataIndex: "evolution_candidate",
+      render: (candidate: KeqingBackendStatus["evolution_candidate"]) =>
+        candidate ? (
+          <Space direction="vertical" size={0}>
+            <a
+              href={evolutionCandidateHref(candidate.candidate_id)}
+              aria-label={t("keqing.candidate.open", { id: candidate.candidate_id })}
+            >
+              <Text code>{candidate.candidate_id}</Text>
+            </a>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t("evolutionUi.version")} {candidate.version} · {candidate.lifecycle}
+            </Text>
+          </Space>
+        ) : (
+          <Text type="secondary">{t("keqing.candidate.none")}</Text>
+        ),
+    },
+    {
       title: t("keqing.col.credential"),
       dataIndex: "credential_status",
       render: () => <Tag color="blue">{t("keqing.cred.selfManaged")}</Tag>,
@@ -205,16 +243,23 @@ export default function KeqingManagementPage() {
           style={{ minWidth: 0, maxWidth: "100%" }}
           styles={{ body: { minWidth: 0, overflow: "hidden" } }}
         >
-          <Table
-            rowKey="id"
-            size="small"
-            loading={statusLoading}
-            dataSource={status?.backends ?? []}
-            columns={columns}
-            pagination={false}
-            scroll={{ x: 920 }}
-            style={{ maxWidth: "100%" }}
-          />
+          <div
+            role="region"
+            aria-label={t("keqing.section.registry")}
+            tabIndex={0}
+            className={styles.scrollRegion}
+          >
+            <Table
+              className={styles.table}
+              rowKey="id"
+              size="small"
+              loading={statusLoading}
+              dataSource={status?.backends ?? []}
+              columns={columns}
+              pagination={false}
+              style={{ minWidth: 1120 }}
+            />
+          </div>
         </Card>
 
         {/* 2. 治理默认 */}

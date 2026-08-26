@@ -19,6 +19,12 @@ class CandidateKind(StrEnum):
     POLICY = "policy"
     PERSONA = "persona"
     CODE = "code"
+    EXECUTOR = "executor"
+
+
+HIGH_RISK_PROMOTION_KINDS: frozenset[CandidateKind] = frozenset(
+    {CandidateKind.CODE, CandidateKind.EXECUTOR}
+)
 
 
 class CandidateSourceChannel(StrEnum):

@@ -453,6 +453,23 @@ export interface RuntimeGenerationStatus {
   last_good_id: string;
 }
 
+export interface KeqingEvolutionCandidateStatus {
+  candidate_id: string;
+  lifecycle:
+    | "proposed"
+    | "staged"
+    | "evaluating"
+    | "blocked"
+    | "ready"
+    | "canary"
+    | "promoted"
+    | "rejected"
+    | "rollback_pending"
+    | "rolled_back"
+    | "archived";
+  version: number;
+}
+
 export interface KeqingBackendStatus {
   id: string;
   backend: string;
@@ -464,6 +481,7 @@ export interface KeqingBackendStatus {
   capabilities: KeqingCapabilities | null;
   credential_status: string;
   generation: RuntimeGenerationStatus | null;
+  evolution_candidate: KeqingEvolutionCandidateStatus | null;
 }
 
 export interface KeqingStatusData {

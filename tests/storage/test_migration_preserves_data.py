@@ -66,6 +66,7 @@ _COMPLETE_MIGRATION_LEDGER = [
     (32, "0032_runtime_generations"),
     (33, "0033_evolution_policies"),
     (34, "0034_run_subject_assignments"),
+    (35, "0035_executor_candidate_kind"),
 ]
 _POST_BASELINE_TABLES = {
     "auth_tokens",
@@ -117,6 +118,9 @@ _POST_BASELINE_TABLES = {
     "evolution_policies",
     # v34 immutable per-subject run attribution (no assignment backfill)
     "run_subject_assignments",
+    # v35 executor promotion authority and append-only authority journal
+    "executor_generation_authorities",
+    "executor_generation_authority_journal",
 }
 _POST_BASELINE_INDEXES = {
     "idx_auth_tokens_principal",
@@ -153,6 +157,8 @@ _POST_BASELINE_INDEXES = {
     "idx_consultation_rounds_consultation",
     "idx_runtime_generations_active",
     "idx_evolution_candidates_subject_canary",
+    "idx_executor_generation_authorities_status",
+    "idx_executor_generation_authority_journal_candidate",
 }
 _EVOLUTION_IMMUTABLE_TRIGGERS = {
     "evolution_gate_snapshots_no_update",
@@ -184,6 +190,12 @@ _EVOLUTION_IMMUTABLE_TRIGGERS = {
     "run_subject_assignments_sealed_insert",
     "run_subject_assignments_no_update",
     "run_subject_assignments_no_delete",
+    "executor_generation_authorities_no_replace",
+    "executor_generation_authorities_no_delete",
+    "executor_generation_authorities_transition_guard",
+    "executor_generation_authority_journal_no_replace",
+    "executor_generation_authority_journal_no_update",
+    "executor_generation_authority_journal_no_delete",
 }
 _V042_OWNED_TABLE_MANIFEST = (
     48,
@@ -355,10 +367,20 @@ def _snapshot(conn: sqlite3.Connection) -> dict[str, tuple[tuple[object, ...], .
 
 
 def _build_canonical_preledger(
-    path: Path, *, prior_mcp_schema: bool = False
+    path: Path,
+    *,
+    prior_mcp_schema: bool = False,
+    through_version: int | None = None,
 ) -> dict[str, tuple[tuple[object, ...], ...]]:
     storage = Storage(str(path))
-    storage.init_db()
+    if through_version is None:
+        storage.init_db()
+    else:
+        conn = _connect(path)
+        storage._conn = conn
+        apply_migrations(conn, MIGRATIONS[:through_version])
+        storage._seed_departments()
+        storage._init_fts()
     conn = storage._conn
     conn.executescript(
         """
@@ -498,7 +520,11 @@ def _build_historical_core_preledger(
     include_orphan_event: bool = False,
     pending_edict_id: str = "edict-1",
 ) -> dict[str, tuple[tuple[object, ...], ...]]:
-    _build_canonical_preledger(path, prior_mcp_schema=True)
+    # Build through the last schema that still has the frozen V18 candidate
+    # object. V35 legitimately rebuilds that object, so preloading V35 and then
+    # replaying from a deliberately downgraded pre-v8 fixture would be an
+    # impossible mixed-era database rather than a historical migration case.
+    _build_canonical_preledger(path, prior_mcp_schema=True, through_version=34)
     conn = _connect(path)
     conn.executescript(
         """
@@ -1045,7 +1071,7 @@ def test_wrong_legacy_session_canonical_index_is_rejected_during_initial_check(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "legacy-session-wrong-index.sqlite3"
-    _build_canonical_preledger(path, prior_mcp_schema=True)
+    _build_canonical_preledger(path, prior_mcp_schema=True, through_version=34)
     _replace_session_with_legacy(path)
     conn = _connect(path)
     conn.execute("CREATE INDEX idx_feishu_seen_at ON feishu_seen_messages(message_id)")
@@ -1302,7 +1328,7 @@ def test_legacy_supervision_rows_map_to_latest_memorial_without_loss(
     tmp_path: Path, composite_pk: bool
 ) -> None:
     path = tmp_path / "legacy-supervision.sqlite3"
-    _build_canonical_preledger(path, prior_mcp_schema=True)
+    _build_canonical_preledger(path, prior_mcp_schema=True, through_version=34)
     legacy_rows = _replace_supervision_with_legacy(path, composite_pk=composite_pk)
 
     storage = Storage(str(path))
@@ -1342,7 +1368,7 @@ def test_wrong_legacy_supervision_canonical_index_definition_fails_closed(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "legacy-supervision-wrong-index.sqlite3"
-    _build_canonical_preledger(path, prior_mcp_schema=True)
+    _build_canonical_preledger(path, prior_mcp_schema=True, through_version=34)
     _replace_supervision_with_legacy(path, composite_pk=False)
     conn = _connect(path)
     conn.execute("CREATE INDEX idx_supervision_edict ON supervision_reports(persona_id)")
@@ -1376,7 +1402,7 @@ def _assert_failed_baseline_preserved(path: Path) -> None:
 
 def test_unmapped_legacy_supervision_row_rolls_back_entire_baseline(tmp_path: Path) -> None:
     path = tmp_path / "unmapped.sqlite3"
-    _build_canonical_preledger(path, prior_mcp_schema=True)
+    _build_canonical_preledger(path, prior_mcp_schema=True, through_version=34)
     _replace_supervision_with_legacy(path, composite_pk=False)
     conn = _connect(path)
     conn.execute("UPDATE supervision_reports SET edict_id='missing-edict'")

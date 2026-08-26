@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from tianshu.evidence.models import ArtifactRefV1
 from tianshu.evidence.service import ArtifactStore, ArtifactWriteReceipt
@@ -55,6 +55,8 @@ class ActivationReceiptV1(BaseModel):
 
     candidate_id: str
     artifact_digest: str
+    generation_id: str | None = None
+    release_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class RollbackReceiptV1(BaseModel):
@@ -62,6 +64,28 @@ class RollbackReceiptV1(BaseModel):
 
     candidate_id: str
     artifact_digest: str
+
+
+class CanaryPreparationReceiptV1(BaseModel):
+    """Exact executor generation identity prepared before challenger routing."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    candidate_id: str
+    candidate_version: int = Field(ge=1)
+    candidate_artifact_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    candidate_canonical_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    release_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    scope: str = Field(min_length=1, max_length=256)
+    generation_id: str
+    base_release_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    base_generation_id: str
+    authority_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    authority_epoch: int = Field(ge=1)
+    authority_version: int = Field(ge=1)
+    promotion_journal_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    status: Literal["authorized"] = "authorized"
 
 
 class CandidateAdapter(Protocol):
@@ -299,6 +323,7 @@ __all__ = [
     "AdapterKindMismatch",
     "AdapterOperationUnavailable",
     "BaseCandidateAdapter",
+    "CanaryPreparationReceiptV1",
     "CandidateAdapter",
     "RollbackReceiptV1",
     "StagedCandidateV1",

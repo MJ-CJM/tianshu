@@ -27,6 +27,7 @@ from tianshu.storage.migrations import (
     _EVOLUTION_CANDIDATE_OBJECT_NAMES,
     _EVOLUTION_CANDIDATE_STATEMENTS,
     _EVOLUTION_POLICIES_STATEMENTS,
+    _EXECUTOR_CANDIDATE_TABLE_SQL,
     _LEGACY_ASSIGNMENT_CLEANUP_STATEMENTS,
     _SYSTEM_SNAPSHOTS_OBJECT_NAMES,
     _SYSTEM_SNAPSHOTS_STATEMENTS,
@@ -341,6 +342,8 @@ def _declared_v18_objects() -> dict[str, str]:
     declared["idx_evolution_candidates_subject_canary"] = " ".join(
         _EVOLUTION_POLICIES_STATEMENTS[1].split()
     )
+    # v35 rebuilds the parent table to add executor as a governed candidate kind.
+    declared["evolution_candidates"] = " ".join(_EXECUTOR_CANDIDATE_TABLE_SQL.split())
     return declared
 
 

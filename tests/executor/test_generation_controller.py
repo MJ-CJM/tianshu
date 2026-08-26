@@ -19,6 +19,7 @@ from tianshu.executor.capabilities import (
 )
 from tianshu.executor.generation_controller import (
     GenerationController,
+    GenerationControllerError,
     GenerationMaterializationError,
     GenerationWarmError,
     requested_executor_scopes,
@@ -298,6 +299,62 @@ def _get_generation(storage, scope: str, generation_id: str):
     return value
 
 
+async def test_stage_exact_and_warm_or_resume_are_crash_idempotent(storage) -> None:
+    registry = _registry("keqing:pi")
+    controller = _controller(
+        storage,
+        registry,
+        _Materializer(storage),
+        ids=(),
+        outcomes=[(True, None)],
+        required_scope_provider=_provider(_PI_SCOPE),
+    )
+    release = _release()
+
+    first = controller.stage_exact(release, generation_id=_FIRST)
+    replay = controller.stage_exact(release, generation_id=_FIRST)
+    assert replay == first
+
+    with storage.unit_of_work() as unit_of_work:
+        warming = GenerationRepository().transition_pre_activation(
+            unit_of_work.connection,
+            scope=_PI_SCOPE,
+            generation_id=_FIRST,
+            target_state=RuntimeGenerationState.WARMING,
+            expected_version=first.version,
+            updated_at=_NOW,
+        )
+        unit_of_work.commit()
+        registry.update_generation_state(_FIRST, warming.state.value)
+
+    ready = await controller.warm_or_resume(_FIRST)
+    assert ready.state is RuntimeGenerationState.READY
+    assert await controller.warm_or_resume(_FIRST) == ready
+    with storage.unit_of_work() as unit_of_work:
+        assert (
+            len(GenerationRepository().list_by_scope(unit_of_work.connection, scope=_PI_SCOPE)) == 1
+        )
+        unit_of_work.commit()
+
+
+def test_stage_exact_rejects_generation_identity_reuse(storage) -> None:
+    controller = _controller(
+        storage,
+        _registry("keqing:pi"),
+        _Materializer(storage),
+        ids=(),
+        outcomes=[],
+        required_scope_provider=_provider(_PI_SCOPE),
+    )
+    controller.stage_exact(_release(), generation_id=_FIRST)
+
+    with pytest.raises(GenerationControllerError, match="identity conflicts"):
+        controller.stage_exact(
+            _release(binary_digest="c" * 64),
+            generation_id=_FIRST,
+        )
+
+
 async def test_controller_stage_warm_activate_and_last_good_rollback(storage) -> None:
     registry = _registry("keqing:pi")
     materializer = _Materializer(storage)
@@ -333,6 +390,54 @@ async def test_controller_stage_warm_activate_and_last_good_rollback(storage) ->
     selection = controller.resolve_for_binding("memorial", "attempt")
     assert selection.generation_ids == (_FIRST,)
     assert selection.by_scope == {_PI_SCOPE: _FIRST}
+
+
+async def test_exact_activation_and_rollback_are_replay_safe(storage) -> None:
+    controller = _controller(
+        storage,
+        _registry("keqing:pi"),
+        _Materializer(storage),
+        ids=(_FIRST, _SECOND),
+        outcomes=[(True, None), (True, None)],
+        required_scope_provider=_provider(_PI_SCOPE),
+    )
+    baseline_release = _release()
+    baseline = controller.stage(baseline_release)
+    await controller.warm(baseline.generation_id)
+    controller.activate(baseline.generation_id)
+    challenger = controller.stage(_release(binary_digest="c" * 64))
+    await controller.warm(challenger.generation_id)
+
+    with pytest.raises(GenerationControllerError, match="activation authority"):
+        controller.activate_exact(
+            challenger.generation_id,
+            expected_active_generation_id=_THIRD,
+            expected_active_release_digest=baseline_release.release_digest,
+        )
+
+    activated = controller.activate_exact(
+        challenger.generation_id,
+        expected_active_generation_id=baseline.generation_id,
+        expected_active_release_digest=baseline_release.release_digest,
+    )
+    replayed_activation = controller.activate_exact(
+        challenger.generation_id,
+        expected_active_generation_id=baseline.generation_id,
+        expected_active_release_digest=baseline_release.release_digest,
+    )
+    assert replayed_activation == activated
+
+    rolled_back = controller.rollback_exact(
+        _PI_SCOPE,
+        expected_active_generation_id=challenger.generation_id,
+        expected_last_good_generation_id=baseline.generation_id,
+    )
+    replayed_rollback = controller.rollback_exact(
+        _PI_SCOPE,
+        expected_active_generation_id=challenger.generation_id,
+        expected_last_good_generation_id=baseline.generation_id,
+    )
+    assert replayed_rollback == rolled_back
 
 
 async def test_registry_publication_retries_converge_across_generation_lifecycle(storage) -> None:

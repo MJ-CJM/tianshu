@@ -39,7 +39,7 @@ class EvolutionGateSummaryV1(_StrictModel):
 
 class EvolutionCandidateSummaryV1(_StrictModel):
     candidate_id: str = Field(min_length=1, max_length=128)
-    kind: Literal["memory", "skill", "policy", "persona", "code"]
+    kind: Literal["memory", "skill", "policy", "persona", "code", "executor"]
     version: int = Field(ge=1)
     lifecycle: Literal[
         "proposed",

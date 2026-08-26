@@ -131,7 +131,7 @@ def test_v34_appends_exact_subject_assignment_objects_without_backfill() -> None
     )
     connection.commit()
 
-    assert apply_migrations(connection, MIGRATIONS) == (34,)
+    assert apply_migrations(connection, MIGRATIONS[:34]) == (34,)
     assert MIGRATIONS[33].name == "0034_run_subject_assignments"
     assert (
         MIGRATIONS[33].checksum
@@ -348,7 +348,7 @@ def test_v34_exact_schema_replay_preserves_row_and_rowid() -> None:
     connection.commit()
     before = tuple(connection.execute("SELECT rowid, * FROM run_subject_assignments").fetchone())
 
-    assert apply_migrations(connection, MIGRATIONS) == (34,)
+    assert apply_migrations(connection, MIGRATIONS[:34]) == (34,)
     after = tuple(connection.execute("SELECT rowid, * FROM run_subject_assignments").fetchone())
     assert after == before
     connection.close()
@@ -396,15 +396,15 @@ def test_v34_freezes_the_complete_v1_v33_triplet_prefix() -> None:
 
 def test_applied_v34_checksum_drift_is_rejected_without_writes() -> None:
     connection = _connection()
-    apply_migrations(connection, MIGRATIONS)
+    apply_migrations(connection, MIGRATIONS[:34])
     before = tuple(connection.execute("SELECT * FROM schema_migrations").fetchall())
     drifted = (
-        *MIGRATIONS[:-1],
+        *MIGRATIONS[:33],
         Migration(
             version=34,
             name="0034_run_subject_assignments",
             checksum="0" * 64,
-            upgrade=MIGRATIONS[-1].upgrade,
+            upgrade=MIGRATIONS[33].upgrade,
         ),
     )
 

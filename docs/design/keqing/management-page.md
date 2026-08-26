@@ -1,16 +1,18 @@
 # 客卿管理页：当前实验边界
 
-> 当前状态：**实验能力，默认导航隐藏**。本页描述已落地行为；完整 pi/凭证网关方案见
+> 当前状态：**实验能力，已由“天工院 → 客卿馆”可发现**。本页描述已落地行为；完整 pi/凭证网关方案见
 > [pi-default-adapter.md](pi-default-adapter.md)，该文件是历史/演进设计，不是完成声明。
 > 本体论背景见
 > [执行主体本体论](../domain-model.md#6-执行主体本体论百官内臣-vs-客卿外臣)。
 
 ## 当前可用
 
-- `/keqing` 路由仍可直接访问，但不在五个一级导航入口中。
+- `/keqing` 路由可直接访问，也可由“天工院 → 客卿馆”进入。
 - `GET /api/keqing/status` 只读检查本机 CLI 是否可发现、可读取的安装版本、pi pinned
-  version 漂移和声明能力；检查不 spawn CLI。
+  version 漂移和声明能力，并投影已经存在的 Pi EXECUTOR 治理候选；检查不 spawn CLI、
+  不运行漂移巡检，也不创建候选。
 - 页面可配置各 backend 默认模型和 per-run 预算提示。
+- Pi 行可查看 current/last-good generation、活跃 run 数和 durable candidate，并跳转演化中心。
 - 当前 executor 只使用 CLI 自管凭证。页面不读取、不输入、不存储 raw provider key。
 
 ## 当前不可用
@@ -25,8 +27,9 @@
 
 ## 产品约束
 
-客卿是外部执行器，不增加 SOUL/ROLE、京察或自进化入口。管理页只展示能力、安装健康与
-有限配置，并始终把“自管凭证”和“实验状态”展示给用户。
+客卿是外部执行器，不增加 SOUL/ROLE 或京察能力。Pi 行只提供已存在治理候选的只读入口；
+候选的 Gate、canary、Decision、晋升和回滚统一由演化中心与 PromotionService 承担。管理页
+不拥有提案、stage 或 activate 副作用，并始终把“自管凭证”和“实验状态”展示给用户。
 
 **相关实现**：`gateway/keqing_api.py`、`gateway/config_api.py`、
 `web/src/pages/KeqingManagementPage.tsx`、`web/src/router/AppRoutes.tsx`。

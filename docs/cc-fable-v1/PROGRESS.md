@@ -390,8 +390,8 @@ references with exact coverage.
 
 === Agent OS P4b / per-subject assignment sets (2026-08-26) ===
 
-Issue #108 implementation is complete on its feature branch; PR #109 has been created
-and target-branch CI is pending. V34 `0034_run_subject_assignments` freezes a complete
+Issue #108 and PR #109 are merged into `feat/plugin-v1` at merge commit
+`a8a03071`. V34 `0034_run_subject_assignments` freezes a complete
 per-Memorial assignment set rather than independent loose rows. Each row persists the
 same canonical set hash and set size; owned objects are the table plus
 `run_subject_assignments_sealed_insert`, `run_subject_assignments_no_update`, and
@@ -427,8 +427,8 @@ Final local verification is 5270 backend tests passed, 2 skipped and 24 slow tes
 deselected; all 77 Web test files and 347 tests passed. Ruff, format, Mypy,
 import-linter, TypeScript, ESLint (0 errors) and the production build also passed. The
 admin-only policy list route brings the explicit scope table to 266 protected rules,
-15 public rules and 280 route inventory references. PR #109 target-branch CI remains
-pending.
+15 public rules and 280 route inventory references. This P5 branch is based on the
+merged V34 target-branch baseline.
 
 Routing order is existing replay, then continuity inheritance, then the fresh-root kill
 switch. Disabling routing therefore stops fresh roots from newly selecting challengers
@@ -444,3 +444,80 @@ zero, and complete pending rollbacks. Do not force an already PROMOTED subject b
 base merely to revert code. Then deploy only a behavior-compatible build that understands V34.
 Never deploy a pure V33/P4a binary onto a V34 database; preserve the migration
 declaration/checksum/callback, table, triggers, ledger, and assignment rows for audit.
+
+=== Agent OS P5-1 / executor candidate and generation authority schema (2026-08-26) ===
+
+Decision: V35 extends the governed candidate kind wall with `executor` and adds
+generation-scoped executor promotion authority. Because SQLite cannot alter the
+candidate CHECK in place, the migration rebuilds `evolution_candidates` together
+with its six direct FK children while `foreign_keys=ON`. It first requires the exact
+V34 object set and inbound FK graph, renames the old seven tables aside, recreates the
+canonical names, copies explicit columns plus rowid, verifies counts and both EXCEPT
+directions, drops child temporaries before the parent, then restores the two indexes
+and eleven triggers. Seven V35 temporary names are reserved; partial, drifted, or
+extension-FK shapes fail before the first rename, and every phase remains inside the
+migration ledger transaction.
+
+Authority decision: `executor_generation_authorities` is the one-current-row-per-
+candidate authority and `executor_generation_authority_journal` is append-only. The
+current row admits only pending -> authorized/revoked, authorized -> revoking/revoked,
+revoking -> revoked, and revoked -> pending at epoch+1. Same-epoch transitions retain
+candidate, release, generation, promotion and creation identity; `revoking` cuts new
+traffic while continuity drains before `revoked`. The schema owns two authority tables,
+two indexes and six fail-closed triggers. V35 supports exact-target callback replay and
+whole-schema no-ledger adoption without rebuilding objects or changing durable rows.
+
+Boundary: P5-1 freezes schema and migration behavior only; authority repository and
+promotion-service business writes are implemented in later P5 slices. The frozen V35
+migration checksum is
+`14402935160ab156af4deeec680986703941e4107db324f9ffcc1f587daf506e` and the frozen
+upgrade callback fingerprint is
+`2d6b9cea990835204a889ad2c65dadc9f34c3025cc4568df78d8087dee7f0f73`.
+
+=== Agent OS P5 / governed executor candidates and reversible generation promotion (2026-08-26) ===
+
+Decision: P5 completes the V35 `keqing:pi` executor vertical slice. `CandidateKind`
+admits `executor`, while `HIGH_RISK_PROMOTION_KINDS={code,executor}` keeps an approved,
+exactly bound Decision as a repository-level promotion floor. `ExecutorCandidateAdapter`
+validates immutable Pi release material and the exact `executor:keqing:pi` subject
+binding. This does not make arbitrary third-party plugins executable.
+
+Promotion authority is durable and exact. The current authority row and immutable
+journal bind candidate id/version/digests, release digest, generation id, start command,
+and promotion journal. Executor `start_canary` stages and warms one deterministic
+generation before authorizing it; challenger runs bind that authorized READY generation,
+while champion runs retain the active pointer. `promote` only activates the mapped
+generation. Missing, corrupt, ambiguous, stale, or revoked authority fails closed in
+routing, recovery, and retention. Subject-level persistent fences serialize unresolved
+start, promote, and rollback effects; a newer generation cannot make an older candidate
+rollback through a live dependent canary.
+
+Switch decision: `executor_generation_enabled` is a forward-evolution kill switch, not
+an adapter-registration switch. `ExecutorPromotionAdapter` remains wired while disabled.
+Fresh executor start-canary and promote operations fail before creating a new
+journal/effect, while generation recovery, exact replay needed to terminalize an
+interrupted effect, canary/promoted rollback, and pending-rollback reconciliation remain
+available. A fresh activation is refused after disable; an already switched activation
+may be finalized idempotently. This keeps the recovery mechanism available when forward
+evolution is stopped.
+
+The independently disabled `ExecutorDriftScanner` runs only from the control-plane tick,
+creates at most one deterministic SYSTEM candidate for one observed release drift,
+respects frozen policy, and never runs from a GET endpoint. Keqing status projects only
+an already durable candidate and links it to the Evolution Center. Its GET path remains
+side-effect free.
+
+Boundary: this is a governed Pi executor slice, not automatic CLI upgrade, a direct
+public GenerationController API, a general third-party PluginHost, automatic promotion,
+or multi-process coordination. Same-command executor canary single-flight is
+process-local, matching the supported single-process SQLite deployment model. P6 process
+snapshot strictness and P7 per-run frozen Skill views remain pending.
+
+Local verification: the focused P5 executor/evolution suite passes 190 tests and the
+migration/data-preservation suite passes 122. The complete non-slow backend collection
+was exercised in platform-isolated shards; the macOS-only DNS, loopback-port, shell
+launcher, and real-home lock boundaries are recorded separately for Linux CI rather
+than treated as product failures. Ruff check/format, Mypy (145 source files), all four
+import-linter contracts, Web typecheck, all 77 Web test files / 350 tests, ESLint
+(0 errors), the production build, and all 32 Playwright E2E tests pass.
+PR #111 targets `feat/plugin-v1`; target-branch CI is pending.

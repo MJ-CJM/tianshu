@@ -8,6 +8,7 @@ import logging
 import sqlite3
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -26,6 +27,10 @@ from tianshu.models.evolution_candidate import (
     CandidateLifecycle,
     CandidateVersionRefV1,
     EvolutionCandidateV1,
+)
+from tianshu.models.executor_generation_authority import (
+    ExecutorGenerationAuthorityStatus,
+    ExecutorGenerationAuthorityV1,
 )
 from tianshu.models.run_assignment import (
     EffectiveEvolutionOverlayV1,
@@ -62,6 +67,11 @@ class _GenerationSelection(Protocol):
     generation_ids: tuple[str, ...]
     by_scope: Mapping[str, str]
     executor_manifest_digests: Mapping[str, str]
+    bundles: Mapping[str, _GenerationBundle]
+
+
+class _GenerationBundle(Protocol):
+    release_digest: str
 
 
 class _GenerationController(Protocol):
@@ -79,6 +89,22 @@ class _GenerationController(Protocol):
     def release_binding(self, attempt_id: str) -> bool: ...
 
 
+class _ExecutorGenerationAuthorityResolver(Protocol):
+    def get_current(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        candidate_id: str,
+    ) -> ExecutorGenerationAuthorityV1 | None: ...
+
+    def get_by_generation(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        generation_id: str,
+    ) -> ExecutorGenerationAuthorityV1 | None: ...
+
+
 BucketCalculator = Callable[[str, str, bytes], int]
 PayloadResolver = Callable[
     [sqlite3.Connection, CandidateVersionRefV1, EffectiveEvolutionOverlayV1],
@@ -87,6 +113,14 @@ PayloadResolver = Callable[
 Assignment = RunAssignmentV1 | LegacyRunAssignmentV1
 SubjectAssignmentRecord = tuple[SubjectRunAssignmentV1, EffectiveEvolutionOverlayV1]
 BeforeInsert = Callable[[Assignment], None]
+
+
+@dataclass(frozen=True, slots=True)
+class _ExecutorSubjectSelection:
+    candidate_id: str
+    subject_key: str
+    champion_ref: CandidateVersionRefV1
+    selected_ref: CandidateVersionRefV1
 
 
 class EvolutionRuntimeUnavailable(ValueError):
@@ -103,6 +137,10 @@ class GenerationBindingUnavailable(EvolutionRuntimeUnavailable):
 
 class GenerationRetired(EvolutionRuntimeUnavailable):
     """A continuity-pinned runtime generation is no longer usable."""
+
+
+class _ExecutorAuthorityUnavailable(ValueError):
+    """The selected executor candidate has no unambiguous live authority."""
 
 
 def allocation_bucket(memorial_id: str, allocation_seed_id: str, secret: bytes) -> int:
@@ -144,6 +182,10 @@ class ChallengerRouter:
         payload_resolver: PayloadResolver | None = None,
         snapshot_resolver: Callable[[], SystemSnapshotResolver | None] | None = None,
         generation_controller: Callable[[], _GenerationController | None] | None = None,
+        executor_generation_authority_resolver: Callable[
+            [], _ExecutorGenerationAuthorityResolver | None
+        ]
+        | None = None,
         before_insert: BeforeInsert | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -156,6 +198,7 @@ class ChallengerRouter:
         self._payload_resolver = payload_resolver
         self._snapshot_resolver = snapshot_resolver
         self._generation_controller = generation_controller
+        self._executor_generation_authority_resolver = executor_generation_authority_resolver
         self._before_insert = before_insert
         self._clock = clock or (lambda: datetime.now(UTC))
         self._repository = EvolutionRepository()
@@ -624,14 +667,29 @@ class ChallengerRouter:
         connection.execute("RELEASE SAVEPOINT evolution_assignment_bundle_insert")
         return durable
 
-    @staticmethod
     def _continuity_selected_ref(
+        self,
         connection: sqlite3.Connection,
         *,
         candidate: EvolutionCandidateV1,
         parent_selected_ref: CandidateVersionRefV1,
     ) -> CandidateVersionRefV1:
         if candidate.lifecycle is CandidateLifecycle.CANARY:
+            if candidate.kind is CandidateKind.EXECUTOR:
+                if parent_selected_ref == candidate.candidate:
+                    try:
+                        self._require_authorized_executor_authority(
+                            connection,
+                            candidate=candidate,
+                        )
+                    except _ExecutorAuthorityUnavailable as exc:
+                        raise EvolutionAssignmentConflict(
+                            "executor challenger continuity authority is unavailable"
+                        ) from exc
+                elif parent_selected_ref != candidate.base:
+                    raise EvolutionAssignmentConflict(
+                        "executor challenger continuity attribution conflicts"
+                    )
             return parent_selected_ref
         if candidate.lifecycle is CandidateLifecycle.PROMOTED:
             return candidate.candidate
@@ -968,10 +1026,25 @@ class ChallengerRouter:
             raise GenerationBindingUnavailable("generation_binding_unavailable") from exc
         if exact_generation_binding is not None and not exact_generation_binding.resolved:
             raise GenerationRetired("generation_retired")
+        try:
+            executor_authority = self._executor_authority_for_binding(
+                connection,
+                assignment=assignment,
+                overlay=overlay,
+                assignment_set=assignment_set,
+            )
+        except _ExecutorAuthorityUnavailable as exc:
+            if existing is not None or exact_generation_binding is not None:
+                raise GenerationRetired("generation_retired") from exc
+            raise GenerationBindingUnavailable("generation_binding_unavailable") from exc
         if existing is not None:
             if (
                 exact_generation_binding is not None
                 and exact_generation_binding.generation_ids != existing.generation_ids
+            ):
+                raise GenerationRetired("generation_retired")
+            if executor_authority is not None and existing.generation_ids != (
+                executor_authority.generation_id,
             ):
                 raise GenerationRetired("generation_retired")
             if existing.generation_ids:
@@ -986,7 +1059,14 @@ class ChallengerRouter:
                     pinned_ids=existing.generation_ids,
                     inherited=True,
                     inherit_pinned=False,
+                    allow_ready=executor_authority is not None,
                 )
+                if executor_authority is not None:
+                    self._validate_executor_authority_selection(
+                        exact_selection,
+                        executor_authority,
+                        inherited=True,
+                    )
                 self._validate_pinned_executor_snapshot(existing, exact_selection)
             return self._binding_context(existing)
 
@@ -1000,6 +1080,18 @@ class ChallengerRouter:
             if exact_generation_ids is not None
             else self._continuity_generation_ids(connection, memorial_id)
         )
+        inherited_generation = bool(pinned_ids)
+        inherit_pinned = exact_generation_ids is None and inherited_generation
+        allow_ready = False
+        if executor_authority is not None:
+            expected_generation_ids = (executor_authority.generation_id,)
+            if pinned_ids and pinned_ids != expected_generation_ids:
+                raise GenerationRetired("generation_retired")
+            if exact_generation_ids == ():
+                raise GenerationRetired("generation_retired")
+            pinned_ids = expected_generation_ids
+            inherit_pinned = False
+            allow_ready = True
         selection: _GenerationSelection | None = None
         controller = self._get_generation_controller()
         if exact_generation_ids == ():
@@ -1011,11 +1103,18 @@ class ChallengerRouter:
                 memorial_id=memorial_id,
                 attempt_id=attempt_id,
                 pinned_ids=pinned_ids,
-                inherited=bool(pinned_ids),
-                inherit_pinned=(exact_generation_ids is None and bool(pinned_ids)),
+                inherited=inherited_generation,
+                inherit_pinned=inherit_pinned,
+                allow_ready=allow_ready,
             )
         elif pinned_ids:
             raise GenerationRetired("generation_retired")
+        if selection is not None and executor_authority is not None:
+            self._validate_executor_authority_selection(
+                selection,
+                executor_authority,
+                inherited=inherited_generation,
+            )
 
         if persist_generation_selection and exact_generation_binding is None:
             generation_ids = selection.generation_ids if selection is not None else ()
@@ -1098,6 +1197,144 @@ class ChallengerRouter:
             return generation_context
         return self._binding_context(result.binding)
 
+    def _executor_authority_for_binding(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        assignment: Assignment,
+        overlay: EffectiveEvolutionOverlayV1 | None,
+        assignment_set: RunAssignmentSetV1 | None,
+    ) -> ExecutorGenerationAuthorityV1 | None:
+        selected = self._executor_subject_selection(
+            assignment=assignment,
+            overlay=overlay,
+            assignment_set=assignment_set,
+        )
+        if selected is None:
+            return None
+        try:
+            candidate = self._repository.get_candidate(connection, selected.candidate_id)
+        except Exception as exc:
+            raise _ExecutorAuthorityUnavailable from exc
+        if (
+            candidate is None
+            or candidate.kind is not CandidateKind.EXECUTOR
+            or candidate.subject_key != selected.subject_key
+            or candidate.base != selected.champion_ref
+        ):
+            raise _ExecutorAuthorityUnavailable
+        if selected.selected_ref == candidate.base:
+            return None
+        if selected.selected_ref != candidate.candidate:
+            raise _ExecutorAuthorityUnavailable
+        return self._require_authorized_executor_authority(
+            connection,
+            candidate=candidate,
+        )
+
+    @staticmethod
+    def _executor_subject_selection(
+        *,
+        assignment: Assignment,
+        overlay: EffectiveEvolutionOverlayV1 | None,
+        assignment_set: RunAssignmentSetV1 | None,
+    ) -> _ExecutorSubjectSelection | None:
+        if assignment_set is not None:
+            executor_assignments = tuple(
+                item for item in assignment_set.assignments if item.kind is CandidateKind.EXECUTOR
+            )
+            if not executor_assignments:
+                return None
+            if len(executor_assignments) != 1:
+                raise _ExecutorAuthorityUnavailable
+            item = executor_assignments[0]
+            if item.candidate_id is None:
+                raise _ExecutorAuthorityUnavailable
+            return _ExecutorSubjectSelection(
+                candidate_id=item.candidate_id,
+                subject_key=item.subject_key,
+                champion_ref=item.champion_ref,
+                selected_ref=item.selected_ref,
+            )
+        if (
+            isinstance(assignment, RunAssignmentV1)
+            and overlay is not None
+            and overlay.kind is CandidateKind.EXECUTOR
+            and overlay.subject_key is not None
+        ):
+            return _ExecutorSubjectSelection(
+                candidate_id=assignment.candidate_id,
+                subject_key=overlay.subject_key,
+                champion_ref=assignment.champion_ref,
+                selected_ref=assignment.selected_ref,
+            )
+        return None
+
+    def _require_authorized_executor_authority(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        candidate: EvolutionCandidateV1,
+    ) -> ExecutorGenerationAuthorityV1:
+        try:
+            resolver = (
+                self._executor_generation_authority_resolver()
+                if self._executor_generation_authority_resolver is not None
+                else None
+            )
+            if resolver is None:
+                raise _ExecutorAuthorityUnavailable
+            authority = resolver.get_current(
+                connection,
+                candidate_id=candidate.candidate_id,
+            )
+            if authority is None:
+                raise _ExecutorAuthorityUnavailable
+            generation_authority = resolver.get_by_generation(
+                connection,
+                generation_id=authority.generation_id,
+            )
+        except _ExecutorAuthorityUnavailable:
+            raise
+        except Exception as exc:
+            raise _ExecutorAuthorityUnavailable from exc
+        if (
+            authority.status is not ExecutorGenerationAuthorityStatus.AUTHORIZED
+            or generation_authority != authority
+            or authority.candidate_id != candidate.candidate_id
+            or authority.candidate_version > candidate.version
+            or authority.candidate_artifact_digest != candidate.candidate.artifact_digest
+            or authority.candidate_canonical_digest != candidate.candidate.canonical_digest
+            or authority.scope != candidate.subject_key
+            or candidate.lifecycle
+            not in {
+                CandidateLifecycle.READY,
+                CandidateLifecycle.CANARY,
+                CandidateLifecycle.PROMOTED,
+                CandidateLifecycle.ARCHIVED,
+            }
+        ):
+            raise _ExecutorAuthorityUnavailable
+        return authority
+
+    @staticmethod
+    def _validate_executor_authority_selection(
+        selection: _GenerationSelection,
+        authority: ExecutorGenerationAuthorityV1,
+        *,
+        inherited: bool,
+    ) -> None:
+        bundle = selection.bundles.get(authority.scope)
+        if (
+            selection.generation_ids != (authority.generation_id,)
+            or selection.by_scope.get(authority.scope) != authority.generation_id
+            or bundle is None
+            or bundle.release_digest != authority.release_digest
+        ):
+            if inherited:
+                raise GenerationRetired("generation_retired")
+            raise GenerationBindingUnavailable("generation_binding_unavailable")
+
     def _get_generation_controller(self) -> _GenerationController | None:
         if self._generation_controller is None:
             return None
@@ -1113,21 +1350,34 @@ class ChallengerRouter:
         pinned_ids: tuple[str, ...],
         inherited: bool,
         inherit_pinned: bool,
+        allow_ready: bool = False,
     ) -> _GenerationSelection:
         try:
-            selection = controller.resolve_for_binding_current(
-                connection,
-                memorial_id,
-                attempt_id,
-                pinned_ids=pinned_ids,
-                inherit_pinned=inherit_pinned,
-            )
+            if allow_ready:
+                selection = controller.resolve_for_binding_current(
+                    connection,
+                    memorial_id,
+                    attempt_id,
+                    pinned_ids=pinned_ids,
+                    inherit_pinned=inherit_pinned,
+                    allow_ready=True,
+                )
+            else:
+                selection = controller.resolve_for_binding_current(
+                    connection,
+                    memorial_id,
+                    attempt_id,
+                    pinned_ids=pinned_ids,
+                    inherit_pinned=inherit_pinned,
+                )
         except Exception as exc:
             if inherited:
                 raise GenerationRetired("generation_retired") from exc
             raise GenerationBindingUnavailable("generation_binding_unavailable") from exc
         if pinned_ids and not inherit_pinned and selection.generation_ids != pinned_ids:
-            raise GenerationRetired("generation_retired")
+            if inherited:
+                raise GenerationRetired("generation_retired")
+            raise GenerationBindingUnavailable("generation_binding_unavailable")
         return selection
 
     def _continuity_generation_ids(

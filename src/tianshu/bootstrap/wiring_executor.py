@@ -21,12 +21,16 @@ app.state，直接 service-locator 取用，不需要额外传参。
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 from fastapi import FastAPI
 
 from tianshu.application.continuation_recovery import ContinuationRecoveryService
 from tianshu.config import TianshuSettings
+from tianshu.evolution.adapters.executor_promotion import ExecutorPromotionAdapter
+from tianshu.evolution.executor_drift import ExecutorDriftScanner
+from tianshu.evolution.executor_generation_bootstrap import ExecutorGenerationBootstrap
 from tianshu.evolution.reconciler import GenerationReconciler
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.dag_scheduler import DAGScheduler
@@ -39,8 +43,12 @@ from tianshu.executor.policy_hook import PolicyHook
 from tianshu.executor.worker_pool import WorkerPool
 from tianshu.executor.workspace_runtime import WORKSPACE_MAIN_SOURCE_ID
 from tianshu.kernel.hooks import HookType
+from tianshu.models.evolution_candidate import CandidateKind
 from tianshu.skills.reviewer import SkillReviewHandler
 from tianshu.skills.validator import SkillValidator
+from tianshu.storage.executor_generation_authority_repo import (
+    ExecutorGenerationAuthorityRepository,
+)
 from tianshu.storage.generation_repo import GenerationRepository
 from tianshu.tools.policy import PolicyEngine
 from tianshu.tools.policy_rules import build_default_rules
@@ -128,20 +136,44 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
         )
 
     generation_repository = GenerationRepository()
+    authority_repository = ExecutorGenerationAuthorityRepository()
+
+    def authority_recovery_roots(connection: sqlite3.Connection) -> frozenset[str]:
+        return frozenset(
+            authority.generation_id
+            for authority in authority_repository.list_recovery_roots(connection)
+        )
+
     generation_controller = GenerationController(
         generation_repository,
         storage.unit_of_work,
         materializer,
         executor.adapter_registry,
         warm_probe=warm_generation,
+        recovery_root_provider=authority_recovery_roots,
     )
-    app.state.generation_recovery_report = generation_controller.recover()
+    app.state.pi_release_materializer = materializer
+    app.state.generation_repository = generation_repository
+    app.state.executor_generation_authority_repository = authority_repository
     app.state.generation_controller = generation_controller
+    app.state.promotion_adapters[CandidateKind.EXECUTOR] = ExecutorPromotionAdapter(
+        app.state.artifact_store,
+        generation_controller,
+        storage.unit_of_work,
+        evolution_enabled=settings.executor_generation_enabled,
+    )
     app.state.generation_reconciler = GenerationReconciler(
         generation_repository,
         storage.unit_of_work,
         executor.adapter_registry,
         snapshot_binding_available=lambda: _snapshot_binding_available(app),
+        authority_repository=authority_repository,
+    )
+    app.state.executor_drift_scanner = ExecutorDriftScanner(
+        unit_of_work_factory=storage.unit_of_work,
+        candidate_service=app.state.candidate_service,
+        materializer=materializer,
+        enabled=settings.executor_drift_scan_enabled,
     )
 
     # --- DAGScheduler ---
@@ -185,6 +217,20 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
         consumer_name="approval_manager.decision_expiry_projection.v1",
     )
     app.state.approval_manager = approval_manager
+
+
+async def initialize_executor_evolution(app: FastAPI, settings: TianshuSettings) -> None:
+    """Recover durable generations and establish the optional first Pi baseline."""
+
+    bootstrap = ExecutorGenerationBootstrap(
+        unit_of_work_factory=app.state.storage.unit_of_work,
+        controller=app.state.generation_controller,
+        materializer=app.state.pi_release_materializer,
+        enabled=settings.executor_generation_enabled,
+    )
+    report = await bootstrap.initialize()
+    app.state.executor_generation_bootstrap_report = report
+    app.state.generation_recovery_report = report.recovery
 
 
 def wire_policy(app: FastAPI, settings: TianshuSettings) -> None:

@@ -25,6 +25,7 @@ from tianshu.evolution.adapters.base import (
     AdapterOperationUnavailable,
 )
 from tianshu.evolution.adapters.code import CodeCandidateAdapter
+from tianshu.evolution.adapters.executor import ExecutorCandidateAdapter
 from tianshu.evolution.adapters.memory import MemoryCandidateAdapter
 from tianshu.evolution.adapters.persona import PersonaCandidateAdapter
 from tianshu.evolution.adapters.policy import PolicyCandidateAdapter
@@ -47,6 +48,33 @@ DIGEST_A = "a" * 64
 DIGEST_B = "b" * 64
 DIGEST_C = "c" * 64
 DIGEST_D = "d" * 64
+
+
+def _executor_release(marker: str) -> dict[str, object]:
+    manifest = {
+        "schema_version": 1,
+        "manifest_id": f"pi-{marker}",
+        "adapter_id": "keqing:pi",
+    }
+    material: dict[str, object] = {
+        "schema_version": 1,
+        "scope": "executor:keqing:pi",
+        "manifest": manifest,
+        "manifest_hash": canonical_sha256(manifest),
+        "cli_version": f"0.83.{ord(marker) - ord('a')}",
+        "cli_version_source": "package_json",
+        "binary_path": f"/opt/tianshu/bin/pi-{marker}",
+        "binary_digest": marker * 64,
+        "package_name": "@earendil-works/pi-coding-agent",
+        "package_entrypoint": "dist/cli.js",
+        "package_digest": chr(ord(marker) + 1) * 64,
+        "single_argv_shape": "pi-single-v1",
+        "session_argv_shape": "pi-session-v1",
+        "pi_wire_version": 3,
+        "materializer_id": "pi-release",
+        "materializer_version": "1",
+    }
+    return {**material, "release_digest": canonical_sha256(material)}
 
 
 def _sources() -> dict[CandidateKind, tuple[dict[str, object], dict[str, object]]]:
@@ -155,6 +183,7 @@ def _sources() -> dict[CandidateKind, tuple[dict[str, object], dict[str, object]
             code_base,
             {**code_base, "id": "change-set-2", "sequence": 2},
         ),
+        CandidateKind.EXECUTOR: (_executor_release("a"), _executor_release("c")),
     }
 
 
@@ -164,6 +193,7 @@ ADAPTERS = {
     CandidateKind.POLICY: PolicyCandidateAdapter,
     CandidateKind.PERSONA: PersonaCandidateAdapter,
     CandidateKind.CODE: CodeCandidateAdapter,
+    CandidateKind.EXECUTOR: ExecutorCandidateAdapter,
 }
 
 
@@ -189,7 +219,9 @@ def artifacts(tmp_path: Path, storage: Storage) -> ArtifactStore:
 
 def _proposal(kind: CandidateKind) -> CandidateProposalV1:
     base, candidate = _sources()[kind]
-    subject_key = f"{kind.value}:review-target"
+    subject_key = (
+        "executor:keqing:pi" if kind is CandidateKind.EXECUTOR else f"{kind.value}:review-target"
+    )
     contract = EvolutionContractV1(
         kind=kind,
         subject_key=subject_key,
@@ -660,6 +692,7 @@ def test_candidate_service_requires_complete_explicit_live_authorities(
             policy_root=tmp_path / "policy",
             persona_root=tmp_path / "personas",
             code_worktree=tmp_path / "worktree",
+            executor_root=tmp_path / "runtime-releases",
         )
 
 
@@ -784,7 +817,7 @@ def _prepare_live_resource(kind: CandidateKind, root: Path) -> None:
             }
         )
         live_storage.close()
-    else:
+    elif kind is CandidateKind.CODE:
         worktree = root / "worktree"
         (worktree / ".git").mkdir(parents=True)
         (worktree / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
@@ -798,6 +831,7 @@ def _live_authorities(root: Path) -> CandidateLiveAuthorities:
         policy_root=root,
         persona_root=root,
         code_worktree=root / "worktree",
+        executor_root=root / "runtime-releases",
     )
 
 

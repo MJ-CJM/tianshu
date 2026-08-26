@@ -15,6 +15,44 @@ from tianshu.gateway.keqing_api import (
     keqing_router,
 )
 from tianshu.models.runtime_generation import RuntimeGenerationState
+from tianshu.storage import Storage
+
+_HASH_A = "a" * 64
+_HASH_B = "b" * 64
+_HASH_C = "c" * 64
+
+
+def _seed_executor_candidate(
+    storage: Storage,
+    *,
+    candidate_id: str,
+    updated_at: str,
+    lifecycle: str = "ready",
+    version: int = 1,
+) -> None:
+    storage._conn.execute(  # noqa: SLF001 - durable API fixture
+        """
+        INSERT INTO evolution_candidates (
+            candidate_id, schema_version, kind, subject_key,
+            provenance_json, provenance_hash, base_json, candidate_ref_json,
+            diff_artifact_digest, evolution_contract_json, evolution_contract_hash,
+            gate_snapshot_version, evidence_bundle_ids_json, routing_json,
+            rollback_json, lifecycle, version, created_at, updated_at
+        ) VALUES (?, 1, 'executor', 'executor:keqing:pi', '{}', ?, '{}', '{}',
+                  ?, '{}', ?, 0, '[]', NULL, '{}', ?, ?, ?, ?)
+        """,
+        (
+            candidate_id,
+            _HASH_A,
+            _HASH_B,
+            _HASH_C,
+            lifecycle,
+            version,
+            updated_at,
+            updated_at,
+        ),
+    )
+    storage._conn.commit()  # noqa: SLF001 - durable API fixture
 
 
 def _app(gateway_enabled: bool = False, *, generation_controller=None):
@@ -46,8 +84,10 @@ class TestStatusEndpoint:
                 "capabilities",
                 "credential_status",
                 "generation",
+                "evolution_candidate",
             }
         assert all(b["generation"] is None for b in backends.values())
+        assert all(b["evolution_candidate"] is None for b in backends.values())
 
     def test_pi_exposes_read_only_generation_status(self):
         class ReadOnlyGenerationController:
@@ -77,6 +117,56 @@ class TestStatusEndpoint:
             backend["generation"] is None for name, backend in by_backend.items() if name != "pi"
         )
         assert controller.scopes == ["executor:keqing:pi"]
+
+    def test_pi_exposes_latest_executor_candidate_without_writing(self, monkeypatch):
+        storage = Storage(":memory:")
+        storage.init_db()
+        _seed_executor_candidate(
+            storage,
+            candidate_id="candidate-executor-pi-old",
+            updated_at="2026-08-25T00:00:00+00:00",
+        )
+        _seed_executor_candidate(
+            storage,
+            candidate_id="candidate-executor-pi-new",
+            updated_at="2026-08-26T00:00:00+00:00",
+            lifecycle="canary",
+            version=3,
+        )
+        monkeypatch.setattr(
+            "tianshu.gateway.keqing_api._detect_installed_version",
+            lambda binary: "0.84.0" if binary == "pi" else None,
+        )
+        statements: list[str] = []
+        storage._conn.set_trace_callback(statements.append)  # noqa: SLF001
+        changes_before = storage._conn.total_changes  # noqa: SLF001
+        client = _app()
+        client.app.state.storage = storage
+
+        try:
+            data = client.get("/keqing/status").json()["data"]
+        finally:
+            storage._conn.set_trace_callback(None)  # noqa: SLF001
+            changes_after = storage._conn.total_changes  # noqa: SLF001
+            client.close()
+            storage.close()
+
+        by_backend = {backend["backend"]: backend for backend in data["backends"]}
+        assert by_backend["pi"]["evolution_candidate"] == {
+            "candidate_id": "candidate-executor-pi-new",
+            "lifecycle": "canary",
+            "version": 3,
+        }
+        assert all(
+            backend["evolution_candidate"] is None
+            for name, backend in by_backend.items()
+            if name != "pi"
+        )
+        assert changes_after == changes_before
+        assert not any(
+            statement.lstrip().upper().startswith(("INSERT ", "UPDATE ", "DELETE ", "REPLACE "))
+            for statement in statements
+        )
 
     def test_pi_exposes_capabilities_and_pinned_version(self):
         data = _app().get("/keqing/status").json()["data"]

@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { Tag, Typography } from "antd";
 
 import type {
@@ -5,6 +6,7 @@ import type {
   EvolutionRoutingSummaryV1,
 } from "../../api/evolution";
 import { useT } from "../../i18n";
+import { evolutionCandidateAnchor } from "../../utils/evolutionCandidateNavigation";
 import MonoText from "../common/MonoText";
 
 export interface EvolutionGateProps {
@@ -37,12 +39,40 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
 
 export default function EvolutionGate({ candidate, routing }: EvolutionGateProps) {
   const t = useT();
+  const cardRef = useRef<HTMLElement>(null);
+  const [isHashTargeted, setIsHashTargeted] = useState(false);
+  const anchorId = evolutionCandidateAnchor(candidate.candidate_id);
+  const titleId = `${anchorId}-title`;
   const blockingGates = candidate.gates.filter((gate) => gate.blocking);
+
+  useEffect(() => {
+    const syncHashTarget = () => {
+      const targeted = window.location.hash.slice(1) === anchorId;
+      setIsHashTargeted(targeted);
+      if (targeted) cardRef.current?.scrollIntoView?.({ block: "center" });
+    };
+
+    syncHashTarget();
+    window.addEventListener("hashchange", syncHashTarget);
+    return () => window.removeEventListener("hashchange", syncHashTarget);
+  }, [anchorId]);
+
   return (
-    <article aria-labelledby={`candidate-${candidate.candidate_id}`} style={panelStyle}>
+    <article
+      ref={cardRef}
+      id={anchorId}
+      aria-labelledby={titleId}
+      data-hash-targeted={isHashTargeted ? "true" : undefined}
+      style={{
+        ...panelStyle,
+        scrollMarginBlock: 24,
+        boxShadow: isHashTargeted ? "0 0 0 2px var(--ts-color-accent)" : undefined,
+        transition: "box-shadow 160ms ease",
+      }}
+    >
       <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
         <div>
-          <Typography.Title id={`candidate-${candidate.candidate_id}`} level={4} style={{ margin: 0 }}>
+          <Typography.Title id={titleId} level={4} style={{ margin: 0 }}>
             {candidate.candidate_id}
           </Typography.Title>
           <Typography.Text type="secondary">

@@ -15,7 +15,15 @@ from tianshu.executor.adapters import (
     ExecutorGenerationError,
     MaterializedExecutorGeneration,
 )
+from tianshu.models.executor_generation_authority import (
+    ExecutorGenerationAuthorityStatus,
+    transition_executor_generation_authority,
+)
 from tianshu.models.runtime_generation import RuntimeGenerationState, RuntimeGenerationV1
+from tianshu.storage.executor_generation_authority_repo import (
+    ExecutorGenerationAuthorityRepository,
+    ExecutorGenerationAuthorityRepositoryError,
+)
 from tianshu.storage.generation_repo import (
     GenerationRepository,
     GenerationRepositoryError,
@@ -100,12 +108,14 @@ class GenerationReconciler:
         *,
         clock: Callable[[], datetime] | None = None,
         snapshot_binding_available: Callable[[], bool] | None = None,
+        authority_repository: ExecutorGenerationAuthorityRepository | None = None,
     ) -> None:
         self._repository = repository
         self._unit_of_work_factory = unit_of_work_factory
         self._registry = registry
         self._clock = clock or (lambda: datetime.now(UTC))
         self._snapshot_binding_available = snapshot_binding_available or (lambda: True)
+        self._authority_repository = authority_repository
         self._lock = Lock()
         self._last_error_code: str | None = None
         self._readiness_error_codes: tuple[str, ...] = ()
@@ -125,6 +135,7 @@ class GenerationReconciler:
 
         with self._lock:
             disposed: list[RuntimeGenerationV1] = []
+            failed: list[RuntimeGenerationV1] = []
             try:
                 with (
                     self._unit_of_work_factory() as unit_of_work,
@@ -138,7 +149,58 @@ class GenerationReconciler:
                         unit_of_work.connection,
                         candidates,
                     )
-                    retained_ids = self._repository.retained_generation_ids(unit_of_work.connection)
+                    durable_retained_ids = self._repository.retained_generation_ids(
+                        unit_of_work.connection
+                    )
+                    authority_roots = self._authority_roots(unit_of_work.connection)
+                    authority_retained_ids = frozenset(
+                        authority.generation_id for authority in authority_roots
+                    )
+                    retained_ids = durable_retained_ids | authority_retained_ids
+                    for authority in authority_roots:
+                        if authority.status is not ExecutorGenerationAuthorityStatus.REVOKING:
+                            continue
+                        generation = self._repository.get_generation(
+                            unit_of_work.connection,
+                            scope=authority.scope,
+                            generation_id=authority.generation_id,
+                        )
+                        if (
+                            generation is None
+                            or generation.release_digest != authority.release_digest
+                        ):
+                            raise GenerationRepositoryError(
+                                "executor generation authority target is unavailable"
+                            )
+                        if generation.state in {
+                            RuntimeGenerationState.FAILED,
+                            RuntimeGenerationState.DISPOSED,
+                        }:
+                            self._revoke_drained_authority(
+                                unit_of_work.connection,
+                                authority,
+                            )
+                            continue
+                        if generation.state is not RuntimeGenerationState.READY:
+                            continue
+                        if (
+                            generation.generation_id in durable_retained_ids
+                            or self._registry.active_attempt_count(generation.generation_id)
+                        ):
+                            continue
+                        failed_generation = self._repository.transition_pre_activation(
+                            unit_of_work.connection,
+                            scope=generation.scope,
+                            generation_id=generation.generation_id,
+                            target_state=RuntimeGenerationState.FAILED,
+                            expected_version=generation.version,
+                            updated_at=self._now(),
+                        )
+                        failed.append(failed_generation)
+                        self._revoke_drained_authority(
+                            unit_of_work.connection,
+                            authority,
+                        )
                     for generation in candidates:
                         if generation.state is not RuntimeGenerationState.DRAINING:
                             continue
@@ -174,7 +236,15 @@ class GenerationReconciler:
                             RuntimeGenerationState.DISPOSED.value,
                         )
                         self._registry.remove_generation(generation.generation_id)
-            except GenerationRepositoryError as exc:
+                    for generation in failed:
+                        if self._registry.generation_record(generation.generation_id) is None:
+                            continue
+                        self._registry.update_generation_state(
+                            generation.generation_id,
+                            RuntimeGenerationState.FAILED.value,
+                        )
+                        self._registry.remove_generation(generation.generation_id)
+            except (GenerationRepositoryError, ExecutorGenerationAuthorityRepositoryError) as exc:
                 self._last_error_code = "generation_reconciliation_repository_conflict"
                 logger.warning("Generation reconciliation deferred: %s", exc)
                 return 0
@@ -184,7 +254,7 @@ class GenerationReconciler:
                 return 0
 
             self._last_error_code = None
-            return len(disposed)
+            return len(disposed) + len(failed)
 
     def readiness_probe(self) -> bool:
         """Aggregate active-material and unconverged-draining readiness."""
@@ -206,7 +276,12 @@ class GenerationReconciler:
                     self._registry.generation_guard(),
                 ):
                     candidates = self._repository.list_recovery_candidates(unit_of_work.connection)
-                    retained_ids = self._repository.retained_generation_ids(unit_of_work.connection)
+                    retained_ids = self._repository.retained_generation_ids(
+                        unit_of_work.connection
+                    ) | frozenset(
+                        authority.generation_id
+                        for authority in self._authority_roots(unit_of_work.connection)
+                    )
                     error_codes = self._readiness_errors(
                         unit_of_work.connection,
                         candidates,
@@ -214,7 +289,11 @@ class GenerationReconciler:
                         snapshot_binding_available=snapshot_binding_available,
                     )
                     unit_of_work.commit()
-            except (GenerationRepositoryError, ExecutorGenerationError) as exc:
+            except (
+                GenerationRepositoryError,
+                ExecutorGenerationAuthorityRepositoryError,
+                ExecutorGenerationError,
+            ) as exc:
                 logger.warning("Generation readiness probe failed: %s", exc)
                 error_codes = ("generation_readiness_probe_failed",)
             self._readiness_error_codes = error_codes
@@ -444,6 +523,26 @@ class GenerationReconciler:
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("generation reconciler clock must be timezone-aware")
         return value.astimezone(UTC)
+
+    def _authority_roots(self, connection: sqlite3.Connection):
+        if self._authority_repository is None:
+            return ()
+        return self._authority_repository.list_retention_roots(connection)
+
+    def _revoke_drained_authority(self, connection: sqlite3.Connection, authority) -> None:
+        if self._authority_repository is None:
+            raise RuntimeError("executor generation authority repository is unavailable")
+        revoked = transition_executor_generation_authority(
+            authority,
+            ExecutorGenerationAuthorityStatus.REVOKED,
+            now=self._now(),
+        )
+        self._authority_repository.save(
+            connection,
+            revoked,
+            expected_version=authority.version,
+            reason_code="executor_canary_drained",
+        )
 
 
 __all__ = [

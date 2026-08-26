@@ -14,6 +14,7 @@ from typing import Protocol
 from tianshu.evidence.service import ArtifactStore, ArtifactWriteReceipt
 from tianshu.evolution.adapters.base import AdapterError, BaseCandidateAdapter, StagedCandidateV1
 from tianshu.evolution.adapters.code import CodeCandidateAdapter
+from tianshu.evolution.adapters.executor import ExecutorCandidateAdapter
 from tianshu.evolution.adapters.memory import MemoryCandidateAdapter
 from tianshu.evolution.adapters.persona import PersonaCandidateAdapter
 from tianshu.evolution.adapters.policy import PolicyCandidateAdapter
@@ -68,6 +69,7 @@ class CandidateLiveAuthorities:
     policy_root: Path
     persona_root: Path
     code_worktree: Path
+    executor_root: Path
 
     def for_kind(self, kind: CandidateKind) -> Path:
         return {
@@ -76,6 +78,7 @@ class CandidateLiveAuthorities:
             CandidateKind.POLICY: self.policy_root,
             CandidateKind.PERSONA: self.persona_root,
             CandidateKind.CODE: self.code_worktree,
+            CandidateKind.EXECUTOR: self.executor_root,
         }[kind]
 
 
@@ -85,6 +88,7 @@ _ADAPTER_TYPES: dict[CandidateKind, type[BaseCandidateAdapter]] = {
     CandidateKind.POLICY: PolicyCandidateAdapter,
     CandidateKind.PERSONA: PersonaCandidateAdapter,
     CandidateKind.CODE: CodeCandidateAdapter,
+    CandidateKind.EXECUTOR: ExecutorCandidateAdapter,
 }
 
 

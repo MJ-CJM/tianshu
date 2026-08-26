@@ -725,11 +725,21 @@ _HISTORICAL_CORE_TEMP_TABLES = {
 _MODEL_REGISTRY_TEMP_TABLES = {
     "_llm_configs_v20",
 }
+_EXECUTOR_CANDIDATE_TEMP_TABLES = {
+    "_evolution_candidates_v35",
+    "_evolution_gate_snapshots_v35",
+    "_evolution_lifecycle_journal_v35",
+    "_evolution_promotion_journal_v35",
+    "_evolution_routing_allocations_v35",
+    "_run_evolution_assignments_v35",
+    "_run_subject_assignments_v35",
+}
 _RESERVED_TEMP_TABLES = (
     _SUPERVISION_TEMP_TABLES
     | _SESSION_TEMP_TABLES
     | _HISTORICAL_CORE_TEMP_TABLES
     | _MODEL_REGISTRY_TEMP_TABLES
+    | _EXECUTOR_CANDIDATE_TEMP_TABLES
 )
 
 _SESSION_LEGACY_TABLES = {
@@ -4906,6 +4916,655 @@ def _run_subject_assignments_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+# --- V35: executor candidates + generation-scoped promotion authority ---
+
+_EXECUTOR_CANDIDATE_VERSION = _RUN_SUBJECT_ASSIGNMENTS_VERSION + 1
+_EXECUTOR_CANDIDATE_NAME = f"{_EXECUTOR_CANDIDATE_VERSION:04d}_executor_candidate_kind"
+_EXECUTOR_CANDIDATE_TABLE_SQL = _EVOLUTION_CANDIDATE_STATEMENTS[0].replace(
+    "'memory','skill','policy','persona','code'",
+    "'memory','skill','policy','persona','code','executor'",
+    1,
+)
+
+_EXECUTOR_CANDIDATE_AUTHORITY_STATEMENTS = (
+    """
+    CREATE TABLE executor_generation_authorities (
+        candidate_id TEXT NOT NULL PRIMARY KEY
+            REFERENCES evolution_candidates(candidate_id) ON DELETE RESTRICT,
+        authority_id TEXT NOT NULL UNIQUE CHECK (
+            length(authority_id) = 64
+            AND authority_id NOT GLOB '*[^0-9a-f]*'
+        ),
+        schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+        epoch INTEGER NOT NULL CHECK (epoch > 0),
+        candidate_version INTEGER NOT NULL CHECK (candidate_version > 0),
+        candidate_artifact_digest TEXT NOT NULL CHECK (
+            length(candidate_artifact_digest) = 64
+            AND candidate_artifact_digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        candidate_canonical_digest TEXT NOT NULL CHECK (
+            length(candidate_canonical_digest) = 64
+            AND candidate_canonical_digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        release_digest TEXT NOT NULL CHECK (
+            length(release_digest) = 64
+            AND release_digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        scope TEXT NOT NULL CHECK (length(trim(scope)) BETWEEN 1 AND 256),
+        generation_id TEXT NOT NULL,
+        promotion_journal_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (
+            status IN ('pending','authorized','revoking','revoked')
+        ),
+        authority_json TEXT NOT NULL CHECK (
+            json_valid(authority_json) AND json_type(authority_json) = 'object'
+        ),
+        authority_hash TEXT NOT NULL CHECK (
+            length(authority_hash) = 64
+            AND authority_hash NOT GLOB '*[^0-9a-f]*'
+        ),
+        version INTEGER NOT NULL CHECK (version > 0),
+        created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
+        updated_at TEXT NOT NULL CHECK (length(trim(updated_at)) > 0),
+        revoked_at TEXT,
+        revocation_reason TEXT,
+        UNIQUE (generation_id),
+        FOREIGN KEY (release_digest, scope)
+            REFERENCES runtime_generation_releases(release_digest, scope) ON DELETE RESTRICT,
+        FOREIGN KEY (scope, generation_id)
+            REFERENCES runtime_generations(scope, generation_id) ON DELETE RESTRICT,
+        FOREIGN KEY (promotion_journal_id)
+            REFERENCES evolution_promotion_journal(promotion_journal_id) ON DELETE RESTRICT,
+        CHECK (
+            (
+                status IN ('revoking','revoked')
+                AND revoked_at IS NOT NULL
+                AND length(trim(revoked_at)) > 0
+                AND revocation_reason IS NOT NULL
+                AND length(trim(revocation_reason)) > 0
+            )
+            OR (
+                status IN ('pending','authorized')
+                AND revoked_at IS NULL
+                AND revocation_reason IS NULL
+            )
+        )
+    )
+    """,
+    """
+    CREATE TABLE executor_generation_authority_journal (
+        journal_id TEXT NOT NULL PRIMARY KEY CHECK (
+            length(journal_id) = 64
+            AND journal_id NOT GLOB '*[^0-9a-f]*'
+        ),
+        authority_id TEXT NOT NULL CHECK (
+            length(authority_id) = 64
+            AND authority_id NOT GLOB '*[^0-9a-f]*'
+        ),
+        candidate_id TEXT NOT NULL
+            REFERENCES evolution_candidates(candidate_id) ON DELETE RESTRICT,
+        authority_version INTEGER NOT NULL CHECK (authority_version > 0),
+        epoch INTEGER NOT NULL CHECK (epoch > 0),
+        transition TEXT NOT NULL CHECK (
+            transition IN ('pending','authorized','revoking','revoked')
+        ),
+        candidate_version INTEGER NOT NULL CHECK (candidate_version > 0),
+        candidate_artifact_digest TEXT NOT NULL CHECK (
+            length(candidate_artifact_digest) = 64
+            AND candidate_artifact_digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        candidate_canonical_digest TEXT NOT NULL CHECK (
+            length(candidate_canonical_digest) = 64
+            AND candidate_canonical_digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        release_digest TEXT NOT NULL CHECK (
+            length(release_digest) = 64
+            AND release_digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        scope TEXT NOT NULL CHECK (length(trim(scope)) BETWEEN 1 AND 256),
+        generation_id TEXT NOT NULL,
+        promotion_journal_id TEXT NOT NULL,
+        reason_code TEXT NOT NULL CHECK (length(trim(reason_code)) > 0),
+        entry_json TEXT NOT NULL CHECK (
+            json_valid(entry_json) AND json_type(entry_json) = 'object'
+        ),
+        entry_hash TEXT NOT NULL CHECK (
+            length(entry_hash) = 64
+            AND entry_hash NOT GLOB '*[^0-9a-f]*'
+        ),
+        created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
+        UNIQUE (authority_id, authority_version),
+        FOREIGN KEY (release_digest, scope)
+            REFERENCES runtime_generation_releases(release_digest, scope) ON DELETE RESTRICT,
+        FOREIGN KEY (scope, generation_id)
+            REFERENCES runtime_generations(scope, generation_id) ON DELETE RESTRICT,
+        FOREIGN KEY (promotion_journal_id)
+            REFERENCES evolution_promotion_journal(promotion_journal_id) ON DELETE RESTRICT
+    )
+    """,
+    """
+    CREATE INDEX idx_executor_generation_authorities_status
+    ON executor_generation_authorities(status, updated_at)
+    """,
+    """
+    CREATE INDEX idx_executor_generation_authority_journal_candidate
+    ON executor_generation_authority_journal(candidate_id, epoch, authority_version)
+    """,
+    """
+    CREATE TRIGGER executor_generation_authorities_no_replace
+    BEFORE INSERT ON executor_generation_authorities
+    WHEN EXISTS (
+        SELECT 1 FROM executor_generation_authorities
+        WHERE candidate_id = NEW.candidate_id
+           OR authority_id = NEW.authority_id
+           OR generation_id = NEW.generation_id
+    ) BEGIN
+        SELECT RAISE(ABORT, 'executor generation authority identity already exists');
+    END
+    """,
+    """
+    CREATE TRIGGER executor_generation_authorities_no_delete
+    BEFORE DELETE ON executor_generation_authorities BEGIN
+        SELECT RAISE(ABORT, 'executor generation authority is retained');
+    END
+    """,
+    """
+    CREATE TRIGGER executor_generation_authorities_transition_guard
+    BEFORE UPDATE ON executor_generation_authorities
+    WHEN NEW.candidate_id != OLD.candidate_id
+      OR NEW.schema_version != OLD.schema_version
+      OR NEW.version != OLD.version + 1
+      OR NOT (
+          (
+              OLD.status = 'pending'
+              AND NEW.status IN ('authorized','revoked')
+              AND NEW.epoch = OLD.epoch
+              AND NEW.authority_id = OLD.authority_id
+              AND NEW.candidate_version = OLD.candidate_version
+              AND NEW.candidate_artifact_digest = OLD.candidate_artifact_digest
+              AND NEW.candidate_canonical_digest = OLD.candidate_canonical_digest
+              AND NEW.release_digest = OLD.release_digest
+              AND NEW.scope = OLD.scope
+              AND NEW.generation_id = OLD.generation_id
+              AND NEW.promotion_journal_id = OLD.promotion_journal_id
+              AND NEW.created_at = OLD.created_at
+          )
+          OR (
+              OLD.status = 'authorized'
+              AND NEW.status IN ('revoking','revoked')
+              AND NEW.epoch = OLD.epoch
+              AND NEW.authority_id = OLD.authority_id
+              AND NEW.candidate_version = OLD.candidate_version
+              AND NEW.candidate_artifact_digest = OLD.candidate_artifact_digest
+              AND NEW.candidate_canonical_digest = OLD.candidate_canonical_digest
+              AND NEW.release_digest = OLD.release_digest
+              AND NEW.scope = OLD.scope
+              AND NEW.generation_id = OLD.generation_id
+              AND NEW.promotion_journal_id = OLD.promotion_journal_id
+              AND NEW.created_at = OLD.created_at
+          )
+          OR (
+              OLD.status = 'revoking'
+              AND NEW.status = 'revoked'
+              AND NEW.epoch = OLD.epoch
+              AND NEW.authority_id = OLD.authority_id
+              AND NEW.candidate_version = OLD.candidate_version
+              AND NEW.candidate_artifact_digest = OLD.candidate_artifact_digest
+              AND NEW.candidate_canonical_digest = OLD.candidate_canonical_digest
+              AND NEW.release_digest = OLD.release_digest
+              AND NEW.scope = OLD.scope
+              AND NEW.generation_id = OLD.generation_id
+              AND NEW.promotion_journal_id = OLD.promotion_journal_id
+              AND NEW.created_at = OLD.created_at
+          )
+          OR (
+              OLD.status = 'revoked'
+              AND NEW.status = 'pending'
+              AND NEW.epoch = OLD.epoch + 1
+          )
+      )
+    BEGIN
+        SELECT RAISE(ABORT, 'invalid executor generation authority transition');
+    END
+    """,
+    """
+    CREATE TRIGGER executor_generation_authority_journal_no_replace
+    BEFORE INSERT ON executor_generation_authority_journal
+    WHEN EXISTS (
+        SELECT 1 FROM executor_generation_authority_journal
+        WHERE journal_id = NEW.journal_id
+           OR (
+               authority_id = NEW.authority_id
+               AND authority_version = NEW.authority_version
+           )
+    ) BEGIN
+        SELECT RAISE(ABORT, 'executor generation authority journal is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER executor_generation_authority_journal_no_update
+    BEFORE UPDATE ON executor_generation_authority_journal BEGIN
+        SELECT RAISE(ABORT, 'executor generation authority journal is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER executor_generation_authority_journal_no_delete
+    BEFORE DELETE ON executor_generation_authority_journal BEGIN
+        SELECT RAISE(ABORT, 'executor generation authority journal is immutable');
+    END
+    """,
+)
+_EXECUTOR_CANDIDATE_AUTHORITY_OBJECT_NAMES = (
+    "executor_generation_authorities",
+    "executor_generation_authority_journal",
+    "idx_executor_generation_authorities_status",
+    "idx_executor_generation_authority_journal_candidate",
+    "executor_generation_authorities_no_replace",
+    "executor_generation_authorities_no_delete",
+    "executor_generation_authorities_transition_guard",
+    "executor_generation_authority_journal_no_replace",
+    "executor_generation_authority_journal_no_update",
+    "executor_generation_authority_journal_no_delete",
+)
+
+_EXECUTOR_CANDIDATE_REBUILD_TABLES = (
+    "evolution_candidates",
+    "evolution_gate_snapshots",
+    "evolution_lifecycle_journal",
+    "evolution_promotion_journal",
+    "evolution_routing_allocations",
+    "run_evolution_assignments",
+    "run_subject_assignments",
+)
+_EXECUTOR_CANDIDATE_REBUILD_TEMP_TABLES = (
+    "_evolution_candidates_v35",
+    "_evolution_gate_snapshots_v35",
+    "_evolution_lifecycle_journal_v35",
+    "_evolution_promotion_journal_v35",
+    "_evolution_routing_allocations_v35",
+    "_run_evolution_assignments_v35",
+    "_run_subject_assignments_v35",
+)
+_EXECUTOR_CANDIDATE_REBUILD_COLUMNS = (
+    (
+        "candidate_id",
+        "schema_version",
+        "kind",
+        "subject_key",
+        "provenance_json",
+        "provenance_hash",
+        "base_json",
+        "candidate_ref_json",
+        "diff_artifact_digest",
+        "evolution_contract_json",
+        "evolution_contract_hash",
+        "gate_snapshot_version",
+        "evidence_bundle_ids_json",
+        "routing_json",
+        "rollback_json",
+        "lifecycle",
+        "version",
+        "created_at",
+        "updated_at",
+    ),
+    (
+        "gate_snapshot_id",
+        "candidate_id",
+        "candidate_version",
+        "gate_snapshot_version",
+        "snapshot_json",
+        "snapshot_hash",
+        "evidence_bundle_ids_json",
+        "created_at",
+    ),
+    (
+        "journal_id",
+        "candidate_id",
+        "candidate_version",
+        "from_lifecycle",
+        "to_lifecycle",
+        "decision_request_id",
+        "entry_json",
+        "entry_hash",
+        "created_at",
+    ),
+    (
+        "promotion_journal_id",
+        "command_key",
+        "candidate_id",
+        "candidate_version",
+        "gate_snapshot_version",
+        "action",
+        "status",
+        "decision_request_id",
+        "entry_json",
+        "entry_hash",
+        "created_at",
+    ),
+    (
+        "candidate_id",
+        "routing_version",
+        "allocation_basis_points",
+        "allocation_seed_id",
+        "routing_json",
+        "routing_hash",
+        "version",
+        "created_at",
+        "updated_at",
+    ),
+    (
+        "assignment_id",
+        "memorial_id",
+        "candidate_id",
+        "routing_version",
+        "bucket",
+        "champion_ref_json",
+        "selected_ref_json",
+        "overlay_digest",
+        "assignment_json",
+        "assignment_hash",
+        "created_at",
+    ),
+    (
+        "assignment_id",
+        "memorial_id",
+        "kind",
+        "subject_key",
+        "candidate_id",
+        "routing_version",
+        "bucket",
+        "champion_ref_json",
+        "selected_ref_json",
+        "overlay_digest",
+        "assignment_json",
+        "assignment_hash",
+        "assignment_set_hash",
+        "assignment_set_size",
+        "created_at",
+    ),
+)
+_EXECUTOR_CANDIDATE_SOURCE_TABLE_STATEMENTS = (
+    _EVOLUTION_CANDIDATE_STATEMENTS[0],
+    *_EVOLUTION_CANDIDATE_STATEMENTS[2:7],
+    _RUN_SUBJECT_ASSIGNMENTS_STATEMENTS[0],
+)
+_EXECUTOR_CANDIDATE_TARGET_TABLE_STATEMENTS = (
+    _EXECUTOR_CANDIDATE_TABLE_SQL,
+    *_EXECUTOR_CANDIDATE_SOURCE_TABLE_STATEMENTS[1:],
+)
+_EXECUTOR_CANDIDATE_INDEX_STATEMENTS = (
+    _EVOLUTION_CANDIDATE_STATEMENTS[1],
+    _EVOLUTION_POLICIES_STATEMENTS[1],
+)
+_EXECUTOR_CANDIDATE_TRIGGER_STATEMENTS = (
+    *_EVOLUTION_CANDIDATE_STATEMENTS[7:14],
+    _LEGACY_ASSIGNMENT_CLEANUP_STATEMENTS[1],
+    *_RUN_SUBJECT_ASSIGNMENTS_STATEMENTS[1:],
+)
+_EXECUTOR_CANDIDATE_BASE_OBJECT_NAMES = (
+    *_EXECUTOR_CANDIDATE_REBUILD_TABLES,
+    "idx_evolution_candidates_lifecycle",
+    "idx_evolution_candidates_subject_canary",
+    "evolution_gate_snapshots_no_update",
+    "evolution_gate_snapshots_no_delete",
+    "evolution_lifecycle_journal_no_update",
+    "evolution_lifecycle_journal_no_delete",
+    "evolution_promotion_journal_no_update",
+    "evolution_promotion_journal_no_delete",
+    "run_evolution_assignments_no_update",
+    "run_evolution_assignments_no_delete",
+    "run_subject_assignments_sealed_insert",
+    "run_subject_assignments_no_update",
+    "run_subject_assignments_no_delete",
+)
+_EXECUTOR_CANDIDATE_SOURCE_STATEMENTS = (
+    *_EXECUTOR_CANDIDATE_SOURCE_TABLE_STATEMENTS,
+    *_EXECUTOR_CANDIDATE_INDEX_STATEMENTS,
+    *_EXECUTOR_CANDIDATE_TRIGGER_STATEMENTS,
+)
+_EXECUTOR_CANDIDATE_TARGET_STATEMENTS = (
+    *_EXECUTOR_CANDIDATE_TARGET_TABLE_STATEMENTS,
+    *_EXECUTOR_CANDIDATE_INDEX_STATEMENTS,
+    *_EXECUTOR_CANDIDATE_TRIGGER_STATEMENTS,
+    *_EXECUTOR_CANDIDATE_AUTHORITY_STATEMENTS,
+)
+_EXECUTOR_CANDIDATE_SOURCE_OBJECTS = {
+    name: " ".join(statement.split())
+    for name, statement in zip(
+        _EXECUTOR_CANDIDATE_BASE_OBJECT_NAMES,
+        _EXECUTOR_CANDIDATE_SOURCE_STATEMENTS,
+        strict=True,
+    )
+}
+_EXECUTOR_CANDIDATE_TARGET_OBJECTS = {
+    name: " ".join(statement.split())
+    for name, statement in zip(
+        (*_EXECUTOR_CANDIDATE_BASE_OBJECT_NAMES, *_EXECUTOR_CANDIDATE_AUTHORITY_OBJECT_NAMES),
+        _EXECUTOR_CANDIDATE_TARGET_STATEMENTS,
+        strict=True,
+    )
+}
+_EXECUTOR_CANDIDATE_SOURCE_INBOUND_FOREIGN_KEYS = frozenset(
+    (
+        child,
+        "evolution_candidates",
+        "candidate_id",
+        "candidate_id",
+        "NO ACTION",
+        "RESTRICT",
+        "NONE",
+    )
+    for child in _EXECUTOR_CANDIDATE_REBUILD_TABLES[1:]
+)
+_EXECUTOR_CANDIDATE_TARGET_INBOUND_FOREIGN_KEYS = (
+    _EXECUTOR_CANDIDATE_SOURCE_INBOUND_FOREIGN_KEYS
+    | {
+        (
+            "executor_generation_authorities",
+            "evolution_candidates",
+            "candidate_id",
+            "candidate_id",
+            "NO ACTION",
+            "RESTRICT",
+            "NONE",
+        ),
+        (
+            "executor_generation_authority_journal",
+            "evolution_candidates",
+            "candidate_id",
+            "candidate_id",
+            "NO ACTION",
+            "RESTRICT",
+            "NONE",
+        ),
+        (
+            "executor_generation_authorities",
+            "evolution_promotion_journal",
+            "promotion_journal_id",
+            "promotion_journal_id",
+            "NO ACTION",
+            "RESTRICT",
+            "NONE",
+        ),
+        (
+            "executor_generation_authority_journal",
+            "evolution_promotion_journal",
+            "promotion_journal_id",
+            "promotion_journal_id",
+            "NO ACTION",
+            "RESTRICT",
+            "NONE",
+        ),
+    }
+)
+_EXECUTOR_CANDIDATE_CHECKSUM = hashlib.sha256(
+    (
+        _EXECUTOR_CANDIDATE_NAME
+        + "\nsource\n"
+        + "\n".join(_EXECUTOR_CANDIDATE_SOURCE_OBJECTS.values())
+        + "\ntarget\n"
+        + "\n".join(_EXECUTOR_CANDIDATE_TARGET_OBJECTS.values())
+        + "\nrebuild\n"
+        + repr(
+            tuple(
+                zip(
+                    _EXECUTOR_CANDIDATE_REBUILD_TABLES,
+                    _EXECUTOR_CANDIDATE_REBUILD_TEMP_TABLES,
+                    _EXECUTOR_CANDIDATE_REBUILD_COLUMNS,
+                    strict=True,
+                )
+            )
+        )
+        + "\ninbound-source\n"
+        + repr(sorted(_EXECUTOR_CANDIDATE_SOURCE_INBOUND_FOREIGN_KEYS))
+        + "\ninbound-target\n"
+        + repr(sorted(_EXECUTOR_CANDIDATE_TARGET_INBOUND_FOREIGN_KEYS))
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _executor_candidates_upgrade(conn: MigrationConnection) -> None:
+    managed_tables = {
+        *_EXECUTOR_CANDIDATE_REBUILD_TABLES,
+        "executor_generation_authorities",
+        "executor_generation_authority_journal",
+    }
+    all_object_names = set(_EXECUTOR_CANDIDATE_TARGET_OBJECTS)
+
+    def actual_objects() -> dict[str, str]:
+        table_placeholders = ",".join("?" for _ in managed_tables)
+        name_placeholders = ",".join("?" for _ in all_object_names)
+        rows = conn.execute(
+            f"""
+            SELECT name, sql FROM sqlite_master
+            WHERE type IN ('table','index','trigger')
+              AND sql IS NOT NULL
+              AND (
+                  tbl_name IN ({table_placeholders})
+                  OR name IN ({name_placeholders})
+              )
+            """,
+            (*sorted(managed_tables), *sorted(all_object_names)),
+        ).fetchall()
+        return {str(row[0]): " ".join(str(row[1]).split()) for row in rows}
+
+    def inbound_foreign_keys() -> frozenset[tuple[str, str, str, str, str, str, str]]:
+        incoming: set[tuple[str, str, str, str, str, str, str]] = set()
+        tables = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall()
+        for row in tables:
+            child = str(row[0])
+            quoted_child = child.replace('"', '""')
+            for foreign_key in conn.execute(
+                f'PRAGMA foreign_key_list("{quoted_child}")'
+            ).fetchall():
+                parent = str(foreign_key[2])
+                if parent not in managed_tables:
+                    continue
+                incoming.add(
+                    (
+                        child,
+                        parent,
+                        str(foreign_key[3]),
+                        str(foreign_key[4]),
+                        str(foreign_key[5]),
+                        str(foreign_key[6]),
+                        str(foreign_key[7]),
+                    )
+                )
+        return frozenset(incoming)
+
+    existing_tables = {
+        str(row[0])
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
+    residual_temps = existing_tables & _EXECUTOR_CANDIDATE_TEMP_TABLES
+    if residual_temps:
+        raise SchemaCompatibilityError(
+            "executor candidate migration has residual temporary tables: "
+            + ", ".join(sorted(residual_temps))
+        )
+
+    objects_before = actual_objects()
+    inbound_before = inbound_foreign_keys()
+    if (
+        objects_before == _EXECUTOR_CANDIDATE_TARGET_OBJECTS
+        and inbound_before == _EXECUTOR_CANDIDATE_TARGET_INBOUND_FOREIGN_KEYS
+    ):
+        return
+    if (
+        objects_before != _EXECUTOR_CANDIDATE_SOURCE_OBJECTS
+        or inbound_before != _EXECUTOR_CANDIDATE_SOURCE_INBOUND_FOREIGN_KEYS
+    ):
+        raise SchemaCompatibilityError(
+            "existing executor candidate schema or inbound foreign-key graph "
+            "does not match the V34 source or V35 target"
+        )
+
+    rebuild = tuple(
+        zip(
+            _EXECUTOR_CANDIDATE_REBUILD_TABLES,
+            _EXECUTOR_CANDIDATE_REBUILD_TEMP_TABLES,
+            _EXECUTOR_CANDIDATE_REBUILD_COLUMNS,
+            strict=True,
+        )
+    )
+    for table, temporary, _columns in rebuild:
+        conn.execute(f'ALTER TABLE "{table}" RENAME TO "{temporary}"')
+    for statement in _EXECUTOR_CANDIDATE_TARGET_TABLE_STATEMENTS:
+        conn.execute(statement)
+
+    for table, temporary, columns in rebuild:
+        column_list = ", ".join(f'"{column}"' for column in columns)
+        row_projection = f"rowid, {column_list}"
+        conn.execute(
+            f'INSERT INTO "{table}" (rowid, {column_list}) '
+            f'SELECT {row_projection} FROM "{temporary}" ORDER BY rowid'
+        )
+        source_count_row = conn.execute(f'SELECT COUNT(*) FROM "{temporary}"').fetchone()
+        target_count_row = conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()
+        if source_count_row is None or target_count_row is None:
+            raise SchemaCompatibilityError(
+                f"executor candidate migration could not count {table} row payloads"
+            )
+        source_count = int(source_count_row[0])
+        target_count = int(target_count_row[0])
+        source_difference = conn.execute(
+            f'SELECT {row_projection} FROM "{temporary}" '
+            f'EXCEPT SELECT {row_projection} FROM "{table}" LIMIT 1'
+        ).fetchone()
+        target_difference = conn.execute(
+            f'SELECT {row_projection} FROM "{table}" '
+            f'EXCEPT SELECT {row_projection} FROM "{temporary}" LIMIT 1'
+        ).fetchone()
+        if (
+            source_count != target_count
+            or source_difference is not None
+            or target_difference is not None
+        ):
+            raise SchemaCompatibilityError(
+                f"executor candidate migration did not preserve {table} row payloads"
+            )
+
+    for _table, temporary, _columns in reversed(rebuild):
+        conn.execute(f'DROP TABLE "{temporary}"')
+    for statement in _EXECUTOR_CANDIDATE_INDEX_STATEMENTS:
+        conn.execute(statement)
+    for statement in _EXECUTOR_CANDIDATE_TRIGGER_STATEMENTS:
+        conn.execute(statement)
+    for statement in _EXECUTOR_CANDIDATE_AUTHORITY_STATEMENTS:
+        conn.execute(statement)
+
+    if (
+        actual_objects() != _EXECUTOR_CANDIDATE_TARGET_OBJECTS
+        or inbound_foreign_keys() != _EXECUTOR_CANDIDATE_TARGET_INBOUND_FOREIGN_KEYS
+    ):
+        raise SchemaCompatibilityError(
+            "executor candidate migration did not produce the exact V35 schema"
+        )
+
+
 MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
     Migration(
         version=_EVOLUTION_CANDIDATE_MIGRATION_VERSION,
@@ -5008,6 +5667,12 @@ MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
         name=_RUN_SUBJECT_ASSIGNMENTS_NAME,
         checksum=_RUN_SUBJECT_ASSIGNMENTS_CHECKSUM,
         upgrade=_run_subject_assignments_upgrade,
+    ),
+    Migration(
+        version=_EXECUTOR_CANDIDATE_VERSION,
+        name=_EXECUTOR_CANDIDATE_NAME,
+        checksum=_EXECUTOR_CANDIDATE_CHECKSUM,
+        upgrade=_executor_candidates_upgrade,
     ),
 )
 

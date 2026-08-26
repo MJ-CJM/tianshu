@@ -38,6 +38,7 @@ from tianshu.evolution.promotion import (
 from tianshu.evolution.reconciler import EvolutionRollbackReconciler
 from tianshu.models.canonical import canonical_json_bytes
 from tianshu.models.evolution_candidate import (
+    CandidateKind,
     CandidateLifecycle,
 )
 from tianshu.models.principal import (
@@ -659,7 +660,7 @@ def test_multiple_pending_are_deterministic_and_failure_does_not_starve_healthy_
             auth=_auth(),
         )
 
-    second = _ready(storage, candidate_id="candidate-b")
+    second = _ready(storage, kind=CandidateKind.SKILL, candidate_id="candidate-b")
     second_service, _second_gates, second_adapter = _service(storage, second)
     second_canary = second_service.start_canary(
         second.candidate_id,

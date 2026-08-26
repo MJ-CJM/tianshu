@@ -92,12 +92,38 @@ def _generation_status(request: Request, backend: str) -> dict | None:
     }
 
 
+def _executor_candidate_summary(request: Request, backend: str) -> dict | None:
+    """Read the latest durable executor candidate without proposing or mutating one."""
+
+    if backend != "pi":
+        return None
+    storage = getattr(request.app.state, "storage", None)
+    if storage is None:
+        return None
+    with storage.unit_of_work() as unit_of_work:
+        row = unit_of_work.connection.execute(
+            """SELECT candidate_id, lifecycle, version
+               FROM evolution_candidates
+               WHERE kind='executor' AND subject_key='executor:keqing:pi'
+               ORDER BY updated_at DESC, candidate_id
+               LIMIT 1"""
+        ).fetchone()
+        unit_of_work.rollback()
+    if row is None:
+        return None
+    return {
+        "candidate_id": row["candidate_id"],
+        "lifecycle": row["lifecycle"],
+        "version": row["version"],
+    }
+
+
 @keqing_router.get("/keqing/status")
 def get_keqing_status(request: Request):
     """客卿健康体检(只读):安装/版本漂移/能力声明/凭证来源。
 
-    客卿=外臣:本页展示的是「外聘人才」的能力与治理状态,**不含**人格/京察/自进化
-    (那是百官品类)。不读/不存 raw 凭证明文,凭证栏只报来源。
+    客卿=外臣:本页不含人格/京察。执行器演化只投影已存在的治理候选；GET
+    不运行漂移扫描、不创建候选。不读/不存 raw 凭证明文,凭证栏只报来源。
     """
     # The scoped credential proxy is an internal prototype and is not connected
     # to any production executor. Report only the effective, runnable mode.
@@ -122,6 +148,7 @@ def get_keqing_status(request: Request):
                 "capabilities": _capabilities(name),
                 "credential_status": credential_status,
                 "generation": _generation_status(request, name),
+                "evolution_candidate": _executor_candidate_summary(request, name),
             }
         )
     return ApiResponse(

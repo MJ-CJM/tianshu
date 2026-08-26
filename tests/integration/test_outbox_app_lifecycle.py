@@ -222,6 +222,9 @@ async def test_failure_after_bot_and_watcher_start_cleans_reverse_then_closes_st
     order: list[str] = []
 
     async def start_bots(started_app, _settings) -> None:  # type: ignore[no-untyped-def]
+        assert started_app.state.system_snapshot_resolver is not None
+        assert started_app.state.generation_recovery_report is not None
+
         async def stop_bots() -> None:
             order.append("bots")
 

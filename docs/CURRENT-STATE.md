@@ -4,10 +4,10 @@
 > 适用版本：`0.5.2`<br>
 > 适用范围：可信本地、单机、单节点 SQLite<br>
 > 分支 checkpoint：P4a 已由 PR #107 合入 `feat/plugin-v1`（merge `b94d4846`，目标分支
-> CI 6/6），该集成分支 live migration tail 为 V33；当前 P4b Issue #108 实现分支已追加
-> V34；本地最终门禁已通过（后端 5270 passed / 2 skipped / 24 slow deselected，Web
-> 347 passed，静态检查与生产构建通过）；PR #109 已创建，目标分支 CI 尚待完成。下文凡标注“P4b 分支”的能力均不是
-> `feat/plugin-v1` 已合入能力。
+> CI 6/6）；P4b 已由 PR #109 合入（merge `a8a03071`），集成分支 live migration tail
+> 为 V34。当前 checkout 已实现 P5 V35 的 `keqing:pi` EXECUTOR Candidate、精确 generation
+> authority、per-subject canary、高危 Decision、换代与 last-good 回滚垂直切片；P5 本地
+> 最终门禁已通过；PR #111 目标为 `feat/plugin-v1`、CI pending，P6/P7 尚未完成。
 
 这份文档是 `docs/` 的当前状态入口。它用于回答“现在能不能用、支持到哪里、哪些
 还不能对外承诺”。详细能力和证据见
@@ -45,10 +45,10 @@
 | 成本与用量 | 可用 | 记录多模型/多 Provider token、缓存读取和取消任务成本 | 结果取决于 Provider 返回的用量与价格配置，不等于账单系统 |
 | Skills | 读取可用、变更受治理 | 在统一目录查看 live Skill、读取详情、为 Agent Skill Pin；API 可创建候选 | Web 不直接新建/编辑/delete/archive live；Persona 外部导入只预览 Skill、不安装；自动 reviewer/curator 默认关闭并在 LLM 前 fail fast |
 | 插件清单 / 受信任源码贡献 | 清单实验只读；内部生命周期可用 | 查看本地 manifest 元数据；内建装配可让 Tool/Hook/Channel/Provider/Skill/Command 按 owner 登记、逆序释放；MCP session 工具随重新发现、断连与 shutdown 清理 | 用户仍不能安装、加载、激活或执行第三方插件代码，相关 API 仍返回 501；ContributionHandle 只覆盖受信任进程内对象，不是动态 PluginHost |
-| 自进化（Evolution） | 实验；P4a 已合入，P4b 分支实现与本地门禁完成待 PR/CI | 从演化司查看候选/Gate/分流/回滚；在 P4b 实现分支，管理员可查看逐 subject 路由并用严格 CAS 修改 Skill 的 evolution mode 与 max canary basis points，再从 assignment、Edict 详情和 Evidence artifact 对账运行选择；Pi 已有 active/last-good 代、attempt 固定与 continuity 保留 | availability/source/curator protection 只读，`pinned` 不是版本 pin；没有 enabled 或版本 pin 开关，也没有 Web 晋升/回滚按钮。policy 列表和详情 GET/PUT 均为 admin-only。P4b 的 V34、多 subject 路由与 UI 尚未合入目标分支；完整 dependency lock、allowed surfaces/approval/budget、动态插件加载、统一 Promotion Authority 和自动晋升仍未完成 |
+| 自进化（Evolution） | 实验；P4 已合入，P5 Pi 垂直切片已实现 | 从演化司查看 Skill/EXECUTOR 候选、Gate、逐 subject 分流与回滚证据；管理员可用严格 CAS 修改 evolution mode 与 max canary basis points。Pi 候选可经 Gate、canary、高危 Decision、精确 generation authority、promote 与 rollback 闭环，并从 assignment、Edict 详情和 Evidence artifact 对账运行选择 | availability/source/curator protection 只读，`pinned` 不是版本 pin；没有 per-plugin enabled 或版本 pin，也没有 Web 晋升/回滚按钮。policy API 均为 admin-only。全局 executor kill switch 不等于插件 enabled；完整 dependency lock、allowed surfaces/approval/budget、通用 PluginSet/第三方插件 Promotion Authority 和自动晋升仍未完成 |
 | 平行位面（Universes / Code variant） | 实验、可发现 | 从天工院的诸界台创建快照/分支、diff、评估、归档和恢复 | switch、rollback、promote-code 固定 fail closed；代码候选只到 evaluated/recommended |
 | 评测（Evals） | Beta、导航标记“试行”、可发现 | 从天工院的考功司查看真实评测集、运行、分数、失败分布和历史差异 | 数据为空时展示真实启动方式，不生成示例成绩 |
-| Keqing 外部执行器 | 实验、可发现且默认关闭 | 从客卿馆查看安装/验证版本及 Pi 的 generation id、状态、活跃 run 数和 last-good；进入页面、每 15 秒及窗口重新聚焦时同步 | 不自动升级外部 CLI；页面没有 stage/activate 控件；Pi 代际材料固定与失败关闭不等于 Candidate 晋升已开放；Claude Code/Codex/OpenCode 尚未进入 RuntimeGeneration，且无 Provider 侧硬成本上限 |
+| Keqing 外部执行器 | 实验、可发现且默认关闭 | 从客卿馆查看安装/验证版本及 Pi 的 generation id、状态、活跃 run 数、last-good 和已存在的治理候选，并跳转演化中心 | 不自动升级外部 CLI；状态 GET 不扫描漂移或创建候选，页面没有直接 generation stage/activate 控件；P5 只覆盖 Pi，Claude Code/Codex/OpenCode 尚未进入 RuntimeGeneration，且无 Provider 侧硬成本上限 |
 | remote/open stdio MCP | 延期、默认关闭 | 当前不作为正式开放能力 | 需要独立完成远程安全与 executable/argv/env/workdir 精确绑定后才可开放 |
 | Docker | 可本地试用 | 构建三阶段、非 root 的本地镜像并检查健康路由 | 不是官方发布制品；体积与运行时依赖锁定仍可优化 |
 | PyPI 发布 | 链路就绪、待首发 | `release.yml` 在 tag 触发时经 Trusted Publishing（OIDC，无长期 token）发布 `tianshu-agent-os` | 首个版本以 PyPI 上实际存在的发行版为准；需先在 PyPI 侧配置 pending publisher |
@@ -71,10 +71,9 @@
 
 ## 数据、权限与迁移
 
-- `feat/plugin-v1` 当前 live migration tail 为 V33；当前 P4b Issue #108 实现分支为 V34。
-  V33 `0033_evolution_policies` 已随 P4a PR #107 合入，提供每个 subject 的
+- `feat/plugin-v1` 经 P4b PR #109 的 live migration tail 为 V34。V33
+  `0033_evolution_policies` 已随 P4a PR #107 合入，提供每个 subject 的
   frozen/manual/canary policy、严格 CAS、同 subject canary 排他与 repository-level 执法。
-  V34 尚待 PR/CI，不能写成目标分支已上线。
 - V31 `0031_system_snapshots` 追加不可变典制与 per-attempt
   `run_system_bindings`，P1 当时不回填存量 Memorial。两表采用严格 schema replay；bindings 允许随
   Edict 物理删除清理，内容寻址 snapshot 不允许 replace、update 或 delete。
@@ -87,13 +86,21 @@
   读取时失败关闭。snapshot 显式关闭时，新 attempt 仍写 `run_generation_bindings=bound []`，但
   `run_system_bindings` 保持零写入；无 runtime generation/pointer 行时继续使用 static adapter，
   不伪造默认代。
-- P4b 分支的 V34 `0034_run_subject_assignments` 将每个 Memorial 的 1..64 条 per-subject
+- V34 `0034_run_subject_assignments` 将每个 Memorial 的 1..64 条 per-subject
   assignment 通过 repository batch + SAVEPOINT 原子写入，并在读取时重算 set hash/size。
   fresh root 在 0/1/N 个 canary 时分别保持 legacy-only、
   旧 singleton 精确投影 + V34 singleton、旧 legacy 投影 + V34 完整 set；follow-up 先继承父
   set，不按当时 active canary 数重新抽桶。CANARY 沿用父选择，PROMOTED 选择 candidate，
   回滚态选择 base，ARCHIVED 按当前 version lifecycle journal 判定且缺失时 fail closed。
   `evolution_overlay_set` 只保存 canonical overlay 列表的 digest，不内嵌 assignment set。
+- 当前 P5 checkout 的 V35 `0035_executor_candidate_kind` 扩展候选 kind，并在 FK=ON 下
+  连带重建候选表及六张子表；同时增加 executor generation authority 当前表与不可变 journal。
+  有效 authority 精确绑定 candidate/version/release/generation/promotion command，是 canary
+  READY 代的 routing、recovery 与 retention root；缺失、错配、歧义、损坏或撤销均失败关闭。
+- `TIANSHU_EXECUTOR_GENERATION_ENABLED` 默认关闭且只阻止新的 EXECUTOR start-canary/promote；
+  `ExecutorPromotionAdapter` 继续装配，以保留现有 generation recovery、效果收口、rollback
+  与 pending rollback reconciliation。`TIANSHU_EXECUTOR_DRIFT_SCAN_ENABLED` 独立默认关闭；
+  Keqing GET 始终只读，候选仅由 control-plane scanner 产生。
 - 关闭 `TIANSHU_EVOLUTION_ROUTING_ENABLED` 后，existing replay 与 continuity inheritance
   仍先于 fresh-root kill switch，因此已持久化 follow-up 保持 sticky，只有 fresh root 不再新选
   challenger。内部 Evolution probe 会返回 false；`evolution.rollback` 是可选 readiness check，

@@ -84,6 +84,7 @@ def _append_promote_journal(
     connection: sqlite3.Connection,
     *,
     status: str,
+    action: str = "promote",
     command_key: str = "promote-command",
     candidate_id: str = "candidate-1",
 ) -> None:
@@ -93,12 +94,13 @@ def _append_promote_journal(
             promotion_journal_id, command_key, candidate_id, candidate_version,
             gate_snapshot_version, action, status, decision_request_id,
             entry_json, entry_hash, created_at
-        ) VALUES (?, ?, ?, 1, 1, 'promote', ?, NULL, '{}', ?, ?)
+        ) VALUES (?, ?, ?, 1, 1, ?, ?, NULL, '{}', ?, ?)
         """,
         (
             f"journal-{command_key}-{status}",
             command_key,
             candidate_id,
+            action,
             status,
             _DIGEST,
             _NOW.isoformat(),
@@ -160,6 +162,7 @@ def test_default_mode_grandfathers_only_skills() -> None:
         CandidateKind.POLICY: "manual",
         CandidateKind.PERSONA: "manual",
         CandidateKind.CODE: "manual",
+        CandidateKind.EXECUTOR: "manual",
     }
 
 
@@ -264,24 +267,39 @@ def test_get_policy_fails_closed_on_noncanonical_or_invalid_durable_data() -> No
     connection.close()
 
 
-def test_policy_mutation_is_blocked_until_promote_command_is_completed() -> None:
+@pytest.mark.parametrize("action", ["start_canary", "promote"])
+@pytest.mark.parametrize("status", ["intended", "applied"])
+def test_policy_mutation_is_blocked_while_command_is_in_progress(
+    action: str,
+    status: str,
+) -> None:
     connection = _connection()
     repository = EvolutionPolicyRepository()
     connection.execute("BEGIN IMMEDIATE")
     _insert_candidate(connection)
-    _append_promote_journal(connection, status="intended")
+    _append_promote_journal(connection, action=action, status=status)
 
     _assert_conflict(
         "evolution_policy_promotion_in_progress",
         lambda: repository.upsert_policy(connection, _policy(), expected_version=None),
     )
-    _append_promote_journal(connection, status="applied")
-    _assert_conflict(
-        "evolution_policy_promotion_in_progress",
-        lambda: repository.upsert_policy(connection, _policy(), expected_version=None),
-    )
+    connection.rollback()
+    connection.close()
 
-    _append_promote_journal(connection, status="completed")
+
+@pytest.mark.parametrize("action", ["start_canary", "promote"])
+@pytest.mark.parametrize("terminal_status", ["completed", "failed"])
+def test_policy_mutation_is_unblocked_by_terminal_command_status(
+    action: str,
+    terminal_status: str,
+) -> None:
+    connection = _connection()
+    repository = EvolutionPolicyRepository()
+    connection.execute("BEGIN IMMEDIATE")
+    _insert_candidate(connection)
+    _append_promote_journal(connection, action=action, status="intended")
+    _append_promote_journal(connection, action=action, status=terminal_status)
+
     assert repository.upsert_policy(connection, _policy(), expected_version=None).version == 1
     connection.rollback()
     connection.close()

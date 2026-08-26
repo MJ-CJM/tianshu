@@ -26,6 +26,7 @@ from __future__ import annotations
 from tianshu.bootstrap.digest_cron import wire_digest
 from tianshu.bootstrap.wiring_channels import wire_channel_bots, wire_channels
 from tianshu.bootstrap.wiring_executor import (
+    initialize_executor_evolution,
     wire_executor,
     wire_hook_registrations,
     wire_policy,
@@ -55,6 +56,7 @@ from tianshu.bootstrap.wiring_tools import wire_tools
 from tianshu.bootstrap.wiring_universe import wire_universe
 
 __all__ = [
+    "initialize_executor_evolution",
     "wire_auditor",
     "wire_channel_bots",
     "wire_channels",

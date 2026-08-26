@@ -2,8 +2,8 @@
 
 > **文档性质**：可直接开工的重构落地方案（最终合成版）。由三份独立视角方案（风险优先 / 最小改动 / 目标纯度）经总架构师合成，合成准则按优先级为：①与当前源码相符；②每步不破坏 fail-closed 不变量、可独立合入与回退；③最少过渡债（对象边界与目标架构一致）；④篇幅完整（分歧处的取舍理由写在各阶段"决策与取舍"小节）。
 > **修订记录**：本方案经三路校验（符号核对/可行性/完备性）修订并落盘，日期 2026-08-25。
-> **基线**：集成分支 `feat/plugin-v1`（近端合并提交 `b94d4846`，已含 P4a PR #107，目标分支 CI 6/6）；目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
-> **迁移编号基线**：P1 已占用 V31 `0031_system_snapshots`；P3 已冻结 V32 `0032_runtime_generations`；P4a 已冻结 V33 `0033_evolution_policies`；P4b Issue #108 实现分支已追加并冻结 V34 `0034_run_subject_assignments`。V34 尚未合入 `feat/plugin-v1`，因此集成分支 live tail 仍为 V33。历史 V25 `0025_persona_allowed_paths` 与 V30 `0030_consultation_rounds` 编号保持不变。
+> **基线**：集成分支 `feat/plugin-v1`（近端合并提交 `a8a03071`，已含 P4b PR #109）；目标态依据 [../design/self-evolving-agent-os/README.md](../design/self-evolving-agent-os/README.md)、[target-architecture.md](../design/self-evolving-agent-os/target-architecture.md)、[domain-and-governance.md](../design/self-evolving-agent-os/domain-and-governance.md)、[migration-roadmap.md](../design/self-evolving-agent-os/migration-roadmap.md)，以及独立评审 [review-and-implementation-plan.md](../design/self-evolving-agent-os/review-and-implementation-plan.md) 与 [architecture-comparison.md](../design/self-evolving-agent-os/architecture-comparison.md)。所有"文件:行"引用均经本轮源码核对（非转引）。
+> **迁移编号基线**：P1 已占用 V31 `0031_system_snapshots`；P3 已冻结 V32 `0032_runtime_generations`；P4a 已冻结 V33 `0033_evolution_policies`；P4b 已冻结并由 PR #109 合入 V34 `0034_run_subject_assignments`，集成分支 live tail 为 V34。当前 P5 checkout 已冻结 V35 `0035_executor_candidate_kind`。历史 V25 `0025_persona_allowed_paths` 与 V30 `0030_consultation_rounds` 编号保持不变。
 > **流程约定（2026-08-25 用户授权）**：每阶段走 issue → `feat/`|`fix/` 分支 → PR（`Closes #n`），PR 目标统一为集成分支 `feat/plugin-v1`；亲验 `gh pr checks` 全绿后由执行方直接合入，不逐个等待用户确认；全部阶段完成后由用户在 `feat/plugin-v1` 做总体验证，tag 仍由用户操作。跑 Python 一律 `.venv/bin/python`；前端改动后单跑 `cd web && npm run typecheck`（vitest/eslint 不查类型）。
 
 ## 实施状态
@@ -15,8 +15,8 @@
 | P2 ContributionHandle | ✅ 已合入（PR #95） | 2026-08-25 | 82 项 P2 聚焦测试；全量 4830 passed、2 skipped；六类 owned handle、逆序释放、stale 身份保护及 MCP 重新发现/断连/shutdown 回收；原生 live/demo 冒烟、插件面 fail-closed 与 CI 5/5 均绿 |
 | P3 Pi 执行器代际与 continuity 固定 | ✅ 已合入（PR #99） | 2026-08-26 | V32、materializer、registry binding、continuity、reconciler、readiness、可观测性与 Web 投影；backend 5096 passed、2 skipped；Web typecheck/339 tests/lint/build 与全部静态门禁通过 |
 | P4a EvolutionPolicy 与 per-subject canary 写侧基础 | ✅ 已合入（PR #107，merge `b94d4846`） | 2026-08-26 | V33；严格 CAS、frozen 三闸、repo-level 执法、promote journal guard；目标分支 CI 6/6 全绿 |
-| P4b per-subject 运行分配与 UI | 🟢 分支实现与本地门禁完成（Issue #108；PR #109，CI pending） | 2026-08-26 | V34；assignment set 持久封存、1..64 原子批写、continuity 选择、运行时深冻结、逐 assignment provenance/digest 复验与 truthful UI；最终后端 5270 passed、2 skipped、24 slow deselected；Web 347 passed，静态检查与生产构建通过 |
-| P5 CandidateKind.EXECUTOR 全链路 | ⬜ 未开始 | — | — |
+| P4b per-subject 运行分配与 UI | ✅ 已合入（Issue #108；PR #109，merge `a8a03071`） | 2026-08-26 | V34；assignment set 持久封存、1..64 原子批写、continuity 选择、运行时深冻结、逐 assignment provenance/digest 复验与 truthful UI；最终后端 5270 passed、2 skipped、24 slow deselected；Web 347 passed，静态检查与生产构建通过 |
+| P5 CandidateKind.EXECUTOR 全链路 | 🟢 当前 checkout 实现与本地门禁完成（Issue #110；PR #111，CI pending） | 2026-08-27 | V35；EXECUTOR Candidate、高危 Decision、精确 generation authority、per-subject canary、promote/rollback saga、drift scanner 与 Keqing/Evolution 投影；P5 聚焦 190、迁移/数据 122、Web 350、E2E 32 均通过，静态门禁与生产构建通过 |
 | P6 进程级 snapshot 重启与 last-good | ⬜ 未开始 | — | — |
 | P7 声明式内容每 run 冻结视图 | ⬜ 未开始 | — | — |
 | X1 WS 出站所有权过滤 | ✅ 已合入（PR #89） | 2026-08-25 | 17 项所有权用例；32 项定向测试；全量 4746 passed、2 skipped；CI 5/5 绿 |
@@ -39,7 +39,7 @@ P4a 将每个 subject 的进化授权落成显式 `EvolutionPolicyV1` 与 V33 `e
 
 安全裁决是：policy upsert 在同 subject 存在未由相同 command-key completed 行收口的 promote intended/applied journal 时返回冲突。由此 policy 无法在 `intended → adapter.activate → applied/final commit` 窗口中翻转，避免外部已经激活而 durable candidate 因 frozen 防线停留在 CANARY。V33 migration checksum 为 `725e801902e3e8e321a369164d3a5728adb40f96a8c77f2644820a6f69671fc7`，upgrade callback source fingerprint 为 `15aa3bd9527ca0c12be760c8213d029ac554e9ca5b6c7e117ad03c0fd4030d3c`。P4a 已由 PR #107 合入 `feat/plugin-v1`（merge `b94d4846`），目标分支 CI 6/6 全绿。
 
-### P4b 实施裁决（Issue #108，PR #109，CI pending）
+### P4b 实施裁决（Issue #108，PR #109，已合入）
 
 P4b 已在实现分支完成 per-subject 多值路由。V34 不是可逐行追加的松散集合：每个 Memorial
 的完整 assignment set 以 canonical hash 和 size 持久封存，1..64 条通过 batch + SAVEPOINT
@@ -210,7 +210,7 @@ import-linter、TypeScript、ESLint（0 error）与生产构建通过。PR 与�
 | 「全局仅 1 canary」实现处：`get_routable_candidate` 全表查 `lifecycle='canary'`，>1 行抛 `multiple canary routing authorities`；候选与 routing 行五路互检 | evolution_repo.py:270-298（抛点 :278，互检 :283-297） |
 | `start_canary` 写侧只查"该 candidate 自身无 routing 行"，无 subject 排他 | src/tianshu/evolution/promotion.py:784、826-827 |
 | 候选 CAS + 核心字段不可变 + 冻结转移图；CODE 晋升需已决议高危 Decision：`_require_high_risk_code_promotion_decision` + `_CodePromotionDecisionBindingV1`（四元组绑定校验）+ promote 前 durable 预检 | evolution_repo.py:48、183-211、214-239、531-598；promotion.py:935-943、1054-1062 |
-| 晋升适配器协议 `_Adapter(activate/rollback)` + duck-typed `rollback_guard/verify_rollback/rollback_is_idempotent`；`adapter_resolver: Callable[[CandidateKind], _Adapter]` 构造注入；非 SKILL 全部 `UnavailablePromotionAdapter`（fail-closed） | promotion.py:234-237、240、764-774、1218-1244、1469-1471；src/tianshu/bootstrap/wiring_skills.py:108-121 |
+| 晋升适配器协议 `_Adapter(activate/rollback)` + duck-typed `rollback_guard/verify_rollback/rollback_is_idempotent`；P5 前非 SKILL 全部 `UnavailablePromotionAdapter`。当前 P5 checkout 由 `wiring_executor` 始终覆盖 EXECUTOR 为 `ExecutorPromotionAdapter`，开关仅阻止新的前向效果并保留 recovery/rollback/reconcile | promotion.py；src/tianshu/bootstrap/wiring_skills.py；src/tianshu/bootstrap/wiring_executor.py |
 | `SkillPromotionAdapter`：flock + marker fencing + renameatx_np/renameat2 原子交换 + preflight——Executor 晋升适配器的参考实现（但其直调 staging 私有方法是已知反例，勿复制） | promotion.py:61-131、258-344、526-528 |
 | promote/rollback 各跨 3 个 UoW，副作用在事务外；journal 三段（intended→applied→completed）+ UNIQUE(command_key,status) 保证 crash 后重放；rollback 先断流（置零 allocation + ROLLBACK_PENDING）再恢复 | promotion.py:896-1000、989-995、1103-1214、1136-1214 |
 | `EvolutionRollbackReconciler`：Lock 串行、只驱动 PromotionService、`reconcile_once()`/`readiness_probe()`——GenerationReconciler 的扩展母体；挂载点 `reconcile_control_planes`（RunReconciler.before_scan 周期驱动） | src/tianshu/evolution/reconciler.py:13-46（:28、:45）；src/tianshu/bootstrap/wiring_scheduler.py:220-230 |
@@ -846,7 +846,7 @@ fingerprint 为 `121909d74e49a0263e893327f0caf38f2915e322bd2028a099d4c5b8bde6f18
 | 新增 | src/tianshu/evolution/adapters/executor.py | `class ExecutorCandidateAdapter(BaseCandidateAdapter)`（staging 侧）：`kind = CandidateKind.EXECUTOR`；`def _normalize_domain(self, payload) -> dict[str, JsonValue]` 校验发行包内包 schema `{adapter_id: Literal 白名单('keqing:pi' 等), release_version: str, binary_path: str, package_digest: 64hex, manifest: {...}}`（仿 `_SkillPackageV1` adapters/skill.py:32）；`def require_subject_binding(...)` 强制 `subject_key == f"executor:{adapter_id}"`（仿 skill.py:96-104） |
 | 新增 | src/tianshu/evolution/adapters/executor_promotion.py | `class ExecutorPromotionAdapter`（晋升侧，实现 promotion.py:234 `_Adapter` 协议）只调用 `GenerationController` 与 authority repository，Registry 仍只保管 bundle/lease：start-canary 效果以 promotion pending journal 为命令权威，`controller.stage(release) → await controller.warm(generation_id) → CAS authorize(candidate,generation)`，不改 active pointer；重复命令必须返回同一授权，warm 失败候选仍 READY、指针/last-good 不动且无有效授权。`activate(candidate)` 读取并复核精确授权与 READY material 后只执行 `controller.activate(mapped_generation_id)`，禁止二次 stage/warm；收据与 journal 同时带 generation_id/release_digest。`rollback` 走 `controller.rollback(scope)` 后撤销 challenger authority；`verify_rollback` 校验 pointer 已回 last-good、candidate 代 failed/disposed 且 authority 已撤销。`rollback_is_idempotent = True`，不复制 SkillPromotionAdapter 直调 staging 私有方法的耦合 |
 | 修改 | src/tianshu/evolution/candidate_service.py:59-84 | `CandidateLiveAuthorities` 加 `executor_root: Path` 并入 `for_kind`；`_ADAPTER_TYPES` 注册 ExecutorCandidateAdapter；media_type `application/vnd.tianshu.evolution.executor+json` 随 `{kind.value}` f-string（:129）自动成立 |
-| 修改 | src/tianshu/bootstrap/wiring_skills.py:108-121、src/tianshu/config.py | `executor_generation_enabled` 开 → `promotion_adapters[CandidateKind.EXECUTOR] = ExecutorPromotionAdapter(...)`；关 → 保持 `UnavailablePromotionAdapter`（409 fail-closed 缺省不变）；`CandidateLiveAuthorities` 装配补 executor_root。配置模型拒绝 `executor_generation_enabled=true && system_snapshot_enabled=false`，因此 P1 零写入兼容态不存在可达的生产 stage/activate 路径 |
+| 修改 | src/tianshu/bootstrap/wiring_executor.py、src/tianshu/config.py | 始终为 `CandidateKind.EXECUTOR` 装配 `ExecutorPromotionAdapter(..., evolution_enabled=settings.executor_generation_enabled)`；开关关时新的 start-canary/promote 在新 journal/effect 前返回 409，但 existing generation recovery、已发生效果收口、rollback 与 pending rollback reconcile 保留。配置模型拒绝 `executor_generation_enabled=true && system_snapshot_enabled=false`，因此 P1 零写入兼容态不存在可达的生产 stage/activate 路径 |
 | 新增 | src/tianshu/evolution/executor_drift.py | `class ExecutorDriftScanner:` `def __init__(self, *, candidate_service, versions: Callable[[str], str | None], pinned: Mapping[str, str], interval_seconds: int = 3600)`；`def scan_once(self) -> int`：`detect_installed_version`（P3 versions.py）vs `PINNED_PI_VERSION`（pi_wire.py:18）；漂移 → `candidate_service.propose(kind=EXECUTOR, subject_key="executor:keqing:pi", source_channel=SYSTEM, ...)`，**幂等键含 installed_version**（candidate_id 命令确定性哈希天然去重，candidate_service.py:155-176、236-241）；内置限流（每小时至多一次实际检查）。挂 `reconcile_control_planes`（wiring_scheduler.py:220）低频驱动——**不放 GET /keqing/status**（进程启动守卫 + GET 零副作用）；frozen policy 下 propose 被 P4a 执法点拒绝——用户冻结插件即冻结漂移提案，语义自洽 |
 | 修改 | src/tianshu/config.py | 加 `executor_drift_scan_enabled: bool = False`（env，deny-by-default） |
 | 修改 | 投影四处 | src/tianshu/models/evolution_view.py:42 Literal 加 "executor"；web/src/api/evolution.ts:15 union 加 "executor"（**最易漏的前端手写白名单**）；gateway/keqing_api.py drift 行加 candidate 链接字段 + KeqingManagementPage.tsx:129 drift Tag 链到候选详情；i18n 三份 locale（zh-classic「彩蛋」不动） |
@@ -865,7 +865,7 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 
 **数据迁移**：V35（上表）；存量候选行全量保留（逐列拷贝 + 行数断言）。形状测试同步：test_evolution_migration_schema.py `_declared_v18_objects`（:292-305）按 V22 先例注入重建后实况 SQL；`_V18_TABLE_COLUMNS`（:97-230）kind CHECK 文本更新。
 
-**兼容策略与开关**：V35 重建后旧代码读它完全兼容（旧枚举值集合是子集，零数据变换）；EXECUTOR 候选未接晋升适配器（开关关）可 propose/stage/gate（纯 staging 无副作用）但晋升撞 Unavailable 409——**有意的 fail-closed**；EXECUTOR 晋升永远需要已决议高危 Decision（常量地板，先于任何 policy 配置生效）；漂移巡检独立开关默认关。
+**兼容策略与开关**：V35 重建后旧代码读它完全兼容（旧枚举值集合是子集，零数据变换）；开关关时 EXECUTOR 候选仍可 propose/stage/gate，但新的 start-canary/promote 在新 journal/effect 前返回 409 `executor_generation_unavailable`。适配器继续装配，既有代 recovery、已发生效果的幂等收口、rollback 与 pending rollback reconcile 不被 kill switch 关闭——**有意的 fail-closed 与可恢复并存**。EXECUTOR 晋升永远需要已决议高危 Decision（常量地板，先于任何 policy 配置生效）；漂移巡检独立开关默认关。
 
 #### 测试清单
 
@@ -887,7 +887,7 @@ CANARY 生命周期内被分流到 challenger 的 run 必须真的跑到新版�
 - [ ] V35 三路（apply/adopt/形状回放）绿；test_promotion_authority AST 绿（ExecutorPromotionAdapter 不直写 lifecycle）
 - [ ] 前端三处 kind 白名单同步 + typecheck 绿
 
-**回退方式**：关 `executor_generation_enabled` → EXECUTOR 晋升回 Unavailable 409（提案数据保留无害）；关 drift 开关 → 零新候选；V35 已合入则枚举保留（超集无行为影响）——正是"扩枚举放独立迁移、与消费代码同 PR 但可独立 revert 代码"的原因。
+**回退方式**：关 `executor_generation_enabled` → 新的 EXECUTOR start-canary/promote 在新 journal/effect 前返回 409 `executor_generation_unavailable`，但 `ExecutorPromotionAdapter`、existing generation recovery、效果收口、canary/promoted rollback 与 pending rollback reconcile 保留；关 drift 开关 → 零新候选；V35 已合入则枚举、authority journal 与审计数据保留（超集无行为影响）——正是“停止继续进化”不能同时拆掉安全回退路径。
 
 **工作量**：≈1.5–2 周（含分支 A 子表连带重建 +2–3 天）。
 

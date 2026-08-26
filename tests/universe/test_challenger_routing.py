@@ -105,6 +105,7 @@ def _candidate_service(storage, artifacts: ArtifactStore, root: Path) -> Candida
             policy_root=root / "policies",
             persona_root=root / "personas",
             code_worktree=root / "code",
+            executor_root=root / "runtime-releases",
         ),
     )
 

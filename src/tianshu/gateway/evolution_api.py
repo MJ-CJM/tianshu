@@ -14,6 +14,7 @@ from tianshu.application.evolution_view import (
     EvolutionCenterQueryService,
     EvolutionCenterUnavailable,
 )
+from tianshu.evolution.candidate_service import CandidateNotFound, CandidateServiceError
 from tianshu.evolution.gates import GateEvaluator
 from tianshu.evolution.promotion import (
     PromoteCommand,
@@ -56,6 +57,7 @@ class _EvaluateGateRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     expected_version: int = Field(ge=1)
+    additional_evidence_bundle_ids: tuple[str, ...] = ()
 
 
 class RunSystemSnapshotViewV1(BaseModel):
@@ -411,6 +413,21 @@ def get_evolution_gate(candidate_id: str, request: Request) -> dict[str, object]
     }
 
 
+@evolution_router.post("/candidates/{candidate_id}/stage")
+def stage_evolution_candidate(candidate_id: str, request: Request) -> dict[str, object]:
+    context = get_auth_context(request)
+    try:
+        staged = request.app.state.candidate_service.stage(candidate_id)
+    except CandidateNotFound as exc:
+        raise HTTPException(404, {"code": "candidate_not_found"}) from exc
+    except CandidateServiceError as exc:
+        raise HTTPException(409, {"code": "candidate_stage_conflict"}) from exc
+    return {
+        "data": staged.model_dump(mode="json"),
+        "correlation_id": context.correlation_id,
+    }
+
+
 @evolution_router.post("/candidates/{candidate_id}/gate/evaluate")
 def evaluate_evolution_gate(
     candidate_id: str,
@@ -420,7 +437,11 @@ def evaluate_evolution_gate(
     context = get_auth_context(request)
     evaluator: GateEvaluator = request.app.state.evolution_gate_evaluator
     try:
-        report = evaluator.evaluate(candidate_id, expected_version=body.expected_version)
+        report = evaluator.evaluate(
+            candidate_id,
+            expected_version=body.expected_version,
+            additional_evidence_bundle_ids=body.additional_evidence_bundle_ids,
+        )
     except EvolutionRepositoryConflict as exc:
         raise HTTPException(409, {"code": "candidate_version_conflict"}) from exc
     return {
@@ -449,14 +470,18 @@ def _raise_promotion_error(exc: Exception) -> NoReturn:
 
 
 @evolution_router.post("/candidates/{candidate_id}/canary")
-def start_candidate_canary(
+async def start_candidate_canary(
     candidate_id: str,
     body: StartCanaryCommand,
     request: Request,
 ) -> dict[str, object]:
     context = get_auth_context(request)
     try:
-        receipt = _promotion_service(request).start_canary(candidate_id, body, auth=context)
+        receipt = await _promotion_service(request).start_canary_async(
+            candidate_id,
+            body,
+            auth=context,
+        )
     except (PromotionAuthorizationError, PromotionConflict) as exc:
         _raise_promotion_error(exc)
     return _promotion_response(receipt, context.correlation_id)

@@ -6,7 +6,8 @@
         "skill",
         "policy",
         "persona",
-        "code"
+        "code",
+        "executor"
       ],
       "title": "CandidateKind",
       "type": "string"

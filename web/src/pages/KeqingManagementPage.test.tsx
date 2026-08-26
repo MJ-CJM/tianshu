@@ -154,6 +154,56 @@ describe("KeqingManagementPage data truth", () => {
     expect(screen.getByText("在办 2")).toBeInTheDocument();
     expect(screen.getByText("上个良本 rg-pi-previous")).toBeInTheDocument();
     expect(screen.getByText("未启代际")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "客卿名册 · 体检" })).toHaveAttribute(
+      "tabindex",
+      "0",
+    );
+  });
+
+  it("shows a read-only executor candidate summary and links drift to Evolution Center", async () => {
+    apiMocks.getKeqingStatus.mockResolvedValue({
+      backends: [
+        {
+          id: "keqing:pi",
+          backend: "pi",
+          binary: "pi",
+          installed: true,
+          installed_version: "0.84.0",
+          pinned_version: "0.83.0",
+          version_drift: true,
+          capabilities: null,
+          credential_status: "self-managed",
+          generation: null,
+          evolution_candidate: {
+            candidate_id: "candidate-executor-pi-084",
+            lifecycle: "ready",
+            version: 3,
+          },
+        },
+      ],
+      gateway_enabled: false,
+    });
+    apiMocks.getAgentConfig.mockResolvedValue({});
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <KeqingManagementPage />
+      </QueryClientProvider>,
+    );
+
+    const candidateLink = await screen.findByRole("link", {
+      name: "查看演化候选 candidate-executor-pi-084",
+    });
+    expect(candidateLink).toHaveAttribute(
+      "href",
+      "/evolution#candidate-candidate-executor-pi-084",
+    );
+    expect(screen.getByText("版本 3 · ready")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "由版本漂移查看候选 candidate-executor-pi-084" }))
+      .toHaveAttribute("href", "/evolution#candidate-candidate-executor-pi-084");
   });
 
   it("does not present a status outage as an empty backend registry", async () => {

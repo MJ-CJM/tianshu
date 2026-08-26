@@ -3,9 +3,10 @@
 > **Status: Proposed migration plan。**
 > 每一阶段都必须保持当前受管主链、Evidence 和 fail-closed 边界，不采用大爆炸重写。
 >
-> **进度（2026-08-26）**：P1/P3/P4a 已合入；P4b Issue #108 已在分支完成 V34 assignment
-> set（1..64 封存原子写）、continuity 选择、运行时深冻结、Evidence 与 truthful UI；PR #109
-> 已创建、目标分支 CI 待完成。V34 应用后的回退必须保留 schema/ledger 并使用兼容 reader，不能部署纯 V33 二进制；
+> **进度（2026-08-26）**：P4b 已由 PR #109 合入 `feat/plugin-v1`（merge `a8a03071`），完成
+> V34 assignment set（1..64 封存原子写）、continuity 选择、运行时深冻结、Evidence 与 truthful
+> UI。当前 P5 checkout 已完成 V35 Pi EXECUTOR Candidate、精确 authority、canary、Decision、
+> 换代与 last-good 回滚垂直切片。V34 应用后的回退必须保留 schema/ledger 并使用兼容 reader，不能部署纯 V33 二进制；
 > 只将 active CANARY authorities 经正常 promote/rollback 收敛到至多 1 个、最好 0 个并完成
 > pending rollback，不得强退已 PROMOTED subject。
 

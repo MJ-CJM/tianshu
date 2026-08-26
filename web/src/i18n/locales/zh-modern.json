@@ -2707,7 +2707,13 @@
       "installed": "安装 / 版本",
       "capabilities": "能力声明",
       "generation": "运行代际",
+      "evolutionCandidate": "演化候选",
       "credential": "凭证来源"
+    },
+    "candidate": {
+      "none": "暂无治理候选",
+      "open": "查看演化候选 {id}",
+      "openFromDrift": "由版本漂移查看候选 {id}"
     },
     "generation": {
       "none": "未启用代际",
