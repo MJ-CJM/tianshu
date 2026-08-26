@@ -14,6 +14,8 @@ const ROUTE_CHUNK_CEILINGS_KIB = {
 
 type ViteManifestChunk = {
   file: string;
+  isDynamicEntry?: boolean;
+  name?: string;
   src?: string;
 };
 
@@ -102,8 +104,10 @@ test("production core route chunks stay within documented KiB ceilings", async (
   ) as Record<string, ViteManifestChunk>;
 
   for (const [route, ceilings] of Object.entries(ROUTE_CHUNK_CEILINGS_KIB)) {
-    const chunk = Object.values(manifest).find((entry) =>
-      entry.src?.endsWith(`/pages/${route}.tsx`)
+    const chunk = Object.values(manifest).find(
+      (entry) =>
+        entry.src?.endsWith(`/pages/${route}.tsx`) ||
+        (entry.name === route && entry.isDynamicEntry === true),
     );
     expect(chunk, `${route} must be recorded in the production Vite manifest`).toBeDefined();
     const bytes = readFileSync(join(staticRoot, chunk!.file));

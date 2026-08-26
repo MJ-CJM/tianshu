@@ -875,8 +875,12 @@ export async function assertZoomHasNoPrimaryHorizontalTrap(page: Page): Promise<
       await expect(page.getByRole("heading", { name: "Task Workspace" })).toBeVisible();
     }
     if (page.url() !== originalUrl) {
-      await page.goto(originalUrl);
       const originalPath = new URL(originalUrl).pathname;
+      await page.goBack();
+      await expect.poll(
+        () => new URL(page.url()).pathname,
+        "side navigation returns to the original route without reloading the document",
+      ).toBe(originalPath);
       const heading = {
         "/control": "Control Center",
         "/approvals": "Task Workspace",

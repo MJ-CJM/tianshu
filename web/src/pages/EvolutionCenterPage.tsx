@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Alert, Tag, Typography } from "antd";
 
 import type { EvolutionCenterSnapshotV1 } from "../api/evolution";
@@ -7,14 +8,19 @@ import {
 } from "../components/capabilities/CapabilityMaturity";
 import PageContainer from "../components/common/PageContainer";
 import MonoText from "../components/common/MonoText";
-import EvolutionGate from "../components/evolution/EvolutionGate";
-import EvolutionPolicyPanel from "../components/evolution/EvolutionPolicyPanel";
 import PageDataState from "../components/states/PageDataState";
 import { useT } from "../i18n";
 import {
   isEvolutionSnapshotEmpty,
   useEvolutionCenter,
 } from "../hooks/useEvolutionCenter";
+
+const EvolutionPolicyPanel = lazy(
+  () => import("../components/evolution/EvolutionPolicyPanel"),
+);
+const EvolutionGate = lazy(
+  () => import("../components/evolution/EvolutionGate"),
+);
 
 const panelStyle = {
   border: "1px solid var(--ts-color-border)",
@@ -99,13 +105,21 @@ function SnapshotContent({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 }) 
         <Typography.Title id="evolution-candidates-title" level={4} style={{ margin: 0 }}>
           {t("page.evolutionCenter.candidatesTitle")}
         </Typography.Title>
-        {snapshot.candidates.map((candidate) => (
-          <EvolutionGate
-            key={candidate.candidate_id}
-            candidate={candidate}
-            routing={routingByCandidate.get(candidate.candidate_id) ?? null}
-          />
-        ))}
+        <Suspense
+          fallback={
+            <Typography.Text role="status" type="secondary">
+              {t("pageDataState.loadingTitle")}
+            </Typography.Text>
+          }
+        >
+          {snapshot.candidates.map((candidate) => (
+            <EvolutionGate
+              key={candidate.candidate_id}
+              candidate={candidate}
+              routing={routingByCandidate.get(candidate.candidate_id) ?? null}
+            />
+          ))}
+        </Suspense>
       </section>
     </div>
   );
@@ -129,7 +143,15 @@ function GovernedSnapshotContent({ snapshot }: { snapshot: EvolutionCenterSnapsh
       ) : (
         <SnapshotContent snapshot={snapshot} />
       )}
-      <EvolutionPolicyPanel />
+      <Suspense
+        fallback={
+          <Typography.Text role="status" type="secondary">
+            {t("page.evolutionCenter.policiesLoading")}
+          </Typography.Text>
+        }
+      >
+        <EvolutionPolicyPanel />
+      </Suspense>
     </div>
   );
 }
