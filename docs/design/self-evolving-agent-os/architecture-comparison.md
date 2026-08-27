@@ -17,6 +17,7 @@
 >（merge `feba5a91`，CI 6/6），
 > 仅将 Skills 的每 run 视图落成 `off` / `shadow` / `enforce`。右图仍是全部
 > PluginSet/第三方插件阶段落地后的目标态。
+> Issue #119 已完成 ADR-0013 的分层收口，但没有把目标态通用 PluginHost 误报为已实现。
 
 ![当前架构：运行只绑定单个 candidate overlay，执行器 replace 原地替换，注册表无 owner，SkillsWatcher 直接 reload，只有 Skill 有晋升适配器](../../assets/design/self-evolving-agent-os/as-is.svg)
 

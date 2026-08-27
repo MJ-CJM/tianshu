@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from tianshu.evidence.service import ArtifactStore, EvidenceService
 from tianshu.evolution.candidate_service import CandidateLiveAuthorities, CandidateService
 from tianshu.evolution.gates import GateEvaluator
+from tianshu.executor.capabilities import get_executor_manifest
 from tianshu.models.evolution_candidate import (
     CandidateKind,
     CandidateLifecycle,
@@ -167,7 +168,12 @@ def install_service(tmp_path: Path, storage: Storage) -> SkillInstallService:
             rollback_slo_seconds=30,
         )
 
-    evidence = EvidenceService(storage, artifacts, clock=lambda: NOW)
+    evidence = EvidenceService(
+        storage,
+        artifacts,
+        executor_manifest_provider=get_executor_manifest,
+        clock=lambda: NOW,
+    )
     return SkillInstallService(
         candidates,
         storage,

@@ -9,10 +9,9 @@ from typing import Literal, Protocol, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from tianshu.evidence.models import ClosedEvidenceBundleV1, EvidenceVerificationV1
-from tianshu.evolution.gates import EvolutionGateReportV1
 from tianshu.models.canonical import JsonValue
 from tianshu.models.events import make_event
+from tianshu.models.evidence import ClosedEvidenceBundleV1, EvidenceVerificationV1
 from tianshu.models.evolution_candidate import (
     CandidateKind,
     CandidateLifecycle,
@@ -23,6 +22,7 @@ from tianshu.models.evolution_candidate import (
     EvolutionContractV1,
     ProvenanceInputV1,
 )
+from tianshu.models.evolution_gate import EvolutionGateReportV1
 from tianshu.models.principal import AuthContext, ClientKind
 from tianshu.models.system_audit import AppendSystemAuditRequest
 from tianshu.skills.installer import (

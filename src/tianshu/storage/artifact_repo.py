@@ -7,13 +7,13 @@ from collections.abc import Callable
 
 from pydantic import ValidationError
 
-from tianshu.evidence.models import (
+from tianshu.models.canonical import canonical_json_bytes
+from tianshu.models.control_center import ControlEvidenceSummaryV1
+from tianshu.models.evidence import (
     ArtifactRefV1,
     ClosedEvidenceBundleV1,
     EvidenceBundleV1,
 )
-from tianshu.models.canonical import canonical_json_bytes
-from tianshu.models.control_center import ControlEvidenceSummaryV1
 from tianshu.storage.correlation import correlation_for_memorial
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 

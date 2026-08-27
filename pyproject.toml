@@ -166,6 +166,7 @@ name = "分层:底层契约不得向上依赖"
 type = "layers"
 layers = [
     "tianshu.gateway : tianshu.executor : tianshu.scheduler : tianshu.bootstrap : tianshu.universe",
+    "tianshu.application : tianshu.evolution : tianshu.evidence : tianshu.plugins",
     "tianshu.storage : tianshu.secrets : tianshu.memory : tianshu.persona : tianshu.skills",
     "tianshu.kernel : tianshu.models : tianshu.config : tianshu.bus",
 ]

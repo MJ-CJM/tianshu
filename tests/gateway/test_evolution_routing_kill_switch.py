@@ -10,6 +10,7 @@ from tianshu.bootstrap.wiring_skills import (
 )
 from tianshu.config import TianshuSettings
 from tianshu.evidence.service import ArtifactStore, EvidenceService
+from tianshu.executor.capabilities import get_executor_manifest
 from tianshu.storage.facade import Storage
 
 
@@ -34,7 +35,11 @@ def test_disabled_routing_is_unready_and_emits_startup_audit(tmp_path: Path) -> 
         max_object_bytes=settings.artifact_max_bytes,
         max_total_bytes=settings.artifact_quota_bytes,
     )
-    app.state.evidence_service = EvidenceService(storage, app.state.artifact_store)
+    app.state.evidence_service = EvidenceService(
+        storage,
+        app.state.artifact_store,
+        executor_manifest_provider=get_executor_manifest,
+    )
     try:
         wire_evolution_services(app, settings, skill_target=tmp_path / "skills")
 

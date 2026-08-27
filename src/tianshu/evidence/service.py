@@ -22,7 +22,10 @@ from typing import Literal, Protocol, cast
 from pydantic import ValidationError
 
 from tianshu import __version__
-from tianshu.evidence.models import (
+from tianshu.models.canonical import canonical_json_bytes
+from tianshu.models.common import TaskStatus
+from tianshu.models.events import EventEnvelope
+from tianshu.models.evidence import (
     ArtifactRefV1,
     AuditorConclusionV1,
     CheckEvidenceV1,
@@ -39,10 +42,6 @@ from tianshu.evidence.models import (
     ReproductionCommandV1,
     closed_bundle_content_hash,
 )
-from tianshu.executor.capabilities import get_executor_manifest
-from tianshu.models.canonical import canonical_json_bytes
-from tianshu.models.common import TaskStatus
-from tianshu.models.events import EventEnvelope
 from tianshu.models.governance_contract import (
     EffectiveGovernanceContractV1,
     RequestedGovernanceContractV1,
@@ -71,6 +70,13 @@ from tianshu.storage.system_snapshot_repo import SystemSnapshotRepository
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
+
+
+class _ExecutorManifest(Protocol):
+    @property
+    def content_hash(self) -> str: ...
+
+    def model_dump(self, *, mode: Literal["json"]) -> dict[str, object]: ...
 
 
 def dependency_lock_hash() -> str:
@@ -547,10 +553,12 @@ class EvidenceService:
         storage: _EvidenceStorage,
         artifacts: ArtifactStore,
         *,
+        executor_manifest_provider: Callable[[str], _ExecutorManifest],
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._storage = storage
         self._artifacts = artifacts
+        self._executor_manifest_provider = executor_manifest_provider
         self._clock = clock or (lambda: datetime.now(UTC))
 
     @staticmethod
@@ -959,9 +967,9 @@ class EvidenceService:
             raise EvidenceServiceError("requested governance contract hash mismatch")
         if effective.content_hash != row["effective_hash"]:
             raise EvidenceServiceError("effective governance contract hash mismatch")
-        manifest = get_executor_manifest(effective.executor.adapter_id)
+        manifest = self._executor_manifest_provider(effective.executor.adapter_id)
         evidence_manifest = ExecutorManifestEvidenceV1.model_validate_json(
-            canonical_json_bytes(manifest)
+            canonical_json_bytes(manifest.model_dump(mode="json"))
         )
         if evidence_manifest.content_hash != manifest.content_hash:
             raise EvidenceServiceError("executor manifest is not canonically round-trippable")

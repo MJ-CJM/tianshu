@@ -16,6 +16,7 @@ from tianshu.evolution.gates import (
     GateEvaluator,
     GateStatus,
 )
+from tianshu.executor.capabilities import get_executor_manifest
 from tianshu.models.canonical import canonical_sha256
 from tianshu.models.evolution_candidate import (
     CandidateKind,
@@ -283,7 +284,12 @@ def _seed_gate_evidence(
         max_total_bytes=4 * 1024 * 1024,
         clock=lambda: evidence_time,
     )
-    service = EvidenceService(storage, artifacts, clock=lambda: evidence_time)
+    service = EvidenceService(
+        storage,
+        artifacts,
+        executor_manifest_provider=get_executor_manifest,
+        clock=lambda: evidence_time,
+    )
     service.build_open(memorial.id)
     if close:
         service.close(memorial.id, expected_version=1)

@@ -8,7 +8,9 @@
 > UI 及 V35 Pi EXECUTOR 治理垂直切片。P6 已由 PR #114 合入该分支（merge
 > `8f32cc4c`），完成无迁移的 process snapshot generation、strict binding 与
 > Evolution 投影。P7 已由 PR #116 合入（merge `feba5a91`，CI 6/6），仅冻结 Skills，
-> 同样无数据迁移。P0–P7 与 X1–X5 计划项已全部合入，等待用户总体验证。
+> 同样无数据迁移。P0–P7 与 X1–X5 功能项已全部合入；Issue #119 进一步清零
+> ADR-0013 的九类存量反向依赖、启用完整四层契约并补齐 P6 audit-failure 守卫，之后等待
+> 用户总体验证。
 > V34 应用后的回退必须保留
 > schema/ledger 并使用兼容 reader，不能部署纯 V33 二进制；
 > 只将 active CANARY authorities 经正常 promote/rollback 收敛到至多 1 个、最好 0 个并完成

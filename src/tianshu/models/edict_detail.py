@@ -7,7 +7,10 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from tianshu.evidence.models import (
+from tianshu.models.canonical import JsonValue
+from tianshu.models.decision import DecisionKind, DecisionStatus
+from tianshu.models.edict import Edict
+from tianshu.models.evidence import (
     AuditorConclusionV1,
     CheckEvidenceV1,
     CostEvidenceV1,
@@ -15,9 +18,6 @@ from tianshu.evidence.models import (
     EffectEvidenceV1,
     EvidenceRequirementsV1,
 )
-from tianshu.models.canonical import JsonValue
-from tianshu.models.decision import DecisionKind, DecisionStatus
-from tianshu.models.edict import Edict
 from tianshu.models.governance_contract import EffectiveGovernanceContractV1
 from tianshu.models.memorial import Memorial
 from tianshu.models.plan_revision import PlanRevisionV1

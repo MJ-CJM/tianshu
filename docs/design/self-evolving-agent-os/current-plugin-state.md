@@ -45,6 +45,12 @@ subject 的受管 run 在每个绑定阶段最多构建一次不可变视图，�
 `off` / `shadow` / `enforce`
 三档分离兼容观测与失败关闭。它不增数据迁移，也不冻结 Persona、Prompt 或 Provider。
 
+Issue #119 完成的是架构边界收口，不是新增插件产品能力：九类存量反向依赖已清零，完整
+四层 import-linter 契约开始约束 `application / evolution / evidence / plugins`。路由、上下文、
+异常、证据与工具 contract 的 canonical owner 已下沉到正确层，旧导入路径仍重导出同一对象；
+Evolution 通过结构化端口依赖 Executor，Evidence 通过 composition root 注入 manifest provider。
+这使后续按插件代际演进不再继续侵蚀治理层，但仍不开放第三方动态安装、import 或激活。
+
 本页合并原 `docs/design/plugins/` 与 `docs/impl/plugins/` 的内容，作为本报告目录中的唯一
 插件现状说明。用户开发示例仍在 [扩展开发指南](../../usage/extension-guide.md)，但当前/目标
 能力边界以本目录为准。
@@ -78,6 +84,7 @@ subject 的受管 run 在每个绑定阶段最多构建一次不可变视图，�
 | process generation 只读投影 | 已合入 | Evolution API/Web 在有候选与空候选状态都显示 active/last-good；关闭 snapshot 时两者明确为 null |
 | Skills 每 run 不可变视图 | 已合入 | P7 PR #116 仅覆盖 Skills；`off` 不构建视图，`shadow` 构建/比对但 runner 仍读 live，`enforce` 将视图绑定到 run |
 | Skills 视图身份与 prebind 漂移 | 已合入 | 当前 Skills 源摘要必须与该 run 的 SystemSnapshot `skills` 组件一致；shadow 审计后读 live，enforce 在 runner 前以 `skills_view_unavailable` 失败关闭 |
+| 完整四层依赖边界 | 已实现 | ADR-0013 九类存量反向依赖已清零；架构测试锁定层表与唯一 TYPE_CHECKING ignore；兼容路径保持对象同一性 |
 | 插件 enabled / version pin | 不支持 | P4b UI 不提供这两个开关；curator protection 不是版本 pin |
 
 P4b 路由顺序是 existing replay → continuity inheritance → fresh-root kill switch。关闭 routing

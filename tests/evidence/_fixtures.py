@@ -136,4 +136,9 @@ def evidence_service(storage: Storage, root: Path) -> EvidenceService:
         max_total_bytes=4 * 1024 * 1024,
         clock=lambda: NOW,
     )
-    return EvidenceService(storage, artifacts, clock=lambda: NOW)
+    return EvidenceService(
+        storage,
+        artifacts,
+        executor_manifest_provider=get_executor_manifest,
+        clock=lambda: NOW,
+    )

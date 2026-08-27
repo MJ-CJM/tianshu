@@ -21,6 +21,11 @@ from tianshu.executor.workspace_context import (
     require_bound_workspace,
     requires_workspace_binding,
 )
+from tianshu.models.executor_generation import (
+    ExecutorGenerationConflict,
+    ExecutorGenerationError,
+    ExecutorGenerationUnavailable,
+)
 from tianshu.models.governance_contract import (
     EffectiveGovernanceContractV1,
     RequestedGovernanceContractV1,
@@ -97,18 +102,6 @@ class UnsupportedExecutorMode(ValueError):
         super().__init__(
             f"executor adapter '{adapter_id}' does not support execution mode '{execution_mode}'"
         )
-
-
-class ExecutorGenerationError(RuntimeError):
-    """Base error for generation-pinned executor selection."""
-
-
-class ExecutorGenerationConflict(ExecutorGenerationError):
-    """An attempt tried to change an already reserved generation selection."""
-
-
-class ExecutorGenerationUnavailable(ExecutorGenerationError):
-    """A pinned generation cannot be used without falling back to live state."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -15,11 +15,12 @@ from tianshu.application.event_history import EventHistoryConsumer
 from tianshu.bus.event_bus import EventBus
 from tianshu.config import TianshuSettings
 from tianshu.evidence.service import ArtifactStore, EvidenceService
+from tianshu.executor.capabilities import get_executor_manifest
 from tianshu.executor.git_backend import GitBackend
-from tianshu.executor.workspace_policy import validate_workspace_roots
 from tianshu.executor.workspace_service import WorkspaceService
 from tianshu.governance.decision_service import DecisionService
 from tianshu.kernel.hooks import HookRegistry
+from tianshu.models.workspace_policy import validate_workspace_roots
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -68,7 +69,11 @@ def wire_storage(app: FastAPI, settings: TianshuSettings) -> None:
             max_object_bytes=settings.artifact_max_bytes,
             max_total_bytes=settings.artifact_quota_bytes,
         )
-        app.state.evidence_service = EvidenceService(storage, app.state.artifact_store)
+        app.state.evidence_service = EvidenceService(
+            storage,
+            app.state.artifact_store,
+            executor_manifest_provider=get_executor_manifest,
+        )
 
         app.state.workspace_service = WorkspaceService(
             storage,

@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from functools import wraps
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
+from tianshu.models.tool_definition import ToolDefinition
 from tianshu.plugins.contribution import (
     DEFAULT_PLUGIN_OWNER,
     ContributionDisposeStatus,
@@ -15,7 +16,6 @@ from tianshu.plugins.contribution import (
     record_stale_contribution_dispose,
 )
 from tianshu.plugins.manifest import PluginManifest
-from tianshu.tools.registry import ToolDefinition
 
 if TYPE_CHECKING:
     from tianshu.kernel.hooks import HookHandler, HookRegistry, HookType
@@ -25,7 +25,35 @@ if TYPE_CHECKING:
     from tianshu.providers.manager import ProviderManager
     from tianshu.skills.loader import SkillsLoader
     from tianshu.storage import Storage
-    from tianshu.tools.registry import ToolRegistry
+
+
+class _ToolRegistry(Protocol):
+    def register(
+        self,
+        name: str,
+        func: Any,
+        definition: ToolDefinition,
+        *,
+        owner: str = "kernel",
+        on_conflict: Literal["error", "replace"] = "replace",
+    ) -> None: ...
+
+    def is_registered(
+        self,
+        name: str,
+        *,
+        owner: str | None = None,
+        target: object | None = None,
+    ) -> bool: ...
+
+    def unregister(
+        self,
+        name: str,
+        *,
+        owner: str | None = None,
+        target: object | None = None,
+    ) -> bool: ...
+
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +68,7 @@ class PluginApi:
     def __init__(
         self,
         storage: Storage,
-        tool_registry: ToolRegistry | None = None,
+        tool_registry: _ToolRegistry | None = None,
         hook_registry: HookRegistry | None = None,
         channel_registry: ChannelRegistry | None = None,
         provider_manager: ProviderManager | None = None,

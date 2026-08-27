@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterator
-from contextlib import contextmanager
-from contextvars import ContextVar, Token
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
-from tianshu.application.run_dispatcher import AttemptAuthority
+from tianshu.application.managed_attempt import (
+    AttemptAuthority,
+    ManagedRunSuspended,
+    bind_managed_attempt_authority,
+    get_managed_attempt_authority,
+)
 from tianshu.executor.side_effects import (
     ManagedSideEffectService,
     ProviderEffectReceipt,
@@ -35,28 +38,6 @@ from tianshu.models.side_effect import (
 )
 from tianshu.security.redact import redact_text
 from tianshu.tools.types import ToolResult
-
-_current_authority: ContextVar[AttemptAuthority | None] = ContextVar(
-    "managed_attempt_authority",
-    default=None,
-)
-
-
-class ManagedRunSuspended(RuntimeError):
-    """Structured unwind after durable suspension; not an execution failure."""
-
-
-@contextmanager
-def bind_managed_attempt_authority(authority: AttemptAuthority) -> Iterator[None]:
-    token: Token[AttemptAuthority | None] = _current_authority.set(authority)
-    try:
-        yield
-    finally:
-        _current_authority.reset(token)
-
-
-def get_managed_attempt_authority() -> AttemptAuthority | None:
-    return _current_authority.get()
 
 
 class _RegistryBoundary:

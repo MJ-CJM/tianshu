@@ -22,7 +22,6 @@ from tianshu.executor.capabilities import (
     probe_host_capabilities,
     resolve_governance_contract,
 )
-from tianshu.executor.workspace_policy import workspace_policy_mismatches
 from tianshu.executor.workspace_runtime import WORKSPACE_MAIN_SOURCE_ID
 from tianshu.gateway.auth import get_auth_context
 from tianshu.gateway.decisions_api import (
@@ -58,6 +57,7 @@ from tianshu.models.governance_contract import (
     RequestedGovernanceContractV1,
     acceptance_policy_to_legacy,
 )
+from tianshu.models.workspace_policy import workspace_policy_mismatches
 from tianshu.storage import EdictArchiveConflict, Storage
 from tianshu.storage.edict_repo import InvalidAllowedPathGlob
 

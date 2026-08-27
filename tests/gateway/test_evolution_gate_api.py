@@ -13,6 +13,7 @@ from tianshu.app import create_app, lifespan
 from tianshu.bootstrap.wiring_skills import wire_evolution_services
 from tianshu.config import TianshuSettings
 from tianshu.evolution.gates import GateEvaluator
+from tianshu.executor.capabilities import get_executor_manifest
 from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
 from tianshu.gateway.evolution_api import evolution_router
 from tianshu.models.evolution_candidate import GateName
@@ -113,7 +114,11 @@ def test_composition_wires_candidate_gate_and_skill_install_services(tmp_path) -
         max_object_bytes=settings.artifact_max_bytes,
         max_total_bytes=settings.artifact_quota_bytes,
     )
-    app.state.evidence_service = EvidenceService(storage, app.state.artifact_store)
+    app.state.evidence_service = EvidenceService(
+        storage,
+        app.state.artifact_store,
+        executor_manifest_provider=get_executor_manifest,
+    )
     try:
         wire_evolution_services(app, settings, skill_target=tmp_path / "skills")
         assert app.state.candidate_service is not None

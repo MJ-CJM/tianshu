@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol, cast
 
+from tianshu.application.runtime_router import ChallengerRouter
 from tianshu.models import Edict, EventEnvelope, Memorial, TaskStatus
 from tianshu.models.canonical import JsonValue, canonical_json_bytes, canonical_sha256
 from tianshu.models.edict import validate_edict_long_running_schedule
@@ -22,7 +23,6 @@ from tianshu.storage.outbox_repo import (
     SubmissionIdempotencyRecord,
 )
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
-from tianshu.universe.router import ChallengerRouter
 
 
 class _SubmissionStorage(Protocol):

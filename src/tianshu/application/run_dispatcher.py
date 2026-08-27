@@ -11,18 +11,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from tianshu.executor.adapters import (
-    ExecutorGenerationError,
-    ExecutorGenerationUnavailable,
-)
-from tianshu.models.attempt import (
-    AttemptDisposition,
-    AttemptLeaseV1,
-    AttemptOutcomeV1,
-)
-from tianshu.models.canonical import RedactedError
-from tianshu.storage.attempt_ledger import AttemptFenceLost
-from tianshu.universe.router import (
+from tianshu.application.managed_attempt import AttemptAuthority
+from tianshu.application.runtime_router import (
     ChallengerRouter,
     EvolutionRuntimeUnavailable,
     FrozenContentViewUnavailable,
@@ -31,22 +21,23 @@ from tianshu.universe.router import (
     RunAssignmentUnavailable,
     SystemSnapshotUnavailable,
 )
+from tianshu.models.attempt import (
+    AttemptDisposition,
+    AttemptLeaseV1,
+    AttemptOutcomeV1,
+)
+from tianshu.models.canonical import RedactedError
+from tianshu.models.executor_generation import (
+    ExecutorGenerationError,
+    ExecutorGenerationUnavailable,
+)
+from tianshu.storage.attempt_ledger import AttemptFenceLost
 
 logger = logging.getLogger(__name__)
 
 
 class RunShutdownTimeout(TimeoutError):
     """One or more supervised runners did not stop before the deadline."""
-
-
-@dataclass(frozen=True, slots=True)
-class AttemptAuthority:
-    """Immutable process-local projection of one durable execution lease."""
-
-    attempt_id: str
-    memorial_id: str
-    owner_id: str
-    fencing_token: int
 
 
 @dataclass(frozen=True, slots=True)
